@@ -536,7 +536,7 @@ import android.widget.Toast
 
     /** 会话长按操作菜单: 置顶/取消置顶 + 重命名 + 删除 */
     internal fun MainActivity.showSessionMenu(s: MemoryDb.SessionInfo) {
-        val (dlg, box) = Ui.dialog(this, "会话操作", animate = true)
+        val (dlg, box) = Ui.dialog(this, "会话操作")
         box.addView(Ui.dialogText(this, "「${s.title}」"))
         box.addView(Ui.primaryBtn(this, if (s.pinned) "取消置顶" else "置顶") {
             dlg.dismiss()
@@ -571,7 +571,7 @@ import android.widget.Toast
 
     /** 重命名会话: 输入框 + 保存 */
     internal fun MainActivity.showRenameDialog(s: MemoryDb.SessionInfo) {
-        val (dlg, box) = Ui.dialog(this, "重命名会话", animate = true)
+        val (dlg, box) = Ui.dialog(this, "重命名会话")
         box.addView(Ui.fieldLabel(this, "新名称"))
         val input = Ui.input(this, "输入会话名称")
         input.setText(s.title)
@@ -602,7 +602,7 @@ import android.widget.Toast
 
     /** 删除会话: 二次确认后执行 */
     internal fun MainActivity.confirmDeleteSession(s: MemoryDb.SessionInfo) {
-        val (dlg, box) = Ui.dialog(this, "删除会话", animate = true)
+        val (dlg, box) = Ui.dialog(this, "删除会话")
         box.addView(Ui.dialogText(this, "确定删除「${s.title}」？该操作不可恢复。"))
         box.addView(Ui.dangerBtn(this, "删除") {
             dlg.dismiss()
