@@ -316,10 +316,10 @@ class SshConfigActivity : Activity() {
         }
         addField(container, editTexts, "跳板机密钥口令", cfg.proxyPassphrase ?: "")
 
-        // 改用项目统一 Ui.dialog 圆角弹窗(系统 AlertDialog 是直角, 与全局视觉不符)
-        // maxHeightRatio=0.72: 13 个输入框较长, 超出屏幕高度时内部滚动
-        val (dlg, box) = Ui.dialog(this, if (isEdit) "编辑连接" else "添加连接", maxHeightRatio = 0.72)
-        box.addView(ScrollView(this).apply { addView(container) }, LinearLayout.LayoutParams(
+        // 三明治结构弹窗: 卡片固定高度(圆角四角恒可见), 只有中间内容区滚动;
+        // 若用 Ui.dialog+maxHeightRatio 会变成"整卡在透明窗里滚", 滚到中间四角全被裁出视窗
+        val (dlg, content, bottom) = Ui.dialogFixed(this, if (isEdit) "编辑连接" else "添加连接", 0.72)
+        content.addView(container, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         btnRow.addView(Ui.primaryBtn(this, "保存") {
@@ -362,11 +362,11 @@ class SshConfigActivity : Activity() {
                 marginStart = dp(8)
             })
         }
-        box.addView(btnRow, LinearLayout.LayoutParams(
+        bottom.addView(btnRow, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
-        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+        bottom.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(10)
         })
