@@ -331,7 +331,7 @@ object Ui {
      * 内容区内的 EditText 获得焦点时自动滚动到底部，避免输入框被键盘遮挡。
      * @return (dialog, 内容容器, 底部按钮容器)
      */
-    fun dialogFixed(a: Activity, title: String, maxHeightRatio: Double, jellyOvershoot: Float = 2.2f): Triple<Dialog, LinearLayout, LinearLayout> {
+    fun dialogFixed(a: Activity, title: String, maxHeightRatio: Double, jellyOvershoot: Float = 2.2f, animate: Boolean = false): Triple<Dialog, LinearLayout, LinearLayout> {
         val d = Dialog(a)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         d.setCanceledOnTouchOutside(true)
@@ -393,7 +393,10 @@ object Ui {
         d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         d.window?.setLayout(w, maxH)
         d.window?.setGravity(android.view.Gravity.CENTER)
-        d.setOnShowListener { jellyShow(root, overshoot = jellyOvershoot) }
+        d.setOnShowListener {
+            if (animate) jellyShow(root, overshoot = jellyOvershoot)
+            else root.post { root.scaleX = 1f; root.scaleY = 1f; root.alpha = 1f }
+        }
         return Triple(d, contentBox, bottomBox)
     }
 

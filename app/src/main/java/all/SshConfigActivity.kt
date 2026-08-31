@@ -1,7 +1,6 @@
 package io.github.aixtin.nyral
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -317,45 +316,61 @@ class SshConfigActivity : Activity() {
         }
         addField(container, editTexts, "跳板机密钥口令", cfg.proxyPassphrase ?: "")
 
-        AlertDialog.Builder(this)
-            .setTitle(if (isEdit) "编辑连接" else "添加连接")
-            .setView(ScrollView(this).apply { addView(container) })
-            .setPositiveButton("保存") { _, _ ->
-                val port = editTexts[2].text.toString().toIntOrNull() ?: 22
-                val keyContent = keyStates[editTexts[5]]?.content ?: editTexts[5].text.toString()
-                val proxyKeyContent = keyStates[editTexts[11]]?.content ?: editTexts[11].text.toString()
-                val newCfg = SshConfigStore.SshConfig(
-                    name = editTexts[0].text.toString().trim(),
-                    host = editTexts[1].text.toString().trim(),
-                    port = port,
-                    user = editTexts[3].text.toString().trim(),
-                    password = editTexts[4].text.toString().ifEmpty { null },
-                    privateKey = keyContent.trim().ifEmpty { null },
-                    passphrase = editTexts[6].text.toString().ifEmpty { null },
-                    proxyHost = editTexts[7].text.toString().trim().ifEmpty { null },
-                    proxyPort = editTexts[8].text.toString().toIntOrNull() ?: 22,
-                    proxyUser = editTexts[9].text.toString().trim().ifEmpty { null },
-                    proxyPassword = editTexts[10].text.toString().ifEmpty { null },
-                    proxyPrivateKey = proxyKeyContent.trim().ifEmpty { null },
-                    proxyPassphrase = editTexts[12].text.toString().ifEmpty { null }
-                )
-                if (newCfg.name.isEmpty() || newCfg.host.isEmpty() || newCfg.user.isEmpty()) {
-                    Toast.makeText(this, "名称/主机/用户名必填", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                if (isEdit) configs[index] = newCfg else configs.add(newCfg)
+        // 改用项目统一 Ui.dialog 圆角弹窗(系统 AlertDialog 是直角, 与全局视觉不符)
+        // maxHeightRatio=0.72: 13 个输入框较长, 超出屏幕高度时内部滚动
+        val (dlg, box) = Ui.dialog(this, if (isEdit) "编辑连接" else "添加连接", maxHeightRatio = 0.72)
+        box.addView(ScrollView(this).apply { addView(container) }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        btnRow.addView(Ui.primaryBtn(this, "保存") {
+            val port = editTexts[2].text.toString().toIntOrNull() ?: 22
+            val keyContent = keyStates[editTexts[5]]?.content ?: editTexts[5].text.toString()
+            val proxyKeyContent = keyStates[editTexts[11]]?.content ?: editTexts[11].text.toString()
+            val newCfg = SshConfigStore.SshConfig(
+                name = editTexts[0].text.toString().trim(),
+                host = editTexts[1].text.toString().trim(),
+                port = port,
+                user = editTexts[3].text.toString().trim(),
+                password = editTexts[4].text.toString().ifEmpty { null },
+                privateKey = keyContent.trim().ifEmpty { null },
+                passphrase = editTexts[6].text.toString().ifEmpty { null },
+                proxyHost = editTexts[7].text.toString().trim().ifEmpty { null },
+                proxyPort = editTexts[8].text.toString().toIntOrNull() ?: 22,
+                proxyUser = editTexts[9].text.toString().trim().ifEmpty { null },
+                proxyPassword = editTexts[10].text.toString().ifEmpty { null },
+                proxyPrivateKey = proxyKeyContent.trim().ifEmpty { null },
+                proxyPassphrase = editTexts[12].text.toString().ifEmpty { null }
+            )
+            if (newCfg.name.isEmpty() || newCfg.host.isEmpty() || newCfg.user.isEmpty()) {
+                Toast.makeText(this, "名称/主机/用户名必填", Toast.LENGTH_SHORT).show()
+                return@primaryBtn
+            }
+            if (isEdit) configs[index] = newCfg else configs.add(newCfg)
+            SshConfigStore.save(this, configs)
+            refreshList()
+            dlg.dismiss()
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = dp(8)
+        })
+        if (isEdit) {
+            btnRow.addView(Ui.dangerBtn(this, "删除") {
+                configs.removeAt(index)
                 SshConfigStore.save(this, configs)
                 refreshList()
-            }
-            .setNeutralButton((if (isEdit) "删除" else null) as CharSequence?) { _, _ ->
-                if (isEdit) {
-                    configs.removeAt(index)
-                    SshConfigStore.save(this, configs)
-                    refreshList()
-                }
-            }
-            .setNegativeButton("取消", null)
-            .show()
+                dlg.dismiss()
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(8)
+            })
+        }
+        box.addView(btnRow, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+        dlg.show()
     }
 
     private fun openKeyFilePicker(field: EditText) {
