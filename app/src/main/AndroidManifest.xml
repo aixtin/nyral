@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="DroidAgent"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 任务执行前台服务: AI 处理任务期间防止进程被回收, dataSync 类型 -->
+        <service
+            android:name=".TaskService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 设置系页面统一 NoActionBar：自绘白色标题栏（Ui.titleBar），与主页视觉一致 -->
+        <activity
+            android:name=".SshConfigActivity"
+            android:exported="false"
+            android:label="SSH 连接配置"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="设置"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".ModelConfigActivity"
+            android:exported="false"
+            android:label="模型配置"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".ModelEditActivity"
+            android:exported="false"
+            android:label="添加模型"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".MemModelConfigActivity"
+            android:exported="false"
+            android:label="记忆辅助模型"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".MemoryListActivity"
+            android:exported="false"
+            android:label="长期记忆"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".LogActivity"
+            android:exported="false"
+            android:label="运行日志"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false"
+            android:label="关于"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".ChatBackgroundActivity"
+            android:exported="false"
+            android:label="聊天背景"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <!-- 附件持久化访问: 通过 content:// 让系统查看器打开 app 私有目录里的附件文件 -->
+        <provider
+            android:name=".LocalFileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>
