@@ -240,7 +240,12 @@ class SshConfigActivity : Activity() {
                     text = label
                     textSize = 13f
                     setTextColor(0xFF888888.toInt())
-                })
+                    // 长标签占剩余宽度并单行省略, 否则与"导入"按钮抢宽把按钮挤变形
+                    // (主机标签比跳板机长, 正好溢出; 与 addField 的 onMore 行对齐用 weight=1)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                }, LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(toggleBtn)
                 addView(TextView(this@SshConfigActivity).apply {
                     text = "导入"
@@ -252,7 +257,7 @@ class SshConfigActivity : Activity() {
                 }, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { leftMargin = dp(48) })
+                ).apply { leftMargin = dp(8) })
             })
             editTexts.add(et)
             st.toggleBtn = toggleBtn
