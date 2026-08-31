@@ -2,57 +2,103 @@
 
 > 记忆自托管 · 模型按需选 · 开源 · 免 Root
 
-agent 是一款运行在 Android 上的智能体（Agent）助手：把大模型对话、本地记忆、SSH 远程文件操作与工具调用收进一个 App，数据自托管，无需 Root。
+agent 是一款运行在 Android 上的开源智能体（Agent）助手：把大模型对话、本地长期记忆、SSH 远程操作、联网工具和语音/附件多模态收进一个 App。数据自托管，无需 Root，不依赖任何第三方服务端。
 
 ## 核心特性
 
-- **多模型按需切换**：内置模型能力表，支持云端文本/多模态模型（MiMo 全模态、DeepSeek、GLM）与本地引擎（llama-server 等），工具调用能力按模型能力自动匹配
-- **本地记忆自托管**：bge 语义向量 + 关键词双路召回（SQLite），记住语义即时归档；可经 SSH 将本地记忆同步到 VPS 记忆库，实现云端持久化、换机不丢
-- **远程文件系统工具**：基于 SSH（双认证 + ED25519）提供 list/read/write/info 等远程文件操作
-- **工具调用循环**：web_search / web_fetch / get_time / calc / memory_search / ssh / file 等工具，支持多工具调用循环
-- **本地解析省 Token**：文本/PDF 本地解析提取，不喂视觉模型
-- **免 Root、纯 Kotlin**：所有能力在 App 沙箱内自包含实现
+**对话与模型**
+- 多供应商按需切换：MiMo 全模态 / DeepSeek / GLM / 任意 OpenAI 兼容端点，支持自定义模型与按模型勾选能力
+- 流式输出：思考段打字机 + 正文流式 Markdown 渲染（Markwon），思考/工具调用过程可折叠展开
+- 思考强度分档：按供应商能力展示 自动/开关/低中高，不支持的档位不出现
+- 语音输入：长按说话、上滑取消、60 秒上限自动发送；语音气泡微信式交互（AudioRecord 采 PCM 封 WAV，兼容主流多模态 API）
 
-## 技术栈
+**附件多模态（v19+）**
+- 图片：本地压缩（最长边 2048）后走 image_url
+- 视频：超 37MB 本地转码压缩再发，气泡内嵌首帧缩略图
+- 文档（PDF/txt/md/docx/xlsx…）：本地解析提取文本直接注入上下文，不烧视觉 token；扫描件 PDF 自动渲染成页图走视觉通道
+- 一次最多 6 个附件，App 内全屏预览（图片缩放/视频播放/PDF 分页/文本复制）
 
-| 模块 | 选型 |
-| --- | --- |
-| 语言 | Kotlin |
-| 模型运行时 | ONNX Runtime Android（bge 嵌入） |
-| SSH | JSch + BouncyCastle |
-| 脚本执行 | Rhino（JavaScript） |
-| Markdown 渲染 | Markwon |
+**长期记忆（自托管）**
+- bge-small ONNX 端内语义向量 + 关键词 LIKE 双路召回，SQLite 存储
+- 三级分层：短期滚动窗口 → 中期摘要（辅助模型后台压缩）→ 长期全量原文 + 语义检索
+- 可配置独立"辅助 AI"做记忆索引，不占用主对话模型
+- pending 队列落盘 + 原子消费事务：进程被杀不丢消息、不重复归档
 
-## 构建与安装
+**工具调用（40 轮上限）**
+- 联网：web_search（必应 RSS）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
+- SSH/SFTP：ssh_run / file_list / file_read / file_info / file_write / ssh_upload / ssh_download / ssh_ls，支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
+- 本地工作目录（Download/agent_work）：workdir_list / read / write / grep（批量全文搜索）/ head（防上下文爆炸）/ stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义
+- 其他：get_time / calc（Rhino 解释模式）/ memory_search
 
+**界面**
+- 多会话管理（置顶/删除/搜索定位）、会话全文搜索（正文+思考内容，相关性打分）
+- Token 用量统计（主 AI / 辅助 AI 双通道，累计+当日+会话维度）
+- 运行日志（主日志 + 记忆归档日志）、前台服务保活通知
+- 聊天背景（预设渐变/自定义图片模糊）、全局动画体系（气泡入场/弹窗果冻展开/按压缩放）
 
+## 系统要求
 
-构建产物：，直接安装到 Android 设备（无需 Root）。
+- Android 7.0+（minSdk 24），完整功能需 Android 10+（工作目录走 MediaStore）
+- arm64-v8a
+- 至少一个 OpenAI 兼容 API 端点（自建或云厂商均可）
+
+## 构建
+
+```bash
+git clone https://github.com/aixtin/droid-agent.git
+cd droid-agent/android-agent-app
+gradle assembleDebug
+# 产物: app/build/outputs/apk/debug/app-debug.apk
+```
+
+要求：JDK 17、Gradle 8.5+、Android SDK 34。仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内构建快），海外网络可自行删除对应 `maven(...)` 行。
+
+> 注意：本项目无 gradle wrapper（`gradlew`），请使用本机 Gradle 8.5+ 直接构建。
 
 ## 快速开始
 
-1. 安装 APK 后打开，在设置中配置模型（云端 API Key 或本地引擎地址）
-2. 可选：配置 SSH 连接（密码或密钥，支持 ED25519），开启远程文件工具
-3. 可选：配置 VPS 记忆库地址，启用记忆云端同步
+1. 安装 APK，进入「设置 → 模型配置」填入任意 OpenAI 兼容端点的 Base URL + API Key
+2. （可选）「SSH 配置」添加远程主机：密码或私钥（ED25519 需 BC 支持，已内置），可配跳板机
+3. 直接开始对话；AI 会按需调用工具，工具调用过程在气泡内折叠展示
+4. 长期记忆自动归档，无需手动操作；说"记住 xxx"会立即归档
 
 ## 目录结构
 
-
+```
+android-agent-app/
+├── app/src/main/java/io/github/aixtin/agent 注: 源码实际位于 java/all/ (包名 io.github.aixtin.nyral)
+│   ├── MainActivity.kt        # 聊天主界面/气泡渲染/录音/附件
+│   ├── MainUi.kt / Ui.kt / UiKit.kt / BubbleSpans.kt / Typewriter.kt  # UI 构建与动效
+│   ├── LocalEngine.kt         # 两步式路由 + SSE 流式解析 + 工具调用循环
+│   ├── ApiConfig.kt / MemoryApiConfig.kt  # 供应商与模型能力表
+│   ├── MemoryDb.kt / MemoryKeeper.kt / MemoryEmbedder.kt / BertTokenizer.kt  # 记忆三级体系
+│   ├── SshTools.kt / SshConfigStore.kt / FileTools.kt / WorkDir.kt / WorkTools.kt  # SSH/SFTP/工作目录
+│   ├── WebTools.kt            # 搜索/抓取/下载/site_auth
+│   ├── AttachmentStore.kt / DocTextExtractor.kt / PdfTextExtractor.kt / VideoCompressor.kt  # 附件链路
+│   └── SettingsActivity.kt / ModelEditActivity.kt / ...  # 各配置页
+└── app/src/main/assets/mem_model/   # bge-small 量化 ONNX 模型 + vocab
+```
 
 ## 数据与隐私
 
-- 对话与记忆默认仅存本地（SQLite），云端同步仅在您配置 VPS 记忆库后开启
-- 不采集任何遥测数据
-
-## 开源许可
-
-本项目采用 [MIT License](LICENSE)。
+- 对话、记忆、Token 统计、SSH 配置（加密存储）全部仅存本机
+- 不采集任何遥测；唯一外部请求是启动时检查 GitHub Release 更新（可忽略 404）
+- 记忆云端同步（规划中）将完全走你自己服务器的 SSH 通道
 
 ## 路线图
 
 - [x] 多模型能力表与自定义模型
-- [x] 本地记忆（bge 语义检索 + 关键词召回）
-- [x] SSH 远程文件系统
-- [ ] 文件/图片/视频发送（多模态输入）
-- [ ] GitHub Release 发布（附 APK）
-- [ ] 对话上下文分级管理
+- [x] 本地记忆（bge 语义检索 + 关键词召回 + 三级分层）
+- [x] SSH 远程文件系统 + 跳板机 + SFTP 上传下载
+- [x] 联网工具（必应 RSS 搜索/抓取/下载/site_auth Cookie 注入）
+- [x] 附件多模态：图片/视频/音频/PDF/Office（v19）
+- [x] 语音输入闭环（录音/发送/语音气泡，v20）
+- [x] 会话搜索 + Token 统计 + 前台服务保活
+- [x] 工作目录批量工具（grep/head/stats，40 轮工具上限）
+- [ ] 记忆经 SSH 同步到自托管 VPS（复用 assistant 记忆库协议）
+- [ ] 对话上下文分级管理进一步优化
+- [ ] GitHub Release 发布（附 APK，发布后应用内更新弹窗生效）
+
+## 开源许可
+
+本项目采用 [MIT License](LICENSE)。
