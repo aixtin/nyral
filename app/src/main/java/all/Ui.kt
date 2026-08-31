@@ -375,12 +375,17 @@ object Ui {
         // 键盘弹出时窗口压缩，只吃掉内容区高度
         d.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        // 内容区内的 EditText 获得焦点时自动滚动到底部
+        // 内容区内的 EditText 获得焦点时滚动使其可见
+        // 注意不能用 fullScroll(FOCUS_DOWN): 它会把焦点移交给最后一个可聚焦控件,
+        // 多输入框表单(如 SSH 连接编辑)里表现为"点上面的框光标跳到最下面的框"
         root.post {
             fun reg(v: View) {
                 if (v is EditText) {
-                    v.setOnFocusChangeListener { _, hasFocus ->
-                        if (hasFocus) sv.post { sv.fullScroll(View.FOCUS_DOWN) }
+                    v.setOnFocusChangeListener { view, hasFocus ->
+                        if (hasFocus) sv.post {
+                            // requestRectangleOnScreen: 沿祖先链最小幅度滚动使该控件可见, 不碰焦点
+                            view.requestRectangleOnScreen(android.graphics.Rect(0, 0, view.width, view.height), true)
+                        }
                     }
                 } else if (v is ViewGroup) {
                     for (i in 0 until v.childCount) reg(v.getChildAt(i))
