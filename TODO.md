@@ -15,6 +15,9 @@
       - 链路：手机 App → SSH（VPS 公网 22）→ VPS 本地 127.0.0.1:8899 /save
       - 效果：记忆云端持久化，换机/重装不丢；agent 与 assistant 共享记忆资产
 
+- [ ] 补充基础单元测试（零测试是最大隐患，修 A 坏 B 风险高；覆盖工具链/记忆/TokenStore 等核心逻辑，2026-08-31 列入）
+- [ ] MainActivity 再拆分（已从 4241 行拆到 2845 行，仍偏大；进一步抽 UI/逻辑到独立文件，2026-08-31 列入）
+
 ## 已完成里程碑
 - 2026-08-28: 模型能力表（ApiConfig.modelCapabilities）：预设=内置表(MiMo全模态/DeepSeek文本+工具/GLM文本+工具)+名称兜底；自定义模型编辑页新增能力勾选(图片/视频/音频/工具调用，默认文本+工具)
 - 2026-08-28: 新增 web_search 工具（Bing cn.bing.com 桌面UA 解析 b_algo，无 key），清单首位 web_search→web_fetch→get_time→calc→memory_search→ssh/file
