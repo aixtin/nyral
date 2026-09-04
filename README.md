@@ -99,6 +99,13 @@ android-agent-app/
 - [ ] 对话上下文分级管理进一步优化
 - [ ] GitHub Release 发布（附 APK，发布后应用内更新弹窗生效）
 
+## 版本记录
+
+- **v1.1（2026-09-04）**：修复 SSE 流式连接/流句柄泄漏（统一移入 finally 释放，取消/异常不泄漏）；makeCopyable 非空断言防御加固；versionCode 19→20 / versionName 1.1；SSE 消息与 streamOnce 全文日志由 Log.i 降为 Log.v 防刷屏。
+- **v1.0**：基线特性版本（versionCode 19）
+
 ## 开源许可
 
 本项目采用 [MIT License](LICENSE)。
+
+- 2026-09-04 v1.1.1(versionCode 21): 视频气泡取帧失败到顶由永久放弃改为20s冷却后自动重试自愈(下次渲染/滚动/回前台即恢复), 修复视频气泡退化回文件卡片问题。

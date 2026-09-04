@@ -15,15 +15,32 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import android.media.MediaMuxer
 import android.net.Uri
+import android.os.Handler
+import android.util.Log
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.TextPaint
 import android.widget.Toast
+// Media3: 系统 MMR/extractor 拒绝的转发视频, 用 ExoPlayer(自带纯 Java mp4 解析)离屏 TextureView 渲染取帧生成气泡缩略图
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import android.graphics.SurfaceTexture
+import android.view.TextureView
+import android.view.ViewGroup
+import android.app.Activity
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** 纯工具函数集: 从 MainActivity 拆出, 无 Activity/this 依赖 */
 
@@ -138,24 +155,114 @@ fun decodeAttachmentBitmap(f: File, density: Float): Bitmap? {
     } catch (e: Exception) { null }
 }
 
-/** 视频首帧缩略图(最长边 ~200dp) + 居中半透明播放三角, 作为视频气泡; 取帧/解码失败返回 null */
-fun decodeVideoThumbnail(f: File, density: Float): Bitmap? {
+// ---- 视频异步取帧缓存与回调(系统栈取帧失败时的 ExoPlayer 兜底) ----
+private val sThumbCache = object : android.util.LruCache<String, Bitmap>(32 * 1024 * 1024) {
+    // 按位图真实字节计内存上限(默认 32MB), 超限自动淘汰最久未用, 防止会话历史视频累积导致缓存无界增长
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+}
+private val sThumbInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+private val sThumbCallbacks = java.util.Collections.synchronizedMap(HashMap<String, MutableList<() -> Unit>>())
+// 取帧串行管线: 全局同一时刻仅跑一个 ExoPlayer 取帧任务, 消除重启/切会话时多条全屏 SurfaceView 叠加竞争
+/** 取帧重试到顶的失败标记: key -> 失败时刻(uptimeMillis); 冷却期内拦截自动重试, 冷却后下一次渲染自动再试(取回即自愈) */
+private val sThumbFailed = java.util.concurrent.ConcurrentHashMap<String, Long>()
+private const val THUMB_FAIL_COOLDOWN_MS = 20_000L
+private val sThumbQueue = java.util.ArrayDeque<ThumbJob>()
+private val sThumbInQueue = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+@kotlin.jvm.Volatile private var sThumbRunning = false
+private class ThumbJob(val ctx: Context, val f: File, val key: String, val round: Int)
+
+/** 视频缩略图是否仍在异步取帧中(气泡渲染时可登记刷新回调) */
+fun isThumbPending(fname: String): Boolean = sThumbInFlight.contains(fname)
+
+/** 注册取帧完成后的刷新回调(key=附件文件名), 取到帧后在主线程执行 cb */
+fun registerThumbRefresh(fname: String, cb: () -> Unit) {
+    sThumbCallbacks.getOrPut(fname) { mutableListOf() }.add(cb)
+}
+
+/**
+ * 纯 Java MediaExtractor 只读视频轨道真实宽高(不解码/不抓帧/无 SurfaceView),
+ * 用于"临时取不到缩略图"时给内嵌循环播放气泡一个贴近真实比例的尺寸框, 避免死板 4:3。
+ * 失败返回 null 由调用方 16:9 兜底。
+ */
+fun videoDimensionsFast(f: File): Pair<Int, Int>? {
     return try {
+        var w = 0; var h = 0
+        val ex = MediaExtractor()
+        try {
+            val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            try { ex.setDataSource(pfd.fileDescriptor, 0, -1) } finally { pfd.close() }
+        } catch (t: Throwable) {
+            ex.setDataSource(f.absolutePath)
+        }
+        val n = ex.trackCount
+        for (i in 0 until n) {
+            val fmt = ex.getTrackFormat(i)
+            val mime = fmt.getString(MediaFormat.KEY_MIME) ?: continue
+            if (mime.startsWith("video/")) {
+                w = fmt.getInteger(MediaFormat.KEY_WIDTH)
+                h = fmt.getInteger(MediaFormat.KEY_HEIGHT)
+                break
+            }
+        }
+        ex.release()
+        if (w > 0 && h > 0) Pair(w, h) else null
+    } catch (t: Throwable) { null }
+}
+
+/**
+ * 视频首帧缩略图(最长边 ~200dp) + 居中半透明播放三角, 作为视频气泡; 取帧/解码失败返回 null。
+ * @param allowGrab false 时禁用底部 ExoPlayer 全屏抓帧兜底: 系统快路径失败直接返回 null,
+ *        由调用方用固定宽高兜底 —— 仅用于"该视频本就可直接播放、只是取不到缩略图"的场景
+ *        (内嵌循环播放气泡已用真实播放器渲染, 抓帧会真机全屏闪放视频 + 抢占合成层/解码器,
+ *        反而把气泡顶成黑块消失), 避免无谓的侵入式抓帧。
+ */
+fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boolean = true): Bitmap? {
+    return try {
+        sThumbCache.get(f.name)?.let { return it }
         val req = dp(density, 200)
-        var mmr: MediaMetadataRetriever? = null
         var frame: Bitmap? = null
+        // 快路径: 系统 MediaMetadataRetriever(普通视频毫秒级)
+        var mmr: MediaMetadataRetriever? = null
         try {
             mmr = MediaMetadataRetriever()
-            mmr.setDataSource(f.absolutePath)
-            frame = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            // 优先 FileDescriptor 直连文件层(规避裸路径 content:// 误解析), 失败回退绝对路径
+            try {
+                val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
+            } catch (t: Throwable) {
+                mmr.setDataSource(f.absolutePath)
+            }
+            frame = retrieveFrameRetry(mmr, f)
         } finally {
             mmr?.release()
         }
+        // 兜底: 系统栈被拒(平台 extractor 拒绝的转发视频) → ExoPlayer 异步取帧(自带纯 Java mp4 解析):
+        // 非阻塞, 先返回 null 渲染文件卡片, 取到帧后回调刷新当前气泡为缩略图
+        if (frame == null) {
+            if (!allowGrab) return null   // 该调用方不需要全屏抓帧: 直接放弃, 由调用方 16:9 兜底
+            val key = f.name
+            try {
+                Log.i("UiKit", "DT A 进入ExoPlayer兜底 inflight=" + sThumbInFlight.contains(key) + " cache=" + (sThumbCache.get(key) != null) + " failed=" + sThumbFailed.containsKey(key))
+                if (sThumbInFlight.contains(key)) return null
+                // 失败到顶后进入冷却期: 冷却期内稳定文件卡片不重复自动取帧(避免无效风暴);
+                // 冷却结束后的下一次渲染(滚动/重进/回前台)自动重新取帧, 取回即恢复缩略图自愈
+                val failAt = sThumbFailed[key]
+                if (failAt != null && android.os.SystemClock.uptimeMillis() - failAt < THUMB_FAIL_COOLDOWN_MS) return null
+                sThumbFailed.remove(key)
+                sThumbInFlight.add(key)
+                enqueueThumb(ThumbJob(ctx, f, key, 0))
+                Log.i("UiKit", "DT B 视频取帧入队返回")
+            } catch (t: Throwable) {
+                Log.w("UiKit", "DT C 视频取帧入队异常", t)
+                sThumbInFlight.remove(key)
+            }
+        }
         val src = frame ?: return null
+        sThumbCache.put(f.name, src)
         // 从帧直接缩放而非采样: 帧是已解码的完整位图
         val w = src.width
         val h = src.height
-        if (w <= 0 || h <= 0) { if (src !== frame) src.recycle(); return null }
+        if (w <= 0 || h <= 0) { return null }
         val scale = minOf(1f, req.toFloat() / maxOf(w, h))
         val tw = (w * scale).toInt().coerceAtLeast(1)
         val th = (h * scale).toInt().coerceAtLeast(1)
@@ -182,6 +289,269 @@ fun decodeVideoThumbnail(f: File, density: Float): Bitmap? {
         c.drawPath(path, tri)
         out
     } catch (e: Exception) { null }
+}
+
+/** 系统栈取帧失败时, 用 ExoPlayer(自带纯 Java mp4 解析) 后台异步解码首帧:
+ *  ExoPlayer 用 SurfaceView 渲染到屏幕中央(该路径在全屏预览已验证能出画面), 播放到首帧后
+ *  用 PixelCopy(API26+, 官方 SurfaceView 抓帧) 直接抓当前显示帧 → Bitmap 即收手(极短一闪)。
+ *  (TextureView.getBitmap 不动/Oppo 合成不出帧; ImageReader 直连解码器触发 native 崩溃, 均已排除)
+ *
+ *  加固(重启/切会话老问题): 全局限串行取帧 + 黑帧校验 + 有限轮次延迟重试, 失败到顶稳定文件卡片 */
+private fun enqueueThumb(job: ThumbJob) {
+    val start = synchronized(sThumbQueue) {
+        if (sThumbInQueue.contains(job.key)) false
+        else { sThumbInQueue.add(job.key); sThumbQueue.addLast(job); true }
+    }
+    if (start) pumpThumb()
+}
+
+private fun pumpThumb() {
+    synchronized(sThumbQueue) {
+        if (sThumbRunning) return
+        while (sThumbQueue.isNotEmpty()) {
+            val job = sThumbQueue.pollFirst()!!
+            sThumbInQueue.remove(job.key)
+            val act = job.ctx as? android.app.Activity
+            if (act == null || act.isFinishing || act.isDestroyed) {
+                // 发起方已销毁(如切会话/退出): 彻底放弃该任务
+                sThumbInFlight.remove(job.key)
+                continue
+            }
+            sThumbRunning = true
+            startThumbJob(job)
+            return
+        }
+    }
+}
+
+private fun thumbJobDone(job: ThumbJob) {
+    synchronized(sThumbQueue) { sThumbRunning = false }
+    pumpThumb()
+}
+
+/** 取帧成功: 写缓存 + 触发气泡刷新 */
+private fun thumbJobSuccess(job: ThumbJob, bmp: Bitmap) {
+    sThumbCache.put(job.key, bmp)
+    sThumbFailed.remove(job.key)   // 成功取帧: 清失败标记, 后续直接命中缓存
+    sThumbInFlight.remove(job.key)
+    Log.i("UiKit", "exo thumb PixelCopy 取帧成功: " + job.key)
+    val cbs = synchronized(sThumbCallbacks) { sThumbCallbacks.remove(job.key) }
+    if (cbs != null) for (cb in cbs) { try { cb() } catch (_: Throwable) {} }
+    thumbJobDone(job)
+}
+
+/** 取帧失败: 有限轮次延迟重试(覆盖重启首屏窗口未稳), 到顶后永久放弃并刷稳定文件卡片 */
+private fun thumbJobFail(job: ThumbJob) {
+    if (job.round < 2) {
+        sThumbInFlight.add(job.key)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ enqueueThumb(ThumbJob(job.ctx, job.f, job.key, job.round + 1)) }, 2500L)
+        Log.w("UiKit", "exo thumb 取帧失败 调度重试${job.round + 1}: " + job.key)
+        thumbJobDone(job)
+    } else {
+        sThumbFailed[job.key] = android.os.SystemClock.uptimeMillis()   // 记录到顶失败时刻, 进入冷却期(冷却后自动再试自愈)
+        sThumbInFlight.remove(job.key)
+        Log.w("UiKit", "exo thumb 取帧重试到顶放弃: " + job.key)
+        // 通知已登记的气泡重渲染为稳定文件卡片, 避免一直挂在异步等待状态
+        val cbs = synchronized(sThumbCallbacks) { sThumbCallbacks.remove(job.key) }
+        if (cbs != null) for (cb in cbs) { try { cb() } catch (_: Throwable) {} }
+        thumbJobDone(job)
+    }
+}
+
+/** 无效帧(纯黑)判定: 采样 8x8 区域, >95% 像素亮度总和<24 视为黑帧 --> 丢弃重试, 防脏帧入缓存 */
+private fun isNearlyBlack(bmp: Bitmap): Boolean {
+    var black = 0
+    val w = bmp.width; val h = bmp.height
+    for (i in 0 until 8) for (j in 0 until 8) {
+        val p = try { bmp.getPixel(w * i / 8, h * j / 8) } catch (_: Throwable) { continue }
+        if (((p shr 16) and 0xFF) + ((p shr 8) and 0xFF) + (p and 0xFF) < 24) black++
+    }
+    return black >= 61
+}
+
+/** 串行执行单个取帧 job: 自建全屏 SurfaceView + ExoPlayer 渲染, PixelCopy 抓首帧 */
+private fun startThumbJob(job: ThumbJob) {
+    val ctx = job.ctx; val f = job.f; val key = job.key
+    val root = (ctx as? android.app.Activity)?.window?.decorView as? android.view.ViewGroup
+    if (root == null || android.os.Build.VERSION.SDK_INT < 26) { thumbJobFail(job); return }
+    val done = AtomicBoolean(false)
+    val main = android.os.Handler(ctx.mainLooper)
+    // 自建全屏 SurfaceView + setVideoSurfaceView: SurfaceHolder 回调给出可靠 surface 就绪信号,
+    // PixelCopy 从该 Surface 抓解码帧(避开 PlayerView.videoSurfaceView 解析/附着竞态)
+    val sv = android.view.SurfaceView(ctx).apply {
+        layoutParams = android.widget.FrameLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+    }
+    val exo = ExoPlayer.Builder(ctx).build()
+    exo.setVideoSurfaceView(sv)
+    exo.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(f)))
+    var attempts = 0
+    val doGrab = arrayOfNulls<Runnable>(1)
+    fun cleanup() {
+        try { exo.release() } catch (_: Throwable) {}
+        try { root.removeView(sv) } catch (_: Throwable) {}
+    }
+    fun finish(result: () -> Unit) {
+        if (!done.compareAndSet(false, true)) return
+        cleanup()
+        result()
+    }
+    doGrab[0] = Runnable {
+        if (done.get()) return@Runnable
+        try {
+            val s = try { sv.holder.surface } catch (_: Throwable) { null }
+            if (s == null || !s.isValid) {
+                if (attempts++ < 15) { main.postDelayed({ doGrab[0]?.run() }, 200); return@Runnable }
+                finish { thumbJobFail(job) }; Log.w("UiKit", "exo thumb Surface 无效超时: $key"); return@Runnable
+            }
+            val bmp = Bitmap.createBitmap(480, 480, Bitmap.Config.ARGB_8888)
+            android.view.PixelCopy.request(s, bmp, object : android.view.PixelCopy.OnPixelCopyFinishedListener {
+                override fun onPixelCopyFinished(copyResult: Int) {
+                    if (copyResult == android.view.PixelCopy.SUCCESS) {
+                        if (isNearlyBlack(bmp)) {
+                            // 视频画面尚未真正渲染到 surface(黑帧), 视为无效重试, 防止脏帧永久入缓存
+                            Log.w("UiKit", "exo thumb 黑帧丢弃 重试${attempts + 1}: " + f.name)
+                            if (!done.get() && attempts++ < 15) main.postDelayed({ doGrab[0]?.run() }, 300)
+                            else finish { thumbJobFail(job) }
+                        } else {
+                            finish { thumbJobSuccess(job, bmp) }
+                        }
+                    } else {
+                        Log.w("UiKit", "exo thumb PixelCopy 失败 code=$copyResult 重试${attempts + 1}: " + f.name)
+                        if (!done.get() && attempts++ < 15) main.postDelayed({ doGrab[0]?.run() }, 300)
+                        else finish { thumbJobFail(job) }
+                    }
+                }
+            }, main)
+        } catch (t: Throwable) {
+            Log.w("UiKit", "exo thumb PixelCopy 异常", t)
+            if (!done.get() && attempts++ < 15) main.postDelayed({ doGrab[0]?.run() }, 300)
+            else finish { thumbJobFail(job) }
+        }
+    }
+    sv.holder.addCallback(object : android.view.SurfaceHolder.Callback {
+        override fun surfaceCreated(h: android.view.SurfaceHolder) {
+            Log.i("UiKit", "exo thumb surfaceCreated: " + f.name)
+            main.postDelayed({ doGrab[0]?.run() }, 250)
+        }
+        override fun surfaceChanged(h: android.view.SurfaceHolder, format: Int, w: Int, height: Int) {}
+        override fun surfaceDestroyed(h: android.view.SurfaceHolder) {}
+    })
+    exo.addListener(object : androidx.media3.common.Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            Log.i("UiKit", "exo thumb state=$state (2BUFFER 3READY 4END): " + f.name)
+            if (state == androidx.media3.common.Player.STATE_READY && !done.get()) {
+                main.postDelayed({ doGrab[0]?.run() }, 250)
+            }
+        }
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            Log.w("UiKit", "exo thumb 播放错误: " + error.errorCodeName)
+        }
+    })
+    main.post { try { root.addView(sv) } catch (t: Throwable) { Log.w("UiKit", "exo thumb addView 异常", t); finish { thumbJobFail(job) } } }
+    try {
+        exo.prepare()
+    } catch (t: Throwable) {
+        Log.w("UiKit", "exo thumb prepare 异常", t)
+        finish { thumbJobFail(job) }; return
+    }
+    exo.playWhenReady = true
+    Log.i("UiKit", "exo thumb SurfaceView+PixelCopy 解码启动: " + f.name)
+    main.postDelayed({
+        finish { thumbJobFail(job) }; Log.w("UiKit", "exo thumb 取帧超时(8s): " + key)
+    }, 8000)
+}
+
+/** 首帧取帧多策略重试: 部分平台/容器对 OPTION_CLOSEST_SYNC 兼容性差取帧失败, 依次换参数; 全失败返回 null */
+private fun retrieveFrameRetry(mmr: MediaMetadataRetriever, f: File): Bitmap? {
+    val attempts = arrayOf(
+        longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
+        longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
+        longArrayOf(1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
+        longArrayOf(5_000L, MediaMetadataRetriever.OPTION_CLOSEST.toLong())
+    )
+    var err: Throwable? = null
+    for (a in attempts) {
+        try {
+            val b = mmr.getFrameAtTime(a[0], a[1].toInt())
+            if (b != null) return b
+        } catch (t: Throwable) { err = t }
+    }
+    Log.w("UiKit", "retrieveFrameRetry: 取帧全失败 path=" + f.absolutePath, err)
+    return null
+}
+
+/** 无重编码 remux 到 cache: 部分解码栈拒绝原文件(视频/容器兼容性问题), 用 MediaExtractor+MediaMuxer 原样重写容器后可正常播放; 失败返回 null */
+fun remuxToCache(ctx: Context, src: File): File? {
+    try {
+        val dir = File(ctx.cacheDir, "remux")
+        if (!dir.exists()) dir.mkdirs()
+        val dst = File(dir, src.name.replace(":", "_").replace("/", "_").replace("\\", "_") + ".remux.mp4")
+        if (dst.exists()) dst.delete()
+
+        val ex = MediaExtractor()
+        try {
+            // 用 FileDescriptor 直连文件层, 规避 Android 16 对含全角/emoji 字符的裸路径解析成 content:// 失败的问题
+            val pfd = android.os.ParcelFileDescriptor.open(src, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            try {
+                ex.setDataSource(pfd.fileDescriptor, 0, -1)
+            } finally {
+                pfd.close()
+            }
+        } catch (t: Throwable) {
+            ex.release()
+            Log.w("UiKit", "remux: setDataSource 失败", t)
+            return null
+        }
+        val tc = ex.trackCount
+        var vIdx = -1
+        for (i in 0 until tc) {
+            val mime = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME) ?: continue
+            Log.w("UiKit", "remux: track[$i] mime=" + mime)
+            if (mime.startsWith("video/")) { vIdx = i; break }
+        }
+        if (vIdx < 0) {
+            Log.w("UiKit", "remux: 未找到 video track, trackCount=" + tc)
+            ex.release()
+            return null
+        }
+        ex.selectTrack(vIdx)
+        Log.w("UiKit", "remux: selected video track=$vIdx, 开始 mux")
+
+        val muxer = try {
+            MediaMuxer(dst.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        } catch (t: Throwable) {
+            ex.release()
+            Log.w("UiKit", "remux: MediaMuxer 创建失败", t)
+            return null
+        }
+        try {
+            val outTrack = muxer.addTrack(ex.getTrackFormat(vIdx))
+            muxer.start()
+            val buf = java.nio.ByteBuffer.allocate(512 * 1024)
+            val info = MediaCodec.BufferInfo()
+            var n = 0
+            while (true) {
+                val sz = ex.readSampleData(buf, 0)
+                if (sz < 0) break
+                info.offset = 0
+                info.size = sz
+                info.presentationTimeUs = ex.sampleTime
+                info.flags = ex.sampleFlags
+                muxer.writeSampleData(outTrack, buf, info)
+                ex.advance()
+                n++
+            }
+            muxer.stop()
+            Log.w("UiKit", "remux 完成 samples=" + n + " dst=" + dst.absolutePath)
+        } finally {
+            try { muxer.release() } catch (_: Throwable) {}
+            ex.release()
+        }
+        return if (dst.length() > 0) dst else null
+    } catch (t: Throwable) {
+        Log.w("UiKit", "remux 异常", t)
+        return null
+    }
 }
 
 /** dp -> px (UiKit 内部图标/解码函数用), 避免依赖 Activity.dp() */

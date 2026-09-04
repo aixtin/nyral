@@ -7,11 +7,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 所有文件访问: 解决作用域存储下 adb push 落盘文件 owner=NULL 对 MediaStore 查询不可见的问题 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <application
         android:label="agent"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@android:style/Theme.Material.Light">
+        android:theme="@android:style/Theme.Material.Light" android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"
@@ -42,6 +46,13 @@
             android:label="设置"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
+        <!-- 头像 1:1 自由裁剪页 -->
+        <activity
+            android:name=".AvatarCropActivity"
+            android:exported="false"
+            android:label="裁剪头像"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
         <activity
             android:name=".ModelConfigActivity"
             android:exported="false"
@@ -67,6 +78,12 @@
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
         <activity
+            android:name=".MemorySummaryActivity"
+            android:exported="false"
+            android:label="整理记忆索引"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
             android:name=".LogActivity"
             android:exported="false"
             android:label="运行日志"
@@ -76,6 +93,13 @@
             android:name=".AboutActivity"
             android:exported="false"
             android:label="关于"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <!-- 权限管理: 查看/补开全部依赖权限 -->
+        <activity
+            android:name=".PermissionsActivity"
+            android:exported="false"
+            android:label="权限管理"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
         <activity
@@ -90,5 +114,28 @@
             android:authorities="${applicationId}.files"
             android:exported="false"
             android:grantUriPermissions="true" />
+        <activity
+            android:name=".PersonalityActivity"
+            android:exported="false"
+            android:label="AI 个性化"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".AppearanceActivity"
+            android:exported="false"
+            android:label="外观设置"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name=".McpConfigActivity"
+            android:exported="false"
+            android:label="MCP 服务"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <!-- AI 悬浮迷你终端前台服务: 半透明终端实时显示 AI 执行状态 -->
+        <service
+            android:name=".AITerminalService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
 </manifest>

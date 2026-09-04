@@ -114,7 +114,11 @@ object ApiConfig {
         /** 模型能力集合（CAP_*）；预设=内置表，自定义=用户勾选（供应商级兜底） */
         val capabilities: Set<String> = emptySet(),
         /** 模型级能力：模型名 → CAP_* 集合；手动模型每个子模型独立勾选，预设不存（动态查表） */
-        val modelCaps: Map<String, Set<String>> = emptyMap()
+        val modelCaps: Map<String, Set<String>> = emptyMap(),
+        /** 鉴权方式：bearer（默认）/ x-api-key / header（自定义请求头名） */
+        val authType: String = "bearer",
+        /** 自定义鉴权请求头名（authType=header 时生效，默认 Authorization） */
+        val authHeader: String = "Authorization"
     )
 
     // 默认兜底(仅 base/model; 不再硬编码 API key, key 未配置时明确报错而非静默用旧 key)
@@ -166,7 +170,9 @@ object ApiConfig {
                         o.optString("selectedModel", ""),
                         o.optString("thinkingEffort", THINK_AUTO),
                         capabilitiesOf(o),
-                        modelCapsOf(o)
+                        modelCapsOf(o),
+                        o.optString("authType", "bearer"),
+                        o.optString("authHeader", "Authorization")
                     ))
                 }
                 if (out.isNotEmpty()) return out
@@ -208,6 +214,8 @@ object ApiConfig {
                         put(m, JSONArray(caps.toList()))
                     }
                 })
+                put("authType", p.authType)
+                put("authHeader", p.authHeader)
             })
         }
         prefs()?.edit()?.putString(K_PROVIDERS, arr.toString())?.apply()
@@ -241,7 +249,7 @@ object ApiConfig {
     }
 
     /** 新增自定义 Provider，返回新 id；models 为拉取多选的子模型集合（可为空） */
-    fun addCustomProvider(label: String, base: String, key: String, model: String, models: List<String>? = null, thinkingEffort: String = THINK_AUTO, capabilities: Set<String> = emptySet(), modelCaps: Map<String, Set<String>> = emptyMap()): String {
+    fun addCustomProvider(label: String, base: String, key: String, model: String, models: List<String>? = null, thinkingEffort: String = THINK_AUTO, capabilities: Set<String> = emptySet(), modelCaps: Map<String, Set<String>> = emptyMap(), authType: String = "bearer", authHeader: String = "Authorization"): String {
         val list = providers().toMutableList()
         var n = 1
         while (list.any { it.id == "custom_$n" }) n++
@@ -252,7 +260,8 @@ object ApiConfig {
         } else emptyList()
         list.add(Provider(id, label.ifBlank { "自定义 $n" }, base, model, key, isPreset = false,
             models = newModels, selectedModel = if (newModels.isNotEmpty()) model.trim() else "",
-            thinkingEffort = thinkingEffort, capabilities = capabilities, modelCaps = modelCaps))
+            thinkingEffort = thinkingEffort, capabilities = capabilities, modelCaps = modelCaps,
+            authType = authType, authHeader = authHeader))
         saveProviders(list)
         return id
     }
@@ -349,7 +358,7 @@ object ApiConfig {
      *  models 非 null 时表示用户从"拉取模型"多选得到的子模型集合，直接写入；为 null 时沿用编辑前逻辑
      *  thinkingEffort 非 null 时覆盖思考强度档位；为 null 时保留原值
      *  capabilities 非 null 时覆盖供应商级能力；modelCaps 非 null 时覆盖模型级能力（手动模型逐模型勾选） */
-    fun saveProvider(id: String, base: String, key: String, model: String, setAsCurrent: Boolean, models: List<String>? = null, thinkingEffort: String? = null, capabilities: Set<String>? = null, modelCaps: Map<String, Set<String>>? = null) {
+    fun saveProvider(id: String, base: String, key: String, model: String, setAsCurrent: Boolean, models: List<String>? = null, thinkingEffort: String? = null, capabilities: Set<String>? = null, modelCaps: Map<String, Set<String>>? = null, authType: String? = null, authHeader: String? = null) {
         val list = providers().map {
             if (it.id == id) {
                 val picked = models?.map { m -> m.trim() }?.filter { m -> m.isNotEmpty() }?.distinct()
@@ -370,13 +379,23 @@ object ApiConfig {
                     selectedModel = if (newModels.isNotEmpty()) model.trim() else it.selectedModel,
                     thinkingEffort = thinkingEffort ?: it.thinkingEffort,
                     capabilities = capabilities ?: it.capabilities,
-                    modelCaps = modelCaps ?: it.modelCaps
+                    modelCaps = modelCaps ?: it.modelCaps,
+                    authType = authType ?: it.authType,
+                    authHeader = authHeader ?: it.authHeader
                 )
             } else it
         }
         saveProviders(list)
         if (setAsCurrent) setCurrent(id)
     }
+
+    // ============ 鉴权方式读取 ============
+
+    /** 某供应商的鉴权方式（bearer / x-api-key / header） */
+    fun authTypeOf(id: String): String = providerById(id)?.authType ?: "bearer"
+
+    /** 某供应商的自定义鉴权请求头名（authType=header 时使用） */
+    fun authHeaderOf(id: String): String = providerById(id)?.authHeader ?: "Authorization"
 
     // ============ 思考强度读取/设置/映射 ============
 

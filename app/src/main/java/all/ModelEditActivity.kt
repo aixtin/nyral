@@ -43,6 +43,12 @@ class ModelEditActivity : Activity() {
     private val selectedCaps = mutableSetOf<String>()
     /** 模型级能力：子模型名 → 能力集合（手动模型逐模型独立勾选；默认仅文本） */
     private val selectedModelCaps = mutableMapOf<String, MutableSet<String>>()
+    /** 鉴权方式：bearer / x-api-key / header */
+    private var selectedAuthType: String = "bearer"
+    /** 自定义鉴权请求头名（authType=header 时生效） */
+    private var selectedAuthHeader: String = "Authorization"
+    private lateinit var authTypeContainer: LinearLayout
+    private lateinit var authHeaderInput: EditText
     private lateinit var saveBtn: TextView
     private lateinit var modelsContainer: LinearLayout
     private lateinit var effortContainer: LinearLayout
@@ -58,6 +64,8 @@ class ModelEditActivity : Activity() {
         val p = providerId?.let { ApiConfig.providerById(it) }
         if (p != null) selectedModels.addAll(p.models)
         selectedEffort = if (isNew) ApiConfig.THINK_AUTO else (p?.thinkingEffort ?: ApiConfig.THINK_AUTO)
+        selectedAuthType = if (isNew) "bearer" else (p?.authType ?: "bearer")
+        selectedAuthHeader = if (isNew) "Authorization" else (p?.authHeader ?: "Authorization")
         if (isNew) {
             // 新模型默认: 文本+工具（OpenAI 兼容接口大多支持工具）；图片/视频/音频按需勾选
             selectedCaps.addAll(setOf(ApiConfig.CAP_TEXT, ApiConfig.CAP_TOOL))
@@ -120,6 +128,20 @@ class ModelEditActivity : Activity() {
             setText(if (isNew) "" else (p?.key ?: ""))
         }
         card.addView(keyInput)
+
+        // 鉴权方式（Bearer / x-api-key / 自定义 Header）
+        card.addView(Ui.fieldLabel(this, "鉴权方式"))
+        authTypeContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        card.addView(authTypeContainer)
+        renderAuthTypeSelector()
+        authHeaderInput = Ui.input(this, "如 X-API-Key / Authorization").apply {
+            setText(selectedAuthHeader)
+        }
+        card.addView(authHeaderInput)
+        card.addView(Ui.hint(this, "Bearer=标准 OpenAI 兼容；x-api-key=部分厂商；自定义 Header=其它鉴权头"))
 
         // 模型名 + 联网拉取列表
         card.addView(Ui.fieldLabel(this, "模型名"))
@@ -227,7 +249,7 @@ class ModelEditActivity : Activity() {
             conn.connectTimeout = 10000
             conn.readTimeout = 20000
             conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Authorization", "Bearer $key")
+            applyAuthHeader(conn, key)
             conn.doOutput = true
             conn.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = conn.responseCode
@@ -411,6 +433,45 @@ class ModelEditActivity : Activity() {
         }
     }
 
+    /** 渲染鉴权方式 chips：bearer / x-api-key / 自定义 Header */
+    private fun renderAuthTypeSelector() {
+        authTypeContainer.removeAllViews()
+        val types = listOf(
+            "bearer" to "Bearer",
+            "x-api-key" to "x-api-key",
+            "header" to "自定义 Header"
+        )
+        types.forEach { (key, name) ->
+            val selected = key == selectedAuthType
+            val chip = TextView(this).apply {
+                text = name
+                textSize = 12f
+                setTextColor(if (selected) 0xFFFFFFFF.toInt() else Ui.PRIMARY)
+                background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.INPUT_BG, 16, this@ModelEditActivity)
+                setPadding(dp(10), dp(5), dp(10), dp(5))
+                isClickable = true
+                setOnClickListener {
+                    selectedAuthType = key
+                    renderAuthTypeSelector()
+                }
+                Ui.press(this)
+            }
+            authTypeContainer.addView(chip, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                rightMargin = dp(6)
+            })
+        }
+    }
+
+    /** 按当前鉴权方式给请求设置认证头 */
+    private fun applyAuthHeader(conn: HttpURLConnection, key: String) {
+        when (selectedAuthType) {
+            "x-api-key" -> conn.setRequestProperty("x-api-key", key)
+            "header" -> conn.setRequestProperty(selectedAuthHeader.ifBlank { "Authorization" }, key)
+            else -> conn.setRequestProperty("Authorization", "Bearer $key")
+        }
+    }
+
     /** 渲染模型能力 chips：预设=只读徽标；自定义=可勾选（文本必选固定） */
     private fun renderCapSelector() {
         capsContainer.removeAllViews()
@@ -484,7 +545,7 @@ class ModelEditActivity : Activity() {
             conn.requestMethod = "GET"
             conn.connectTimeout = 10000
             conn.readTimeout = 15000
-            conn.setRequestProperty("Authorization", "Bearer $key")
+            applyAuthHeader(conn, key)
             conn.setRequestProperty("Accept", "application/json")
             if (conn.responseCode != 200) return null
             val body = conn.inputStream.bufferedReader().use { it.readText() }
@@ -618,7 +679,7 @@ class ModelEditActivity : Activity() {
                 selectedModelCaps.forEach { (m, caps) -> if (m in selectedModels) put(m, caps.toSet()) }
                 if (model.trim().isNotEmpty() && !containsKey(model.trim())) put(model.trim(), setOf(ApiConfig.CAP_TEXT))
             }
-            val id = ApiConfig.addCustomProvider(labelInput.text.toString().trim(), base, key, model, selectedModels, selectedEffort, selectedCaps, modelCapsMap)
+            val id = ApiConfig.addCustomProvider(labelInput.text.toString().trim(), base, key, model, selectedModels, selectedEffort, selectedCaps, modelCapsMap, selectedAuthType, selectedAuthHeader.ifBlank { "Authorization" })
             if (setAsCurrent) ApiConfig.setCurrent(id)
             return id
         }
@@ -628,7 +689,7 @@ class ModelEditActivity : Activity() {
             selectedModelCaps.forEach { (m, caps) -> if (m in selectedModels) put(m, caps.toSet()) }
             if (model.trim().isNotEmpty() && !containsKey(model.trim())) put(model.trim(), setOf(ApiConfig.CAP_TEXT))
         }
-        ApiConfig.saveProvider(id, base, key, model, setAsCurrent, selectedModels, selectedEffort, caps, modelCapsMap)
+        ApiConfig.saveProvider(id, base, key, model, setAsCurrent, selectedModels, selectedEffort, caps, modelCapsMap, selectedAuthType, selectedAuthHeader.ifBlank { "Authorization" })
         return id
     }
 
