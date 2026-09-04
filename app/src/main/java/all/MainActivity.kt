@@ -1,11 +1,13 @@
 package io.github.aixtin.droidagent
 
 import android.app.Activity
+import android.app.Application
 import android.app.Dialog
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -25,7 +27,11 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Base64
+import android.util.Log
 import android.animation.ValueAnimator
 import android.view.animation.OvershootInterpolator
 import android.graphics.drawable.BitmapDrawable
@@ -59,6 +65,10 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.MediaController
+// Media3 ExoPlayer: 自带纯 Java MP4/容器解析, 绕开系统 MediaPlayer/MediaExtractor 对部分转发视频的拒绝
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import android.widget.SeekBar
 import android.widget.VideoView
 import android.widget.Toast
@@ -89,8 +99,12 @@ import android.text.style.TypefaceSpan
 
 /** 帧驱动打字机回调接口与全局打字机中心已抽离至 Typewriter.kt */
 
+/** 正文位置标记: 正文首次出现时记录其真实插入位置, 恢复时按原位渲染(不再固定末尾) */
+private object ContentMarker
+
 class MainActivity : Activity() {
 
+    private val TAG = "DroidAgent"
     private val executor = Executors.newSingleThreadExecutor()
     // Markdown 本地渲染 (Markwon, 开源/无网络/不接第三方服务)
     private val markwon by lazy {
@@ -110,11 +124,27 @@ class MainActivity : Activity() {
             .build()
     }
     // role, content, thinking(assistant 思考内容, 持久化到会话以便切回时恢复思考区), tools(工具调用序列 JSON)
-    private val messages = mutableListOf<MemoryDb.SessionMsg>()
+    private var lastModeValue = -1
+    internal val messages = mutableListOf<MemoryDb.SessionMsg>()
+    /** 超长会话内存瘦身: 仅最近 WINDOW 条消息载入内存渲染, 更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担 */
+    private val MEM_WINDOW = 150
+    /** 单附件本地解析文本注入上限(字符): 超过截断防单条请求 token 突增 */
+    private val MAX_ATTACH_TEXT = 40000
+    /** 单次提交全部附件解析文本总量上限(字符): 超过部分丢弃防上下文炸裂 */
+    private val MAX_DOC_TOTAL = 120000
+    /** 单条消息注入 history 的长度上限(字符): 超长单条消息(如超长回答/粘贴)截断 */
+    private val MAX_MSG_HISTORY = 8000
+    /** 当前会话窗口化加载时, 窗口起点在 DB 中的全局 seq(=总条数-窗口条数); 非窗口化时为 0, 保存时据此保留窗口外旧消息 */
+    private var sessionBaseSeq = 0
+    /** 上次检测的头像版本戳, 换头像返回时比对变化以刷新旧气泡 */
+    private var lastAvatarStamp = 0L
     private lateinit var chatBox: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var root: FrameLayout
+    // 独立固定全屏背景层: 壁纸/渐变背景挂此层(不随键盘压缩上移), root 为透明壳
+    private lateinit var bgLayer: FrameLayout
     private lateinit var bodyWrap: LinearLayout
+    private lateinit var inputBar: LinearLayout
     private lateinit var input: EditText
     internal lateinit var modelBtn: Button
     internal lateinit var attachBtn: Button
@@ -130,10 +160,12 @@ class MainActivity : Activity() {
     private val REQ_VIDEO = 1004
     private val REQ_RECORD = 1005
     private val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
+    private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
     // 图片压缩上限: 最长边/质量
     private val MAX_IMAGE_SIDE = 2048
-    private val MAX_FILE_BYTES = 20 * 1024 * 1024
+    private val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
     private val MAX_VIDEO_BYTES = 37 * 1024 * 1024 // MiMo 视频 base64 ≤50MB(原始约 ≤37MB)
+    private val GIF_ANIM_MAX_BYTES = 20 * 1024 * 1024 // 动图转视频的源 GIF 上限(超出回退静态图), 防超大内存占用
     // 录音: 上限 60 秒 / 10MB(语音消息足够, 超限直接拒)
     private val MAX_RECORD_MS = 60_000L
     private val MAX_AUDIO_BYTES = 10 * 1024 * 1024
@@ -199,7 +231,11 @@ class MainActivity : Activity() {
     private lateinit var swipeDetector: GestureDetector
     private var summary: String? = null
     internal lateinit var db: MemoryDb
-    private var aiBusy = false
+    internal var aiBusy = false
+    /** 调试服务 SSE 事件转发(事件名, 数据): 由 DebugServer 挂载, continueSend 各回调处触发 */
+    @Volatile internal var debugSseSink: ((String, String) -> Unit)? = null
+    /** 调试请求完成回调(整条链路结束, 含成功/失败/取消) */
+    @Volatile internal var debugChatDone: (() -> Unit)? = null
     private var currentSaved = false
     internal var currentSessionId: Long? = null
     /** 当前会话标题(随切会话/保存更新), 供记忆落库时快照会话名 */
@@ -235,10 +271,155 @@ class MainActivity : Activity() {
     private val THINK_BG = Color.parseColor("#E7E8EA")       // 思考背景(比 AI 正文浅灰略暗)
     private val SYS_TEXT = Color.parseColor("#999999")
 
+    // 首启权限引导状态: 0=空闲 1=已弹运行时权限 2/3/4=等待从悬浮窗/所有文件/安装未知来源设置页返回
+    private var firstRunGuideState = 0
+
+    companion object {
+        // 悬浮终端显隐门控: 进程级只注册一次(避免 MainActivity 重建重复注册)
+        private var terminalGateRegistered = false
+        // 当前 DA 已 resumed 的页面数(>0 即 DA 在前台)
+        private var terminalResumedCount = 0
+        // 显示防抖: 页面切换时旧页面 pause(计数--至0)与新页面 resume(计数++)存在间隙,
+        // 若 pause 瞬间立即显示会闪一下; 延迟确认仍无 DA 页面在前台才真正显示
+        private val terminalHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        private const val TERMINAL_SHOW_DEBOUNCE_MS = 350L
+        private var terminalShowRunnable: Runnable? = null
+        // 当前 RESUMED Activity 简单类名(供调试服务查询前台窗口; null 表示后台/无窗口)
+        @Volatile
+        private var resumedActivityName: String? = null
+
+        /** DA 是否有页面在前台 */
+        @JvmStatic
+        fun daInForeground(): Boolean = terminalResumedCount > 0
+
+        /** 当前前台 Activity 简单类名(无前台则为 null) */
+        @JvmStatic
+        fun foregroundActivityName(): String? = resumedActivityName
+
+        /** 服务启动/其他入口需要按当前前台状态校正悬浮窗显隐时调用 */
+        @JvmStatic
+        fun refreshTerminalOverlay() {
+            if (terminalResumedCount > 0) {
+                cancelTerminalShow()
+                AITerminalService.setOverlayVisible(false)
+            } else {
+                scheduleTerminalShow()
+            }
+        }
+
+        /** 延迟显示悬浮窗(防抖): 若期间有 DA 页面 resumed 则取消 */
+        private fun scheduleTerminalShow() {
+            terminalShowRunnable?.let { terminalHandler.removeCallbacks(it) }
+            val r = Runnable {
+                terminalShowRunnable = null
+                AITerminalService.setOverlayVisible(true)
+            }
+            terminalShowRunnable = r
+            terminalHandler.postDelayed(r, TERMINAL_SHOW_DEBOUNCE_MS)
+        }
+
+        private fun cancelTerminalShow() {
+            terminalShowRunnable?.let { terminalHandler.removeCallbacks(it) }
+            terminalShowRunnable = null
+        }
+    }
+
+    /** 悬浮终端显隐门控: DA 内(任意页面前台)隐藏, 切到其他 APP/回桌面自动显示。签名对齐 android-37 单参抽象。 */
+    private fun registerTerminalVisibilityGate() {
+        if (terminalGateRegistered) return
+        terminalGateRegistered = true
+        application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityResumed(a: Activity) {
+                terminalResumedCount++
+                resumedActivityName = a.javaClass.simpleName
+                // 页面切换过程中(旧页 pause~新页 resume 间隙)可能已排入显示任务, 立即取消防抖并隐藏
+                cancelTerminalShow()
+                AITerminalService.setOverlayVisible(false)
+            }
+            override fun onActivityPaused(a: Activity) {
+                terminalResumedCount--
+                if (a.javaClass.simpleName == resumedActivityName) resumedActivityName = null
+                // 不立即显示: 走防抖, 避免 DA 内页面切换时闪一下(延迟后确认无 DA 页面在前台才显示)
+                if (terminalResumedCount <= 0) scheduleTerminalShow()
+            }
+            override fun onActivityCreated(a: Activity, b: Bundle?) {}
+            override fun onActivityDestroyed(a: Activity) {}
+            override fun onActivityStarted(a: Activity) {}
+            override fun onActivityStopped(a: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+        })
+    }
+
+    // ========== 首启权限引导 ==========
+    /** 首次进入时一次性收取该要的权限; 只触发一次, 已收齐后不再打扰 */
+    private fun runFirstRunPermissionGuide() {
+        if (isFinishing || isDestroyed) return
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        if (prefs.getBoolean("first_run_perms_done", false)) return
+        // 1) 运行时权限: 通知(Android 13+)/麦克风 合并一次弹出
+        val need = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            need += Manifest.permission.POST_NOTIFICATIONS
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            need += Manifest.permission.RECORD_AUDIO
+        if (need.isNotEmpty()) {
+            firstRunGuideState = 1
+            try {
+                requestPermissions(need.toTypedArray(), REQ_GUIDE_PERMS)
+                return
+            } catch (e: Exception) {
+                firstRunGuideState = 0
+            }
+        }
+        // 2) 特殊权限依次引导(无需申请的自动跳过)
+        startNextSpecialPermission()
+    }
+
+    /** 按 悬浮窗->所有文件->安装未知来源 顺序, 逐个唤起未授权项的系统设置页; 全部满足后收尾 */
+    private fun startNextSpecialPermission() {
+        if (isFinishing || isDestroyed) return
+        // 2.1 悬浮窗(API 23+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            firstRunGuideState = 2
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (e: Exception) { firstRunGuideState = 0 }
+            return
+        }
+        // 2.2 所有文件访问权限(API 30+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            firstRunGuideState = 3
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (e: Exception) { firstRunGuideState = 0 }
+            return
+        }
+        // 2.3 安装未知来源(API 26+, 用于 APP 内自更新安装)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            firstRunGuideState = 4
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            } catch (e: Exception) { firstRunGuideState = 0 }
+            return
+        }
+        // 全部满足/跳过: 收尾, 永不再引导
+        firstRunGuideState = 0
+        getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putBoolean("first_run_perms_done", true).apply()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 首启权限引导: 首次进入一次性收齐该要的权限(运行时权限弹窗 + 特殊权限依次去设置页)
+        window.decorView.post { runFirstRunPermissionGuide() }
+        // 悬浮终端显隐门控: DA 前台(应用内)隐藏悬浮窗, 切到其他 APP/回桌面自动显示
+        registerTerminalVisibilityGate()
         // 启动自动检查更新（同一天仅一次，静默；真实更新源开源后替换 UPDATE_URL 即可）
         UpdateChecker.check(this, false)
+        // 键盘模式: 全局 adjustNothing, 窗口永不被键盘压缩;
+        // 通过 WindowInsets.ime()(API30+) 精确取键盘高度, 手动驱动 bodyWrap 平移上移(同微信),
+        // 标题栏与背景(挂 root.background)不动。adjustResize 下窗口被系统压缩, ime insets 会被吸收为0无法检测
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         window.statusBarColor = Color.WHITE
         // 白底必须配深色状态栏图标, 否则时间/信号等白色图标在白底上不可见
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -247,10 +428,16 @@ class MainActivity : Activity() {
         ApiConfig.init(this)
         MemoryApiConfig.init(this)   // 辅助模型配置: 冷启动必须先初始化, 否则归档读不到独立配置, 回退主对话
         TitleConfig.init(this)
+        UploadConfig.init(this)
+        PersonaConfig.init(this)
+        ModeConfig.init(this)
+        AvatarConfig.init(this)
+        lastAvatarStamp = AvatarConfig.avatarStamp()
         LogStore.init(this)
         MemoryKeeper.init(this)
         db = MemoryDb(this)
         summary = db.loadSummary()
+        lastModeValue = ModeConfig.modeValue()
         // 记忆落库时快照当前会话标题, 长期记忆卡片按会话名分组展示
         MemoryTools.sessionTitleProvider = { currentSessionTitle }
 
@@ -270,14 +457,35 @@ class MainActivity : Activity() {
         root = object : FrameLayout(this) {
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                 swipeDetector.onTouchEvent(ev)
+                // 键盘弹起时, 点击输入区以外(消息区/背景/标题栏)收起键盘并清光标; 未弹键盘或点击输入框/按钮时不影响
+                if (ev.action == MotionEvent.ACTION_UP && ::inputBar.isInitialized) {
+                    val i3 = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+                    if (i3?.isActive == true) {
+                        val loc = IntArray(2)
+                        inputBar.getLocationInWindow(loc)
+                        val inInputBar = ev.rawY.toInt() >= loc[1] - dp(8)
+                        android.util.Log.d("KBDDBG", "DISPATCH rawY=${ev.rawY.toInt()} loc1=${loc[1]} inIB=$inInputBar active=${i3.isActive}")
+                        if (!inInputBar) {
+                            i3.hideSoftInputFromWindow(input.windowToken, 0)
+                            if (input.isFocused) input.clearFocus()
+                        }
+                    }
+                }
                 return super.dispatchTouchEvent(ev)
             }
         }.apply {
-            setBackgroundColor(Color.parseColor("#F7F7F8"))
+            // root 作为透明壳: 壁纸改挂独立 bgLayer, 避免 adjustResize 下窗口被键盘压缩时背景跟随抬起
+            setBackgroundColor(Color.TRANSPARENT)
         }
+        // 独立固定背景层: 全屏高度锁死, 键盘弹出压缩 root 时背景保持顶部不动(壁纸不跟随抬起)
+        bgLayer = FrameLayout(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        root.addView(bgLayer, 0, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val main = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            // 透明: 让挂在 root 的聊天背景(预设渐变/自定义图)透出来, 否则不透明底色会盖住背景
+            // 透明: 让挂在 bgLayer 的聊天背景(预设渐变/自定义图)透出来, 否则不透明底色会盖住背景
             setBackgroundColor(Color.TRANSPARENT)
         }
 
@@ -346,14 +554,18 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 输入区: 按钮在输入框右侧, 底对齐固定在右下角
-        val inputBar = LinearLayout(this).apply {
+        inputBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
             setBackgroundColor(Color.WHITE)
         }
         input = EditText(this).apply {
+            var enterHandled = false
+            var inTextFix = false
             hint = "输入消息..."
             textSize = 15f
+            // 显式声明多行文本类型: 未设 MULTI_LINE 时部分输入法会错误地把回车按两次插入
+            setInputType(EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE)
             setSingleLine(false)
             minLines = 1
             maxLines = 4
@@ -361,15 +573,67 @@ class MainActivity : Activity() {
             background = rounded(dp(22), Color.parseColor("#EFEFF1"))
             setTextColor(Color.parseColor("#1A1A1A"))
             setHintTextColor(Color.parseColor("#B0B0B0"))
-            imeOptions = EditorInfo.IME_ACTION_SEND
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_SEND) { onSend(); true } else false
+            }
+            imeOptions = EditorInfo.IME_ACTION_SEND
+            // 回车深度拦截: 吞掉 DOWN 防止系统默认 KeyListener 先插入一次; UP/MULTIPLE 以
+            // enterHandled 去重, 按下一个回车只插入单个 \n, 修正"回车换两行"
+            setOnKeyListener { v, keyCode, e ->
+                if (keyCode != KeyEvent.KEYCODE_ENTER) return@setOnKeyListener false
+                val et = v as EditText
+                when (e.action) {
+                    KeyEvent.ACTION_DOWN -> { enterHandled = false; true }
+                    KeyEvent.ACTION_UP -> {
+                        if (!enterHandled) {
+                            val st = et.selectionStart.coerceAtLeast(0)
+                            val en = et.selectionEnd.coerceAtLeast(st)
+                            et.text.replace(st, en, "\n")
+                            et.setSelection((st + 1).coerceAtMost(et.text.length))
+                            enterHandled = true
+                        }
+                        true
+                    }
+                    KeyEvent.ACTION_MULTIPLE -> {
+                        if (!enterHandled) {
+                            val st = et.selectionStart.coerceAtLeast(0)
+                            val en = et.selectionEnd.coerceAtLeast(st)
+                            et.text.replace(st, en, "\n")
+                            et.setSelection((st + 1).coerceAtMost(et.text.length))
+                            enterHandled = true
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            // 键盘收起(光标已清)后再次点击: 只恢复焦点与键盘; 不再强制 setSelection 到末尾,
+            // 光标定位交给系统默认(点哪光标哪), 否则无法点击定位到任意文本位置
+            setOnClickListener { view ->
+                view.requestFocus()
+                (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
+                    ?.showSoftInput(view, 0)
             }
             // 底栏交互: 输入文字时隐藏麦克风显示发送按钮, 清空后恢复麦克风
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun afterTextChanged(s: Editable?) { updateInputMode() }
+                override fun afterTextChanged(s: Editable?) {
+                    // 兜底: 部分输入法经 commitText 注入(不过 KeyEvent), 连续换行 \n\n 归一为单个 \n
+                    if (!inTextFix && s != null && s.indexOf("\n\n") >= 0) {
+                        inTextFix = true
+                        var i = 0
+                        while (i < s.length - 1) {
+                            if (s[i] == '\n' && s[i + 1] == '\n') {
+                                s.delete(i + 1, i + 2)
+                            } else {
+                                i++
+                            }
+                        }
+                        inTextFix = false
+                    }
+                    updateInputMode()
+                }
             })
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -538,6 +802,7 @@ class MainActivity : Activity() {
         root.addView(drawerMask, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         buildDrawer()
+        // 全局已 adjustNothing(见 onCreate 开头): 键盘始终纯悬浮, 主界面与抽屉底部都不被顶起, 无需按焦点切换
         root.addView(drawerPanel, FrameLayout.LayoutParams(
             DRAWER_WIDTH, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START))
 
@@ -556,6 +821,22 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.END))
         setContentView(root)
+        // 布局完成后锁定 bgLayer 为全屏高度(首次布局未弹键盘, root.height 即完整高度);
+        // 此后键盘弹出压缩 root 时 bgLayer 保持固定, 背景顶部不动、底部被键盘盖住(壁纸不跟随抬起)
+        root.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                val rh = root.height
+                if (rh > 0) {
+                    val lp = bgLayer.layoutParams as FrameLayout.LayoutParams
+                    if (lp.height != rh) {
+                        lp.height = rh
+                        lp.gravity = Gravity.TOP
+                        bgLayer.layoutParams = lp
+                    }
+                    root.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                }
+            }
+        })
         // 布局完成后(OnGlobalLayout保证高度已测量): 按单行输入框中心精确计算按钮bottomMargin, 只执行一次;
         // 之后输入多行margin不变 -> 按钮相对屏幕底部位置固定, 与输入框居中
         // 所有底栏按钮(micBtn/attachBtn/modelBtn/sendBtn/stopBtn)统一走同一套计算, 不再各自硬编码偏移
@@ -582,71 +863,104 @@ class MainActivity : Activity() {
                 }
             }
         })
-        // 输入法平滑过渡动画: adjustNothing 下手动检测键盘高度, ValueAnimator 驱动 bodyWrap 高度渐变,
-        // 消息区+输入框整体上移(同微信), 标题栏与背景(挂 root.background)不动
-        var kbdShown = false
-        var kbdAnimator: android.animation.ValueAnimator? = null
-        root.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                val r = android.graphics.Rect()
-                root.getWindowVisibleDisplayFrame(r)
-                val visH = r.bottom - r.top
-                val diff = root.height - visH
+        // 键盘检测: WindowInsets.ime()(API30+) 精确报告键盘高度(adjustNothing 下不被窗口吸收)。
+        // setDecorFitsSystemWindows(false) 让系统不自动消化 insets, 完整派发到内容层(含 IME), 我们统一处理:
+        // 主内容避开状态栏/导航栏(fitsSystemWindows 的替代), 键盘弹起 bodyWrap 高度压缩到键盘顶,
+        // 键盘收起(返回键/下滑/点空白) bodyWrap 恢复满高且输入框光标跟随关闭, 再次点击输入框可恢复继续输入
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            var imeShown = false
+            var imeAnimator: android.animation.ValueAnimator? = null
+            var bodyWrapFullH = 0
+            root.setOnApplyWindowInsetsListener { v, insets ->
+                val sb = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+                main.setPadding(0, sb.top, 0, sb.bottom)
+                // 抽屉悬浮于 root 上, 不参与 main 的 insets 派发, 需自行避开状态栏/导航栏,
+                // 否则 setDecorFitsSystemWindows(false) 下顶部标题栏被状态栏遮挡、底部被导航栏顶低
+                if (::drawerPanel.isInitialized) drawerPanel.setPadding(0, sb.top, 0, sb.bottom)
+                val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                 val lp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                if (diff > dp(80)) {
-                    // 键盘弹出
-                    if (!kbdShown) {
-                        kbdShown = true
-                        val real = bodyWrap.height.coerceAtLeast(1)
-                        lp.height = real; lp.weight = 0f
+                android.util.Log.d("KBDDBG", "INSETS imeH=$imeH imeShown=$imeShown focused=${input.isFocused} bh=${bodyWrap.height}")
+                if (imeH > dp(80)) {
+                    // 键盘弹起改为"高度压缩"模式: bodyWrap 顶部固定贴标题栏底(整体不再上移, 不会盖住标题栏),
+                    // 高度压缩到键盘顶, 底边(inputBar)精确贴键盘顶无间隙
+                    if (!imeShown) {
+                        bodyWrapFullH = bodyWrap.height.coerceAtLeast(1)
+                        lp.weight = 0f; lp.height = bodyWrapFullH
                         bodyWrap.layoutParams = lp
-                        kbdAnimator?.cancel()
-                        val target = (real - diff).coerceAtLeast(1)
-                        kbdAnimator = android.animation.ValueAnimator.ofInt(real, target).apply {
-                            duration = 200
-                            interpolator = android.view.animation.DecelerateInterpolator()
-                            addUpdateListener {
-                                lp.height = it.animatedValue as Int
-                                bodyWrap.layoutParams = lp
-                            }
-                            start()
-                        }
                     }
-                } else if (kbdShown) {
-                    // 键盘收起
-                    kbdShown = false
-                    kbdAnimator?.cancel()
-                    val from = bodyWrap.height.coerceAtLeast(1)
-                    val target = (main.height - titleBar.height).coerceAtLeast(1)
-                    kbdAnimator = android.animation.ValueAnimator.ofInt(from, target).apply {
-                        duration = 200
+                    imeShown = true
+                    val tb = IntArray(2)
+                    titleBar.getLocationInWindow(tb)
+                    val titleBottom = tb[1] + titleBar.height
+                    val targetH = ((root.height - imeH) - titleBottom).coerceAtLeast(dp(60))
+                    if (imeAnimator?.isRunning == true) imeAnimator?.cancel()
+                    val from = bodyWrap.height
+                    imeAnimator = android.animation.ValueAnimator.ofInt(from, targetH).apply {
+                        duration = 180
                         interpolator = android.view.animation.DecelerateInterpolator()
                         addUpdateListener {
-                            lp.height = it.animatedValue as Int
-                            bodyWrap.layoutParams = lp
+                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                            lpp.height = it.animatedValue as Int
+                            bodyWrap.layoutParams = lpp
                         }
                         addListener(object : android.animation.AnimatorListenerAdapter() {
                             override fun onAnimationEnd(a: android.animation.Animator) {
-                                lp.height = 0; lp.weight = 1f
-                                bodyWrap.layoutParams = lp
+                                // 键盘弹起收尾: 滚到最新一条, 让最新消息贴输入框上方(微信式跟随), 不会被顶出可视区
+                                scrollToBottom()
                             }
                         })
                         start()
                     }
+                } else if (imeShown) {
+                    imeShown = false
+                    if (imeAnimator?.isRunning == true) imeAnimator?.cancel()
+                    val from = bodyWrap.height
+                    imeAnimator = android.animation.ValueAnimator.ofInt(from, bodyWrapFullH).apply {
+                        duration = 180
+                        interpolator = android.view.animation.DecelerateInterpolator()
+                        addUpdateListener {
+                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                            lpp.height = it.animatedValue as Int
+                            bodyWrap.layoutParams = lpp
+                        }
+                        addListener(object : android.animation.AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(a: android.animation.Animator) {
+                                val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                                lpp.height = 0; lpp.weight = 1f
+                                bodyWrap.layoutParams = lpp
+                            }
+                        })
+                        start()
+                    }
+                    // 键盘已收起: 输入框光标跟随关闭
+                    if (input.isFocused) input.clearFocus()
                 }
+                insets
             }
-        })
+        }
+        // 键盘弹起时点击输入区以外收起键盘: 在 root.dispatchTouchEvent 实现(见 root 定义处), 无其它点击监听
         summary?.let { appendSys("已加载历史对话摘要，可继续之前的上下文。") }
         appendSys("DroidAgent 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。")
         // 恢复最近一次会话，避免杀后台后聊天记录与列表丢失
-        val recent = db.listSessions(1)
+        val recent = db.listSessions(1, ModeConfig.modeValue())
         if (recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()) {
             openSession(recent[0].id)
         }
+        // 开发者调试服务: 默认关闭; 设置开启且为 debug 构建时在 onCreate 末尾拉起
+        DebugServer.init(this)
+        // 工作目录 MediaStore 索引自愈: adb push 等非 MediaStore 落盘的文件默认不在索引,
+        // 启动时后台触发系统媒体扫描, 让 workdir_list/read 立即可见(修复 site_auth 读取失效)
+        Thread { WorkDir.rescan(this) }.start()
     }
 
     override fun onResume() {
         super.onResume()
+        // 首启权限引导: 从特殊权限设置页返回后推进到下一项
+        if (firstRunGuideState in 2..4) {
+            firstRunGuideState = 0
+            window.decorView.post { startNextSpecialPermission() }
+        }
         // 从设置/模型配置"保存并应用"返回: 图标按钮无需刷新文字, 仅重刷背景
         applyChatBackground()
         // 从模型配置页返回: 手动模型能力勾选可能变化, 重刷语音切换按钮显隐
@@ -655,6 +969,25 @@ class MainActivity : Activity() {
         if (::mainTitleText.isInitialized) mainTitleText.text = TitleConfig.mainTitle()
         if (::drawerTitleText.isInitialized) drawerTitleText.text = TitleConfig.drawerTitle()
         if (::drawerNoteText.isInitialized) drawerNoteText.text = TitleConfig.drawerNote()
+        // 聊天/Agent 模式切换: 重新加载当前模式最近会话
+        if (lastModeValue != ModeConfig.modeValue()) {
+            lastModeValue = ModeConfig.modeValue()
+            maybeSaveCurrent()
+            messages.clear()
+            chatBox.removeAllViews()
+            currentSaved = true
+            currentSessionId = null
+            currentSessionTitle = null
+            val recent = db.listSessions(1, ModeConfig.modeValue())
+            if (recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()) {
+                openSession(recent[0].id)
+            } else {
+                appendSys("DroidAgent 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。")
+                refreshSessionList()
+            }
+        }
+        // 从设置页更换头像返回: 头像文件版本变化时重建当前会话气泡, 旧气泡无需重启即刷新
+        refreshChatAvatars()
     }
 
     /** 应用聊天背景: 预设渐变 / 自定义模糊图 / 默认纯色 */
@@ -668,8 +1001,8 @@ class MainActivity : Activity() {
             intArrayOf(0xFFFBF0F6.toInt(), 0xFFF0DCE8.toInt()),
             intArrayOf(0xFFF4F0FA.toInt(), 0xFFE4DCF0.toInt())
         )
-        // 挂到 ScrollView 上: 背景固定, 消息在背景上滚动(类微信)
-        root.background = when (type) {
+        // 挂到独立 bgLayer 上: 背景固定, 消息在背景上滚动(类微信)
+        bgLayer.background = when (type) {
             "preset" -> {
                 val idx = ChatBackgroundActivity.loadPreset(this).coerceIn(0, presets.size - 1)
                 GradientDrawable(GradientDrawable.Orientation.TL_BR,
@@ -721,6 +1054,7 @@ class MainActivity : Activity() {
         if (aiBusy) LocalEngine.requestCancel()
         maybeSaveCurrent()
         messages.clear()
+        sessionBaseSeq = 0
         chatBox.removeAllViews()
         currentSaved = true
         currentSessionId = null
@@ -735,7 +1069,15 @@ class MainActivity : Activity() {
         // AI 正在输出时切会话: 先取消引擎, 防止其把未完成的回复写进新会话历史
         if (aiBusy) LocalEngine.requestCancel()
         maybeSaveCurrent()
-        val msgs = db.loadSessionMessages(id)
+        // 超长会话内存瘦身: 消息数 > MEM_WINDOW 时仅载入最近窗口(更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担)
+        val total = db.countSessionMessages(id)
+        val msgs = if (total > MEM_WINDOW) {
+            sessionBaseSeq = total - MEM_WINDOW
+            db.loadSessionMessagesTail(id, MEM_WINDOW)
+        } else {
+            sessionBaseSeq = 0
+            db.loadSessionMessages(id)
+        }
         if (msgs.isEmpty()) {
             Toast.makeText(this, "该会话没有消息", Toast.LENGTH_SHORT).show()
             return
@@ -746,20 +1088,23 @@ class MainActivity : Activity() {
         currentSessionId = id
         currentSessionTitle = db.sessionTitleOf(id)
         chatBox.removeAllViews()
+        if (sessionBaseSeq > 0) {
+            appendSys("该会话历史较长，仅展示最近 $MEM_WINDOW 条消息；更早内容保留在会话中，可用搜索定位。")
+        }
         msgs.forEachIndexed { i, m ->
             val v = when {
-                m.role == "user" -> bubble(m.content, true)
-                m.thinking.isNotBlank() -> aiBubbleWithThinking(m.thinking, m.content, m.tools)
-                else -> bubble(m.content, false)
+                m.role == "user" -> chatWrap(bubble(m.content, true), true)
+                m.thinking.isNotBlank() -> aiBubbleWithThinking(m.thinking, m.content, m.tools, m.timeline)
+                else -> chatWrap(bubble(m.content, false), false)
             }
-            // 按 seq 打 tag, 供搜索结果点击后精准定位滚动
-            v.tag = i
+            // 按 DB 全局 seq 打 tag(窗口化时 tag=baseSeq+i), 供搜索命中后精准定位滚动
+            v.tag = sessionBaseSeq + i
             chatBox.addView(v)
         }
         if (locateSeq != null) {
             // 定位到命中消息, 短暂高亮提示
             scroll.post {
-                val target = chatBox.getChildAt(locateSeq)
+                val target = chatBox.getChildAt(locateSeq - sessionBaseSeq)
                 if (target != null) {
                     val top = target.top - scroll.height / 3
                     scroll.smoothScrollTo(0, top.coerceAtLeast(0))
@@ -767,6 +1112,31 @@ class MainActivity : Activity() {
                     target.animate().alpha(0.25f).setDuration(180).withEndAction {
                         target.animate().alpha(orig).setDuration(500).start()
                     }.start()
+                } else if (locateSeq < sessionBaseSeq) {
+                    Toast.makeText(this, "命中消息在窗口外更早历史中，已自动加载完整会话定位", Toast.LENGTH_LONG).show()
+                    // 窗口外命中: 临时全量加载该会话(仅本次, 定位后恢复窗口) —— 直接回退到旧行为一次
+                    chatBox.removeAllViews()
+                    sessionBaseSeq = 0
+                    val full = db.loadSessionMessages(id)
+                    messages.clear(); messages.addAll(full)
+                    full.forEachIndexed { i, m ->
+                        val v = when {
+                            m.role == "user" -> chatWrap(bubble(m.content, true), true)
+                            m.thinking.isNotBlank() -> aiBubbleWithThinking(m.thinking, m.content, m.tools, m.timeline)
+                            else -> chatWrap(bubble(m.content, false), false)
+                        }
+                        v.tag = i
+                        chatBox.addView(v)
+                    }
+                    val t2 = chatBox.getChildAt(locateSeq)
+                    if (t2 != null) {
+                        val top = t2.top - scroll.height / 3
+                        scroll.smoothScrollTo(0, top.coerceAtLeast(0))
+                        val orig = t2.alpha
+                        t2.animate().alpha(0.25f).setDuration(180).withEndAction {
+                            t2.animate().alpha(orig).setDuration(500).start()
+                        }.start()
+                    }
                 }
             }
         } else {
@@ -776,15 +1146,36 @@ class MainActivity : Activity() {
         closeDrawer()
     }
 
+    /** 换头像后刷新当前会话旧气泡: 头像版本戳变化时按 messages 重建 chatBox, 保留滚动位置 */
+    private fun refreshChatAvatars() {
+        val stamp = AvatarConfig.avatarStamp()
+        if (stamp == lastAvatarStamp) return
+        lastAvatarStamp = stamp
+        // AI 正在输出时跳过, 避免打断流式渲染(其后的新气泡自然使用新头像)
+        if (aiBusy || messages.isEmpty() || !::chatBox.isInitialized) return
+        val y = scroll.scrollY
+        chatBox.removeAllViews()
+        messages.forEachIndexed { i, m ->
+            val v = when {
+                m.role == "user" -> chatWrap(bubble(m.content, true), true)
+                m.thinking.isNotBlank() -> aiBubbleWithThinking(m.thinking, m.content, m.tools, m.timeline)
+                else -> chatWrap(bubble(m.content, false), false)
+            }
+            v.tag = i
+            chatBox.addView(v)
+        }
+        scroll.post { scroll.scrollTo(0, y) }
+    }
+
     private fun maybeSaveCurrent() {
         if (!currentSaved && messages.isNotEmpty()) {
             val title = messages.firstOrNull { it.role == "user" }?.content
                 ?.replace("\n", " ")?.take(20) ?: "未命名会话"
             val sid = currentSessionId
             if (sid != null) {
-                db.updateSession(sid, title, messages)
+                db.updateSession(sid, title, messages, ModeConfig.modeValue(), sessionBaseSeq)
             } else {
-                currentSessionId = db.saveSession(title, messages)
+                currentSessionId = db.saveSession(title, messages, ModeConfig.modeValue())
             }
             currentSessionTitle = title
             currentSaved = true
@@ -793,7 +1184,7 @@ class MainActivity : Activity() {
 
     internal fun refreshSessionList() {
         sessionList.removeAllViews()
-        val list = db.listSessions(20)
+        val list = db.listSessions(20, ModeConfig.modeValue())
         if (list.isEmpty()) {
             sessionList.addView(TextView(this).apply {
                 text = "暂无历史会话\n新对话会自动保存到这里"
@@ -901,33 +1292,11 @@ class MainActivity : Activity() {
         TokenStore.currentSessionId = currentSessionId
         // 发起新请求前清掉可能残留的取消标记(如切会话时 requestCancel 但引擎未在跑)
         LocalEngine.cancelRequested = false
+        // 立即占住 AI 忙碌态: 附件路径走后台异步, 若不提前置位, 用户快速连发时第二个请求会穿透检查
+        aiBusy = true
         LogStore.i(LogStore.MAIN, "发送消息 len=${text.length} 附件=${attachments.size} 会话=$currentSessionId")
-        // 显示文本: 附件落盘持久化(私有目录)后转可点击占位标记, 无文本时仅显示附件标记
-        // 显示气泡: 附件与文字拆成两条独立气泡(图片/附件一条, 说明文字一条), 无文字时仅一条附件气泡
-        val dispList = if (attachments.isEmpty()) listOf(text) else {
-            // PDF 扫描件页图(pdfSourceName 非空)仅作发送附件, 不参与气泡显示, 避免多图网格"一通到底"
-            val showAtts = attachments.filter { it.pdfSourceName == null }
-            val marks = showAtts.map { a ->
-                val fileName = try {
-                    AttachmentStore.save(this, a.name, a.mime, Base64.decode(a.base64, Base64.NO_WRAP))
-                } catch (e: Exception) {
-                    null
-                }
-                val link = if (fileName != null) "(att://$fileName)" else ""
-                when {
-                    a.mime.startsWith("image/") -> "[图片]$link"
-                    a.isVoice -> "[音频]$link"                       // 本地录音: 保留语音气泡形态
-                    a.mime.startsWith("audio/") -> "[文件:${a.name}]$link"  // 上传音频文件: 按文件卡片展示
-                    a.mime.startsWith("video/") -> "[视频:${a.name}]$link"
-                    else -> "[文件:${a.name}]$link"
-                }
-            }
-            // 每个附件独立成一张卡片气泡(含纯图片多图: 已废弃 3 列网格合并)
-            val bubbles = marks
-            if (text.isEmpty()) bubbles else bubbles + listOf(text)
-        }
+        // 前置轻量 UI 清理: 清空输入与附件预览(与耗时逻辑无关, 先做保证手感)
         input.setText("")
-        // 发送完成: 清空附件预览条与待发列表
         pendingAttachments.clear()
         attachPreviewRow.removeAllViews()
         attachPreviewWrap.visibility = View.GONE
@@ -940,9 +1309,66 @@ class MainActivity : Activity() {
                 imm?.showSoftInput(input, 0)
             }
         }
+        // 前台服务+通知保活: 尽早启动(主线程此刻最空闲), 避免后续附件落盘/历史构建等重活
+        // 阻塞主线程导致 startForegroundService 后约5s内未 startForeground, 触发
+        // ForegroundServiceDidNotStartInTimeException 闪退; Android 13+ 先请求通知权限
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
+        }
+        try {
+            TaskService.start(this)
+        } catch (e: Exception) {
+            LogStore.e(LogStore.MAIN, "前台服务启动失败: ${e.message}")
+        }
+        // 附件落盘持久化(私有目录)移入后台线程: Base64 解码+写盘在大文件下很耗时,
+        // 若留在主线程会阻塞 Service 的 startForeground 处理, 是闪退主因之一
+        val doSave = {
+            // 显示文本: 附件落盘后转可点击占位标记, 无文本时仅显示附件标记
+            // 显示气泡: 附件与文字拆成两条独立气泡(图片/附件一条, 说明文字一条), 无文字时仅一条附件气泡
+            val dispList = if (attachments.isEmpty()) listOf(text) else {
+                // PDF 扫描件页图(pdfSourceName 非空)仅作发送附件, 不参与气泡显示, 避免多图网格"一通到底"
+                val showAtts = attachments.filter { it.pdfSourceName == null }
+                val marks = showAtts.map { a ->
+                    val fileName = try {
+                        AttachmentStore.save(this@MainActivity, a.name, a.mime, Base64.decode(a.base64, Base64.NO_WRAP))
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val link = if (fileName != null) "(att://$fileName)" else ""
+                    when {
+                        a.mime.startsWith("image/") -> "[图片]$link"
+                        a.isVoice -> "[音频]$link"                       // 本地录音: 保留语音气泡形态
+                        a.mime.startsWith("audio/") -> "[文件:${a.name}]$link"  // 上传音频文件: 按文件卡片展示
+                        a.mime.startsWith("video/") -> "[视频:${a.name}]$link"
+                        else -> "[文件:${a.name}]$link"
+                    }
+                }
+                // 每个附件独立成一张卡片气泡(含纯图片多图: 已废弃 3 列网格合并)
+                val bubbles = marks
+                if (text.isEmpty()) bubbles else bubbles + listOf(text)
+            }
+            dispList
+        }
+        // 无附件: 直接主线程走完; 有附件: 后台线程落盘后回主线程继续, 避免大附件阻塞主线程
+        if (attachments.isEmpty()) {
+            continueSend(text, listOf(text), attachments)
+        } else {
+            executor.execute {
+                val dispList = doSave()
+                runOnUiThread { continueSend(text, dispList, attachments) }
+            }
+        }
+    }
+
+    /**
+     * doSend 的后半段: 渲染气泡 + 落库 + 构建历史 + 发起 AI 请求。
+     * 拆出来以支持"附件后台落盘后回主线程继续"这一流程。
+     */
+    private fun continueSend(text: String, dispList: List<String>, attachments: List<LocalEngine.Attachment>) {
         for (d in dispList) {
             appendUser(d)
-            messages.add(MemoryDb.SessionMsg("user", d, "", ""))
+            messages.add(MemoryDb.SessionMsg("user", d, "", "", "", System.currentTimeMillis()))
             MemoryKeeper.push("user", d)
         }
         currentSaved = false
@@ -950,8 +1376,25 @@ class MainActivity : Activity() {
         maybeSaveCurrent()
 
         // 文档类附件本地解析文本: 全部注入 history(而非仅第一个), 模型据此理解文档内容
-        val docTexts = attachments.filter { !it.text.isNullOrBlank() }
-            .joinToString("\n") { "[附件 ${it.name} 本地解析文本内容]\n${it.text}" }
+        // 防炸: 单附件截断到 MAX_ATTACH_TEXT, 全部附件累计截断到 MAX_DOC_TOTAL
+        val docParts = ArrayList<String>()
+        var docTotal = 0
+        for (a in attachments) {
+            val t = a.text ?: ""
+            if (t.isBlank()) continue
+            val part = if (t.length > MAX_ATTACH_TEXT) {
+                "[附件 ${a.name} 本地解析文本(已截断, 原件${t.length}字符)]\n${t.take(MAX_ATTACH_TEXT)}"
+            } else {
+                "[附件 ${a.name} 本地解析文本]\n$t"
+            }
+            if (docTotal + part.length > MAX_DOC_TOTAL) {
+                docParts.add("[附件及其他] (已超总量上限, 其余内容跳过)")
+                break
+            }
+            docTotal += part.length
+            docParts.add(part)
+        }
+        val docTexts = docParts.joinToString("\n")
         val history = if (docTexts.isBlank()) buildHistory() else buildHistory() + "\n$docTexts\n"
         aiBusy = true
         replySessionId = currentSessionId  // 快照: 回调回来时若已切会话, 拒绝写入
@@ -960,12 +1403,6 @@ class MainActivity : Activity() {
         stopBtn.isEnabled = true
         stopBtn.text = "停止"
         startStopSpin()
-        // 前台服务+通知保活: 任务期间防止进程被回收; Android 13+ 先请求通知权限
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
-        }
-        TaskService.start(this)
         executor.execute {
             val holder = AiBubbleHolder()
             runOnUiThread {
@@ -976,16 +1413,23 @@ class MainActivity : Activity() {
             LocalEngine.chat(this@MainActivity, history, object : LocalEngine.Callback {
                 override fun onThinkingStart() {
                     LogStore.i(LogStore.MAIN, "开始思考")
+                    AITerminal.push("thinking", "开始思考…")
+                    debugSseSink?.invoke("thinking_start", "")
                     runOnUiThread { holder.showThinking("思考中: ") }
                 }
                 override fun onThinkingDelta(text: String) {
+                    debugSseSink?.invoke("thinking", text)
                     runOnUiThread { holder.appendThinking(text); scrollToBottom() }
                 }
                 override fun onThinkingEnd() {
+                    AITerminal.push("thinking", "思考结束，进入作答")
+                    debugSseSink?.invoke("thinking_end", "")
                     runOnUiThread { holder.collapseThinking() }
                 }
                 override fun onTool(name: String, arg: String) {
                     LogStore.i(LogStore.MAIN, "调用工具: $name")
+                    AITerminal.push("tool", "$name $arg")
+                    debugSseSink?.invoke("tool", "$name|$arg")
                     runOnUiThread {
                         holder.showTool(name, arg)
                         // 进入工具调用即表示本段思考已结束: 折叠思考区, 避免一直停在"思考中"
@@ -995,18 +1439,24 @@ class MainActivity : Activity() {
                 }
                 override fun onToolResult(name: String, result: String) {
                     LogStore.i(LogStore.MAIN, "工具结果: $name")
+                    AITerminal.push("tool_result", "$name → ${result.trim()}")
+                    debugSseSink?.invoke("tool_result", "$name|$result")
                     runOnUiThread { holder.setToolResult(name, result) }
                 }
                 override fun onDelta(text: String) {
                     android.util.Log.i("DroidAgent", "onDelta=[$text]")
+                    AITerminal.push("delta", text)
+                    debugSseSink?.invoke("delta", text)
                     runOnUiThread { holder.appendContent(text); scrollToBottom() }
                 }
                 override fun onDone(reply: String) {
                     android.util.Log.i("DroidAgent", "onDone len=${reply.length}")
                     if (LocalEngine.cancelRequested) {
                         LogStore.w(LogStore.MAIN, "用户停止输出")
+                        AITerminal.push("stop", "已停止")
                     } else {
                         LogStore.i(LogStore.MAIN, "回复完成 len=${reply.length} 会话=$replySessionId")
+                        AITerminal.push("done", "回复完成 len=${reply.length}")
                     }
                     runOnUiThread {
                         if (LocalEngine.cancelRequested) {
@@ -1017,7 +1467,7 @@ class MainActivity : Activity() {
                             // 思考内容随回复一起持久化, 切回会话可恢复思考区
                             // 竞态防护: 回调排队期间用户可能已切会话, 不能把回复写进新会话历史
                             if (replySessionId == currentSessionId) {
-                                messages.add(MemoryDb.SessionMsg("assistant", reply, holder.thinkingSnapshot(), holder.toolsSnapshot()))
+                                messages.add(MemoryDb.SessionMsg("assistant", reply, holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot(), System.currentTimeMillis()))
                                 MemoryKeeper.push("assistant", reply)
                                 currentSaved = false
                                 // 回复完成即时落库, 防止进程被杀丢失最后一条回复
@@ -1034,9 +1484,12 @@ class MainActivity : Activity() {
                         stopSpinAnim?.cancel()
                         scrollToBottom()
                     }
+                    debugSseSink?.invoke("done", reply)
+                    debugChatDone?.invoke()
                 }
                 override fun onError(msg: String) {
                     LogStore.e(LogStore.MAIN, "错误: $msg")
+                    AITerminal.push("error", msg)
                     runOnUiThread {
                         holder.showError("出错了: $msg")
                         LocalEngine.cancelRequested = false
@@ -1047,18 +1500,43 @@ class MainActivity : Activity() {
                         stopSpinAnim?.cancel()
                         scrollToBottom()
                     }
+                    debugSseSink?.invoke("error", msg)
+                    debugChatDone?.invoke()
                 }
             }, attachments)
         }
     }
 
-    /** 中期摘要(每次实时读库, 辅助AI后台可能已更新) + 短期最近 KEEP 条 */
+    /**
+     * 调试服务入口: 由 DebugServer(/v1/chat) 调用, 走与真实发送一致的完整链路
+     * (渲染气泡 -> 落库 -> 构建历史 -> LocalEngine 工具循环 -> SSE 事件转发)。
+     * 必须在主线程调用。返回 false 表示 AI 正忙, 请求被拒绝。
+     */
+    internal fun submitDebugChat(text: String, onDone: () -> Unit): Boolean {
+        if (aiBusy) return false
+        debugChatDone = onDone
+        TokenStore.currentSessionId = currentSessionId
+        LocalEngine.cancelRequested = false
+        aiBusy = true
+        continueSend(text, listOf(text), emptyList())
+        return true
+    }
+
+    /** 中期摘要(每次实时读库, 辅助AI后台可能已更新) + 短期最近 KEEP 条; 每条消息携带时间戳(如 user[23:05]: ...)让模型建立时间观念 */
     private fun buildHistory(): String {
         summary = db.loadSummary() ?: summary
         val sb = StringBuilder()
+        // 首轮/无历史时也提供时间锚点, 让模型始终有时间观念
+        sb.append("[当前时间]\n")
+            .append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date()))
+            .append("\n\n")
         summary?.let { sb.append("[历史摘要]\n$it\n\n") }
         val recent = messages.takeLast(KEEP)
-        sb.append(recent.joinToString("\n") { (r, c) -> "$r: $c" })
+        sb.append(recent.joinToString("\n") { m ->
+            val c = if (m.content.length > MAX_MSG_HISTORY) m.content.take(MAX_MSG_HISTORY) + "\n…[该消息过长已截断]" else m.content
+            val t = MemoryDb.fmtTs(m.ts)
+            if (t.isEmpty()) "${m.role}: $c" else "${m.role}[$t]: $c"
+        })
         // 注意: 不再原地截断 messages —— 否则 onStop 保存时会把被截断的列表写回数据库, 造成旧消息永久丢失。
         // 历史裁剪交给 buildHistory 的 takeLast 窗口即可, 完整历史始终保留在 messages/数据库里。
         return sb.toString()
@@ -1079,7 +1557,7 @@ class MainActivity : Activity() {
     }
 
     private fun appendUser(content: String) {
-        val v = bubble(content, isUser = true)
+        val v = chatWrap(bubble(content, isUser = true), true)
         chatBox.addView(v)
         enterBubble(v)
         scrollToBottom()
@@ -1099,7 +1577,11 @@ class MainActivity : Activity() {
 
     /** 生成一条消息气泡 View (用户右深色 / AI 左浅色) */
     private fun bubble(content: String, isUser: Boolean): View {
-        val maxW = (resources.displayMetrics.widthPixels * 0.78f).toInt()
+        val maxW = chatMaxW()
+        // 接收端气泡循环播放管线: 纯视频单附件消息 -> 气泡内嵌 PlayerView 自动循环播放(动图/多帧媒体
+        // 播放完一次自动重播 loop), 对齐微信"大动图循环视频"; 非纯视频/异常回退原缩略图渲染
+        val loopView = try { videoLoopBubble(content, isUser, maxW) } catch (e: Exception) { null }
+        if (loopView != null) return loopView
         // 纯图片附件消息: 贴边不留白; 纯文件/上传音频保留正常内边距(文件卡片角标+文件名需留白)
         val pureImage = isUser && content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
             content.contains("[图片]")
@@ -1116,7 +1598,15 @@ class MainActivity : Activity() {
             if (isUser) {
                 text = renderUserContent(content)
                 movementMethod = LinkMovementMethod.getInstance()
-            } else markwon.setMarkdown(this, content.trim())
+                // 视频缩略图异步就绪后重建本气泡文本以显示画面缩略图(原: 系统栈取帧失败→ 仅文件卡片)
+                val vkN = Regex("""\[视频:[^\]]+\]\(att://([^)]+)\)""").find(content)?.groupValues?.get(1)
+                if (vkN != null && isThumbPending(vkN)) {
+                    registerThumbRefresh(vkN) {
+                        try { text = renderUserContent(content) } catch (_: Throwable) {}
+                    }
+                }
+            } else if (ModeConfig.chatMode()) text = content.trim()
+            else markwon.setMarkdown(this, content.trim())
             textSize = 15f
             val edgeImage = pureImage || pureVideo
             setLineSpacing(if (edgeImage) 0f else dp(3).toFloat(), 1f)
@@ -1157,6 +1647,72 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * 接收端气泡循环播放管线: 纯视频单附件消息 气泡内嵌 PlayerView 自动循环播放。
+     * 动图/多帧媒体 播放完一次后自动重播(loop), 对齐微信"大动图循环视频" — 发送后接收端气泡内自己动。
+     * v1.3 已启用回退保护: 仅当消息为"纯单视频无其他文本"、文件未损坏且尺寸合理时内嵌; 否则返回 null 走原缩略图渲染。
+     */
+    private fun videoLoopBubble(content: String, isUser: Boolean, maxW: Int): View? {
+        if (!isUser) return null
+        // 仅纯视频附件消息: 去掉附件占位后无其余文本, 且不足两个附件
+        val re = Regex("""\[[^\]]+\]\(att://([^)]+)\)""")
+        val marks = Regex("""\[[^\]]+\]\(att://[^)]+\)""").findAll(content).toList()
+        if (marks.size != 1) return null
+        if (content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isNotEmpty()) return null
+        if (!marks[0].value.startsWith("[视频:")) return null
+        val file = re.find(content)?.groupValues?.get(1) ?: return null
+        val f = AttachmentStore.fileOf(this, file)
+        if (f == null || !f.exists() || f.length() <= 0L) return null
+        // 超大视频/前端直传长视频不内嵌(解码耗电), 走原缩略图+点击进弹窗(弹窗内已 loop)
+        if (f.length() > 60L * 1024 * 1024) return null
+        if (!AttachmentStore.mimeOf(file).startsWith("video/")) return null
+        // 内嵌尺寸: 优先"立即可用"的首帧缩略图宽高(与纯视频缩略图一致), 兜底 16:9 估算; 不超过气泡 maxW 与屏高上限。
+        // 关键: 必须 allowGrab=false —— 本气泡已内嵌真实循环播放器, 不需要抓帧缩略图; 若临时取不到缩略图,
+        // 绝不触发全屏 ExoPlayer 抓帧(系统取帧失败的转发视频/GIF 转码片走该兜底时, 会在真机全屏闪放视频、
+        // 抢占合成层与硬件解码器, 把正在循环播放的气泡渲染顶掉, 表现为 Gif/视频气泡黑块或整体消失, 即本故障根因)
+        val tb = decodeVideoThumbnail(f, resources.displayMetrics.density, this, allowGrab = false)
+        val dims = if (tb != null) null else videoDimensionsFast(f)
+        var w = tb?.width ?: dims?.first ?: 0
+        var h = tb?.height ?: dims?.second ?: 0
+        if (w <= 0 || h <= 0) { w = dp(200); h = (w * 9 / 16).coerceAtLeast(dp(60)) }  // 兜底 16:9
+        val maxH = dp(340)
+        if (w > maxW || h > maxH) {
+            val scale = minOf(maxW.toFloat() / w, maxH.toFloat() / h, 1f)
+            w = (w * scale).toInt().coerceAtLeast(dp(80))
+            h = (h * scale).toInt().coerceAtLeast(dp(60))
+        }
+        val exo = ExoPlayer.Builder(this@MainActivity).build()
+        exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
+        // 循环播放: 播放完一次自动重播(loop), 静音自动播放(与动图无声语义一致), 点击气泡进全屏弹窗
+        exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
+        exo.volume = 0f
+        exo.prepare()
+        val pv = PlayerView(this).apply {
+            this.player = exo
+            useController = false
+            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER)
+        }
+        val frame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(w, h).apply {
+                topMargin = dp(6)
+                gravity = if (isUser) Gravity.END else Gravity.START
+            }
+            addView(pv)
+            // 点击整块进全屏弹窗预览(弹窗内同样循环播放)
+            setOnClickListener { openAttachmentPreview(listOf(file), 0) }
+            // 生命周期: 视图从窗口 detach(会话重建/滚动回收)即释放播放器, 防止内存/解码泄漏
+            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) {
+                    try { exo.play() } catch (_: Exception) {}
+                }
+                override fun onViewDetachedFromWindow(v: View) {
+                    try { exo.release() } catch (_: Exception) {}
+                }
+            })
+        }
+        return frame
+    }
+
     /** 用户气泡渲染: [图片](att://file) 直接内嵌缩略图(点击打开原图); 其他附件保持蓝色链接, 其余文本原样 */
     private fun renderUserContent(content: String): CharSequence {
         val sb = SpannableStringBuilder(content)
@@ -1177,7 +1733,7 @@ class MainActivity : Activity() {
                     decodeAttachmentBitmap(f, resources.displayMetrics.density) else null
                 // 视频: 取首帧缩略图+播放三角, 像图片一样内嵌气泡; 取帧失败回退文件卡片
                 val vtb = if (f != null && mime.startsWith("video/"))
-                    decodeVideoThumbnail(f, resources.displayMetrics.density) else null
+                    decodeVideoThumbnail(f, resources.displayMetrics.density, this) else null
                 android.util.Log.i("DroidAgent", "renderAtt file=$file mime=$mime exists=${f != null} bmp=${bmp != null} vtb=${vtb != null}")
                 if (bmp != null) {
                     // 图片: 圆角化贴合气泡贴边, 替换为缩略图, 同时保留点击打开原图
@@ -1322,7 +1878,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
-        val videoViews = arrayOfNulls<VideoView>(media.size)
+        val videoViews = arrayOfNulls<PlayerView>(media.size)
         media.forEachIndexed { i, file ->
             val page = FrameLayout(this).apply {
                 layoutParams = LinearLayout.LayoutParams(contentW, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -1387,20 +1943,27 @@ class MainActivity : Activity() {
                 iv.setOnTouchListener { _, ev -> gd.onTouchEvent(ev); true }
                 page.addView(iv)
             } else {
-                val vv = VideoView(this).apply {
+                // 视频内核改用 Media3 ExoPlayer: 自带纯 Java 实现的 MP4 Extractor, 绕开系统 MediaPlayer/MediaExtractor
+                // 栈对特定转发视频(社交平台转存/含特殊字符/容器非标准)的拒绝(No content provider / instantiate extractor 失败)
+                val pv = PlayerView(this).apply {
                     layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER).apply {
                         bottomMargin = dp(8)   // 底部留白收窄, 播放控件悬浮于视频画面内, 不遮底部圆角
                     }
+                    useController = true
                 }
                 val f = AttachmentStore.fileOf(this, file)
-                if (f != null) vv.setVideoPath(f.absolutePath)
-                // MediaController 锚定视频底边, 通过底部内边距把控制条上推, 悬浮在视频画面内不遮圆角
-                val mc = MediaController(this).apply {
-                    setPadding(0, 0, 0, dp(40))
+                if (f != null) {
+                    val exo = ExoPlayer.Builder(this@MainActivity).build()
+                    exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
+                    // 接收端气泡循环播放管线: 预览弹窗内视频/动图 播放完一次自动重播(loop), 对齐微信大动图
+                    exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
+                    exo.prepare()
+                    exo.playWhenReady = true
+                    pv.player = exo
+                    pv.setBackgroundColor(Color.BLACK)
                 }
-                vv.setMediaController(mc)
-                videoViews[i] = vv
-                page.addView(vv)
+                videoViews[i] = pv
+                page.addView(pv)
             }
             strip.addView(page)
         }
@@ -1452,11 +2015,13 @@ class MainActivity : Activity() {
         fun onPageChanged(page: Int) {
             indicator.text = "${page + 1}/${media.size}"
             media.forEachIndexed { i, fn ->
-                val vv = videoViews[i] ?: return@forEachIndexed
+                val pv = videoViews[i] ?: return@forEachIndexed
                 if (i == page) {
-                    if (!vv.isPlaying) { try { vv.start() } catch (_: Exception) {} }
+                    val p = pv.player
+                    if (p != null && !p.isPlaying) { try { p.play() } catch (_: Exception) {} }
                 } else {
-                    if (vv.isPlaying) vv.stopPlayback()
+                    val p = pv.player
+                    if (p != null && p.isPlaying) { try { p.pause() } catch (_: Exception) {} }
                 }
             }
         }
@@ -1473,7 +2038,7 @@ class MainActivity : Activity() {
             }
             false
         }
-        d.setOnDismissListener { media.forEachIndexed { i, _ -> videoViews[i]?.stopPlayback() } }
+        d.setOnDismissListener { media.forEachIndexed { i, _ -> videoViews[i]?.player?.release() } }
 
         hsv.post {
             hsv.scrollTo(startIndex * contentW, 0)
@@ -1833,17 +2398,161 @@ class MainActivity : Activity() {
         } catch (e: Exception) { null }
     }
 
-    /** 从会话历史恢复的 AI 气泡: 思考折叠区(可点开) + 工具行(可点开) + 正文 */
-    private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = ""): LinearLayout {
-        val maxW = (resources.displayMetrics.widthPixels * 0.78f).toInt()
-        var expanded = false
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = rounded(dp(14), BUBBLE_AI)
+    /** 从会话历史恢复的 AI 回复: 思考/工具/正文各自独立气泡, 按 timeline 记录的真实顺序竖向排列 */
+    /** AI 头像: 圆形深灰蓝底 + 当前供应商首字符, 放气泡上方(与 MD 排版解耦) */
+    private fun aiAvatar(): TextView = TextView(this@MainActivity).apply {
+        val s = dp(30)
+        val custom = AvatarConfig.avatarDrawable(AvatarConfig.aiAvatarFile(), s)
+        if (custom != null) {
+            background = custom
+        } else {
+            val label = ApiConfig.providerLabel(ApiConfig.providerId())
+            text = (label.take(1).ifBlank { "A" }).uppercase()
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#5A6478"))
+            }
+        }
+        layoutParams = LinearLayout.LayoutParams(s, s).apply {
+            bottomMargin = dp(4)
+        }
+    }
+
+    /** 用户头像: 圆形蓝底"我", 聊天模式用户消息右侧并排 */
+    private fun userAvatar(): TextView = TextView(this@MainActivity).apply {
+        val s = dp(30)
+        val custom = AvatarConfig.avatarDrawable(AvatarConfig.userAvatarFile(), s)
+        if (custom != null) {
+            background = custom
+        } else {
+            text = "我"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#4A90D9"))
+            }
+        }
+        layoutParams = LinearLayout.LayoutParams(s, s)
+    }
+
+    /** 聊天模式: 气泡与头像并排(AI头像左/用户头像右); Agent 模式原样返回 */
+    private fun chatWrap(content: View, isUser: Boolean): View {
+        if (!ModeConfig.chatMode()) return content
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            // 禁用 baseline 对齐: 气泡与头像均为 TextView, 默认会按文字基线对齐,
+            // 导致无文本头像被下推, 短气泡时头像底部超出行边界被裁剪(下边缺角)
+            isBaselineAligned = false
+            gravity = if (isUser) Gravity.END else Gravity.START
+            val lp = content.layoutParams as? LinearLayout.LayoutParams
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                // 自适应: 与流式输出路径一致, 内容短则收窄, 最长由子 view maxWidth 限制(屏幕宽*0.78)
+                gravity = if (isUser) Gravity.END else Gravity.START
+                topMargin = lp?.topMargin ?: dp(6)
+                bottomMargin = lp?.bottomMargin ?: 0
+            }
+        }
+        val lp = content.layoutParams as? LinearLayout.LayoutParams
+        val cw = lp?.width ?: ViewGroup.LayoutParams.WRAP_CONTENT
+        // 保留内容的显式高度(如 videoLoopBubble 算出的视频框高 568px):
+        // 若改成 WRAP_CONTENT, PlayerView(MATCH_PARENT) 在 WRAP_CONTENT 下无固有高度 → 塌缩成 1px, 气泡整体不可见
+        val ch = lp?.height ?: ViewGroup.LayoutParams.WRAP_CONTENT
+        if (isUser) {
+            row.addView(content, LinearLayout.LayoutParams(cw, ch).apply {
+                rightMargin = dp(8)
+            })
+            row.addView(userAvatar(), LinearLayout.LayoutParams(dp(40), dp(40)))
+        } else {
+            row.addView(aiAvatar(), LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                rightMargin = dp(8)
+            })
+            row.addView(content, LinearLayout.LayoutParams(cw, ch))
+        }
+        return row
+    }
+
+    private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = ""): LinearLayout {
+        val maxW = chatMaxW()
+        // 思考折叠气泡(独立一行, 点击展开全文) —— 与流式 ThinkingBlock 一致
+        fun thinkingRow(text: String): TextView = TextView(this@MainActivity).apply {
+            var localExpanded = false
+            val count = text.codePointCount(0, text.length)
+            this.text = "💭 已思考${count}字，点按展开"
+            textSize = 14f
+            setTextColor(THINK_TEXT)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = rounded(dp(10), THINK_BG)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(4)
+            }
+            maxWidth = maxW
+            setOnClickListener {
+                localExpanded = !localExpanded
+                this.text = if (localExpanded) "💭 $text" else "💭 已思考${count}字，点按展开"
+            }
+            // 交互行不启用 textIsSelectable, 保证首次点击即展开(否则被选择机制吞掉需点两次)
+        }
+        // 工具折叠气泡(一次工具调用独立一行, 点击展开参数与结果) —— 与流式 ToolBlock 一致
+        fun toolRow(name: String, arg: String, result: String): TextView = TextView(this@MainActivity).apply {
+            this.text = "🔧 工具：$name"
+            textSize = 14f
+            setTextColor(THINK_TEXT)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = rounded(dp(10), THINK_BG)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(4)
+            }
+            maxWidth = maxW
+            isClickable = true
+            var toolExpanded = false
+            setOnClickListener {
+                toolExpanded = !toolExpanded
+                this.text = buildString {
+                    append("🔧 工具：$name")
+                    if (toolExpanded) {
+                        if (arg.isNotBlank()) append("\n参数：$arg")
+                        if (result.isNotBlank()) append("\n结果：$result")
+                    }
+                }
+            }
+            // 交互行不启用 textIsSelectable, 保证首次点击即展开(否则被选择机制吞掉需点两次)
+        }
+        // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致
+        fun contentRow(): TextView = TextView(this@MainActivity).apply {
+            textSize = 15f
+            if (ModeConfig.chatMode()) {
+                text = content.trimEnd()
+            } else {
+                // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
+                markwon.setMarkdown(this, content)
+            }
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setTextColor(BUBBLE_AI_TEXT)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(dp(12), BUBBLE_AI)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(4)
+            }
+            maxWidth = maxW
+            makeCopyable(this) { content }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // Agent 模式不要头像(仅聊天模式并排头像); 聊天模式头像由 chatWrap 负责
+            // 独立气泡容器: 不包裹大气泡背景, 思考/工具/正文各自成气泡, 与流式 attach() 一致
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 width = ViewGroup.LayoutParams.WRAP_CONTENT
                 gravity = Gravity.START
                 topMargin = dp(6)
@@ -1856,66 +2565,29 @@ class MainActivity : Activity() {
                 }
                 minimumWidth = (tp.measureText("💭 已思考 1000 字，点按展开") + dp(48)).toInt()
             }
-            addView(TextView(this@MainActivity).apply {
-                val count = thinking.codePointCount(0, thinking.length)
-                text = "💭 已思考${count}字，点按展开"
-                textSize = 14f
-                setTextColor(THINK_TEXT)
-                setPadding(dp(10), dp(8), dp(10), dp(8))
-                background = rounded(dp(10), THINK_BG)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(4)
-                }
-                setOnClickListener {
-                    expanded = !expanded
-                    text = if (expanded) "💭 $thinking" else "💭 已思考${count}字，点按展开"
-                }
-                makeCopyable(this) { thinking }
-            })
-            // 工具调用序列恢复: 每条折叠为一行"🔧 工具：name", 点击展开参数与结果(与流式 ToolBlock 一致)
-            parseTools(toolsJson).forEach { (name, arg, result) ->
-                val toolTv = TextView(this@MainActivity).apply {
-                    text = "🔧 工具：$name"
-                    textSize = 14f
-                    setTextColor(THINK_TEXT)
-                    setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC))
-                    setPadding(dp(10), dp(8), dp(10), dp(8))
-                    background = rounded(dp(10), THINK_BG)
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        topMargin = dp(4)
-                    }
-                    isClickable = true
-                    var toolExpanded = false
-                    setOnClickListener {
-                        toolExpanded = !toolExpanded
-                        text = buildString {
-                            append("🔧 工具：$name")
-                            if (toolExpanded) {
-                                if (arg.isNotBlank()) append("\n参数：$arg")
-                                if (result.isNotBlank()) append("\n结果：$result")
-                            }
-                        }
+            // 恢复渲染: 按交错时间线逐条渲染(v8, 思考/工具/正文保持真实交替顺序)
+            val timeline = parseTimeline(timelineJson)
+            var contentPlaced = false
+            if (timeline.isNotEmpty()) {
+                timeline.forEach { (type, thinkText, name, arg, result) ->
+                    when (type) {
+                        "think" -> addView(chatWrap(thinkingRow(thinkText), false))
+                        "tool" -> addView(chatWrap(toolRow(name, arg, result), false))
+                        "content" -> if (content.isNotBlank()) { addView(chatWrap(contentRow(), false)); contentPlaced = true }
                     }
                 }
-                makeCopyable(toolTv) { buildString {
-                    append("🔧 工具：$name")
-                    if (arg.isNotBlank()) append("\n参数：$arg")
-                    if (result.isNotBlank()) append("\n结果：$result")
-                } }
-                addView(toolTv)
+                // 兜底: timeline 无 content 事件但正文非空(旧数据), 追加末尾
+                if (!contentPlaced && content.isNotBlank()) addView(chatWrap(contentRow(), false))
+            } else {
+                // 旧数据回退: 无 timeline 时按历史行为 思考折叠区 + 全部工具行 + 正文
+                if (thinking.isNotBlank()) {
+                    addView(chatWrap(thinkingRow(thinking), false))
+                }
+                parseTools(toolsJson).forEach { (name, arg, result) ->
+                    addView(chatWrap(toolRow(name, arg, result), false))
+                }
+                if (content.isNotBlank()) addView(chatWrap(contentRow(), false))
             }
-            addView(TextView(this@MainActivity).apply {
-                // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                textSize = 15f
-                markwon.setMarkdown(this, content)
-                setLineSpacing(dp(3).toFloat(), 1f)
-                setTextColor(BUBBLE_AI_TEXT)
-                setPadding(0, dp(4), 0, dp(2))
-                maxWidth = maxW
-                makeCopyable(this) { content }
-            })
         }
     }
 
@@ -1935,10 +2607,51 @@ class MainActivity : Activity() {
         } catch (e: Exception) { emptyList() }
     }
 
+    /** 解析交错时间线 JSON -> (type, text, arg, result) 列表; think 用 text, tool 用 name/arg/result */
+    private fun parseTimeline(json: String): List<Array<String>> {
+        if (json.isBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val type = o.optString("type", "")
+                arrayOf(
+                    type,
+                    o.optString("text", ""),
+                    o.optString("name", ""),
+                    o.optString("arg", ""),
+                    o.optString("result", "")
+                )
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    private var scrollPending = false
     private fun scrollToBottom() {
         // 不能用 fullScroll(FOCUS_DOWN): 它会把焦点交给滚动方向上第一个可聚焦子 view(气泡 setTextIsSelectable 后可聚焦),
         // 导致发送后焦点被气泡抢走、输入框失焦无法继续打字。改用 scrollTo 纯滚动不碰焦点。
-        scroll.post { scroll.scrollTo(0, scroll.getChildAt(0)?.bottom ?: 0) }
+        // 时序修正: setText 后立即 post 滚动会读到旧高度, 布局完成高度变化后再滚到新位置, 来回交错造成"变长又缩回"抖动;
+        // 改为布局完成后(OnGlobalLayout)再滚动, 一次到位; 同帧多次调用合并, 避免 post 堆积。
+        if (scrollPending) return
+        scrollPending = true
+        val v = scroll
+        v.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                v.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                scrollPending = false
+                v.scrollTo(0, v.getChildAt(0)?.bottom ?: 0)
+            }
+        })
+    }
+
+    /** 展开/收起气泡时保持当前阅读位置: 记录某 view 顶部相对视口的偏移, 布局变化后恢复滚动, 避免 ScrollView 内容高度骤变被 clamp 回底部 */
+    private fun keepReadingPosition(view: View) {
+        val relTop = view.top - scroll.scrollY   // 展开前该气泡顶部相对视口顶部偏移
+        scroll.post {
+            val child = scroll.getChildAt(0) ?: return@post
+            val maxY = (child.bottom - scroll.height).coerceAtLeast(0)
+            scroll.scrollTo(0, (view.top - relTop).coerceIn(0, maxY))
+        }
     }
 
     /** 气泡文本支持自由选择复制: 长按出现选择手柄, 可拖选部分文本; 顶部菜单含 全选/复制 */
@@ -2167,6 +2880,12 @@ class MainActivity : Activity() {
         if (requestCode == REQ_RECORD && grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "麦克风已授权, 请重新按住说话", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (requestCode == REQ_GUIDE_PERMS) {
+            // 首启引导: 运行时权限结果已回, 继续特殊权限设置页(用户拒了的也不再强制)
+            firstRunGuideState = 0
+            startNextSpecialPermission()
         }
     }
 
@@ -2231,6 +2950,9 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 调试服务随 Activity 销毁关闭, 并清引用避免泄漏
+        DebugServer.stop()
+        DebugServer.detach(this)
         audioPlayer?.release()
         audioPlayer = null
         if (audioRecord != null) {
@@ -2298,53 +3020,191 @@ class MainActivity : Activity() {
      *   (text 随 history 注入模型; 支持 PDF/MD/TXT/DOCX/XLSX/PPTX/ZIP/TAR/TGZ 等,
      *   提取不到或纯二进制文件则退回直发普通文件)
      */
+    /**
+     * 实况图(motion photo)抽取: HEIC 图片查 MediaStore 关联的 motion 视频 URI。
+     * 方案待办: 识别 HEIC 时查 MediaStore 关联 motion 视频 URI, 命中走 video 分支。
+     * 关联策略: ①同 _id(Android 实况图共用 id) ②RELATED_OWNER_ID(API 30+) ③同 DATA 路径名.mp4。
+     * 未命中/异常返回 null, 调用方回退原静态图片压缩。
+     */
+    private fun motionVideoUriOf(imgUri: Uri): Uri? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return try {
+            val cr = contentResolver
+            var imgId = -1L
+            var imgData: String? = null
+            cr.query(imgUri, arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATA
+            ), null, null, null)?.use { c ->
+                if (c.moveToFirst()) {
+                    imgId = c.getLong(0)
+                    imgData = if (c.getColumnIndex(MediaStore.Images.Media.DATA) >= 0) c.getString(1) else null
+                }
+            }
+            if (imgId < 0) return null
+            val videoUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            // ①同 _id
+            var vid = -1L
+            cr.query(videoUri, arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME),
+                "${MediaStore.Video.Media._ID} = ?", arrayOf(imgId.toString()), null)?.use { c ->
+                if (c.moveToFirst()) vid = c.getLong(0)
+            }
+            // from now on
+            // ②RELATED_OWNER_ID (API 30+; 常量在 MediaColumns, minSdk 编译不可引用, 用字符串列名)
+            if (vid < 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                cr.query(videoUri, arrayOf(MediaStore.Video.Media._ID),
+                    "related_owner_id = ?",
+                    arrayOf(imgId.toString()), null)?.use { c ->
+                    if (c.moveToFirst()) vid = c.getLong(0)
+                }
+            }
+            // ③同 DATA 路径名.mp4 (xxx.heic + xxx.mp4 成对); 局部拷贝避免闭包 smart-cast 报错
+            val imgDataPath = imgData
+            if (vid < 0 && imgDataPath != null && imgDataPath.isNotEmpty()) {
+                val base = imgDataPath.substringBeforeLast('.')
+                if (base.isNotEmpty()) {
+                    val esc = base.replace("'", "''")
+                    cr.query(videoUri, arrayOf(MediaStore.Video.Media._ID),
+                        "${MediaStore.Video.Media.DATA} LIKE ? AND ${MediaStore.Video.Media.MIME_TYPE} LIKE ?",
+                        arrayOf("$esc%.mp4", "video/%"), null)?.use { c ->
+                        if (c.moveToFirst()) vid = c.getLong(0)
+                    }
+                }
+            }
+            if (vid < 0) null else ContentUris.withAppendedId(videoUri, vid)
+        } catch (e: Exception) {
+            Log.w("DroidAgent", "motionVideoUriOf 查询失败", e)
+            null
+        }
+    }
+
+    /** 视频/实况图统一读取为 Attachment: 超限则本地压缩, 压缩失败返回 null(调用方决定回退/终止) */
+    private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHint: String): LocalEngine.Attachment? {
+        val raw = readAll(uri)
+        if (raw.size <= MAX_VIDEO_BYTES) {
+            return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
+        }
+        runOnUiThread { Toast.makeText(this@MainActivity, "${failHint}超过50MB，正在本地压缩...", Toast.LENGTH_SHORT).show() }
+        val out = File(cacheDir, "comp_${System.currentTimeMillis()}.mp4")
+        try {
+            VideoCompressor.compress(this@MainActivity, uri, out)
+        } catch (e: Exception) {
+            runOnUiThread { Toast.makeText(this@MainActivity, "${failHint}压缩失败: ${e.message}", Toast.LENGTH_SHORT).show() }
+            return null
+        }
+        val cb = out.readBytes()
+        out.delete()
+        if (cb.size > MAX_VIDEO_BYTES) {
+            runOnUiThread { Toast.makeText(this@MainActivity, "${failHint}压缩后仍超过50MB，暂不支持发送", Toast.LENGTH_SHORT).show() }
+            return null
+        }
+        return LocalEngine.Attachment("video/mp4", Base64.encodeToString(cb, Base64.NO_WRAP), name)
+    }
+
     private fun sendAttachmentFromUri(uri: Uri) {
         executor.execute {
             try {
                 val cr = contentResolver
                 val mime = cr.getType(uri) ?: "application/octet-stream"
                 val name = queryDisplayName(uri) ?: "attachment"
-                val isPdf = mime == "application/pdf" || name.lowercase().endsWith(".pdf")
+                val lowName = name.lowercase()
+                val isPdf = mime == "application/pdf" || lowName.endsWith(".pdf")
                 val isVideo = mime.startsWith("video/")
-                val atts: List<LocalEngine.Attachment> = when {
-                    mime.startsWith("image/") -> {
-                        val bytes = compressImage(uri)
-                        listOf(LocalEngine.Attachment(mime, Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+                // 魔数嗅探真实格式(解决"扩展名≠真实格式"): 仅读头部, 不动文件本体
+                val head = readHead(uri, 64)
+                val real = FormatSniffer.sniff(head, lowName)
+                val realType = real.substringBefore('/') // image/audio/video/text 或 empty/unknown
+                // 伪装/异常文件直接拒绝并提示真实情况
+                if (real == FormatSniffer.EMPTY) {
+                    runOnUiThread { Toast.makeText(this@MainActivity, "文件内容为空或损坏, 暂不支持发送", Toast.LENGTH_SHORT).show() }
+                    return@execute
+                }
+                val fakeMedia = real == FormatSniffer.TEXT &&
+                    (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))
+                if (fakeMedia) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "该文件实为文本内容, 并非真正的${if (mime.startsWith("image/")) "图片" else if (mime.startsWith("video/")) "视频" else "音频"}文件, 已拒绝发送", Toast.LENGTH_SHORT).show()
                     }
-                    isVideo -> {
-                        val raw = readAll(uri)
-                        if (raw.size <= MAX_VIDEO_BYTES) {
-                            listOf(LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name))
+                    return@execute
+                }
+                if (real == FormatSniffer.UNKNOWN &&
+                    (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))) {
+                    runOnUiThread { Toast.makeText(this@MainActivity, "无法识别该文件真实格式(可能已损坏或类型少见), 暂不支持发送", Toast.LENGTH_SHORT).show() }
+                    return@execute
+                }
+                val atts: List<LocalEngine.Attachment> = when {
+                    mime.startsWith("image/") || realType == "image" -> {
+                        // 实况图(LIVE photo): HEIC 查 MediaStore 关联 motion 视频, 命中即以视频发送(保留动态);
+                        // 未命中回退静态压缩; 压缩失败回退静态 JPEG, 绝不阻断发送
+                        if (real == FormatSniffer.IMAGE_HEIC) {
+                            val mv = motionVideoUriOf(uri)
+                            if (mv != null) {
+                                val vAtt = buildVideoAttachment(mv, "video/mp4",
+                                    name.replace(Regex("\\.heic$", RegexOption.IGNORE_CASE), ".mp4"),
+                                    "实况视频")
+                                if (vAtt != null) {
+                                    listOf(vAtt)
+                                } else {
+                                    val bytes = compressImage(uri)
+                                    listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+                                }
+                            } else {
+                                val bytes = compressImage(uri)
+                                listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+                            }
+                        } else if (real == FormatSniffer.IMAGE_GIF) {
+                            val mp4Att = try {
+                                val gifBytes = readAll(uri)
+                                if (gifBytes.size in 6..GIF_ANIM_MAX_BYTES && GifToMp4.isAnimated(gifBytes)) {
+                                    val f = File(cacheDir, "anim_${System.currentTimeMillis()}.mp4")
+                                    try {
+                                        val frames = GifToMp4.convert(gifBytes, f)
+                                        if (frames > 0 && f.length() in 1..MAX_VIDEO_BYTES.toLong()) {
+                                            val mp4 = f.readBytes()
+                                            f.delete()
+                                            listOf(LocalEngine.Attachment(
+                                                "video/mp4", Base64.encodeToString(mp4, Base64.NO_WRAP),
+                                                name.replace(Regex("\\.gif$", RegexOption.IGNORE_CASE), ".mp4")))
+                                        } else { f.delete(); null }
+                                    } catch (e: Exception) {
+                                        try { f.delete() } catch (_: Exception) {}
+                                        null
+                                    }
+                                } else null
+                            } catch (e: Exception) { null }
+                            if (mp4Att != null) mp4Att else {
+                                val bytes = compressImage(uri)
+                                // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
+                                listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+                            }
                         } else {
-                            runOnUiThread { Toast.makeText(this@MainActivity, "视频超过50MB，正在本地压缩...", Toast.LENGTH_SHORT).show() }
-                            val out = File(cacheDir, "comp_${System.currentTimeMillis()}.mp4")
-                            try {
-                                VideoCompressor.compress(this@MainActivity, uri, out)
-                            } catch (e: Exception) {
-                                runOnUiThread { Toast.makeText(this@MainActivity, "视频压缩失败: ${e.message}", Toast.LENGTH_SHORT).show() }
-                                return@execute
-                            }
-                            val cb = out.readBytes()
-                            out.delete()
-                            if (cb.size > MAX_VIDEO_BYTES) {
-                                runOnUiThread { Toast.makeText(this@MainActivity, "视频压缩后仍超过50MB，暂不支持发送", Toast.LENGTH_SHORT).show() }
-                                return@execute
-                            }
-                            listOf(LocalEngine.Attachment("video/mp4", Base64.encodeToString(cb, Base64.NO_WRAP), name))
+                            val bytes = compressImage(uri)
+                            // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
+                            listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
                         }
                     }
+                    isVideo || realType == "video" -> {
+                        val vAtt = buildVideoAttachment(uri,
+                            if (realType == "video") real else mime, name, "视频")
+                        if (vAtt == null) {
+                            return@execute
+                        }
+                        listOf(vAtt)
+                    }
                     else -> {
+                        // 音频以魔数真实 mime 为准(扩展名可能说谎, 如 .aac 实为 MP3): 归一到模型认识的格式
+                        val effMime = if (realType == "audio" && real != FormatSniffer.UNKNOWN) real else mime
                         val raw = readAll(uri)
-                        if (raw.size > MAX_FILE_BYTES) {
+                        if (raw.size > maxFileBytes) {
                             runOnUiThread {
                                 Toast.makeText(this@MainActivity,
-                                    (if (isPdf) "PDF 过大(>20MB)${if (name.lowercase().endsWith(".pdf")) "" else " 或格式异常"}" else "文件过大(>20MB)") + "，暂不支持发送",
+                                    (if (isPdf) "PDF 过大(>${UploadConfig.maxMb()}MB)${if (name.lowercase().endsWith(".pdf")) "" else " 或格式异常"}" else "文件过大(>${UploadConfig.maxMb()}MB)") + "，暂不支持发送",
                                     Toast.LENGTH_SHORT).show()
                             }
                             return@execute
                         }
                         // m4a: 部分设备/APP 生成 isom/mp42 容器, MiMo 仅接受 ftyp M4A; 修正 major_brand 避免 400
-                        val finalRaw = if ((mime.startsWith("audio/") || name.lowercase().endsWith(".m4a")) &&
+                        val finalRaw = if ((effMime.startsWith("audio/") || lowName.endsWith(".m4a")) &&
                             raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
                             raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
                             val brand = String(raw, 8, 4)
@@ -2373,7 +3233,7 @@ class MainActivity : Activity() {
                             runOnUiThread { Toast.makeText(this@MainActivity, "无法解析该文档文本内容, 暂不支持发送", Toast.LENGTH_SHORT).show() }
                             return@execute
                         } else {
-                            listOf(LocalEngine.Attachment(mime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name, text = txt))
+                            listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name, text = txt))
                         }
                     }
                 }
@@ -2543,6 +3403,17 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 读取文件头 n 字节用于格式嗅探(失败返回空, 由上层按原逻辑兜底) */
+    private fun readHead(uri: Uri, n: Int): ByteArray {
+        return try {
+            contentResolver.openInputStream(uri)?.use { ins ->
+                val buf = ByteArray(n)
+                val len = ins.read(buf, 0, n)
+                if (len < 0) ByteArray(0) else if (len == n) buf else buf.copyOf(len)
+            } ?: ByteArray(0)
+        } catch (e: Exception) { ByteArray(0) }
+    }
+
     private fun queryDisplayName(uri: Uri): String? {
         return try {
             contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -2554,6 +3425,12 @@ class MainActivity : Activity() {
 
 
     internal fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /** 气泡最大宽度: 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐); Agent 模式=屏幕*0.78(原样) */
+    private fun chatMaxW(): Int {
+        val w = resources.displayMetrics.widthPixels
+        return if (ModeConfig.chatMode()) (w - dp(120)).coerceAtLeast(dp(100)) else (w * 0.78f).toInt()
+    }
 
     /** 停止按钮加载环: 无限旋转(0->360度), 驱动 RotateDrawable 的 level */
     private fun startStopSpin() {
@@ -2581,16 +3458,29 @@ class MainActivity : Activity() {
         private var activeThinking: ThinkingBlock? = null
         // 工具块列表: 每个工具调用独立一行, 折叠点击展开
         private val toolBlocks = ArrayList<ToolBlock>()
-        private var contentView: TextView? = null
-        private var contentText = StringBuilder()
+        // 交错时间线: 思考块/工具块/正文标记按真实出现顺序追加, 供持久化恢复交替顺序(v8)
+        private val timelineEvents = ArrayList<Any>()
         private var done = false
-        private var loadingRow: LinearLayout? = null   // 思考完成等待正文时的加载指示行
+        private var loadingRow: View? = null   // 思考完成等待正文时的加载指示行(chatMode 下为 chatWrap 外层行)
         private var maxW = 0
-        // 打字机(游标+帧驱动): contentText 只累积不删除, shownLen 控制显示进度
-        private var shownLen = 0
-        private var lastFrameNs = 0L
-        private var typeActive = false
-        private var typeFinishedRender = false
+        // 正文多段化: 思考/工具穿插时正文拆成多个独立气泡, 每段独立打字机(v9)
+        // 打字机(游标+帧驱动): text 只累积不删除, shownLen 控制显示进度
+        private inner class ContentBlock {
+            val text = StringBuilder()
+            var view: TextView? = null
+            var done = false               // 该段已封段/整体完成: 不再追加, 剩余字符打完即收尾排版
+            var shownLen = 0
+            var lastFrameNs = 0L
+            var typeActive = false
+            var typeFinishedRender = false
+            var lastAdvanceNs = 0L         // 上次实际推进字符的时间戳(防长时间冻结)
+        }
+        private val contentBlocks = ArrayList<ContentBlock>()
+        private var activeContent: ContentBlock? = null   // 当前正在接收 delta 的正文段
+        // 打字速率自适应: 跟随模型实际吐字节奏(字符/秒 EMA), 避免"急打急停"的顿挫卡顿感
+        private var modelRate = 0.0          // 模型吐字速率(字符/秒) EMA
+        private var lastDeltaNs = 0L         // 上次收到 delta 的时间戳
+        private var charBudget = 0.0         // 浮点字符预算累积器(严格按速率推进, 消除"每帧+1"的强制快打)
 
         // 帧级节流: 高频 delta 合并到 16ms 一帧刷新一次, 避免全量 setText + 滚动积压导致卡顿/拖影
         private val uiHandler = Handler(Looper.getMainLooper())
@@ -2646,21 +3536,34 @@ class MainActivity : Activity() {
         }
 
         fun attach(parent: LinearLayout) {
-            maxW = (resources.displayMetrics.widthPixels * 0.78f).toInt()
+            maxW = chatMaxW()
+            // 独立气泡容器: 不再包裹大气泡背景, 思考/工具/正文各自成为独立气泡, 按真实顺序竖向排列
             val box = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                background = rounded(dp(14), BUBBLE_AI)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     gravity = Gravity.START
                     topMargin = dp(6)
-                    // 整体自适应: 内容短则收窄, 最长由子 view maxWidth 封顶(屏幕宽*0.78)
+                    // 每个子气泡自带背景, 宽度由 maxWidth(屏幕*0.78) 封顶
                 }
             }
+            // 头像逐条内嵌: 每条子气泡(思考/工具/正文)在聊天模式下由 chatWrap 各自并排头像, Agent 模式不带
             parent.addView(box)
             bubbleBox = box
             enterBubble(box)
+        }
+
+        /** 聊天模式下给气泡逐条并排 AI 头像(Agent 模式原样直插, 无头像) */
+        private fun addChatBubble(view: View?): View? {
+            if (view == null) return null
+            return if (ModeConfig.chatMode()) {
+                val w = chatWrap(view, false)
+                bubbleBox?.addView(w)
+                w
+            } else {
+                bubbleBox?.addView(view)
+                view
+            }
         }
 
         fun showStatus(s: String) {
@@ -2669,7 +3572,7 @@ class MainActivity : Activity() {
 
         /** 思考完成、正文未开始前显示加载指示, 避免误以为卡住 */
         private fun startLoading() {
-            if (loadingRow != null || contentView != null) return
+            if (loadingRow != null || contentBlocks.isNotEmpty()) return
             val row = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -2687,10 +3590,9 @@ class MainActivity : Activity() {
                 textSize = 12f
                 setTextColor(THINK_TEXT)
             })
-            bubbleBox?.addView(row)
-            loadingRow = row
+            loadingRow = addChatBubble(row)
             scrollToBottom()   // 加载行可能加在屏幕外, 必须滚到底才可见
-            android.util.Log.i("DroidAgent", "startLoading shown len=" + contentText.length)
+            android.util.Log.i("DroidAgent", "startLoading blocks=" + contentBlocks.size)
         }
 
         private fun stopLoading() {
@@ -2700,36 +3602,32 @@ class MainActivity : Activity() {
 
         /** 思考段开始: 若上一段已折叠则新建一块(多轮思考->工具->正文按真实顺序竖向排列), 否则沿用当前块 */
         fun showThinking(prefix: String) {
+            sealCurrentContent()   // 先冻结当前正文段, 后续正文新起气泡(思考/工具与正文交错时正文拆段)
             removeStatus()
             stopLoading()
             var b = activeThinking
             if (b == null || b.collapsed) {
-                // 新建思考块: 独立一行, 深色背景块
+                // 新建思考块: 独立气泡(深色背景), 可点击折叠展开
                 b = ThinkingBlock()
                 thinkingBlocks.add(b)
+                timelineEvents.add(b)
                 activeThinking = b
-                // 气泡变形修复: 真正出现思考段才设最小宽度(=折叠行渲染宽), 无思考段(自动模式直出正文)不设, 自由自适应
-                if (bubbleBox?.minimumWidth == 0) {
-                    val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                        textSize = android.util.TypedValue.applyDimension(
-                            android.util.TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
-                    }
-                    // 折叠行自身 padding(左右各10dp) + 气泡 padding(左右各14dp)
-                    bubbleBox?.minimumWidth = (tp.measureText("💭 已思考 1000 字，点按展开") + dp(48)).toInt()
-                }
+                // 独立气泡: 各自 WRAP_CONTENT 自适应宽度(maxWidth=maxW 封顶), 互不影响
                 val tv = TextView(this@MainActivity).apply {
                     text = prefix
                     textSize = 14f
                     setTextColor(THINK_TEXT)
                     setPadding(dp(10), dp(8), dp(10), dp(8))
                     background = rounded(dp(10), THINK_BG)
+                    maxWidth = maxW
                     layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        topMargin = dp(4)
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(6)
+                        bottomMargin = dp(4)
                     }
                 }
-                bubbleBox?.addView(tv)
-                makeCopyable(tv) { b.text.toString() }
+                addChatBubble(tv)
+                // 折叠行是点击展开/收起的交互控件, 不启用 textIsSelectable(否则首次点击被吞需点两次)
                 b.view = tv
             } else {
                 // 同段内续写: 追加分隔而非新建气泡, 避免多条堆叠
@@ -2753,21 +3651,39 @@ class MainActivity : Activity() {
                 tv.text = b.summary()
                 tv.setOnClickListener { toggleThinking(b) }
             }
-            if (contentView == null) startLoading()   // 思考完但正文未开始: 提示生成中
+            if (contentBlocks.isEmpty()) startLoading()   // 思考完但正文未开始: 提示生成中
         }
 
         private fun toggleThinking(b: ThinkingBlock) {
             b.expanded = !b.expanded
-            b.view?.text = if (b.expanded) "💭 " + b.text else b.summary()
+            val tv = b.view ?: return
+            tv.text = if (b.expanded) "💭 " + b.text else b.summary()
+            keepReadingPosition(tv)   // 展开/收起后保持阅读位置, 不跳回底部
         }
 
-        /** 工具调用开始: 折叠为一行"🔧 工具：名称", 点击展开参数与结果 */
+        /** 工具调用开始: 独立气泡(深色背景), 折叠为一行"🔧 工具：名称", 点击展开参数与结果 */
         fun showTool(name: String, arg: String) {
+            sealCurrentContent()   // 工具调用同样先冻结当前正文段, 与恢复时间线一致
             removeStatus()
             stopLoading()
             val b = ToolBlock(name, arg)
             toolBlocks.add(b)
-            val tv = addLine(b.collapsedText(), THINK_TEXT, italic = true)
+            timelineEvents.add(b)
+            val tv = TextView(this@MainActivity).apply {
+                text = b.collapsedText()
+                textSize = 14f
+                setTextColor(THINK_TEXT)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = rounded(dp(10), THINK_BG)
+                maxWidth = maxW
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(6)
+                    bottomMargin = dp(4)
+                }
+            }
+            addChatBubble(tv)
+            // 交互行(点击展开/收起)不能 textIsSelectable: 该模式下首次点击会被文本选择机制吞掉, 需点两次才响应
             tv.setOnClickListener { toggleTool(b) }
             b.view = tv
         }
@@ -2781,56 +3697,126 @@ class MainActivity : Activity() {
 
         private fun toggleTool(b: ToolBlock) {
             b.expanded = !b.expanded
-            b.view?.text = if (b.expanded) b.expandedText() else b.collapsedText()
-            scrollToBottom()
+            val tv = b.view ?: return
+            tv.text = if (b.expanded) b.expandedText() else b.collapsedText()
+            keepReadingPosition(tv)   // 展开/收起后保持阅读位置, 不再强制滚到底部
+        }
+
+        /** 冻结当前正文段(一段确定不再追加): 思考/工具插入前调用; 无正文或已冻结时忽略 */
+        private fun sealCurrentContent() {
+            val b = activeContent ?: return
+            if (b.done) return
+            b.done = true
+            activeContent = null
+            if (!b.typeActive) finishTypeRender(b)   // 从未进入打字(无持续输出): 直接完稿排版
+            // 若正在打字: done 后由 tickFrame 在追平剩余字符时自动收尾, 保持打字机节奏
         }
 
         fun appendContent(text: String) {
             removeStatus()
             stopLoading()
-            if (contentView == null) {
-                contentView = addLine("", BUBBLE_AI_TEXT, italic = false)
+            var b = activeContent
+            if (b == null || b.done) {
+                // 新正文段: 独立气泡(浅色背景), 与思考/工具深色气泡区分
+                b = ContentBlock()
+                activeContent = b
+                contentBlocks.add(b)
+                b.view = TextView(this@MainActivity).apply {
+                    textSize = 15f
+                    setTextColor(BUBBLE_AI_TEXT)
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    background = rounded(dp(12), BUBBLE_AI)
+                    maxWidth = maxW
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(6)
+                        bottomMargin = dp(4)
+                    }
+                }
+                val block = b
+                b.view?.let { makeCopyable(it) { block.text.toString() } }
+                addChatBubble(b.view)
+                // 记录每段正文真实插入位置, 恢复时按原位渲染(不固定末尾)
+                timelineEvents.add(ContentMarker)
             }
-            contentText.append(text)
-            if (!typeActive) {
-                typeActive = true
-                typeFinishedRender = false
-                lastFrameNs = 0L
+            b.text.append(text)
+            // 跟踪模型吐字速率: 用本次 delta 的字符数/间隔 更新 EMA(字符/秒), 供 tickFrame 自适应打字速度
+            val nowNs = System.nanoTime()
+            if (lastDeltaNs != 0L) {
+                val dt = (nowNs - lastDeltaNs) / 1_000_000_000.0
+                if (dt > 0.001) {
+                    val inst = text.length / dt
+                    modelRate = if (modelRate <= 0) inst else modelRate * 0.7 + inst * 0.3
+                }
+            }
+            lastDeltaNs = nowNs
+            if (!b.typeActive) {
+                b.typeActive = true
+                b.typeFinishedRender = false
+                b.lastFrameNs = 0L
                 TypewriterCenter.register(this)
             }
         }
 
-        /** 帧回调(Choreographer): 按经过时间折算本帧应打字符数, 游标推进后渲染纯文本 */
+        /** 帧回调(Choreographer): 依次推进各正文段打字机, 全部段完成收尾后停止驱动 */
         override fun tickFrame(frameNs: Long): Boolean {
-            if (!typeActive) return false
-            val total = contentText.length
-            if (shownLen >= total) {
-                lastFrameNs = frameNs
-                if (done) {
-                    finishTypeRender()
+            var running = false
+            for (b in contentBlocks) {
+                if (b.typeFinishedRender) continue
+                if (!b.typeActive) continue
+                running = true
+                stepBlock(b, frameNs)
+            }
+            if (!running) {
+                TypewriterCenter.unregister(this)   // 无活跃打字段: 退出帧循环
+                return false
+            }
+            return true
+        }
+
+        /** 单段打字机推进(逻辑承接原单一 contentText 打字机, 状态内聚到段内) */
+        private fun stepBlock(b: ContentBlock, frameNs: Long): Boolean {
+            val total = b.text.length
+            if (b.shownLen >= total) {
+                b.lastFrameNs = frameNs
+                if (b.done) {
+                    finishTypeRender(b)
                     return false
                 }
-                return true   // 空转等新 delta, 不渲染
+                return true   // 已追平当前已收文本, 静止等待新 delta(不再渲染闪烁光标)
             }
-            val elapsed = if (lastFrameNs == 0L) 1.0 / 60.0 else (frameNs - lastFrameNs) / 1_000_000_000.0
-            lastFrameNs = frameNs
-            var budget = (typeSpeed(total) * elapsed).toInt() + 1   // 本帧字符预算, 至少 1
-            var idx = shownLen
+            val elapsed = if (b.lastFrameNs == 0L) 1.0 / 60.0 else (frameNs - b.lastFrameNs) / 1_000_000_000.0
+            b.lastFrameNs = frameNs
+            // 打字速率自适应: 跟随模型吐字节奏(不超过模型速率1.5倍, 下限8字/秒)
+            var rate = typeSpeed(total).toDouble()
+            if (modelRate > 0) rate = minOf(rate, modelRate * 1.5)
+            rate = maxOf(rate, 8.0)
+            charBudget += rate * elapsed
+            var budget = charBudget.toInt()
+            if (budget >= 1) charBudget -= budget
+            // 防冻结: 距上次推进超800ms仍无预算时强制推进1个, 避免慢模型下长时间无响应
+            if (budget < 1 && b.shownLen < total && frameNs - b.lastAdvanceNs > 800_000_000L) {
+                budget = 1
+                charBudget = 0.0
+            }
+            var idx = b.shownLen
             while (budget > 0 && idx < total) {
-                val n = Character.charCount(contentText.codePointAt(idx))  // 不拆散 emoji/代理对
+                val n = Character.charCount(b.text.codePointAt(idx))  // 不拆散 emoji/代理对
                 idx += n
                 budget -= n
             }
-            if (idx > shownLen) {
-                shownLen = idx
-                contentView?.let { tv ->
-                    // 打字期间也按已输出部分实时渲染 MD, 避免输出完才一次性排版(符号原样可见)
-                    markwon.setMarkdown(tv, contentText.substring(0, shownLen))
+            if (idx > b.shownLen) {
+                b.shownLen = idx
+                b.lastAdvanceNs = frameNs
+                b.view?.let { tv ->
+                    // 打字期间只更新纯文本, 收尾一次性 markdown 排版(避免每帧全量解析抽搐)
+                    tv.text = b.text.substring(0, b.shownLen)
                     scrollToBottom()
                 }
             }
-            if (shownLen >= total && done) {
-                finishTypeRender()
+            if (b.shownLen >= total && b.done) {
+                finishTypeRender(b)
                 return false
             }
             return true
@@ -2845,29 +3831,29 @@ class MainActivity : Activity() {
             else -> 480
         }
 
-        /** 收尾: 一次性 Markdown 排版, 只执行一次 */
-        private fun finishTypeRender() {
-            if (typeFinishedRender) return
-            typeFinishedRender = true
-            typeActive = false
-            TypewriterCenter.unregister(this)
-            contentView?.let { markwon.setMarkdown(it, contentText.toString()) }
+        /** 收尾: 一次性 Markdown 排版, 每段只执行一次 */
+        private fun finishTypeRender(b: ContentBlock) {
+            if (b.typeFinishedRender) return
+            b.typeFinishedRender = true
+            b.typeActive = false
+            b.view?.let { if (ModeConfig.chatMode()) it.text = b.text.toString().trimEnd() else markwon.setMarkdown(it, b.text.toString()) }
             scrollToBottom()
         }
 
         fun finishContent() {
             done = true
             stopLoading()
-            if (contentText.isBlank() && toolBlocks.isEmpty() && thinkingBlocks.isEmpty()) {
-                contentView = addLine("(无内容)", BUBBLE_AI_TEXT, italic = false)
+            if (contentBlocks.isEmpty() && toolBlocks.isEmpty() && thinkingBlocks.isEmpty()) {
+                addLine("(无内容)", BUBBLE_AI_TEXT, italic = false)
                 return
             }
-            // 打字机没在跑(从未收到正文或已打完): 直接排版; 在跑则由帧回调追上后自动收尾
-            if (!typeActive) {
-                if (contentText.isNotEmpty()) {
-                    contentView?.let { markwon.setMarkdown(it, contentText.toString()) }
-                    scrollToBottom()
-                }
+            // 未封段的正文章节在此一并收尾(整体完成不再追加)
+            activeContent?.let { it.done = true }
+            activeContent = null
+            for (b in contentBlocks) {
+                b.done = true
+                if (!b.typeActive) finishTypeRender(b)   // 未在打字(从未收到正文或已打完): 直接排版
+                // 正在打字的段: done 后由帧回调追上剩余字符自动收尾
             }
         }
 
@@ -2886,6 +3872,33 @@ class MainActivity : Activity() {
                     .append(",\"arg\":").append(jsonEscape(b.arg))
                     .append(",\"result\":").append(jsonEscape(b.result ?: ""))
                     .append('}')
+            }
+            sb.append(']')
+            return sb.toString()
+        }
+
+        /**
+         * 取思考/工具/正文交错时间线(供持久化到会话历史, 切回会话时恢复交替顺序), JSON 数组:
+         * [{"type":"think","text":...},{"type":"tool","name":...,"arg":...,"result":...},{"type":"content"}, ...]
+         */
+        fun timelineSnapshot(): String {
+            if (timelineEvents.isEmpty()) return ""
+            val sb = StringBuilder("[")
+            timelineEvents.forEachIndexed { i, e ->
+                if (i > 0) sb.append(',')
+                when (e) {
+                    is ThinkingBlock -> sb.append('{')
+                        .append("\"type\":\"think\"")
+                        .append(",\"text\":").append(jsonEscape(e.text.toString()))
+                        .append('}')
+                    is ToolBlock -> sb.append('{')
+                        .append("\"type\":\"tool\"")
+                        .append(",\"name\":").append(jsonEscape(e.name))
+                        .append(",\"arg\":").append(jsonEscape(e.arg))
+                        .append(",\"result\":").append(jsonEscape(e.result ?: ""))
+                        .append('}')
+                    ContentMarker -> sb.append("{\"type\":\"content\"}")
+                }
             }
             sb.append(']')
             return sb.toString()
@@ -2910,7 +3923,7 @@ class MainActivity : Activity() {
         fun showError(msg: String) {
             removeStatus()
             stopLoading()
-            typeActive = false        // 出错即停打
+            contentBlocks.forEach { it.typeActive = false }   // 出错即停打
             TypewriterCenter.unregister(this)
             addLine(msg, Color.parseColor("#D93025"), italic = false)
             done = true
@@ -2921,7 +3934,7 @@ class MainActivity : Activity() {
             statusView = null
         }
 
-        private fun addLine(text: String, color: Int, italic: Boolean): TextView {
+        private fun addLine(text: String, color: Int, italic: Boolean, selectable: Boolean = true): TextView {
             val tv = TextView(this@MainActivity).apply {
                 this.text = text
                 textSize = 15f
@@ -2932,7 +3945,8 @@ class MainActivity : Activity() {
                 maxWidth = (resources.displayMetrics.widthPixels * 0.78f).toInt()
             }
             bubbleBox?.addView(tv)
-            makeCopyable(tv)
+            // 交互行(点击展开/收起)不能 textIsSelectable: 该模式下首次点击会被文本选择机制吞掉, 需点两次才响应
+            if (selectable) makeCopyable(tv)
             return tv
         }
     }

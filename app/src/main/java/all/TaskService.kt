@@ -41,20 +41,34 @@ class TaskService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        // 尽早完成前台化: startForegroundService 后系统限时(约5s)内必须 startForeground,
+        // 否则抛 ForegroundServiceDidNotStartInTimeException 闪退。onCreate 先于 onStartCommand 执行,
+        // 在这里立即 startForeground 能最大化满足时限(Android 15/16 + ColorOS 校验更严格)。
+        startForegroundCompat()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 幂等: onCreate 已启动前台, 重复调用 startForeground 无副作用
         startForegroundCompat()
         return START_NOT_STICKY
     }
 
     private fun startForegroundCompat() {
-        val notif = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10+ 前台服务必须带类型; targetSdk 34 下 Android 14 强制校验
-            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIF_ID, notif)
+        try {
+            val notif = buildNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ 前台服务必须带类型; targetSdk 34 下 Android 14 强制校验
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIF_ID, notif)
+            }
+        } catch (e: Exception) {
+            // 兜底: 个别 ROM 类型/权限异常时降级为无类型前台服务, 避免崩溃
+            try {
+                startForeground(NOTIF_ID, buildNotification())
+            } catch (e2: Exception) {
+                android.util.Log.e("TaskService", "startForeground 失败: ${e2.message}")
+            }
         }
     }
 

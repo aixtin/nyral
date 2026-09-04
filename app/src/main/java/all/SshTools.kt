@@ -67,7 +67,26 @@ object SshTools {
         val tag = "SshTools"
         Log.i(tag, "runOn: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
                 " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmd=" + command)
+        // 断线自动重连: 连接/执行异常时自动重连重试一次, 用户无感(与 LocalEngine 请求级重连配套)
         return try {
+            execOnce(cfg, command)
+        } catch (e: Exception) {
+            Log.w(tag, "runOn attempt1 FAILED, auto-reconnect once: " + e.message)
+            try {
+                execOnce(cfg, command)
+            } catch (e2: Exception) {
+                Log.e(tag, "runOn FAILED after retry", e2)
+                "SSH 错误: ${e2.message}"
+            }
+        }
+    }
+
+    /** 单次 SSH 执行, 失败抛异常由 runOn 决定是否重连重试 */
+    private fun execOnce(cfg: SshConfigStore.SshConfig, command: String): String {
+        val tag = "SshTools"
+        Log.i(tag, "execOnce: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
+                " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmd=" + command)
+        try {
             val session = connect(cfg)
             val channel = session.openChannel("exec") as ChannelExec
             channel.setCommand(command)
@@ -134,10 +153,10 @@ object SshTools {
             val body = (if (result.isNotEmpty()) result else "") +
                 (if (err.isNotEmpty()) (if (result.isNotEmpty()) "\n[stderr]\n" else "") + err else "") +
                 (if (result.isEmpty() && err.isEmpty()) "(无输出, 退出码 ${channel.exitStatus})" else "")
-            truncate(body)
+            return truncate(body)
         } catch (e: Exception) {
-            Log.e(tag, "runOn FAILED", e)
-            "SSH 错误: ${e.message}"
+            Log.e(tag, "execOnce FAILED", e)
+            throw e
         }
     }
 
@@ -172,6 +191,10 @@ object SshTools {
             session.setProxy(JschProxyJump(cfg))
         }
         session.setTimeout(20000)
+        // SSH 保活: 每 30s 发一次存活探针, 连续 3 次无响应才判定断线,
+        // 避免长连接空闲被中间设备(路由器/防火墙/运营商NAT)静默踢掉
+        session.setServerAliveInterval(30000)
+        session.setServerAliveCountMax(3)
         Log.i(tag, "connecting session...")
         session.connect(15000)
         Log.i(tag, "session connected")

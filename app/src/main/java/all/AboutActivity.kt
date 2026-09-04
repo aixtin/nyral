@@ -19,6 +19,8 @@ import android.widget.TextView
  */
 class AboutActivity : Activity() {
 
+    private var versionTap = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.statusBar(this)
@@ -71,7 +73,11 @@ class AboutActivity : Activity() {
         val card = Ui.card(this)
         card.addView(infoRow("定位", "安卓 Agent"))
         card.addView(Ui.divider(this))
-        card.addView(infoRow("版本", "v1.0"))
+        card.addView(infoRow("版本", "v1.0").apply {
+            isClickable = true
+            setOnClickListener { onVersionTap() }
+            Ui.press(this)
+        })
         card.addView(Ui.divider(this))
         card.addView(infoRow("数据", "记忆自托管 · 对话经模型 API"))
         card.addView(Ui.divider(this))
@@ -128,6 +134,22 @@ class AboutActivity : Activity() {
                 setTextColor(Ui.TEXT)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
+        }
+    }
+
+    /** 连续点击版本号 7 次解锁调试服务入口（借鉴安卓开发者模式） */
+    private fun onVersionTap() {
+        if (DebugServer.unlocked(this)) {
+            android.widget.Toast.makeText(this, "调试服务入口已开启", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        versionTap++
+        if (versionTap >= 7) {
+            versionTap = 0
+            DebugServer.setUnlocked(this, true)
+            android.widget.Toast.makeText(this, "已开启调试服务入口", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            android.widget.Toast.makeText(this, "再点 ${7 - versionTap} 次开启调试服务入口", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 

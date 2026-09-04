@@ -1,0 +1,481 @@
+package io.github.aixtin.droidagent
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.os.Environment
+import android.provider.Settings
+import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStream
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * 开发者调试服务: 本机内置轻量 HTTP 服务器(ServerSocket 手写, 无第三方依赖)。
+ *
+ * 端点:
+ *  - POST /v1/chat   body {"message":"..."} 走完整 LocalEngine 链路(含工具循环), SSE 流式返回
+ *  - GET  /v1/state   读 会话/记忆/工具/token 统计
+ *  - GET  /v1/logs    拉运行日志(替代 adb logcat)
+ *  - POST /v1/mem/search  body {"query":"..."} 测记忆检索
+ *
+ * 安全底线:
+ *  - 默认关闭(设置开关), 非 debuggable 构建(release)直接拒绝启动
+ *  - Token 鉴权: 请求头 X-Auth-Token 或 query 参数 token
+ *  - 默认仅绑定 127.0.0.1(本机/adb forward 可访问); 设置开启"局域网访问"后绑定 0.0.0.0
+ */
+object DebugServer {
+
+    private const val PREFS = "debug_server"
+    private const val K_ENABLED = "enabled"
+    private const val K_TOKEN = "token"
+    private const val K_PORT = "port"
+    private const val K_LAN = "lan"
+    private const val K_UNLOCKED = "unlocked"
+
+    private const val DEFAULT_PORT = 8765
+
+    @Volatile private var serverSocket: ServerSocket? = null
+    private val pool = Executors.newCachedThreadPool { r -> Thread(r, "debug-http").apply { isDaemon = true } }
+    private val running = AtomicBoolean(false)
+    private val acceptThread = LinkedBlockingQueue<Thread>()
+
+    @Volatile private var app: Context? = null
+    @Volatile private var main: MainActivity? = null
+
+    // ================= 配置 =================
+    private fun prefs(c: Context): SharedPreferences = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun isEnabled(c: Context): Boolean = prefs(c).getBoolean(K_ENABLED, false)
+    fun setEnabled(c: Context, v: Boolean) { prefs(c).edit().putBoolean(K_ENABLED, v).apply() }
+    fun port(c: Context): Int = prefs(c).getInt(K_PORT, DEFAULT_PORT)
+    fun setPort(c: Context, v: Int) { prefs(c).edit().putInt(K_PORT, v).apply() }
+    fun lanEnabled(c: Context): Boolean = prefs(c).getBoolean(K_LAN, false)
+    fun setLan(c: Context, v: Boolean) { prefs(c).edit().putBoolean(K_LAN, v).apply() }
+    fun unlocked(c: Context): Boolean = prefs(c).getBoolean(K_UNLOCKED, false)
+    fun setUnlocked(c: Context, v: Boolean) { prefs(c).edit().putBoolean(K_UNLOCKED, v).apply() }
+
+    /** 隐藏调试服务（总开关）：关闭启用开关、停止服务并撤销设置页入口；需再次连点版本号 7 次才恢复 */
+    fun hideDebug(c: Context) {
+        setEnabled(c, false)
+        setUnlocked(c, false)
+        stop()
+    }
+
+    fun token(c: Context): String {
+        val p = prefs(c)
+        var t = p.getString(K_TOKEN, null)
+        if (t.isNullOrBlank()) {
+            t = "droid-" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+            p.edit().putString(K_TOKEN, t).apply()
+        }
+        return t
+    }
+
+    fun resetToken(c: Context) {
+        val t = "droid-" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        prefs(c).edit().putString(K_TOKEN, t).apply()
+    }
+
+    fun statusText(c: Context): String {
+        if (!isEnabled(c)) return "未开启"
+        val s = if (running.get()) "运行中" else "未运行"
+        return "$s · 端口 " + port(c) + (if (lanEnabled(c)) " · 局域网" else " · 仅本机")
+    }
+
+    // ================= 生命周期 =================
+    fun init(activity: MainActivity) {
+        main = activity
+        app = activity.applicationContext
+        val debuggable = (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (!debuggable) {
+            Log.i("DroidAgent", "DebugServer: release 构建, 不启动")
+            return
+        }
+        if (!isEnabled(activity)) return
+        start(activity)
+    }
+
+    fun stop() {
+        running.set(false)
+        try { serverSocket?.close() } catch (e: Exception) {}
+        serverSocket = null
+    }
+
+    fun detach(activity: MainActivity) {
+        if (main === activity) main = null
+    }
+
+    fun running(): Boolean = running.get()
+
+    /** 设置变更后重启服务(仅当已启用且当前进程为 debug 构建时) */
+    fun restart(c: Context) {
+        if (!isEnabled(c)) return
+        if ((c.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
+        stop()
+        start(c.applicationContext)
+    }
+
+    private fun start(c: Context) {
+        if (running.get()) return
+        val p = port(c)
+        val lan = lanEnabled(c)
+        try {
+            val bindAddr = if (lan) null else InetAddress.getByName("127.0.0.1")
+            val ss = if (bindAddr == null) ServerSocket(p) else ServerSocket(p, 50, bindAddr)
+            serverSocket = ss
+            running.set(true)
+            Log.i("DroidAgent", "DebugServer 启动: ${if (lan) "0.0.0.0" else "127.0.0.1"}:$p")
+            val t = Thread {
+                while (running.get()) {
+                    try {
+                        val s = ss.accept()
+                        pool.execute { handle(s, c.applicationContext) }
+                    } catch (e: Exception) {
+                        if (running.get()) Log.w("DroidAgent", "DebugServer accept: ${e.message}")
+                    }
+                }
+            }
+            t.name = "debug-accept"
+            t.isDaemon = true
+            t.start()
+        } catch (e: Exception) {
+            Log.e("DroidAgent", "DebugServer 启动失败: ${e.message}")
+            running.set(false)
+            try { serverSocket?.close() } catch (e2: Exception) {}
+            serverSocket = null
+        }
+    }
+
+    fun mainActivity(): MainActivity? = main
+
+    // ================= HTTP 处理 =================
+    private fun handle(s: Socket, c: Context) {
+        try {
+            s.soTimeout = 180_000
+            val input = s.getInputStream()
+            val readLine = fun(): String? {
+                // 按字节读一行(到 \n), 兼容 \r\n, 返回去掉行尾换行的字符串
+                val sb = StringBuilder()
+                while (true) {
+                    val b = input.read()
+                    if (b < 0) return if (sb.isEmpty()) null else sb.toString()
+                    if (b == '\n'.code) break
+                    if (b != '\r'.code) sb.append(b.toChar())
+                }
+                return sb.toString()
+            }
+
+            val reqLine = readLine() ?: return
+            val parts = reqLine.split(" ")
+            if (parts.size < 2) return
+            val method = parts[0].uppercase()
+            var path = parts[1]
+            val qIdx = path.indexOf('?')
+            var query = ""
+            if (qIdx >= 0) { query = path.substring(qIdx + 1); path = path.substring(0, qIdx) }
+
+            // headers
+            var contentLength = 0
+            var authToken: String? = null
+            while (true) {
+                val line = readLine() ?: break
+                if (line.isBlank()) break
+                val ci = line.indexOf(':')
+                if (ci > 0) {
+                    val k = line.substring(0, ci).trim().lowercase()
+                    val v = line.substring(ci + 1).trim()
+                    if (k == "content-length") contentLength = v.toIntOrNull() ?: 0
+                    if (k == "x-auth-token") authToken = v
+                }
+            }
+            val body = if (contentLength > 0) {
+                // Content-Length 是字节数, 必须按字节读满, UTF-8 中文(3字节/字)不能按字符数读
+                val buf = ByteArray(contentLength)
+                var read = 0
+                while (read < contentLength) {
+                    val n = input.read(buf, read, contentLength - read)
+                    if (n < 0) break
+                    read += n
+                }
+                String(buf, 0, read, Charsets.UTF_8)
+            } else ""
+
+            // 鉴权: header 优先, query token 兜底
+            val expect = token(c)
+            val got = authToken ?: queryParam(query, "token")
+            if (got != expect) {
+                writeJson(s.getOutputStream(), 401, JSONObject().put("error", "unauthorized"))
+                return
+            }
+
+            val out = s.getOutputStream()
+            when {
+                method == "GET" && path == "/v1/state" -> writeJson(out, 200, stateJson(c))
+                method == "GET" && path == "/v1/ui" -> writeJson(out, 200, uiJson(c))
+                method == "GET" && path == "/v1/logs" -> writeJson(out, 200, logsJson(query))
+                method == "POST" && path == "/v1/mem/search" -> memSearch(c, out, body)
+                method == "POST" && path == "/v1/chat" -> chat(c, out, body)
+                method == "GET" && path == "/v1/ping" -> writeJson(out, 200, JSONObject().put("pong", true).put("time", System.currentTimeMillis()))
+                else -> writeJson(out, 404, JSONObject().put("error", "not found"))
+            }
+        } catch (e: Exception) {
+            Log.w("DroidAgent", "DebugServer handle: ${e.message}")
+        } finally {
+            try { s.close() } catch (e: Exception) {}
+        }
+    }
+
+    private fun queryParam(query: String, key: String): String? {
+        return query.split("&").mapNotNull { kv ->
+            val i = kv.indexOf('=')
+            if (i > 0 && kv.substring(0, i) == key) kv.substring(i + 1) else null
+        }.firstOrNull()
+    }
+
+    private fun writeJson(out: OutputStream, code: Int, obj: JSONObject) {
+        val bytes = obj.toString().toByteArray()
+        val head = "HTTP/1.1 $code OK\r\nContent-Type: application/json; charset=utf-8\r\n" +
+            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+        out.write(head.toByteArray())
+        out.write(bytes)
+        out.flush()
+    }
+
+    // ================= /v1/state =================
+    private fun stateJson(c: Context): JSONObject {
+        val o = JSONObject()
+        try {
+            val m = JSONObject()
+            m.put("provider", ApiConfig.providerId())
+            m.put("model", ApiConfig.model())
+            m.put("chat_url", ApiConfig.chatUrl())
+            m.put("api_key_set", ApiConfig.apiKey().isNotBlank())
+            m.put("is_local", ApiConfig.isCurrentLocal())
+            o.put("model", m)
+        } catch (e: Exception) { o.put("model_error", e.message) }
+
+        try {
+            val db = MemoryDb(c)
+            val mem = JSONObject()
+            mem.put("count", db.count())
+            mem.put("pending", db.pendingCount())
+            db.loadSummary()?.let { mem.put("summary", it.take(300)) }
+            o.put("memory", mem)
+        } catch (e: Exception) { o.put("memory_error", e.message) }
+
+        try {
+            val tools = JSONArray()
+            for (t in LocalEngine.toolList()) {
+                tools.put(JSONObject().put("name", t.name).put("desc", t.desc))
+            }
+            o.put("tools", tools)
+        } catch (e: Exception) { o.put("tools_error", e.message) }
+
+        try {
+            // 仅暴露连接元信息, 不泄露密码/私钥
+            val sshArr = JSONArray()
+            for (cfg in SshConfigStore.load(c)) {
+                sshArr.put(JSONObject()
+                    .put("name", cfg.name)
+                    .put("host", cfg.host)
+                    .put("port", cfg.port)
+                    .put("user", cfg.user)
+                    .put("has_proxy", cfg.hasProxy))
+            }
+            o.put("ssh", sshArr)
+        } catch (e: Exception) { o.put("ssh_error", e.message) }
+
+        try {
+            val s = TokenStore.stats(c)
+            val tk = JSONObject()
+            tk.put("total_prompt", s.totalPrompt)
+            tk.put("total_completion", s.totalCompletion)
+            tk.put("total", s.total)
+            tk.put("count", s.count)
+            tk.put("day_prompt", s.dayPrompt)
+            tk.put("day_completion", s.dayCompletion)
+            o.put("token", tk)
+        } catch (e: Exception) { o.put("token_error", e.message) }
+
+        try {
+            val sess = JSONObject()
+            val act = main
+            if (act != null) {
+                sess.put("current_session_id", act.currentSessionId)
+                sess.put("current_session_title", act.currentSessionTitle)
+                sess.put("ai_busy", act.aiBusy)
+                sess.put("message_count", act.messages.size)
+            } else {
+                sess.put("error", "MainActivity not alive")
+            }
+            o.put("session", sess)
+        } catch (e: Exception) { o.put("session_error", e.message) }
+
+        o.put("server", JSONObject()
+            .put("enabled", isEnabled(c))
+            .put("running", running.get())
+            .put("port", port(c))
+            .put("lan", lanEnabled(c)))
+        return o
+    }
+
+    /**
+     * /v1/ui: UI 态快照(减少对截图/OCR 的依赖):
+     *  - window: DA 前台态 + 当前前台 Activity 简单类名
+     *  - overlay: 悬浮终端可见性/尺寸/行数(主线程真实读)
+     *  - terminal: 悬浮终端开关 + 服务运行态
+     *  - permissions: 关键运行时权限/特殊权限快照
+     */
+    private fun uiJson(c: Context): JSONObject {
+        val o = JSONObject()
+        try {
+            val win = JSONObject()
+            val act = main
+            if (act != null) {
+                win.put("da_in_foreground", MainActivity.daInForeground())
+                win.put("activity", MainActivity.foregroundActivityName() ?: JSONObject.NULL)
+            } else {
+                win.put("da_in_foreground", false)
+                win.put("activity", JSONObject.NULL)
+                win.put("note", "MainActivity not alive")
+            }
+            o.put("window", win)
+        } catch (e: Exception) { o.put("window_error", e.message) }
+
+        try {
+            o.put("overlay", AITerminalService.overlayInfo())
+        } catch (e: Exception) { o.put("overlay_error", e.message) }
+
+        try {
+            val term = JSONObject()
+            term.put("enabled", AITerminal.isEnabled(c))
+            term.put("service_running", AITerminal.serviceRunning)
+            o.put("terminal", term)
+        } catch (e: Exception) { o.put("terminal_error", e.message) }
+
+        try {
+            val perms = JSONObject()
+            perms.put("overlay", Settings.canDrawOverlays(c))
+            perms.put("all_files", Environment.isExternalStorageManager())
+            perms.put("install_unknown", c.packageManager.canRequestPackageInstalls())
+            perms.put("post_notifications", c.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+            perms.put("record_audio", c.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            o.put("permissions", perms)
+        } catch (e: Exception) { o.put("permissions_error", e.message) }
+        return o
+    }
+
+    /** /v1/logs: 支持 query 参数 tag(来源tag)、level(I/W/E)、tail(条数, 默认300, 上限1000) */
+    private fun logsJson(query: String): JSONObject {
+        val tag = queryParam(query, "tag")
+        val tail = (queryParam(query, "tail") ?: "300").toIntOrNull()?.coerceIn(1, 1000) ?: 300
+        val level = queryParam(query, "level")
+        var list = LogStore.snapshot(tag).takeLast(tail)
+        if (!level.isNullOrBlank()) {
+            val lv = level.uppercase()
+            list = list.filter { it.level == lv }
+        }
+        val arr = JSONArray()
+        for (e in list) {
+            arr.put(JSONObject().put("ts", e.ts).put("tag", e.tag).put("level", e.level).put("msg", e.msg))
+        }
+        return JSONObject().put("count", arr.length()).put("logs", arr)
+    }
+
+    private fun memSearch(c: Context, out: OutputStream, body: String) {
+        val q = try { JSONObject(body).optString("query", "") } catch (e: Exception) { "" }
+        if (q.isBlank()) {
+            writeJson(out, 400, JSONObject().put("error", "query required"))
+            return
+        }
+        val result = MemoryTools.search(c, q)
+        writeJson(out, 200, JSONObject().put("query", q).put("result", result))
+    }
+
+    // ================= /v1/chat (SSE) =================
+    private fun chat(c: Context, out: OutputStream, body: String) {
+        val message = try { JSONObject(body).optString("message", "") } catch (e: Exception) { "" }
+        if (message.isBlank()) {
+            writeJson(out, 400, JSONObject().put("error", "message required"))
+            return
+        }
+        val act = main ?: run {
+            writeJson(out, 503, JSONObject().put("error", "MainActivity not alive"))
+            return
+        }
+        if (act.aiBusy) {
+            writeJson(out, 409, JSONObject().put("error", "AI 正忙, 稍后再试"))
+            return
+        }
+
+        // SSE 响应头
+        val head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\n" +
+            "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
+        out.write(head.toByteArray())
+        out.flush()
+
+        // 事件队列: MainActivity 回调(工作线程) -> SSE writer(本线程)
+        val queue = LinkedBlockingQueue<Pair<String, String>>()  // (event, data)
+        val sink: (String, String) -> Unit = { event, data -> queue.offer(event to data) }
+        val oldSink = act.debugSseSink
+        act.debugSseSink = sink
+
+        val finished = AtomicBoolean(false)
+        val accepted = AtomicBoolean(true)
+        try {
+            // 触发主链路(UI 线程), 完成后自行停止 TaskService
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                val ok = act.submitDebugChat(message) {
+                    queue.offer("_sys_done" to "")
+                }
+                if (!ok) {
+                    accepted.set(false)
+                    queue.offer("error" to "AI 正忙, 请求被拒绝")
+                    queue.offer("_sys_done" to "")
+                }
+            }
+            var done = false
+            var idle = 0
+            while (!done) {
+                val ev = queue.poll(5, TimeUnit.SECONDS)
+                if (ev == null) {
+                    // 主链路未产生事件(理论不会), 防死循环: 连续 6 次空轮询(30s)视为异常
+                    idle++
+                    if (idle >= 6) {
+                        queue.offer("error" to "调试链路超时")
+                        queue.offer("_sys_done" to "")
+                    }
+                    continue
+                }
+                idle = 0
+                val (event, data) = ev
+                if (event == "_sys_done") { done = true; continue }
+                out.write("event: $event\n".toByteArray())
+                out.write("data: $data\n\n".toByteArray())
+                out.flush()
+                if (event == "error" || event == "done") done = true
+            }
+            finished.set(true)
+        } catch (e: Exception) {
+            Log.w("DroidAgent", "DebugServer chat SSE: ${e.message}")
+        } finally {
+            act.debugSseSink = oldSink
+            // 若客户端中断/主链路未接受导致循环未正常结束, 请求取消当前输出
+            if (!finished.get() || !accepted.get()) {
+                try { LocalEngine.requestCancel() } catch (e: Exception) {}
+            }
+            try { out.flush() } catch (e: Exception) {}
+        }
+    }
+}

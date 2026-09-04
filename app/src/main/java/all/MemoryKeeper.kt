@@ -86,7 +86,11 @@ object MemoryKeeper {
         try {
             val batch = db.pendingAll()
             if (batch.isEmpty()) return
-            val text = batch.joinToString("\n") { p -> "${p.role}: ${p.content}" }
+            // 每条消息带时间戳(如 user[09-02 14:30]: ...), 让原文记忆与主题索引都具备时间观念
+            val text = batch.joinToString("\n") { p ->
+                val t = MemoryDb.fmtTs(p.ts)
+                if (t.isEmpty()) "${p.role}: ${p.content}" else "${p.role}[$t]: ${p.content}"
+            }
             LogStore.i(LogStore.MEM, "开始归档: ${batch.size} 条 / ${text.length} 字符")
 
             // 1) 原文分块 + 向量化(失败则整体放弃, pending 保留, 下次重试)

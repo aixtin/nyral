@@ -4,12 +4,18 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.ZipInputStream
+import com.github.junrar.Archive
+import com.github.junrar.rarfile.FileHeader
+import org.apache.commons.compress.archivers.sevenz.SevenZFile
+import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
+import java.io.File
+import java.io.FileInputStream
 
 /**
  * 通用文档文本提取器(零依赖, 本地解析, 不接第三方服务):
  * 按扩展名分发, 从常见办公/文档/压缩包中提取纯文本, 供模型读取。
  * 支持: 纯文本(txt/md/代码/json/csv 等)、PDF、Word(docx)、Excel(xlsx)、
- *       PPT(pptx)、压缩包(zip / tar / tar.gz / gz)。
+ *       PPT(pptx)、压缩包(zip / tar / tar.gz / gz / 7z / rar)。
  * 提取失败或内容为空返回 null, 由调用方降级为普通附件。
  */
 object DocTextExtractor {
@@ -35,6 +41,8 @@ object DocTextExtractor {
                 "tar" -> parseTarText(data)
                 "tgz" -> parseTarText(gunzip(data) ?: return null)
                 "gz" -> decodeText(gunzip(data) ?: return null)
+                "7z" -> extract7z(data)
+                "rar" -> extractRar(data)
                 else -> if (ext in TEXT_EXTS) decodeText(data) else null
             }
         } catch (e: Exception) {
@@ -96,6 +104,94 @@ object DocTextExtractor {
             zip.close()
         }
         return sb.toString().trim().take(MAX_TEXT).ifBlank { null }
+    }
+
+    /** 7z: 遍历条目, 提取小文本文件内容(前 5 个), 其余计数 */
+    private fun extract7z(data: ByteArray): String? {
+        val sb = StringBuilder()
+        var textCount = 0
+        var otherCount = 0
+        val tmp = File.createTempFile("cc7z", ".7z")
+        try {
+            tmp.writeBytes(data)
+            val sevenZ = SevenZFile(tmp)
+            try {
+                var e: SevenZArchiveEntry? = sevenZ.nextEntry
+                while (e != null) {
+                    if (!e.isDirectory) {
+                        val inner = e.name
+                        val iext = inner.substringAfterLast('.', "").lowercase()
+                        if (iext in TEXT_EXTS && e.size in 1..200_000) {
+                            val buf = ByteArray(e.size.toInt())
+                            var off = 0
+                            while (off < buf.size) {
+                                val n = sevenZ.read(buf, off, buf.size - off)
+                                if (n < 0) break
+                                off += n
+                            }
+                            val txt = decodeText(buf, 1500)
+                            if (txt != null && txt.isNotBlank()) {
+                                sb.append("── $inner\n$txt\n")
+                                textCount++
+                                if (textCount >= 5) break
+                            }
+                        } else {
+                            otherCount++
+                        }
+                    }
+                    e = sevenZ.nextEntry
+                }
+            } finally {
+                sevenZ.close()
+            }
+        } catch (e: Exception) {
+            return null
+        } finally {
+            tmp.delete()
+        }
+        val head = "【压缩包文件列表】含文本内容文件 $textCount 个, 其他文件/目录 $otherCount 个\n"
+        return (head + sb.toString()).take(MAX_TEXT).ifBlank { null }
+    }
+
+    /** rar: 遍历条目, 提取小文本文件内容(前 5 个), 其余计数 */
+    private fun extractRar(data: ByteArray): String? {
+        val sb = StringBuilder()
+        var textCount = 0
+        var otherCount = 0
+        val tmp = File.createTempFile("ccrar", ".rar")
+        try {
+            tmp.writeBytes(data)
+            val rar = Archive(FileInputStream(tmp))
+            try {
+                var e: FileHeader? = rar.nextFileHeader()
+                while (e != null) {
+                    if (!e.isDirectory()) {
+                        val inner = e.fileName.trim()
+                        val iext = inner.substringAfterLast('.', "").lowercase()
+                        if (iext in TEXT_EXTS && e.fullUnpackSize in 1..200_000) {
+                            val content = rar.getInputStream(e).readBytes()
+                            val txt = decodeText(content, 1500)
+                            if (txt != null && txt.isNotBlank()) {
+                                sb.append("── $inner\n$txt\n")
+                                textCount++
+                                if (textCount >= 5) break
+                            }
+                        } else {
+                            otherCount++
+                        }
+                    }
+                    e = rar.nextFileHeader()
+                }
+            } finally {
+                rar.close()
+            }
+        } catch (e: Exception) {
+            return null
+        } finally {
+            tmp.delete()
+        }
+        val head = "【压缩包文件列表】含文本内容文件 $textCount 个, 其他文件/目录 $otherCount 个\n"
+        return (head + sb.toString()).take(MAX_TEXT).ifBlank { null }
     }
 
     /** zip: 列出清单 + 提取其中小文本文件内容(前 5 个), 其余计数 */

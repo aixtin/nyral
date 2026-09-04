@@ -178,6 +178,9 @@ import android.widget.Toast
 
     internal fun MainActivity.openDrawer() {
         if (drawerOpen) return
+        // 打开汉堡页前自动收起键盘，避免主页残留键盘顶起汉堡页内容
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
         drawerOpen = true
         refreshSessionList()
         drawerMask.visibility = View.VISIBLE

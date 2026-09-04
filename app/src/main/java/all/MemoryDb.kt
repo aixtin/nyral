@@ -6,10 +6,28 @@ import android.database.sqlite.SQLiteOpenHelper
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 7) {
+class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 9) {
 
     companion object {
         const val DIM = 512
+
+        /** 时间戳 → 人类可读: 今天只显时刻, 跨天显月日+时刻, 跨年显年月日+时刻 */
+        @JvmStatic
+        fun fmtTs(ts: Long): String {
+            if (ts <= 0) return ""
+            val c = java.util.Calendar.getInstance()
+            val now = java.util.Calendar.getInstance()
+            c.timeInMillis = ts
+            val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            if (c.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) &&
+                c.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)) {
+                return fmt.format(java.util.Date(ts))
+            }
+            fmt.applyPattern(
+                if (c.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR)) "MM-dd HH:mm" else "yy-MM-dd HH:mm"
+            )
+            return fmt.format(java.util.Date(ts))
+        }
     }
 
     private val lock = ReentrantLock()
@@ -42,7 +60,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                 "title TEXT NOT NULL," +
                 "updated_at INTEGER NOT NULL," +
-                "pinned INTEGER NOT NULL DEFAULT 0)"
+                "pinned INTEGER NOT NULL DEFAULT 0," +
+                "mode INTEGER NOT NULL DEFAULT 0)"
         )
         db.execSQL(
             "CREATE TABLE session_msgs (" +
@@ -50,8 +69,11 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "session_id INTEGER NOT NULL," +
                 "role TEXT NOT NULL," +
                 "content TEXT NOT NULL," +
+                "ts INTEGER," +
                 "seq INTEGER NOT NULL," +
-                "tools TEXT)"
+                "tools TEXT, " +
+                "thinking TEXT, " +
+                "timeline TEXT)"
         )
         db.execSQL("CREATE INDEX idx_sms_sid ON session_msgs(session_id)")
     }
@@ -62,13 +84,21 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         val cols = db.rawQuery("PRAGMA table_info(session_msgs)", null)
         var hasThinking = false
         var hasTools = false
+        var hasTimeline = false
+        var hasTs = false
         while (cols.moveToNext()) {
             when (cols.getString(1)) {
                 "thinking" -> hasThinking = true
                 "tools" -> hasTools = true
+                "timeline" -> hasTimeline = true
+                "ts" -> hasTs = true
             }
         }
         cols.close()
+        // 幂等兜底：ts 列保存消息时间戳(v10)，缺失则补齐
+        if (!hasTs) {
+            db.execSQL("ALTER TABLE session_msgs ADD COLUMN ts INTEGER")
+        }
         if (!hasThinking) {
             db.execSQL("ALTER TABLE session_msgs ADD COLUMN thinking TEXT")
         }
@@ -76,9 +106,28 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         if (!hasTools) {
             db.execSQL("ALTER TABLE session_msgs ADD COLUMN tools TEXT")
         }
+        // 幂等兜底：timeline 列保存思考/工具交错时间线(v8)，缺失则补齐
+        if (!hasTimeline) {
+            db.execSQL("ALTER TABLE session_msgs ADD COLUMN timeline TEXT")
+        }
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 9) {
+            // sessions 新增 mode 列(v9)：0=Agent 模式, 1=聊天模式，会话隔离
+            val sessMode = db.rawQuery("PRAGMA table_info(sessions)", null)
+            var hasMode = false
+            while (sessMode.moveToNext()) {
+                if (sessMode.getString(1) == "mode") {
+                    hasMode = true
+                    break
+                }
+            }
+            sessMode.close()
+            if (!hasMode) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN mode INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         if (oldVersion < 2) {
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS summary (" +
@@ -168,6 +217,21 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
             msgCols.close()
             if (!hasTools) {
                 db.execSQL("ALTER TABLE session_msgs ADD COLUMN tools TEXT")
+            }
+        }
+        if (oldVersion < 8) {
+            // session_msgs 新增 timeline 交错时间线列(v8)：思考/工具按真实顺序 JSON 数组
+            val tlCols = db.rawQuery("PRAGMA table_info(session_msgs)", null)
+            var hasTimeline = false
+            while (tlCols.moveToNext()) {
+                if (tlCols.getString(1) == "timeline") {
+                    hasTimeline = true
+                    break
+                }
+            }
+            tlCols.close()
+            if (!hasTimeline) {
+                db.execSQL("ALTER TABLE session_msgs ADD COLUMN timeline TEXT")
             }
         }
     }
@@ -342,15 +406,15 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
-    data class Pending(val id: Long, val role: String, val content: String)
+    data class Pending(val id: Long, val role: String, val content: String, val ts: Long)
 
     fun pendingAll(): List<Pending> {
         lock.withLock {
             val db = readableDatabase
             val list = mutableListOf<Pending>()
-            db.rawQuery("SELECT id, role, content FROM pending ORDER BY id", null).use { c ->
+            db.rawQuery("SELECT id, role, content, ts FROM pending ORDER BY id", null).use { c ->
                 while (c.moveToNext()) {
-                    list.add(Pending(c.getLong(0), c.getString(1), c.getString(2)))
+                    list.add(Pending(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3)))
                 }
             }
             return list
@@ -397,11 +461,11 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
 
     data class SessionInfo(val id: Long, val title: String, val updatedAt: Long, val pinned: Boolean)
 
-    /** 会话消息: role / content(正文) / thinking(AI 思考) / tools(工具调用序列 JSON) */
-    data class SessionMsg(val role: String, val content: String, val thinking: String = "", val tools: String = "")
+    /** 会话消息: role / content(正文) / thinking(AI 思考) / tools(工具调用序列 JSON) / timeline(思考+工具交错时间线 JSON, v8) / ts(消息时间戳 v10) / seq(会话内序号, 窗口化加载时用于定位) */
+    data class SessionMsg(val role: String, val content: String, val thinking: String = "", val tools: String = "", val timeline: String = "", val ts: Long = 0L, val seq: Int = -1)
 
     /** 保存当前会话为新会话，返回 session id；assistant 消息附思考内容(可空) */
-    fun saveSession(title: String, msgs: List<SessionMsg>): Long {
+    fun saveSession(title: String, msgs: List<SessionMsg>, mode: Int = 0): Long {
         lock.withLock {
             val db = writableDatabase
             db.beginTransaction()
@@ -410,6 +474,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                     android.content.ContentValues().apply {
                         put("title", title)
                         put("updated_at", System.currentTimeMillis())
+                        put("mode", mode)
                     })
                 msgs.forEachIndexed { i, m ->
                     db.insert("session_msgs", null,
@@ -417,8 +482,10 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                             put("session_id", id)
                             put("role", m.role)
                             put("content", m.content)
+                            put("ts", if (m.ts > 0) m.ts else System.currentTimeMillis())
                             put("thinking", m.thinking.ifBlank { null })
                             put("tools", m.tools.ifBlank { null })
+                            put("timeline", m.timeline.ifBlank { null })
                             put("seq", i)
                         })
                 }
@@ -431,12 +498,12 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     }
 
     /** 列出会话（置顶优先，其次按更新时间倒序） */
-    fun listSessions(limit: Int = 20): List<SessionInfo> {
+    fun listSessions(limit: Int = 20, mode: Int = 0): List<SessionInfo> {
         lock.withLock {
             val out = mutableListOf<SessionInfo>()
             readableDatabase.rawQuery(
-                "SELECT id, title, updated_at, pinned FROM sessions ORDER BY pinned DESC, updated_at DESC LIMIT ?",
-                arrayOf(limit.toString())
+                "SELECT id, title, updated_at, pinned FROM sessions WHERE mode = ? ORDER BY pinned DESC, updated_at DESC LIMIT ?",
+                arrayOf(mode.toString(), limit.toString())
             ).use { c ->
                 while (c.moveToNext()) {
                     out.add(SessionInfo(c.getLong(0), c.getString(1), c.getLong(2), c.getInt(3) != 0))
@@ -478,16 +545,17 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
-    /** 更新已存在会话：标题、时间戳，并整体重写消息 */
-    fun updateSession(id: Long, title: String, msgs: List<SessionMsg>) {
+    /** 更新已存在会话：标题、时间戳，并整体重写消息
+     *  @param baseSeq 若 >0，仅重写 seq >= baseSeq 的消息（保留更早窗口外消息），用于超长会话内存瘦身 */
+    fun updateSession(id: Long, title: String, msgs: List<SessionMsg>, mode: Int = 0, baseSeq: Int = 0) {
         lock.withLock {
             val db = writableDatabase
             db.beginTransaction()
             try {
-                db.execSQL("DELETE FROM session_msgs WHERE session_id = ?", arrayOf(id.toString()))
+                db.execSQL("DELETE FROM session_msgs WHERE session_id = ? AND seq >= ?", arrayOf(id.toString(), baseSeq.toString()))
                 db.execSQL(
-                    "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?",
-                    arrayOf(title, System.currentTimeMillis(), id)
+                    "UPDATE sessions SET title = ?, updated_at = ?, mode = ? WHERE id = ?",
+                    arrayOf(title, System.currentTimeMillis(), mode, id)
                 )
                 msgs.forEachIndexed { i, m ->
                     db.insert("session_msgs", null,
@@ -495,9 +563,11 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                             put("session_id", id)
                             put("role", m.role)
                             put("content", m.content)
+                            put("ts", if (m.ts > 0) m.ts else System.currentTimeMillis())
                             put("thinking", m.thinking.ifBlank { null })
                             put("tools", m.tools.ifBlank { null })
-                            put("seq", i)
+                            put("timeline", m.timeline.ifBlank { null })
+                            put("seq", baseSeq + i)
                         })
                 }
                 db.setTransactionSuccessful()
@@ -507,12 +577,12 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
-    /** 读取某个会话的全部消息 (role, content, thinking, tools) */
+    /** 读取某个会话的全部消息 (role, content, thinking, tools, timeline) */
     fun loadSessionMessages(id: Long): List<SessionMsg> {
         lock.withLock {
             val out = mutableListOf<SessionMsg>()
             readableDatabase.rawQuery(
-                "SELECT role, content, thinking, tools FROM session_msgs WHERE session_id = ? ORDER BY seq ASC",
+                "SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0) FROM session_msgs WHERE session_id = ? ORDER BY seq ASC",
                 arrayOf(id.toString())
             ).use { c ->
                 while (c.moveToNext()) {
@@ -520,11 +590,55 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         c.getString(0),
                         c.getString(1),
                         if (c.isNull(2)) "" else c.getString(2),
-                        if (c.isNull(3)) "" else c.getString(3)
+                        if (c.isNull(3)) "" else c.getString(3),
+                        if (c.isNull(4)) "" else c.getString(4),
+                        c.getLong(5)
                     ))
                 }
             }
             return out
+        }
+    }
+
+    /** 统计会话消息总数（用于决定是否走窗口化加载） */
+    fun countSessionMessages(id: Long): Int {
+        lock.withLock {
+            readableDatabase.rawQuery(
+                "SELECT COUNT(*) FROM session_msgs WHERE session_id = ?",
+                arrayOf(id.toString())
+            ).use { c ->
+                if (c.moveToFirst()) return c.getInt(0)
+            }
+            return 0
+        }
+    }
+
+    /**
+     * 只读某个会话的最近 tail 条消息（按 seq 升序返回），用于超长会话内存瘦身：
+     * 旧消息不载入内存，仅保留在 DB 供搜索/回溯，更早内容由 summary 承担上下文。
+     */
+    fun loadSessionMessagesTail(id: Long, tail: Int): List<SessionMsg> {
+        if (tail <= 0) return emptyList()
+        lock.withLock {
+            val out = mutableListOf<SessionMsg>()
+            readableDatabase.rawQuery(
+                "SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0), seq FROM session_msgs " +
+                    "WHERE session_id = ? ORDER BY seq DESC LIMIT ?",
+                arrayOf(id.toString(), tail.toString())
+            ).use { c ->
+                while (c.moveToNext()) {
+                    out.add(SessionMsg(
+                        c.getString(0),
+                        c.getString(1),
+                        if (c.isNull(2)) "" else c.getString(2),
+                        if (c.isNull(3)) "" else c.getString(3),
+                        if (c.isNull(4)) "" else c.getString(4),
+                        c.getLong(5),
+                        c.getInt(6)
+                    ))
+                }
+            }
+            return out.asReversed()
         }
     }
 

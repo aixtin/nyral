@@ -24,6 +24,19 @@ object LocalEngine {
     // 40: 适配扫描项目/批量检索类长任务(40 次足够覆盖 workdir_grep->head->read->write->upload 全链路)
     private const val MAX_TOOL_CALLS = 40
 
+    // 请求级断线自动重连: 模型请求因网络中断零输出时自动重发一次(共 2 次尝试), 无需用户手动"继续"
+    private const val MAX_NET_RETRY = 2
+
+    // 单次完整回复输出上限(字符): 防模型超长输出/多轮 tool 累积导致上下文顶爆窗口; 超限截断并提示
+    private const val MAX_OUTPUT_CHARS = 60000
+
+    /** 输出截断: 超过上限截断并追加提示, 防单条超长注入顶爆上下文窗口 */
+    private fun capOut(s: String): String =
+        if (s.length > MAX_OUTPUT_CHARS) s.take(MAX_OUTPUT_CHARS) + "\n…[输出过长已截断]" else s
+
+    /** 网络层可重试异常: 请求级断线, 整个 chat 流程自动重跑一次 */
+    private class RetryableException(msg: String) : RuntimeException(msg)
+
     /** 发送附件: mime 类型 + Base64 内容 + 文件名; 图片走 image_url, 音频走 input_audio, 其余走 input_file;
      *  text 为附件本地解析出的纯文本(如 PDF 提取内容), 非空时随 history 一并注入给模型;
      *  isVoice 标记该音频来自本地录音(需展示微信式语音气泡), 上传的音频文件为 false(展示为文件卡片) */
@@ -67,6 +80,35 @@ object LocalEngine {
         ToolSpec("workdir_stats", "工作目录统计概览(文件数/总大小/按类型分布), 扫描前先看全貌", "无参数")
     )
 
+    /**
+     * 上下文瘦身(2026-08-31): system 只注入"瘦索引"(工具名+一句话用途),
+     * 完整参数 schema 按需补全 —— 首次调用某工具时才把该工具的完整 desc+params 追加进上下文。
+     * 省 token: 每轮 system 从 ~2.5KB 降到 ~0.6KB(23 工具), 且绝大多数工具通常只用其中两三个。
+     */
+    private val toolIndex: Map<String, String> = mapOf(
+        "web_search" to "联网搜索(Bing), 返回标题+链接+摘要",
+        "web_fetch" to "抓取网页提取正文",
+        "site_auth" to "管理站点登录 Cookie(site_auth.json)",
+        "get_time" to "获取当前日期时间",
+        "calc" to "数学计算",
+        "memory_search" to "语义检索本地记忆",
+        "ssh_run" to "SSH 远程执行命令",
+        "file_list" to "列远程目录文件",
+        "file_read" to "读远程文件内容",
+        "file_info" to "查看远程文件详情",
+        "file_write" to "写/追加远程文件",
+        "ssh_upload" to "SFTP 上传(手机工作目录→远端)",
+        "ssh_download" to "SFTP 下载(远端→手机工作目录)",
+        "ssh_ls" to "SFTP 列远端目录",
+        "web_download" to "下载网页/文件到手机工作目录",
+        "workdir_list" to "列手机工作目录文件",
+        "workdir_read" to "读工作目录文本文件",
+        "workdir_write" to "写工作目录文本文件(覆盖)",
+        "workdir_grep" to "全文搜索工作目录(批量)",
+        "workdir_head" to "读文件前 N 行/字符(防上下文爆炸)",
+        "workdir_stats" to "工作目录统计概览"
+    )
+
     interface Callback {
         fun onThinkingStart()          // 思考段开始
         fun onThinkingDelta(text: String)  // 思考内容增量(打字机)
@@ -80,7 +122,10 @@ object LocalEngine {
 
     /** 流式入口: 主线程调用, 回调全部发生在调用线程(工作线程), UI 需自行 post */
     fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList()) {
+        var attempt = 0
+        while (true) {
         try {
+            McpClientManager.ensureLoaded(context)
             if (ApiConfig.apiKey().isBlank() && !ApiConfig.isCurrentLocal()) {
                 cb.onError("未配置 API Key, 请先到「设置 → 模型配置」填写")
                 return
@@ -89,17 +134,33 @@ object LocalEngine {
                 cb.onError("本地 GGUF 推理引擎待接入，请先在模型配置中切换回 API 模型")
                 return
             }
-            val messages = buildRouteMessages(context, history, attachments)
+            // 轮首(每轮): 辅助模型判定是否需翻记忆, YES 才本地检索并注入主请求; 不依赖主模型自觉
+            val memInject = MemoryGate.recall(context, history.takeLast(1500))
+            var memoryInjected = memInject != null
+            // 收尾兜底(仅"答案:"行触发): 本轮从未注入记忆时, 本地快检(毫秒级, 不依赖辅助模型), 命中则拦截重发
+            val answerGate: () -> String? = {
+                if (!memoryInjected) {
+                    val q = MemoryGate.lastUserText(history)
+                    val hits = MemoryTools.search(context, q)
+                    if (hits.isNotBlank() && !hits.startsWith("记忆中暂无") && !hits.startsWith("记忆检索失败")) {
+                        memoryInjected = true
+                        "${MemoryGate.REF_PREFIX}(可能相关,以对话为准):\n$hits"
+                    } else null
+                } else null
+            }
+            val messages = buildRouteMessages(context, history, attachments, memInject)
             var toolCount = 0
             var retriedEmpty = false
             val full = StringBuilder()
+            // 上下文瘦身: 记录已注入完整 schema 的工具, 首次调用时补全参数说明, 之后不再重复
+            val injectedTools = mutableSetOf<String>()
 
             while (true) {
                 if (cancelRequested) {
                     cb.onDone("")
                     return
                 }
-                val res = streamOnce(context, messages, cb)
+                val res = streamOnce(context, messages, cb, answerGate)
                 val toolCall = res.toolCall
                 if (toolCall != null) {
                     if (toolCount >= MAX_TOOL_CALLS) {
@@ -111,13 +172,34 @@ object LocalEngine {
                     cb.onTool(name, arg)
                     val result = executeTool(context, name, arg)
                     cb.onToolResult(name, result)
+                    // 上下文瘦身: 首次调用某工具时, 把该工具完整参数说明注入给模型(后续不再重复注入);
+                    // MCP 工具不在 toolRegistry, 从 McpClientManager.spec 拿 JSON Schema
+                    val schemaHint = if (injectedTools.add(name)) {
+                        toolRegistry.find { it.name == name }?.let { spec ->
+                            "[参数说明:$name] ${spec.desc}\n参数格式: ${spec.params}"
+                        } ?: McpClientManager.spec(name)?.let { (n, d, p) ->
+                            "[参数说明:$n] $d\n参数格式(JSON Schema): $p"
+                        } ?: ""
+                    } else ""
                     // 累积对话: assistant 已输出内容(含 TOOL 行) + 工具结果, 保证上下文完整
                     val asstContent = if (res.accumulated.isBlank()) "TOOL:$name|$arg"
-                        else res.accumulated.trimEnd() + "\nTOOL:$name|$arg"
+                        else capOut(res.accumulated.trimEnd()) + "\nTOOL:$name|$arg"
                     messages.put(JSONObject().put("role", "assistant").put("content", asstContent))
+                    val schemaBlock = if (schemaHint.isBlank()) "" else "本工具参数说明:\n$schemaHint\n\n"
                     messages.put(JSONObject().put("role", "user").put("content",
+                        schemaBlock +
                         "工具结果: $result\n" +
                         "请继续: 若还需要调用工具, 输出 TOOL:工具名|参数; 若已能回答用户, 直接输出最终答案。"))
+                    continue
+                }
+                if (res.restartWith != null) {
+                    // 答案行被拦截: 追加已输出(思考等) + 记忆参考引导, 重发让模型基于记忆重新作答
+                    memoryInjected = true
+                    val asstContent = capOut(res.accumulated.trimEnd()).ifBlank { "（已进入作答阶段）" }
+                    messages.put(JSONObject().put("role", "assistant").put("content", asstContent))
+                    messages.put(JSONObject().put("role", "user").put("content",
+                        "你刚才正要作答。请核对以下可能与问题相关的记忆后再回答" +
+                            "(如记忆与当前事实冲突, 以当前信息为准; 若确实无关可忽略):\n${res.restartWith}"))
                     continue
                 }
                 if (toolCall == null && res.accumulated.isBlank() && toolCount > 0 && !retriedEmpty) {
@@ -127,10 +209,21 @@ object LocalEngine {
                         "你刚才没有输出任何内容。请直接根据已知信息回答用户, 如仍需工具请输出 TOOL:工具名|参数。"))
                     continue
                 }
-                full.append(res.accumulated)
+                full.append(capOut(res.accumulated))
                 cb.onDone(full.toString())
                 return
             }
+        } catch (e: RetryableException) {
+            // 请求级断线: 自动重连一次(类似 web_download 重试), 全程无输出, 无需用户手动"继续"
+            attempt++
+            if (attempt >= MAX_NET_RETRY) {
+                android.util.Log.e("DroidAgent", "chat network retry exhausted", e)
+                cb.onError(e.message ?: "模型连接中断(网络波动)，请重试")
+                return
+            }
+            android.util.Log.w("DroidAgent", "chat network interrupted, auto-retry #$attempt: ${e.message}")
+            cb.onDelta("\n\n[网络波动，已自动重连一次]")
+            continue
         } catch (e: Exception) {
             if (cancelRequested) {
                 // 用户主动停止: 不视为错误
@@ -140,11 +233,13 @@ object LocalEngine {
             }
             android.util.Log.e("DroidAgent", "chat error", e)
             cb.onError(e.message ?: "未知错误")
+            return
+        }
         }
     }
 
     /** 单次 SSE 流式请求, 返回累积文本 + (可选)工具调用 */
-    private fun streamOnce(context: Context, messages: JSONArray, cb: Callback): StreamResult {
+    private fun streamOnce(context: Context, messages: JSONArray, cb: Callback, answerGate: () -> String? = { null }): StreamResult {
         val body = JSONObject()
         body.put("model", ApiConfig.model())
         body.put("messages", messages)
@@ -170,13 +265,20 @@ object LocalEngine {
         val conn = URL(ApiConfig.chatUrl()).openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
-        conn.setRequestProperty("Authorization", "Bearer ${ApiConfig.apiKey()}")
+        when (ApiConfig.authTypeOf(ApiConfig.providerId())) {
+            "x-api-key" -> conn.setRequestProperty("x-api-key", ApiConfig.apiKey())
+            "header" -> conn.setRequestProperty(ApiConfig.authHeaderOf(ApiConfig.providerId()), ApiConfig.apiKey())
+            else -> conn.setRequestProperty("Authorization", "Bearer ${ApiConfig.apiKey()}")
+        }
         conn.doOutput = true
         conn.connectTimeout = 20000
         conn.readTimeout = 60000
         activeConn = conn
         val accumulated = StringBuilder()
         var toolCall: Pair<String, String>? = null
+        val restartOut = ArrayList<String>()
+        // reader 需在 finally 中释放, 必须声明在 try 外(Kotlin 中 try 内变量对 finally 不可见)
+        var reader: BufferedReader? = null
         try {
         conn.outputStream.use { it.write(body.toString().toByteArray()) }
 
@@ -187,16 +289,18 @@ object LocalEngine {
             conn.disconnect()
             throw RuntimeException("API $code: $err")
         }
-        val reader = BufferedReader(InputStreamReader(conn.inputStream))
+        reader = BufferedReader(InputStreamReader(conn.inputStream))
         val lineBuf = StringBuilder()
+        // XML 工具调用累积缓冲: 部分模型输出 <tool_call><tool_name>x</tool_name><param>...</param></tool_call> 跨行格式
+        var xmlBuf: StringBuilder? = null
         var mode = MODE_NONE
         var aborted = false
 
         try {
         while (true) {
             if (cancelRequested) throw CancellationException("cancelled by user")
-            val line = reader.readLine() ?: break
-            android.util.Log.i("DroidAgent", "SSE: $line")
+            val line = reader!!.readLine() ?: break
+            android.util.Log.v("DroidAgent", "SSE: $line")
             if (!line.startsWith("data:")) continue
             val data = line.substring(5).trim()
             if (data == "[DONE]") break
@@ -237,15 +341,35 @@ object LocalEngine {
                 // 只去行尾空白, 保留行首缩进(嵌套列表/缩进代码块是 Markdown 语法的一部分)
                 val row = lineBuf.substring(0, nl).trimEnd()
                 lineBuf.delete(0, nl + 1)
+                // XML 工具调用检测: 模型可能输出 <tool_call><tool_name>x</tool_name><param>...</param></tool_call> 跨行 XML 格式而非 TOOL:
+                if (xmlBuf != null || row.trimStart().startsWith("<tool_call") || row.trimStart().startsWith("<tool_name>")) {
+                    if (xmlBuf == null) xmlBuf = StringBuilder()
+                    xmlBuf!!.append(row).append('\n')
+                    if (xmlBuf!!.contains("</tool_call>")) {
+                        val xml = xmlBuf!!.toString()
+                        xmlBuf = null
+                        val t = parseXmlToolCall(xml)
+                        if (t != null) {
+                            if (mode == MODE_THINKING) cb.onThinkingEnd()
+                            mode = MODE_NONE
+                            toolCall = t
+                            break
+                        }
+                        // 解析失败(伪标签): 还原为正文输出
+                        if (mode == MODE_CONTENT) { cb.onDelta(xml); accumulated.append(xml) }
+                    }
+                    continue
+                }
                 if (row.isBlank()) {
                     // 正文阶段的空行 = Markdown 段落分隔, 必须下发, 否则段落全被粘成一段
                     if (mode == MODE_CONTENT) { cb.onDelta("\n"); accumulated.append('\n') }
                     continue
                 }
-                val stop = processRow(row, mode, accumulated, cb) { m -> mode = m }
-                if (stop != null) { toolCall = stop; break }
+                val stop = processRow(row, mode, accumulated, cb, { m -> mode = m }, answerGate, restartOut)
+                if (stop != null) toolCall = stop
+                if (restartOut.isNotEmpty() || toolCall != null) break
             }
-            if (toolCall != null) break
+            if (toolCall != null || restartOut.isNotEmpty()) break
         }
         } catch (e: SocketException) {
             // 服务端/网络中途重置连接: 保留已输出内容, 不中断任务
@@ -259,7 +383,7 @@ object LocalEngine {
         if (aborted) {
             if (mode == MODE_THINKING) cb.onThinkingEnd()
             if (toolCall == null && accumulated.isBlank()) {
-                throw RuntimeException("模型连接中断(网络波动)，请重试")
+                throw RetryableException("模型连接中断(网络波动)")
             }
             if (toolCall == null && accumulated.isNotBlank()) {
                 cb.onDelta("\n\n[连接中断，以上内容已保留]")
@@ -268,22 +392,28 @@ object LocalEngine {
         // 末尾残余(无换行的最后一段)
         android.util.Log.i("DroidAgent", "EOF lineBuf=[$lineBuf] mode=$mode toolCall=$toolCall aborted=$aborted")
         if (toolCall == null && lineBuf.isNotBlank()) {
-            val stop = processRow(lineBuf.toString().trimEnd(), mode, accumulated, cb) { m -> mode = m }
+            val stop = processRow(lineBuf.toString().trimEnd(), mode, accumulated, cb, { m -> mode = m }, answerGate, restartOut)
             if (stop != null) toolCall = stop
         }
-        android.util.Log.i("DroidAgent", "streamOnce done acc=[$accumulated] toolCall=$toolCall")
+        // EOF 时 XML 缓冲残留(流结束未闭合): 若有完整 tool_name 仍尝试解析, 否则忽略
+        if (toolCall == null && xmlBuf != null) {
+            val t = parseXmlToolCall(xmlBuf!!.toString())
+            if (t != null) toolCall = t
+        }
+        android.util.Log.v("DroidAgent", "streamOnce done acc=[$accumulated] toolCall=$toolCall")
         // 思考段自然结束
         if (toolCall == null && mode == MODE_THINKING) cb.onThinkingEnd()
         // token 统计: 有真实 usage 用真实值, 否则本地估算(仅成功请求计入)
         val promptTokens = if (usedPrompt > 0) usedPrompt else promptEst.toLong()
         val completionTokens = if (usedCompletion > 0) usedCompletion else accumulated.length / 3L
         TokenStore.record(context, promptTokens.toInt().coerceAtLeast(0), completionTokens.toInt().coerceAtLeast(0))
-        reader.close()
-        conn.disconnect()
         } finally {
+            // 统一释放: 循环正常结束/用户取消/异常 均走到这里, 防连接与流句柄泄漏
+            try { reader?.close() } catch (_: Throwable) {}
+            try { conn.disconnect() } catch (_: Throwable) {}
             activeConn = null
         }
-        return StreamResult(accumulated.toString(), toolCall)
+        return StreamResult(accumulated.toString(), toolCall, restartOut.firstOrNull())
     }
 
     /** 处理一行输出, 返回 null 继续, 返回 Pair 表示命中工具行需打断 */
@@ -292,7 +422,9 @@ object LocalEngine {
         mode: Int,
         accumulated: StringBuilder,
         cb: Callback,
-        setMode: (Int) -> Unit
+        setMode: (Int) -> Unit,
+        answerGate: () -> String?,
+        restartOut: MutableList<String>
     ): Pair<String, String>? {
         when {
             row.startsWith("TOOL:") || row.startsWith("TOOL：") -> {
@@ -321,6 +453,13 @@ object LocalEngine {
                         if (body.isNotEmpty()) cb.onThinkingDelta(body)
                     }
                     row.startsWith("答案:") || row.startsWith("答案：") -> {
+                        // 收尾快检: 模型开始作答前, 若本轮尚未注入记忆, 本地检索兜底; 命中则丢弃答案行并拦截重发
+                        val gate = answerGate()
+                        if (gate != null) {
+                            restartOut.add(gate)
+                            setMode(MODE_CONTENT)
+                            return null
+                        }
                         setMode(MODE_CONTENT)
                         val t = row.substring(3).trim()
                         // 行尾换行随内容一起下发: UI 逐行拼接缺换行会把所有行粘成一行, Markdown 失效
@@ -336,6 +475,13 @@ object LocalEngine {
             mode == MODE_THINKING -> {
                 when {
                     row.startsWith("答案:") || row.startsWith("答案：") -> {
+                        val gate = answerGate()
+                        if (gate != null) {
+                            restartOut.add(gate)
+                            cb.onThinkingEnd()
+                            setMode(MODE_CONTENT)
+                            return null
+                        }
                         setMode(MODE_CONTENT)
                         cb.onThinkingEnd()
                         val t = row.substring(3).trim()
@@ -385,7 +531,15 @@ object LocalEngine {
         return normalizeToolName(name) to arg
     }
 
-    private fun buildRouteMessages(context: Context, history: String, attachments: List<Attachment> = emptyList()): JSONArray {
+    /** 解析 XML 工具调用: <tool_call><tool_name>x</tool_name><param>...</param></tool_call> (兼容单行/跨行/属性) */
+    private fun parseXmlToolCall(xml: String): Pair<String, String>? {
+        val name = Regex("<tool_name>\\s*([^<]+?)\\s*</tool_name>").find(xml)?.groupValues?.get(1)?.trim()
+            ?: return null
+        val arg = Regex("<param>([\\s\\S]*?)</param>").find(xml)?.groupValues?.get(1)?.trim() ?: ""
+        return normalizeToolName(name) to arg
+    }
+
+    private fun buildRouteMessages(context: Context, history: String, attachments: List<Attachment> = emptyList(), memInject: String? = null): JSONArray {
         val messages = JSONArray()
         val sshList = SshConfigStore.load(context).joinToString("\n") {
             "- ${it.name}: ${it.user}@${it.host}:${it.port}" +
@@ -408,10 +562,20 @@ object LocalEngine {
             "4. 无需思考直接回答时, 直接输出正文, 不要前缀。\n" +
             "收到工具结果后可继续『思考:』『TOOL:』或『答案:』。一次只能一个TOOL。"
         }
+        val personaName = PersonaConfig.aiName()
+        val persona = PersonaConfig.aiPersona()
+        // 聊天模式: 强制纯文本正文, 禁止 Markdown
+        val mdBan = if (ModeConfig.chatMode())
+            "\n当前为聊天模式: 一律用纯文本自然语言回答, 禁止输出任何 Markdown 标记(如 # 标题、**加粗**、`代码`、- 列表、[链接](url)、表格等), 直接输出正文。" else ""
         messages.put(JSONObject().put("role", "system").put("content",
-            "你是DroidAgent。根据用户需求选择工具。工具清单:\n" +
-            toolRegistry.joinToString("\n") { "- ${it.name}: ${it.desc} (参数: ${it.params})" } +
-            "\n可用SSH连接:$sshHint\n" + fmtRules))
+            "你是" + personaName + "。" + (if (persona.isNotEmpty()) persona + "\n" else "") +
+            "根据用户需求选择工具。工具清单(名称+用途):\n" +
+            toolIndex.entries.joinToString("\n") { (n, d) -> "- $n: $d" } +
+            buildMcpIndex() +
+            "\n可用SSH连接:$sshHint\n" +
+            "调用格式『TOOL:工具名|参数』。首次调用某工具后若返回『参数说明』, 按其中格式修正参数重试; 未知工具名或参数格式错误时, 参照『参数说明』修正后再调。" +
+            "记忆使用: 若所需信息可能来自与此用户过去的对话且当前上下文未提及, 应调用 memory_search 查证后再回答; 工具调用过程中拿不准时也先查记忆再作答。\n" +
+            (if (memInject.isNullOrBlank()) "" else memInject + "\n") + fmtRules + mdBan))
         if (attachments.isEmpty()) {
             messages.put(JSONObject().put("role", "user").put("content", history))
         } else {
@@ -469,7 +633,16 @@ object LocalEngine {
         return messages
     }
 
-    private fun normalizeToolName(name: String): String = name.replace(Regex("_+"), "_")
+    private fun normalizeToolName(name: String): String = name.trim('_')
+
+    /** MCP 工具索引块: 服务概览 + 各工具(描述已标注服务名), 无 MCP 工具时不输出 */
+    private fun buildMcpIndex(): String {
+        if (!McpClientManager.hasTools()) return ""
+        val overview = McpClientManager.serverOverview().joinToString("; ")
+        val lines = McpClientManager.indexLines().joinToString("\n") { (n, d) -> "  - $n: $d" }
+        return "\n◆ MCP 外部工具(来自配置的 MCP 服务, 前缀即服务名, 多服务请按名称区分):\n" +
+            (if (overview.isNotEmpty()) "  服务概览: $overview\n" else "") + lines + "\n"
+    }
 
     private fun executeTool(context: Context, name: String, arg: String): String {
         return when (name) {
@@ -495,15 +668,23 @@ object LocalEngine {
             "web_search" -> WebTools.search(arg)
             "web_fetch" -> WebTools.fetch(context, arg)
             "site_auth" -> WebTools.siteAuth(context, arg)
-            else -> "未知工具: $name"
+            else -> {
+                // MCP 动态工具: 已注册则分发到对应服务, 未注册报未知
+                if (McpClientManager.spec(name) != null) McpClientManager.callTool(context, name, arg)
+                else "未知工具: $name"
+            }
         }
     }
 
-    private data class StreamResult(val accumulated: String, val toolCall: Pair<String, String>?)
+    private data class StreamResult(val accumulated: String, val toolCall: Pair<String, String>?, val restartWith: String? = null)
 
     data class ToolSpec(val name: String, val desc: String, val params: String)
 
     private const val MODE_NONE = 0
     private const val MODE_THINKING = 1
     private const val MODE_CONTENT = 2
+
+    /** 调试服务/状态查询: 暴露工具清单(名称+描述+参数说明, 含 MCP 动态工具) */
+    fun toolList(): List<ToolSpec> =
+        toolRegistry + McpClientManager.specEntries().map { (n, d, p) -> ToolSpec(n, d, p) }
 }

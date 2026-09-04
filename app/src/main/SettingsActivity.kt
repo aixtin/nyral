@@ -1,15 +1,10 @@
 package io.github.aixtin.droidagent
 
-import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,7 +18,6 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
-import java.io.FileOutputStream
 
 /**
  * 设置页（入口列表）— 与主页统一视觉（灰底 + 白色圆角卡片 + 自绘标题栏）
@@ -35,14 +29,18 @@ class SettingsActivity : Activity() {
 
     private lateinit var modelSubtitle: TextView
     private lateinit var memorySubtitle: TextView
-    private lateinit var summarySubtitle: TextView
-    private lateinit var mcpSubtitleView: TextView
     private lateinit var memModelSubtitle: TextView
     private lateinit var tokenSubtitle: TextView
     private lateinit var debugSubtitle: TextView
     private lateinit var debugBox: LinearLayout
+    private lateinit var mainTitleSub: TextView
+    private lateinit var drawerTitleSub: TextView
+    private lateinit var drawerNoteSub: TextView
+    private lateinit var aiNameSub: TextView
+    private lateinit var aiPersonaSub: TextView
     private lateinit var uploadSizeSub: TextView
-    private lateinit var permSubtitleView: TextView
+    private lateinit var avatarUserSub: TextView
+    private lateinit var avatarAiSub: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,17 +71,9 @@ class SettingsActivity : Activity() {
             startActivity(Intent(this@SettingsActivity, SshConfigActivity::class.java))
         }))
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem("MCP 服务", mcpStatus(), "🧩", 0, {
-            startActivity(Intent(this@SettingsActivity, McpConfigActivity::class.java))
-        }) { mcpSubtitleView = it })
-        cardConn.addView(Ui.divider(this))
         cardConn.addView(settingsItem("长期记忆", "已存储 " + MemoryDb(this).count() + " 条记忆", "🧠", 1, {
             startActivity(Intent(this@SettingsActivity, MemoryListActivity::class.java))
         }) { memorySubtitle = it })
-        cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem("整理记忆索引", summaryStatus(), "索", 2, {
-            startActivity(Intent(this@SettingsActivity, MemorySummaryActivity::class.java))
-        }) { summarySubtitle = it })
         content.addView(cardConn)
 
         // 分组2：模型 API
@@ -119,12 +109,55 @@ class SettingsActivity : Activity() {
         // 分组3：外观
         content.addView(Ui.groupLabel(this, "外观"))
         val cardLook = Ui.card(this)
-        cardLook.addView(settingsItem("外观设置", "主页/侧栏标题 · 便签 · 聊天模式与背景", "🎨", 8, {
-            startActivity(Intent(this@SettingsActivity, AppearanceActivity::class.java))
-        }))
+        cardLook.addView(settingsItem("主页标题", "当前: " + TitleConfig.mainTitle(), "🏠", 8, {
+            showTitleEdit("主页标题", TitleConfig.mainTitle(), onSave = { v ->
+                TitleConfig.setMainTitle(v)
+                if (::mainTitleSub.isInitialized) mainTitleSub.text = "当前: " + TitleConfig.mainTitle()
+            })
+        }) { mainTitleSub = it })
         cardLook.addView(Ui.divider(this))
-        cardLook.addView(settingsItem("AI 个性化", "AI 名字 · 人设 · 双头像", "🧩", 18, {
-            startActivity(Intent(this@SettingsActivity, PersonalityActivity::class.java))
+        cardLook.addView(settingsItem("侧栏标题", "当前: " + TitleConfig.drawerTitle(), "📂", 9, {
+            showTitleEdit("侧栏标题", TitleConfig.drawerTitle(), onSave = { v ->
+                TitleConfig.setDrawerTitle(v)
+                if (::drawerTitleSub.isInitialized) drawerTitleSub.text = "当前: " + TitleConfig.drawerTitle()
+            })
+        }) { drawerTitleSub = it })
+        cardLook.addView(Ui.divider(this))
+        cardLook.addView(settingsItem("侧栏便签", "当前: " + TitleConfig.drawerNote(), "📝", 10, {
+            showTitleEdit("侧栏便签", TitleConfig.drawerNote(), onSave = { v ->
+                TitleConfig.setDrawerNote(v)
+                if (::drawerNoteSub.isInitialized) drawerNoteSub.text = "当前: " + TitleConfig.drawerNote()
+            }, hint = "请输入便签内容（留空恢复默认）", multiline = true, maxLength = 18)
+        }) { drawerNoteSub = it })
+        cardLook.addView(Ui.divider(this))
+        cardLook.addView(settingsItem("AI 名字", "当前: " + PersonaConfig.aiName(), "🤖", 12, {
+            showTitleEdit("AI 名字", PersonaConfig.aiName(), onSave = { v ->
+                PersonaConfig.setAiName(v)
+                if (::aiNameSub.isInitialized) aiNameSub.text = "当前: " + PersonaConfig.aiName()
+            }, hint = "请输入 AI 名字（留空恢复默认 DroidAgent）", maxLength = 20)
+        }) { aiNameSub = it })
+        cardLook.addView(Ui.divider(this))
+        cardLook.addView(settingsItem("AI 人设", "system 提示词中的身份描述", "🧬", 13, {
+            showTitleEdit("AI 人设", PersonaConfig.aiPersona(), onSave = { v ->
+                PersonaConfig.setAiPersona(v)
+                if (::aiPersonaSub.isInitialized) aiPersonaSub.text = if (v.isEmpty()) "system 提示词中的身份描述" else "当前: " + v
+            }, hint = "请输入 AI 人设描述（留空使用内置默认）", multiline = true, maxLength = 200)
+        }) { aiPersonaSub = it })
+        cardLook.addView(Ui.divider(this))
+        cardLook.addView(settingsItem("用户头像", "默认文字头像（我）", "👤", 16, {
+            showAvatarDialog(false)
+        }) { avatarUserSub = it })
+        cardLook.addView(Ui.divider(this))
+        cardLook.addView(settingsItem("AI 头像", "默认文字头像（AI）", "🤖", 17, {
+            showAvatarDialog(true)
+        }) { avatarAiSub = it })
+        cardLook.addView(Ui.divider(this))
+        cardLook.addView(settingsSwitch("聊天模式", "并排头像 · 纯文本正文", "💬", 15, ModeConfig.chatMode()) { on ->
+            ModeConfig.setChatMode(on)
+        })
+        cardLook.addView(Ui.divider(this))
+        cardLook.addView(settingsItem("聊天背景", "渐变预设 / 自定义图片", "🎨", 4, {
+            startActivity(Intent(this@SettingsActivity, ChatBackgroundActivity::class.java))
         }))
         content.addView(cardLook)
 
@@ -152,12 +185,6 @@ class SettingsActivity : Activity() {
         }
         debugBox.visibility = if (DebugServer.unlocked(this)) View.VISIBLE else View.GONE
         cardAbout.addView(debugBox)
-        cardAbout.addView(Ui.divider(this))
-        // 权限管理: 查看/补开全部依赖权限(部分手机长时间不用会自动收回)
-        cardAbout.addView(Ui.divider(this))
-        cardAbout.addView(settingsItem("权限管理", "查看与补开全部权限", "🔏", 9, {
-            startActivity(Intent(this@SettingsActivity, PermissionsActivity::class.java))
-        }) { permSubtitleView = it })
         cardAbout.addView(settingsItem("关于", "DroidAgent v1.0 · 本地引擎", "ℹ", 3, {
             startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
         }))
@@ -193,12 +220,6 @@ class SettingsActivity : Activity() {
         if (::memorySubtitle.isInitialized) {
             memorySubtitle.text = "已存储 " + MemoryDb(this).count() + " 条记忆"
         }
-        if (::summarySubtitle.isInitialized) {
-            summarySubtitle.text = summaryStatus()
-        }
-        if (::mcpSubtitleView.isInitialized) {
-            mcpSubtitleView.text = mcpStatus()
-        }
         if (::tokenSubtitle.isInitialized) {
             val s = TokenStore.stats(this)
             val a = TokenStore.auxStats(this)
@@ -206,9 +227,6 @@ class SettingsActivity : Activity() {
         }
         if (::debugBox.isInitialized) {
             debugBox.visibility = if (DebugServer.unlocked(this)) View.VISIBLE else View.GONE
-        }
-        if (::permSubtitleView.isInitialized) {
-            permSubtitleView.text = permStatus()
         }
     }
 
@@ -333,25 +351,11 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(0, dp(14), 0, 0)
-            val cParams = LinearLayout.LayoutParams(
+            val closeBtn = Ui.dialogCancelBtn(ctx, "关闭", { dlg.dismiss() })
+            closeBtn.layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            val hideBtn = Ui.dangerBtn(ctx, "隐藏", {
-                DebugServer.hideDebug(this@SettingsActivity)
-                if (::debugBox.isInitialized) debugBox.visibility = View.GONE
-                dlg.dismiss()
-                android.widget.Toast.makeText(
-                    ctx, "调试服务已隐藏，连点版本号 7 次可重新开启", android.widget.Toast.LENGTH_SHORT
-                ).show()
-            })
-            hideBtn.layoutParams = cParams
-            addView(hideBtn)
-            addView(LinearLayout(ctx).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(12), ViewGroup.LayoutParams.WRAP_CONTENT)
-            })
-            val closeBtn = Ui.dialogCancelBtn(ctx, "关闭", { dlg.dismiss() })
-            closeBtn.layoutParams = cParams
             addView(closeBtn)
         })
 
@@ -480,6 +484,7 @@ class SettingsActivity : Activity() {
         tv.setTextColor(if (selected) Color.WHITE else 0xFF666666.toInt())
     }
 
+    /** 上传大小上限编辑弹窗: 输入正整数(单位 MB), 非法或留空回退默认 20 */
     private fun showUploadSizeEdit() {
         val (dlg, box) = Ui.dialog(this, "修改上传大小上限", jellyOvershoot = 1.4f, animate = false)
         box.addView(Ui.hint(this, "聊天附件上传的大小限制（单位 MB），范围 1~500，默认 20"))
@@ -513,29 +518,138 @@ class SettingsActivity : Activity() {
         dlg.show()
     }
 
-    private fun mcpStatus(): String {
-        val servers = McpConfigStore.load(this)
-        return if (servers.isEmpty()) "动态工具接入 · 未配置"
-        else "${servers.size} 个服务 · " + servers.joinToString("、") { it.name }
+    /** 标题/便签自定义弹窗: 输入新内容, 留空保存回退默认值; multiline 时支持多行便签; maxLength>0 时显示实时字数提示并到上限自动停止 */
+    private fun showTitleEdit(title: String, current: String, onSave: (String) -> Unit, hint: String = "请输入$title（留空恢复默认）", multiline: Boolean = false, maxLength: Int = 0) {
+        // animate=false: 标题编辑弹窗不做缩放动画(硬件加速下缩放会把圆角拉伸成直角), 即开即显
+        val (dlg, box) = Ui.dialog(this, "修改$title", jellyOvershoot = 1.4f, animate = false)
+        val input = Ui.input(this, hint).apply {
+            setText(current)
+            setSelection(text.length)
+            if (multiline) {
+                setSingleLine(false)
+                minLines = 2
+                gravity = Gravity.TOP or Gravity.START
+            }
+        }
+        box.addView(input)
+        // 字数提示: 实时显示 x/上限, 到上限自动停住不再增加(不静默吞字, 用户能看到原因)
+        var counter: TextView? = null
+        if (maxLength > 0) {
+            counter = TextView(this).apply {
+                textSize = 11f
+                setTextColor(0xFF999999.toInt())
+                gravity = Gravity.END
+                setPadding(0, dp(4), dp(2), 0)
+            }
+            input.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    val len = s?.length ?: 0
+                    if (len > maxLength) {
+                        val keep = s!!.substring(0, maxLength)
+                        input.setText(keep)
+                        input.setSelection(keep.length)
+                    }
+                    counter?.text = "${input.text.length}/$maxLength"
+                }
+            })
+            counter.text = "${input.text.length}/$maxLength"
+            box.addView(counter)
+        }
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(14), 0, 0)
+            addView(Ui.dialogCancelBtn(this@SettingsActivity, "保存", {
+                onSave(input.text.toString().trim())
+                dlg.dismiss()
+            }))
+            val cancelBtn = Ui.dialogCancelBtn(this@SettingsActivity, "取消", { dlg.dismiss() })
+            cancelBtn.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(10) }
+            addView(cancelBtn)
+        })
+        dlg.show()
     }
 
-    /** 整理记忆索引副标题：AI 整理的主题索引摘要条数 */
-    private fun summaryStatus(): String {
-        val s = MemoryDb(this).loadSummary()?.trim()
-        return if (s.isNullOrEmpty()) "暂无 · 归档后自动生成" else "AI 整理 · " + (s.count { it == '\n' } + 1) + " 条"
+    private var pendingAvatarIsAi = false
+    private val REQ_AVATAR_USER = 3001
+    private val REQ_AVATAR_AI = 3002
+
+    private fun refreshAvatarSubs() {
+        if (::avatarUserSub.isInitialized)
+            avatarUserSub.text = if (AvatarConfig.hasUserAvatar()) "已设置自定义头像" else "默认文字头像（我）"
+        if (::avatarAiSub.isInitialized)
+            avatarAiSub.text = if (AvatarConfig.hasAiAvatar()) "已设置自定义头像" else "默认文字头像（AI）"
     }
 
-    /** 权限管理入口副标题: 汇总当前未授权项(与本机适配后按需统计) */
-    private fun permStatus(): String {
-        var missing = 0
-        fun checked(cond: Boolean) { if (cond) missing++ }
-        checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-        checked(checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
-        checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this))
-        checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager())
-        checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls())
-        return if (missing == 0) "全部已授权 · 点击查看" else "$missing 项未授权 · 点击补开"
+    private fun showAvatarDialog(isAi: Boolean) {
+        val has = if (isAi) AvatarConfig.hasAiAvatar() else AvatarConfig.hasUserAvatar()
+        val (dlg, box) = Ui.dialog(this, if (isAi) "更换 AI 头像" else "更换用户头像", jellyOvershoot = 1.4f, animate = false)
+        box.addView(Ui.hint(this, if (has) "当前为自定义头像" else "当前为默认文字头像"))
+        val vstack = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        vstack.addView(Ui.dialogCancelBtn(this@SettingsActivity, "从相册选择图片", {
+            dlg.dismiss()
+            pendingAvatarIsAi = isAi
+            val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }
+            try {
+                startActivityForResult(i, if (isAi) REQ_AVATAR_AI else REQ_AVATAR_USER)
+            } catch (e: Exception) {
+                Toast.makeText(this@SettingsActivity, "无法打开相册: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }))
+        if (has) {
+            val restoreBtn = Ui.dangerBtn(this@SettingsActivity, "恢复默认", {
+                if (isAi) AvatarConfig.clearAiAvatar() else AvatarConfig.clearUserAvatar()
+                dlg.dismiss()
+                refreshAvatarSubs()
+                Toast.makeText(this@SettingsActivity, "已恢复默认头像", Toast.LENGTH_SHORT).show()
+            })
+            restoreBtn.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+            vstack.addView(restoreBtn)
+        }
+        box.addView(vstack)
+        dlg.show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != Activity.RESULT_OK || data == null) return
+
+        // 裁剪页返回：拿到 1:1 正方形临时文件并落盘
+        if (requestCode == AvatarCropActivity.REQ_CROP) {
+            val path = data.getStringExtra(AvatarCropActivity.EXTRA_RESULT_PATH)
+            if (path == null) return
+            val file = File(path)
+            val ok = if (pendingAvatarIsAi) AvatarConfig.setAiAvatarFromSquare(file)
+            else AvatarConfig.setUserAvatarFromSquare(file)
+            Toast.makeText(this, if (ok) "头像已更新" else "头像设置失败", Toast.LENGTH_SHORT).show()
+            refreshAvatarSubs()
+            file.delete()
+            return
+        }
+
+        if (data.data == null) return
+        // 相册选图返回：跳转 1:1 自由裁剪页
+        val uri = data.data!!
+        try {
+            val i = Intent(this, AvatarCropActivity::class.java).apply {
+                putExtra(AvatarCropActivity.EXTRA_URI, uri)
+                putExtra(AvatarCropActivity.EXTRA_IS_AI, pendingAvatarIsAi)
+            }
+            startActivityForResult(i, AvatarCropActivity.REQ_CROP)
+        } catch (e: Exception) {
+            Toast.makeText(this, "无法打开裁剪: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun settingsItem(title: String, subtitle: String, icon: String, seed: Int, onClick: () -> Unit, subRef: ((TextView) -> Unit)? = null): LinearLayout {
@@ -564,6 +678,34 @@ class SettingsActivity : Activity() {
                 })
             })
             addView(Ui.arrow(this@SettingsActivity))
+        }
+    }
+
+    private fun settingsSwitch(title: String, subtitle: String, icon: String, seed: Int, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(14), dp(12), dp(14))
+            addView(Ui.iconBadge(this@SettingsActivity, icon, seed))
+            addView(LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(dp(12), 0, dp(8), 0)
+                }
+                addView(Ui.itemTitle(this@SettingsActivity, title))
+                addView(TextView(this@SettingsActivity).apply {
+                    text = subtitle
+                    textSize = 12f
+                    setTextColor(0xFF999999.toInt())
+                    setPadding(0, dp(3), 0, 0)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+            })
+            addView(Switch(this@SettingsActivity).apply {
+                isChecked = checked
+                setOnCheckedChangeListener { _, on -> onChange(on) }
+            })
         }
     }
 
