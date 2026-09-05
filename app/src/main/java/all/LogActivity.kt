@@ -1,5 +1,7 @@
 package io.github.aixtin.nyral
 
+import io.github.aixtin.nyral.R
+
 import android.app.Activity
 import android.graphics.Color
 import android.os.Bundle
@@ -38,7 +40,7 @@ class LogActivity : Activity() {
         Ui.statusBar(this)
 
         val root = Ui.pageRoot(this)
-        root.addView(Ui.titleBar(this, "运行日志"))
+        root.addView(Ui.titleBar(this, getString(R.string.log_01)))
 
         // ---- tab 行 ----
         val tabRow = LinearLayout(this).apply {
@@ -46,12 +48,12 @@ class LogActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(16), dp(10), dp(16), dp(4))
         }
-        tabMain = tabButton("主日志", true) {
+        tabMain = tabButton(getString(R.string.log_02), true) {
             currentTag = LogStore.MAIN
             refreshTabs()
             refresh(true)
         }
-        tabMem = tabButton("辅助 AI 日志", false) {
+        tabMem = tabButton(getString(R.string.log_03), false) {
             currentTag = LogStore.MEM
             refreshTabs()
             refresh(true)
@@ -94,11 +96,11 @@ class LogActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(16), dp(6), dp(16), dp(12))
         }
-        bottomBar.addView(Ui.lightBtn(this, "🔄 刷新") { refresh(true) },
+        bottomBar.addView(Ui.lightBtn(this, getString(R.string.log_04)) { refresh(true) },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 setMargins(0, 0, dp(8), 0)
             })
-        bottomBar.addView(Ui.primaryBtn(this, "🗑 清空当前") { confirmClear() },
+        bottomBar.addView(Ui.primaryBtn(this, getString(R.string.log_05)) { confirmClear() },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 setMargins(dp(8), 0, 0, 0)
             })
@@ -150,9 +152,9 @@ class LogActivity : Activity() {
         val sb = StringBuilder()
         list.forEach { sb.append(it.line()).append('\n') }
         if (list.isEmpty()) {
-            sb.append("(暂无日志)\n")
+            sb.append(getString(R.string.log_06))
         }
-        sb.append("\n— 共 ").append(list.size).append(" 条 —")
+        sb.append(getString(R.string.log_07)).append(list.size).append(getString(R.string.log_08))
         val key = sb.toString()
         if (!force && key == lastShownKey) return
         lastShownKey = key
@@ -161,14 +163,14 @@ class LogActivity : Activity() {
     }
 
     private fun confirmClear() {
-        val (dlg, box) = Ui.dialog(this, "清空日志")
-        box.addView(Ui.dialogText(this, "确定清空当前视图的全部日志？此操作不可恢复。"))
+        val (dlg, box) = Ui.dialog(this, getString(R.string.log_09))
+        box.addView(Ui.dialogText(this, getString(R.string.log_10)))
         box.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
-            addView(Ui.dialogCancelBtn(this@LogActivity, "取消") { dlg.dismiss() })
+            addView(Ui.dialogCancelBtn(this@LogActivity, getString(R.string.log_11)) { dlg.dismiss() })
             addView(TextView(this@LogActivity).apply {
-                text = "清空"
+                text = getString(R.string.log_12)
                 textSize = 15f
                 setTextColor(0xFFE53935.toInt())
                 setPadding(dp(20), dp(10), dp(4), dp(10))

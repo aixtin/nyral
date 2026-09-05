@@ -1,5 +1,7 @@
 package io.github.aixtin.nyral
 
+import io.github.aixtin.nyral.R
+
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -32,7 +34,7 @@ class PermissionsActivity : Activity() {
         val icon: String,
         val name: String,
         val desc: String,
-        /** 当前系统是否需要该权限(false 表示本机无需, 展示"无需") */
+        /** 当前系统是否需要该权限(false 表示本机无需, 展示getString(R.string.perm_17)) */
         val required: () -> Boolean,
         /** 是否已授权 */
         val granted: () -> Boolean,
@@ -45,7 +47,7 @@ class PermissionsActivity : Activity() {
         Ui.statusBar(this)
 
         val root = Ui.pageRoot(this)
-        root.addView(Ui.titleBar(this, "权限管理"))
+        root.addView(Ui.titleBar(this, getString(R.string.perm_01)))
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -57,7 +59,7 @@ class PermissionsActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
             addView(TextView(this@PermissionsActivity).apply {
-                text = "已授权 0 / 0"
+                text = getString(R.string.perm_02)
                 textSize = 24f
                 setTextColor(0xFF2E7D32.toInt())
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -65,7 +67,7 @@ class PermissionsActivity : Activity() {
                 sumText = this
             })
             addView(TextView(this@PermissionsActivity).apply {
-                text = "部分手机在权限长时间未使用后会自动收回，出现「未授权」项时点击即可补开。"
+                text = getString(R.string.perm_03)
                 textSize = 12f
                 setTextColor(0xFF999999.toInt())
                 gravity = Gravity.CENTER
@@ -106,36 +108,36 @@ class PermissionsActivity : Activity() {
         refresh()
         // 运行时权限被永久拒绝时引导去应用设置页
         if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
-            Toast.makeText(this, "如弹窗被拒绝且不再提示，可通过系统顶部的「去授权」重新打开", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.perm_04), Toast.LENGTH_LONG).show()
         }
     }
 
     private fun items(): List<PermItem> = listOf(
-        PermItem("🔔", "通知", "AI 任务完成等提醒", {
+        PermItem("🔔", getString(R.string.perm_05), getString(R.string.perm_06), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
         }, {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         }, { a ->
             a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_RUNTIME)
         }),
-        PermItem("🎙", "麦克风", "语音输入", {
+        PermItem("🎙", getString(R.string.perm_07), getString(R.string.perm_08), {
             true
         }, {
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         }, { a ->
             a.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RUNTIME)
         }),
-        PermItem("🪟", "悬浮窗", "AI 悬浮终端实时显示", {
+        PermItem("🪟", getString(R.string.perm_09), getString(R.string.perm_10), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
         }, {
             Settings.canDrawOverlays(this)
         }, { a -> a.openOverlay() }),
-        PermItem("📁", "所有文件访问", "处理手机中的文件", {
+        PermItem("📁", getString(R.string.perm_11), getString(R.string.perm_12), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
         }, {
             Environment.isExternalStorageManager()
         }, { a -> a.openAllFiles() }),
-        PermItem("📦", "安装未知应用", "APP 内自更新安装", {
+        PermItem("📦", getString(R.string.perm_13), getString(R.string.perm_14), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
         }, {
             packageManager.canRequestPackageInstalls()
@@ -152,7 +154,7 @@ class PermissionsActivity : Activity() {
         var total = 0
         list.forEach { if (it.required()) { total++; if (it.granted()) granted++ } }
         sumText?.apply {
-            text = if (total == 0) "全部权限已授权" else "已授权 $granted / $total"
+            text = if (total == 0) getString(R.string.perm_15) else getString(R.string.perm_16)
             setTextColor(if (granted == total) 0xFF2E7D32.toInt() else 0xFFD32F2F.toInt())
         }
 
@@ -194,9 +196,9 @@ class PermissionsActivity : Activity() {
             })
             addView(TextView(this@PermissionsActivity).apply {
                 text = when {
-                    !required -> "无需"
-                    granted -> "已授权"
-                    else -> "未授权"
+                    !required -> getString(R.string.perm_17)
+                    granted -> getString(R.string.perm_18)
+                    else -> getString(R.string.perm_19)
                 }
                 textSize = 13f
                 setTextColor(when {
@@ -211,7 +213,7 @@ class PermissionsActivity : Activity() {
                         cornerRadius = dp(14).toFloat()
                         setColor(0x1AD32F2F.toInt())
                     }
-                    text = "未授权 · 去授权"
+                    text = getString(R.string.perm_20)
                 }
             })
         }
@@ -222,7 +224,7 @@ class PermissionsActivity : Activity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         } catch (e: Exception) {
             try { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) }
-            catch (e2: Exception) { Toast.makeText(this, "无法打开悬浮窗设置页", Toast.LENGTH_LONG).show() }
+            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_21), Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -231,7 +233,7 @@ class PermissionsActivity : Activity() {
             startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
         } catch (e: Exception) {
             try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
-            catch (e2: Exception) { Toast.makeText(this, "无法打开文件访问设置页", Toast.LENGTH_LONG).show() }
+            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_22), Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -240,7 +242,7 @@ class PermissionsActivity : Activity() {
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
         } catch (e: Exception) {
             try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)) }
-            catch (e2: Exception) { Toast.makeText(this, "无法打开安装来源设置页", Toast.LENGTH_LONG).show() }
+            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_23), Toast.LENGTH_LONG).show() }
         }
     }
 
