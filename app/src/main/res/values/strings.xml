@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 会话与消息 Toast -->
+    <string name="toast_no_messages">该会话没有消息</string>
+    <string name="toast_loaded_far_history">命中消息在窗口外更早历史中，已自动加载完整会话定位</string>
+    <!-- AI 输出状态 -->
+    <string name="toast_ai_typing">AI 正在输出，请稍候</string>
+    <string name="toast_ai_busy">AI 正在输出, 请稍后再发</string>
+    <!-- 麦克风/录音 -->
+    <string name="toast_req_mic_perm">请先授权麦克风, 授权后重新按住说话</string>
+    <string name="toast_mic_granted">麦克风已授权, 请重新按住说话</string>
+    <string name="toast_voice_60s">已达 60 秒上限, 自动发送</string>
+    <string name="toast_voice_too_short">说话时间太短, 请重试</string>
+    <string name="toast_rec_start_fail">录音启动失败: %1$s</string>
+    <string name="toast_voice_send_fail">语音发送失败: %1$s</string>
+    <string name="toast_play_fail">播放失败: %1$s</string>
+    <!-- 附件/文件上传 -->
+    <string name="toast_picker_fail">无法打开选择器: %1$s</string>
+    <string name="toast_att_max_trim">一次最多上传 %1$d 个文件, 已保留前 %2$d 个</string>
+    <string name="toast_att_max_drop">一次最多上传 %1$d 个文件, 已丢弃多余附件</string>
+    <string name="toast_att_empty">文件内容为空或损坏, 暂不支持发送</string>
+    <string name="toast_att_unk_fmt">无法识别该文件真实格式(可能已损坏或类型少见), 暂不支持发送</string>
+    <string name="toast_att_read_fail">读取附件失败: %1$s</string>
+    <!-- 视频压缩 -->
+    <string name="toast_video_compressing">%1$s超过50MB，正在本地压缩...</string>
+    <string name="toast_video_compress_fail">%1$s压缩失败: %2$s</string>
+    <string name="toast_video_comp_over">%1$s压缩后仍超过50MB，暂不支持发送</string>
+    <!-- 文档/PDF 解析 -->
+    <string name="toast_pdf_unparsable">无法解析该 PDF(无文本层且渲染失败), 暂不支持发送</string>
+    <string name="toast_doc_unparsable">无法解析该文档文本内容, 暂不支持发送</string>
+</resources>
