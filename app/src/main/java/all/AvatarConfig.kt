@@ -88,7 +88,7 @@ object AvatarConfig {
     private fun saveSquare(file: File, fileName: String): Boolean {
         return try {
             if (!file.exists()) return false
-            val src = BitmapFactory.decodeFile(file.absolutePath) ?: return false
+            val src = BitmapLoader.decodeSampledFile(file, STORE_SIZE * 2) ?: return false
             val circle = circleCropCopy(src, STORE_SIZE)
             src.recycle()
             val target = avatarFile(fileName) ?: return false
@@ -104,24 +104,15 @@ object AvatarConfig {
     /** 渲染：返回圆形头像 BitmapDrawable，无自定义头像返回 null */
     fun avatarDrawable(file: File?, px: Int): BitmapDrawable? {
         if (file == null || !file.exists()) return null
-        val src = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+        val src = BitmapLoader.decodeSampledFile(file, px * 2) ?: return null
         val circle = circleCropCopy(src, px)
         src.recycle()
         return BitmapDrawable(app?.resources, circle)
     }
 
     /** 解码 uri 图片，采样缩放避免 OOM */
-    private fun decodeUri(ctx: Context, uri: Uri): Bitmap? {
-        return try {
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-            if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
-            var sample = 1
-            while (maxOf(opts.outWidth, opts.outHeight) / sample > STORE_SIZE * 2) sample *= 2
-            val dec = BitmapFactory.Options().apply { inSampleSize = sample }
-            ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, dec) }
-        } catch (e: Exception) { null }
-    }
+    private fun decodeUri(ctx: Context, uri: Uri): Bitmap? =
+        BitmapLoader.decodeSampledUri(ctx, uri, STORE_SIZE * 2)
 
     /** 居中裁正方形 + 圆形透明裁剪 + 缩放，输出全新 bitmap */
     private fun circleCropCopy(src: Bitmap, size: Int): Bitmap {

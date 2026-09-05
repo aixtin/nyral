@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  明文流量白名单（2026-09-05 代码体检后收紧）：
+  全局禁止明文 HTTP，仅放行本地/内网 MCP 服务器与本机回环，
+  其余流量强制 HTTPS。
+  若日后新增 http 局域网地址，在此 domain-config 增加 domain 条目即可。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">192.168.2.132</domain>
+        <domain includeSubdomains="false">10.55.219.14</domain>
+    </domain-config>
+</network-security-config>

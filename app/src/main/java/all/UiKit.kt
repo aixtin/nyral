@@ -141,18 +141,7 @@ fun fileCardNameMaxWidth(scaledDensity: Float): Int {
 
 /** 附件图片采样解码为气泡缩略图(最长边 ~200dp), 失败返回 null */
 fun decodeAttachmentBitmap(f: File, density: Float): Bitmap? {
-    return try {
-        val req = dp(density, 200)
-        val b = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(f.absolutePath, b)
-        if (b.outWidth <= 0 || b.outHeight <= 0) return null
-        var sample = 1
-        while (b.outWidth / sample > req || b.outHeight / sample > req) sample *= 2
-        BitmapFactory.decodeFile(f.absolutePath, BitmapFactory.Options().apply {
-            inSampleSize = sample
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        })
-    } catch (e: Exception) { null }
+    return BitmapLoader.decodeSampledFile(f, dp(density, 200))
 }
 
 // ---- 视频异步取帧缓存与回调(系统栈取帧失败时的 ExoPlayer 兜底) ----
