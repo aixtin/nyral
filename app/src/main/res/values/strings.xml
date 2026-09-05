@@ -446,4 +446,19 @@
 <string name='mui_think_intensity'>思考强度</string>
 <string name="mui_col_session">会话</string>
 <string name="mui_col_ai_think">AI思考</string>
+<string name='ma_hint_input'>输入消息...</string>
+<string name='ma_hold_to_speak'>按住 说话</string>
+<string name='ma_send'>发送</string>
+<string name='ma_stopping'>停止中...</string>
+<string name='ma_sys_loaded_summary'>已加载历史对话摘要，可继续之前的上下文。</string>
+<string name='ma_sys_engine_started'>DroidAgent 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。</string>
+<string name='ma_sys_window_hint'>该会话历史较长，仅展示最近 %1$d 条消息；更早内容保留在会话中，可用搜索定位。</string>
+<string name='ma_unnamed_session'>未命名会话</string>
+<string name='ma_no_sessions'>暂无历史会话\n新对话会自动保存到这里</string>
+<string name='ma_pinned_prefix'>已置顶 · </string>
+<string name='ma_stop'>停止</string>
+<string name='ma_thinking'>正在思考...</string>
+<string name='ma_thinking_prefix'>思考中: </string>
+<string name='ma_sys_no_reply'>模型未返回内容，请再发一次</string>
+<string name='ma_error_fmt'>出错了: %1$s</string>
 </resources>
