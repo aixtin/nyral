@@ -40,6 +40,11 @@ import androidx.media3.ui.PlayerView
 import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.abs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+
 
 /**
  * 附件预览层：从 MainActivity 拆分。
@@ -49,6 +54,7 @@ import kotlin.math.abs
 
 /** 预览块专用后台线程池（大图解码 / PDF 单页渲染） */
 private val previewIo = Executors.newSingleThreadExecutor()
+private val mediaUi = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
 private fun Context.dp(v: Int): Int = (resources.displayMetrics.density * v).toInt()
 
@@ -144,7 +150,7 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
             if (f != null) {
                 previewIo.execute {
                     val bmp = decodeFullBitmap(f)
-                    runOnUiThread { iv.setImageBitmap(bmp) }
+                    mediaUi.launch { iv.setImageBitmap(bmp) }
                 }
             }
             // 缩放平移状态: 双击在 1x/2x 间切换; 放大后可单指拖动, 边界钳制不拖出
@@ -420,8 +426,8 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
                 val c = Canvas(bmp)
                 c.drawColor(Color.WHITE)
                 pg.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                runOnUiThread {
-                    if (seq != renderSeq) { bmp.recycle(); return@runOnUiThread }
+                mediaUi.launch {
+                    if (seq != renderSeq) { bmp.recycle(); return@launch }
                     pageIv.setImageBitmap(bmp)
                     pageNo.text = "${i + 1} / $total"
                     prevBtn.isEnabled = i > 0
@@ -624,7 +630,7 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
         override fun onStartTrackingTouch(sb: SeekBar) {}
         override fun onStopTrackingTouch(sb: SeekBar) {}
     })
-    player.setOnCompletionListener { runOnUiThread { playBtn.text = "播放"; seek.progress = seek.max } }
+    player.setOnCompletionListener { mediaUi.launch { playBtn.text = "播放"; seek.progress = seek.max } }
     d.setOnDismissListener { handler.removeCallbacks(ticker); try { player.release() } catch (_: Exception) {} }
     d.setContentView(root)
     d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))

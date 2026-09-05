@@ -9,6 +9,12 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+
 
 /**
  * MCP 服务配置页 — 与 SshConfigActivity 同视觉风格。
@@ -16,6 +22,7 @@ import android.widget.Toast
  * 保存后清空 McpClientManager 缓存, 下次会话生效。
  */
 class McpConfigActivity : Activity() {
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private lateinit var configList: LinearLayout
     private var servers: MutableList<McpConfigStore.McpServer> = mutableListOf()
@@ -139,7 +146,7 @@ class McpConfigActivity : Activity() {
                 var res = "测试失败: 未知错误"
                 try { res = McpClientManager.testConnection(url, token) }
                 catch (e: Exception) { res = "测试失败: ${e.message}" }
-                runOnUiThread { Toast.makeText(this, res, Toast.LENGTH_LONG).show() }
+                uiScope.launch { Toast.makeText(this@McpConfigActivity, res, Toast.LENGTH_LONG).show() }
             }.start()
         }.apply { textSize = 15f; setPadding(dp(16), dp(12), dp(16), dp(12)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
             marginEnd = dp(8)
@@ -174,4 +181,9 @@ class McpConfigActivity : Activity() {
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    override fun onDestroy() {
+        super.onDestroy()
+        uiScope.cancel()
+    }
+
 }

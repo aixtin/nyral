@@ -13,12 +13,19 @@ import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+
 
 /**
  * 记忆辅助模型配置页 — 与模型配置同视觉，仅配置 MemoryKeeper 生成索引用的辅助 API。
  * - 未启用 / 未填全时自动跟随主对话 API（保底机制），本页仅为可选独立配置。
  */
 class MemModelConfigActivity : Activity() {
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private lateinit var labelInput: EditText
     private lateinit var baseInput: EditText
@@ -197,14 +204,14 @@ class MemModelConfigActivity : Activity() {
         Toast.makeText(this, "正在测试连通性...", Toast.LENGTH_SHORT).show()
         Thread {
             val res = testConnectivity(base, key, model)
-            runOnUiThread {
+            uiScope.launch {
                 if (!res.canSave) {
-                    Toast.makeText(this, "连通性测试失败，未保存：${res.message}", Toast.LENGTH_LONG).show()
-                    return@runOnUiThread
+                    Toast.makeText(this@MemModelConfigActivity, "连通性测试失败，未保存：${res.message}", Toast.LENGTH_LONG).show()
+                    return@launch
                 }
                 MemoryApiConfig.save(MemoryApiConfig.Config(true, label, base, key, model))
                 val tip = if (res.message.isNotEmpty()) "已启用独立辅助模型。${res.message}" else "已启用独立辅助模型"
-                Toast.makeText(this, tip, Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MemModelConfigActivity, tip, Toast.LENGTH_LONG).show()
                 finish()
             }
         }.start()
@@ -221,10 +228,10 @@ class MemModelConfigActivity : Activity() {
         Toast.makeText(this, "正在拉取模型列表...", Toast.LENGTH_SHORT).show()
         Thread {
             val models = fetchModelsFromNetwork(base, key)
-            runOnUiThread {
+            uiScope.launch {
                 when {
-                    models == null -> Toast.makeText(this, "拉取失败：网络错误或接口不兼容", Toast.LENGTH_SHORT).show()
-                    models.isEmpty() -> Toast.makeText(this, "接口返回空列表", Toast.LENGTH_SHORT).show()
+                    models == null -> Toast.makeText(this@MemModelConfigActivity, "拉取失败：网络错误或接口不兼容", Toast.LENGTH_SHORT).show()
+                    models.isEmpty() -> Toast.makeText(this@MemModelConfigActivity, "接口返回空列表", Toast.LENGTH_SHORT).show()
                     else -> showModelPicker(models)
                 }
             }
@@ -294,4 +301,9 @@ class MemModelConfigActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    override fun onDestroy() {
+        super.onDestroy()
+        uiScope.cancel()
+    }
+
 }

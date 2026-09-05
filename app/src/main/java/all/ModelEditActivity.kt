@@ -12,6 +12,12 @@ import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+
 
 /**
  * 单个模型 Provider 编辑页 — 与主页统一视觉（灰底 + 白色圆角卡片 + 圆角输入框）
@@ -20,6 +26,7 @@ import org.json.JSONObject
  * - 自定义 Provider 支持删除
  */
 class ModelEditActivity : Activity() {
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
         const val EXTRA_PROVIDER_ID = "provider_id"
@@ -275,14 +282,14 @@ class ModelEditActivity : Activity() {
         Toast.makeText(this, "正在测试连通性...", Toast.LENGTH_SHORT).show()
         Thread {
             val res = testConnectivity(base, key, model)
-            runOnUiThread {
+            uiScope.launch {
                 if (!res.canSave) {
-                    Toast.makeText(this, "连通性测试失败，未保存：${res.message}", Toast.LENGTH_LONG).show()
-                    return@runOnUiThread
+                    Toast.makeText(this@ModelEditActivity, "连通性测试失败，未保存：${res.message}", Toast.LENGTH_LONG).show()
+                    return@launch
                 }
-                val id = doSave(setAsCurrent) ?: return@runOnUiThread
+                val id = doSave(setAsCurrent) ?: return@launch
                 val tip = if (res.message.isNotEmpty()) "$successMsg。${res.message}" else successMsg
-                Toast.makeText(this, tip, Toast.LENGTH_LONG).show()
+                Toast.makeText(this@ModelEditActivity, tip, Toast.LENGTH_LONG).show()
                 finish()
             }
         }.start()
@@ -517,10 +524,10 @@ class ModelEditActivity : Activity() {
         Toast.makeText(this, "正在拉取模型列表...", Toast.LENGTH_SHORT).show()
         Thread {
             val models = fetchModelsFromNetwork(base, key)
-            runOnUiThread {
+            uiScope.launch {
                 when {
-                    models == null -> Toast.makeText(this, "拉取失败：网络错误或接口不兼容", Toast.LENGTH_SHORT).show()
-                    models.isEmpty() -> Toast.makeText(this, "接口返回空列表", Toast.LENGTH_SHORT).show()
+                    models == null -> Toast.makeText(this@ModelEditActivity, "拉取失败：网络错误或接口不兼容", Toast.LENGTH_SHORT).show()
+                    models.isEmpty() -> Toast.makeText(this@ModelEditActivity, "接口返回空列表", Toast.LENGTH_SHORT).show()
                     else -> showModelPicker(models)
                 }
             }
@@ -681,4 +688,9 @@ class ModelEditActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    override fun onDestroy() {
+        super.onDestroy()
+        uiScope.cancel()
+    }
+
 }

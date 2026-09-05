@@ -19,6 +19,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.app.Dialog
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+
 
 /**
  * 长期记忆页 — 与主页统一视觉（灰底 + 白色圆角卡片）
@@ -27,6 +33,7 @@ import android.app.Dialog
  * 右上角"⋯"：仿主页下拉弹窗（多选 / 删除所有）
  */
 class MemoryListActivity : Activity() {
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private lateinit var db: MemoryDb
     private lateinit var container: LinearLayout
@@ -458,7 +465,7 @@ class MemoryListActivity : Activity() {
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                runOnUiThread {
+                uiScope.launch {
                     pending.dismiss()
                     refresh()
                 }
@@ -490,4 +497,9 @@ class MemoryListActivity : Activity() {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(ts))
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    override fun onDestroy() {
+        super.onDestroy()
+        uiScope.cancel()
+    }
+
 }
