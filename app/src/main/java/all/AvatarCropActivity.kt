@@ -1,5 +1,7 @@
 package io.github.aixtin.droidagent
 
+import io.github.aixtin.droidagent.R
+
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -84,14 +86,14 @@ class AvatarCropActivity : Activity() {
                 setOnClickListener { finish() }
             })
             addView(TextView(this@AvatarCropActivity).apply {
-                text = if (isAi) "裁剪 AI 头像" else "裁剪头像"
+                text = if (isAi) getString(R.string.crop_title_ai) else getString(R.string.crop_title)
                 textSize = 17f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 setTextColor(Color.WHITE)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             addView(TextView(this@AvatarCropActivity).apply {
-                text = "拖动/缩放调整"
+                text = getString(R.string.crop_hint)
                 textSize = 12f
                 setTextColor(0xFFAAAAAA.toInt())
             })
@@ -109,8 +111,8 @@ class AvatarCropActivity : Activity() {
             setPadding(dp(24), dp(14), dp(24), dp(18))
             setBackgroundColor(Color.parseColor("#141414"))
         }
-        bottom.addView(Ui.dialogCancelBtn(this, "取消") { finish() })
-        val confirmBtn = Ui.primaryBtn(this, "完成") { doCrop() }
+        bottom.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { finish() })
+        val confirmBtn = Ui.primaryBtn(this, getString(R.string.crop_done)) { doCrop() }
         bottom.addView(confirmBtn, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
@@ -132,17 +134,17 @@ class AvatarCropActivity : Activity() {
                 else -> contentResolver.openInputStream(uri)?.use { it.readBytes() }
             }
             if (bytes == null || bytes.isEmpty()) {
-                Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.cb_err_read), Toast.LENGTH_SHORT).show()
                 finish(); return
             }
             val bmp = BitmapLoader.decodeSampledBytes(bytes, 2048)
             if (bmp == null) {
-                Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.cb_err_read), Toast.LENGTH_SHORT).show()
                 finish(); return
             }
             cropView.setBitmap(bmp)
         } catch (e: Exception) {
-            Toast.makeText(this, "图片解码失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.crop_err_decode, e.message), Toast.LENGTH_SHORT).show()
             finish()
         }
     }
@@ -150,7 +152,7 @@ class AvatarCropActivity : Activity() {
     /** 从裁剪框输出 1:1 正方形并写临时文件返回 */
     private fun doCrop() {
         val out = cropView.cropBitmap() ?: run {
-            Toast.makeText(this, "裁剪失败", Toast.LENGTH_SHORT).show(); return
+            Toast.makeText(this, getString(R.string.crop_err_fail), Toast.LENGTH_SHORT).show(); return
         }
         try {
             val tmp = File(cacheDir, "avatar_crop_${System.currentTimeMillis()}.png")
@@ -160,7 +162,7 @@ class AvatarCropActivity : Activity() {
             setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT_PATH, tmp.absolutePath))
             finish()
         } catch (e: Exception) {
-            Toast.makeText(this, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.crop_err_save, e.message), Toast.LENGTH_SHORT).show()
         } finally {
             if (!out.isRecycled) out.recycle()
         }

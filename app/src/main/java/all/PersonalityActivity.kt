@@ -1,5 +1,7 @@
 package io.github.aixtin.droidagent
 
+import io.github.aixtin.droidagent.R
+
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
@@ -47,7 +49,7 @@ class PersonalityActivity : Activity() {
         Ui.statusBar(this)
 
         val root = Ui.pageRoot(this)
-        root.addView(Ui.titleBar(this, "AI 个性化"))
+        root.addView(Ui.titleBar(this, getString(R.string.persona_title)))
 
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -68,11 +70,11 @@ class PersonalityActivity : Activity() {
         content.addView(personaCardRef)
 
         // ---- 分组：身份信息 ----
-        content.addView(Ui.groupLabel(this, "身份信息"))
+        content.addView(Ui.groupLabel(this, getString(R.string.persona_group_info)))
         val cardInfo = Ui.card(this)
         // AI 名字：平面化输入框（内嵌编辑，仿 AI 人设，无需弹窗）
         cardInfo.addView(TextView(this).apply {
-            text = "AI 名字"
+            text = getString(R.string.persona_ai_name)
             textSize = 15f
             setTextColor(0xFF222222.toInt())
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -84,7 +86,7 @@ class PersonalityActivity : Activity() {
         // AI 人设：平面化输入框（直接内嵌编辑，无需弹窗）
         cardInfo.addView(Ui.divider(this))
         cardInfo.addView(TextView(this).apply {
-            text = "AI 人设"
+            text = getString(R.string.persona_ai_persona)
             textSize = 15f
             setTextColor(0xFF222222.toInt())
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -108,7 +110,7 @@ class PersonalityActivity : Activity() {
         addView(avatarCell(
             avatar = avatarBig(true),
             name = PersonaConfig.aiName(),
-            hint = if (AvatarConfig.hasAiAvatar()) "已设置自定义头像" else "更换头像",
+            hint = if (AvatarConfig.hasAiAvatar()) getString(R.string.persona_hint_avatar_set) else getString(R.string.persona_hint_change),
             isAi = true
         ), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         // 中间竖分隔线
@@ -119,8 +121,8 @@ class PersonalityActivity : Activity() {
         // 右：用户头像
         addView(avatarCell(
             avatar = avatarBig(false),
-            name = "我",
-            hint = if (AvatarConfig.hasUserAvatar()) "已设置自定义头像" else "更换头像",
+            name = getString(R.string.persona_me),
+            hint = if (AvatarConfig.hasUserAvatar()) getString(R.string.persona_hint_avatar_set) else getString(R.string.persona_hint_change),
             isAi = false
         ), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
@@ -182,7 +184,7 @@ class PersonalityActivity : Activity() {
                         setColor(Color.parseColor("#5A6478"))
                     }
                 } else {
-                    text = "我"
+                    text = getString(R.string.persona_me)
                     textSize = 26f
                     setTextColor(Color.WHITE)
                     gravity = Gravity.CENTER
@@ -199,7 +201,7 @@ class PersonalityActivity : Activity() {
     /** AI 名字：平面化单行输入框（浅灰圆角底，无边框，仿 AI 人设样式） */
     private fun aiNameEdit(current: String): EditText {
         aiNameReady = false
-        val et = Ui.input(this, "输入 AI 名字（留空恢复默认 DroidAgent）").apply {
+        val et = Ui.input(this, getString(R.string.persona_hint_ai_name)).apply {
             setText(if (current.isEmpty()) "" else current)
             setSelection(text.length)
             gravity = Gravity.CENTER_VERTICAL or Gravity.START
@@ -234,7 +236,7 @@ class PersonalityActivity : Activity() {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(12), 0, dp(12), dp(14))
         addView(TextView(this@PersonalityActivity).apply {
-            text = "留空恢复默认 · 最多 20 字 · 随人设一起保存"
+            text = getString(R.string.persona_hint_ai_name_sub)
             textSize = 12f
             setTextColor(0xFF999999.toInt())
         })
@@ -243,7 +245,7 @@ class PersonalityActivity : Activity() {
     /** AI 人设：平面化多行输入框（浅灰圆角底，无边框） */
     private fun personaEdit(current: String, ref: (EditText) -> Unit): EditText {
         personaInputReady = false
-        val et = Ui.input(this, "描述 AI 的身份与回答风格…").apply {
+        val et = Ui.input(this, getString(R.string.persona_hint_ai_persona)).apply {
             setText(if (current.isEmpty()) "" else current)
             setSelection(text.length)
             setSingleLine(false)
@@ -280,13 +282,13 @@ class PersonalityActivity : Activity() {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(12), 0, dp(12), dp(14))
         addView(TextView(this@PersonalityActivity).apply {
-            text = "留空使用内置默认人设 · 最多 200 字"
+            text = getString(R.string.persona_hint_ai_persona_sub)
             textSize = 12f
             setTextColor(0xFF999999.toInt())
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         addView(TextView(this@PersonalityActivity).apply {
-            text = "保存"
+            text = getString(R.string.settings_btn_save)
             textSize = 14f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -299,7 +301,7 @@ class PersonalityActivity : Activity() {
                     PersonaConfig.setAiPersona(aiPersonaInput.text.toString().trim())
                     PersonaConfig.setAiName(aiNameInput.text.toString().trim())
                     rebuildPersonaCard()
-                    Toast.makeText(this@PersonalityActivity, "AI 人设与名字已保存", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@PersonalityActivity, getString(R.string.persona_toast_saved), Toast.LENGTH_SHORT).show()
                 }
             }
         })
@@ -309,28 +311,28 @@ class PersonalityActivity : Activity() {
 
     private fun showAvatarDialog(isAi: Boolean) {
         val has = if (isAi) AvatarConfig.hasAiAvatar() else AvatarConfig.hasUserAvatar()
-        val (dlg, box) = Ui.dialog(this, if (isAi) "更换 AI 头像" else "更换用户头像", jellyOvershoot = 1.4f, animate = false)
-        box.addView(Ui.hint(this, if (has) "当前为自定义头像" else "当前为默认文字头像"))
+        val (dlg, box) = Ui.dialog(this, if (isAi) getString(R.string.persona_change_ai) else getString(R.string.persona_change_user), jellyOvershoot = 1.4f, animate = false)
+        box.addView(Ui.hint(this, if (has) getString(R.string.persona_current_custom) else getString(R.string.persona_current_default)))
         val vstack = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, 0)
         }
-        vstack.addView(Ui.dialogCancelBtn(this, "从相册选择图片", {
+        vstack.addView(Ui.dialogCancelBtn(this, getString(R.string.persona_pick_album), {
             dlg.dismiss()
             pendingAvatarIsAi = isAi
             val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }
             try {
                 startActivityForResult(i, if (isAi) REQ_AVATAR_AI else REQ_AVATAR_USER)
             } catch (e: Exception) {
-                Toast.makeText(this@PersonalityActivity, "无法打开相册: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@PersonalityActivity, getString(R.string.persona_err_album, e.message), Toast.LENGTH_SHORT).show()
             }
         }))
         if (has) {
-            val restoreBtn = Ui.dangerBtn(this, "恢复默认", {
+            val restoreBtn = Ui.dangerBtn(this, getString(R.string.persona_restore_default), {
                 if (isAi) AvatarConfig.clearAiAvatar() else AvatarConfig.clearUserAvatar()
                 dlg.dismiss()
                 rebuildPersonaCard()
-                Toast.makeText(this@PersonalityActivity, "已恢复默认头像", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@PersonalityActivity, getString(R.string.persona_toast_restored), Toast.LENGTH_SHORT).show()
             })
             restoreBtn.layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -367,7 +369,7 @@ class PersonalityActivity : Activity() {
             val file = File(path)
             val ok = if (pendingAvatarIsAi) AvatarConfig.setAiAvatarFromSquare(file)
             else AvatarConfig.setUserAvatarFromSquare(file)
-            Toast.makeText(this, if (ok) "头像已更新" else "头像设置失败", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, if (ok) getString(R.string.persona_avatar_updated) else getString(R.string.persona_avatar_failed), Toast.LENGTH_SHORT).show()
             rebuildPersonaCard()
             file.delete()
             return
@@ -395,7 +397,7 @@ class PersonalityActivity : Activity() {
             }
             startActivityForResult(i, AvatarCropActivity.REQ_CROP)
         } catch (e: Exception) {
-            Toast.makeText(this, "无法打开裁剪: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.persona_err_crop, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -430,8 +432,8 @@ class PersonalityActivity : Activity() {
         }
     }
 
-    private fun showTitleEdit(title: String, current: String, onSave: (String) -> Unit, hint: String = "请输入$title（留空恢复默认）", multiline: Boolean = false, maxLength: Int = 0) {
-        val (dlg, box) = Ui.dialog(this, "修改$title", jellyOvershoot = 1.4f, animate = false)
+    private fun showTitleEdit(title: String, current: String, onSave: (String) -> Unit, hint: String = getString(R.string.persona_hint_edit, title), multiline: Boolean = false, maxLength: Int = 0) {
+        val (dlg, box) = Ui.dialog(this, getString(R.string.persona_dialog_edit, title), jellyOvershoot = 1.4f, animate = false)
         val input = Ui.input(this, hint).apply {
             setText(current)
             setSelection(text.length)
@@ -470,11 +472,11 @@ class PersonalityActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(0, dp(14), 0, 0)
-            addView(Ui.dialogCancelBtn(this@PersonalityActivity, "保存", {
+            addView(Ui.dialogCancelBtn(this@PersonalityActivity, getString(R.string.settings_btn_save), {
                 onSave(input.text.toString().trim())
                 dlg.dismiss()
             }))
-            val cancelBtn = Ui.dialogCancelBtn(this@PersonalityActivity, "取消", { dlg.dismiss() })
+            val cancelBtn = Ui.dialogCancelBtn(this@PersonalityActivity, getString(R.string.dialog_cancel), { dlg.dismiss() })
             cancelBtn.layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT

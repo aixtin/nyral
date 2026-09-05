@@ -1,5 +1,7 @@
 package io.github.aixtin.droidagent
 
+import io.github.aixtin.droidagent.R
+
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -57,7 +59,7 @@ class SettingsActivity : Activity() {
         val root = Ui.pageRoot(this)
 
         // ---- 自绘标题栏 ----
-        root.addView(Ui.titleBar(this, "设置"))
+        root.addView(Ui.titleBar(this, getString(R.string.settings_title)))
 
         ModeConfig.init(this)
         // ---- 内容区 ----
@@ -67,27 +69,27 @@ class SettingsActivity : Activity() {
         }
 
         // 分组1：连接
-        content.addView(Ui.groupLabel(this, "连接"))
+        content.addView(Ui.groupLabel(this, getString(R.string.settings_group_conn)))
         val cardConn = Ui.card(this)
-        cardConn.addView(settingsItem("SSH 配置", "连接目标 / 私钥管理", "🔐", 0, {
+        cardConn.addView(settingsItem(getString(R.string.settings_ssh_config), getString(R.string.settings_ssh_config_sub), "🔐", 0, {
             startActivity(Intent(this@SettingsActivity, SshConfigActivity::class.java))
         }))
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem("MCP 服务", mcpStatus(), "🧩", 0, {
+        cardConn.addView(settingsItem(getString(R.string.settings_mcp), mcpStatus(), "🧩", 0, {
             startActivity(Intent(this@SettingsActivity, McpConfigActivity::class.java))
         }) { mcpSubtitleView = it })
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem("长期记忆", "已存储 " + MemoryDb(this).count() + " 条记忆", "🧠", 1, {
+        cardConn.addView(settingsItem(getString(R.string.settings_memory), getString(R.string.settings_memory_count, MemoryDb(this).count()), "🧠", 1, {
             startActivity(Intent(this@SettingsActivity, MemoryListActivity::class.java))
         }) { memorySubtitle = it })
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem("整理记忆索引", summaryStatus(), "索", 2, {
+        cardConn.addView(settingsItem(getString(R.string.settings_memory_index), summaryStatus(), "索", 2, {
             startActivity(Intent(this@SettingsActivity, MemorySummaryActivity::class.java))
         }) { summarySubtitle = it })
         content.addView(cardConn)
 
         // 分组2：模型 API
-        content.addView(Ui.groupLabel(this, "模型 API"))
+        content.addView(Ui.groupLabel(this, getString(R.string.settings_group_model)))
         val cardModel = Ui.card(this)
         cardModel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -104,48 +106,48 @@ class SettingsActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     setMargins(dp(12), 0, dp(8), 0)
                 }
-                addView(Ui.itemTitle(this@SettingsActivity, "模型配置"))
-                modelSubtitle = Ui.itemSub(this@SettingsActivity, "当前: ${ApiConfig.providerLabel(ApiConfig.providerId())} · ${ApiConfig.model()}")
+                addView(Ui.itemTitle(this@SettingsActivity, getString(R.string.settings_model_config)))
+                modelSubtitle = Ui.itemSub(this@SettingsActivity, getString(R.string.settings_model_current, ApiConfig.providerLabel(ApiConfig.providerId()), ApiConfig.model()))
                 addView(modelSubtitle)
             })
             addView(Ui.arrow(this@SettingsActivity))
         })
         cardModel.addView(Ui.divider(this))
-        cardModel.addView(settingsItem("记忆辅助模型", "摘要索引用 API · " + MemoryApiConfig.statusText(), "辅", 6, {
+        cardModel.addView(settingsItem(getString(R.string.settings_mem_model), getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()), "辅", 6, {
             startActivity(Intent(this@SettingsActivity, MemModelConfigActivity::class.java))
         }) { memModelSubtitle = it })
         content.addView(cardModel)
 
         // 分组3：外观
-        content.addView(Ui.groupLabel(this, "外观"))
+        content.addView(Ui.groupLabel(this, getString(R.string.settings_group_look)))
         val cardLook = Ui.card(this)
-        cardLook.addView(settingsItem("外观设置", "主页/侧栏标题 · 便签 · 聊天模式与背景", "🎨", 8, {
+        cardLook.addView(settingsItem(getString(R.string.settings_look), getString(R.string.settings_look_sub), "🎨", 8, {
             startActivity(Intent(this@SettingsActivity, AppearanceActivity::class.java))
         }))
         cardLook.addView(Ui.divider(this))
-        cardLook.addView(settingsItem("AI 个性化", "AI 名字 · 人设 · 双头像", "🧩", 18, {
+        cardLook.addView(settingsItem(getString(R.string.settings_ai_persona), getString(R.string.settings_ai_persona_sub), "🧩", 18, {
             startActivity(Intent(this@SettingsActivity, PersonalityActivity::class.java))
         }))
         content.addView(cardLook)
 
         // 分组4：其他
-        content.addView(Ui.groupLabel(this, "其他"))
+        content.addView(Ui.groupLabel(this, getString(R.string.settings_group_other)))
         val cardAbout = Ui.card(this)
-        cardAbout.addView(settingsItem("运行日志", "主日志 / 辅助 AI 日志", "📋", 5, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_log), getString(R.string.settings_log_sub), "📋", 5, {
             startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
         }))
         cardAbout.addView(Ui.divider(this))
-        cardAbout.addView(settingsItem("上传大小上限", "附件上传限制 · 当前 " + UploadConfig.maxMb() + " MB", "⬆", 14, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_upload_size), getString(R.string.settings_upload_size_sub, UploadConfig.maxMb()), "⬆", 14, {
             showUploadSizeEdit()
         }) { uploadSizeSub = it })
         cardAbout.addView(Ui.divider(this))
-        cardAbout.addView(settingsItem("Token 统计", "累计 token 用量 / 请求次数", "∑", 7, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_token), getString(R.string.settings_token_sub), "∑", 7, {
             showTokenStats()
         }) { tokenSubtitle = it })
         cardAbout.addView(Ui.divider(this))
         debugBox = LinearLayout(this@SettingsActivity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(settingsItem("调试服务", DebugServer.statusText(this@SettingsActivity), "🔧", 11, {
+            addView(settingsItem(getString(R.string.settings_debug), DebugServer.statusText(this@SettingsActivity), "🔧", 11, {
                 showDebugDialog()
             }) { debugSubtitle = it })
             addView(Ui.divider(this@SettingsActivity))
@@ -155,17 +157,17 @@ class SettingsActivity : Activity() {
         cardAbout.addView(Ui.divider(this))
         // 权限管理: 查看/补开全部依赖权限(部分手机长时间不用会自动收回)
         cardAbout.addView(Ui.divider(this))
-        cardAbout.addView(settingsItem("权限管理", "查看与补开全部权限", "🔏", 9, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_perm), getString(R.string.settings_perm_sub), "🔏", 9, {
             startActivity(Intent(this@SettingsActivity, PermissionsActivity::class.java))
         }) { permSubtitleView = it })
-        cardAbout.addView(settingsItem("关于", "DroidAgent v1.0 · 本地引擎", "ℹ", 3, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_about), getString(R.string.settings_about_sub), "ℹ", 3, {
             startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
         }))
         content.addView(cardAbout)
 
         // 底部说明
         content.addView(TextView(this).apply {
-            text = "本机运行的爱，全部来自我家那位"
+            text = getString(R.string.settings_about_motto)
             textSize = 11f
             setTextColor(0xFFAAAAAA.toInt())
             gravity = Gravity.CENTER
@@ -185,13 +187,13 @@ class SettingsActivity : Activity() {
         super.onResume()
         // 从子页返回后仅刷新文本；禁止 recreate（会导致窗口无限重建闪屏黑屏）
         if (::modelSubtitle.isInitialized) {
-            modelSubtitle.text = "当前: ${ApiConfig.providerLabel(ApiConfig.providerId())} · ${ApiConfig.model()}"
+            modelSubtitle.text = getString(R.string.settings_model_current, ApiConfig.providerLabel(ApiConfig.providerId()), ApiConfig.model())
         }
         if (::memModelSubtitle.isInitialized) {
-            memModelSubtitle.text = "摘要索引用 API · " + MemoryApiConfig.statusText()
+            memModelSubtitle.text = getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText())
         }
         if (::memorySubtitle.isInitialized) {
-            memorySubtitle.text = "已存储 " + MemoryDb(this).count() + " 条记忆"
+            memorySubtitle.text = getString(R.string.settings_memory_count, MemoryDb(this).count())
         }
         if (::summarySubtitle.isInitialized) {
             summarySubtitle.text = summaryStatus()
@@ -202,7 +204,7 @@ class SettingsActivity : Activity() {
         if (::tokenSubtitle.isInitialized) {
             val s = TokenStore.stats(this)
             val a = TokenStore.auxStats(this)
-            tokenSubtitle.text = "主 AI ${s.total} · 辅助 AI ${a.total} tokens"
+            tokenSubtitle.text = getString(R.string.settings_token_total, s.total, a.total)
         }
         if (::debugBox.isInitialized) {
             debugBox.visibility = if (DebugServer.unlocked(this)) View.VISIBLE else View.GONE
@@ -214,7 +216,7 @@ class SettingsActivity : Activity() {
 
     /** 调试服务弹窗: 启用开关 / 端口 / Token 展示与重置 / 局域网访问 */
     private fun showDebugDialog() {
-        val (dlg, box) = Ui.dialog(this, "调试服务", maxHeightRatio = 0.8, jellyOvershoot = 1.4f)
+        val (dlg, box) = Ui.dialog(this, getString(R.string.settings_debug), maxHeightRatio = 0.8, jellyOvershoot = 1.4f)
         val ctx = this@SettingsActivity
         val debuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
@@ -229,8 +231,8 @@ class SettingsActivity : Activity() {
             addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                addView(Ui.itemTitle(ctx, "启用调试服务"))
-                addView(Ui.hint(ctx, if (debuggable) "本机 HTTP 接口, 需 Token 鉴权" else "仅 debug 构建可用").apply {
+                addView(Ui.itemTitle(ctx, getString(R.string.settings_debug_enable)))
+                addView(Ui.hint(ctx, if (debuggable) getString(R.string.settings_debug_enable_hint) else getString(R.string.settings_debug_release_hint)).apply {
                     setPadding(0, dp(3), 0, 0)
                 })
             })
@@ -247,8 +249,8 @@ class SettingsActivity : Activity() {
             addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                addView(Ui.itemTitle(ctx, "允许局域网访问"))
-                addView(Ui.hint(ctx, "默认仅本机(adb forward 可访问)").apply {
+                addView(Ui.itemTitle(ctx, getString(R.string.settings_debug_lan)))
+                addView(Ui.hint(ctx, getString(R.string.settings_debug_lan_hint)).apply {
                     setPadding(0, dp(3), 0, 0)
                 })
             })
@@ -256,14 +258,14 @@ class SettingsActivity : Activity() {
         })
 
         // 端口
-        val portEdit = Ui.input(ctx, "端口")
+        val portEdit = Ui.input(ctx, getString(R.string.settings_debug_port))
         portEdit.setText(DebugServer.port(ctx).toString())
         portEdit.inputType = android.text.InputType.TYPE_CLASS_NUMBER
         box.addView(LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(4), 0, dp(4))
-            addView(Ui.itemTitle(ctx, "端口"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(Ui.itemTitle(ctx, getString(R.string.settings_debug_port)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(portEdit, LinearLayout.LayoutParams(dp(110), dp(42)))
         })
 
@@ -278,15 +280,15 @@ class SettingsActivity : Activity() {
         box.addView(LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(6), 0, dp(6))
-            addView(Ui.itemTitle(ctx, "访问 Token"))
+            addView(Ui.itemTitle(ctx, getString(R.string.settings_debug_token)))
             addView(LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 addView(tokenText, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(0, dp(4), dp(8), 0) })
-                addView(Ui.dangerBtn(ctx, "重置", {
+                addView(Ui.dangerBtn(ctx, getString(R.string.settings_debug_reset), {
                     DebugServer.resetToken(ctx)
                     tokenText.text = DebugServer.token(ctx)
-                    Toast.makeText(ctx, "Token 已重置", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, getString(R.string.settings_toast_token_reset), Toast.LENGTH_SHORT).show()
                 }))
             })
         })
@@ -305,7 +307,7 @@ class SettingsActivity : Activity() {
                 DebugServer.stop()
                 // 端口/局域网变化需重启: 简单处理为关后重开才生效, 提示用户
                 if (::debugSubtitle.isInitialized) debugSubtitle.text = DebugServer.statusText(ctx)
-                Toast.makeText(ctx, "已启用（重启应用后生效）", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, getString(R.string.settings_toast_debug_enabled), Toast.LENGTH_SHORT).show()
             } else {
                 DebugServer.stop()
                 if (::debugSubtitle.isInitialized) debugSubtitle.text = DebugServer.statusText(ctx)
@@ -337,12 +339,12 @@ class SettingsActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
-            val hideBtn = Ui.dangerBtn(ctx, "隐藏", {
+            val hideBtn = Ui.dangerBtn(ctx, getString(R.string.settings_debug_hide), {
                 DebugServer.hideDebug(this@SettingsActivity)
                 if (::debugBox.isInitialized) debugBox.visibility = View.GONE
                 dlg.dismiss()
                 android.widget.Toast.makeText(
-                    ctx, "调试服务已隐藏，连点版本号 7 次可重新开启", android.widget.Toast.LENGTH_SHORT
+                    ctx, getString(R.string.settings_toast_debug_hidden), android.widget.Toast.LENGTH_SHORT
                 ).show()
             })
             hideBtn.layoutParams = cParams
@@ -350,7 +352,7 @@ class SettingsActivity : Activity() {
             addView(LinearLayout(ctx).apply {
                 layoutParams = LinearLayout.LayoutParams(dp(12), ViewGroup.LayoutParams.WRAP_CONTENT)
             })
-            val closeBtn = Ui.dialogCancelBtn(ctx, "关闭", { dlg.dismiss() })
+            val closeBtn = Ui.dialogCancelBtn(ctx, getString(R.string.settings_btn_close), { dlg.dismiss() })
             closeBtn.layoutParams = cParams
             addView(closeBtn)
         })
@@ -363,19 +365,19 @@ class SettingsActivity : Activity() {
     private fun showTokenStats() {
         val s = TokenStore.stats(this)
         val a = TokenStore.auxStats(this)
-        val (dlg, box) = Ui.dialog(this, "Token 统计", maxHeightRatio = 0.8, jellyOvershoot = 1.4f)
+        val (dlg, box) = Ui.dialog(this, getString(R.string.settings_token), maxHeightRatio = 0.8, jellyOvershoot = 1.4f)
         var isMain = true   // 当前 tab: true=主 AI, false=辅助 AI
 
         // ---- tab 行 ----
         val tabMain = TextView(this).apply {
-            text = "主 AI"
+            text = getString(R.string.settings_tab_main_ai)
             textSize = 14f
             gravity = Gravity.CENTER
             isClickable = true
             Ui.press(this)
         }
         val tabMem = TextView(this).apply {
-            text = "辅助 AI"
+            text = getString(R.string.settings_tab_mem_ai)
             textSize = 14f
             gravity = Gravity.CENTER
             isClickable = true
@@ -416,13 +418,13 @@ class SettingsActivity : Activity() {
                 dyp = a.dayPrompt; dyc = a.dayCompletion
             }
             stats.text = buildString {
-                append("累计输入  ").append(tp).append("\n")
-                append("累计输出  ").append(tc).append("\n")
-                append("累计总计  ").append(tp + tc).append("\n")
-                append("请求次数  ").append(cnt).append(" 次\n\n")
-                append("今日输入  ").append(dyp).append("\n")
-                append("今日输出  ").append(dyc).append("\n")
-                append("今日总计  ").append(dyp + dyc).append(" tokens")
+                append(getString(R.string.settings_stats_input, tp)).append("\n")
+                append(getString(R.string.settings_stats_output, tc)).append("\n")
+                append(getString(R.string.settings_stats_total, tp + tc)).append("\n")
+                append(getString(R.string.settings_stats_count, cnt)).append("\n\n")
+                append(getString(R.string.settings_stats_today_input, dyp)).append("\n")
+                append(getString(R.string.settings_stats_today_output, dyc)).append("\n")
+                append(getString(R.string.settings_stats_today_total, dyp + dyc))
             }
         }
         tabMain.setOnClickListener { isMain = true; syncTab(); render() }
@@ -432,9 +434,9 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(0, dp(14), 0, 0)
-            addView(Ui.dangerBtn(this@SettingsActivity, "清空", {
-                val (dlg2, box2) = Ui.dialog(this@SettingsActivity, "确认清空 Token 统计？", jellyOvershoot = 1.4f)
-                box2.addView(Ui.hint(this@SettingsActivity, "清空后无法恢复，主 AI 与辅助 AI 的累计和今日数据都会归零。").apply {
+            addView(Ui.dangerBtn(this@SettingsActivity, getString(R.string.settings_btn_clear), {
+                val (dlg2, box2) = Ui.dialog(this@SettingsActivity, getString(R.string.settings_dialog_clear_token), jellyOvershoot = 1.4f)
+                box2.addView(Ui.hint(this@SettingsActivity, getString(R.string.settings_clear_token_hint)).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -444,14 +446,14 @@ class SettingsActivity : Activity() {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER
                     setPadding(0, dp(10), 0, 0)
-                    val confirmBtn = Ui.dangerBtn(this@SettingsActivity, "确认清空", {
+                    val confirmBtn = Ui.dangerBtn(this@SettingsActivity, getString(R.string.settings_btn_confirm_clear), {
                         TokenStore.clear(this@SettingsActivity)
                         dlg2.dismiss()
                         dlg.dismiss()
-                        if (::tokenSubtitle.isInitialized) tokenSubtitle.text = "主 AI 0 · 辅助 AI 0 tokens"
+                        if (::tokenSubtitle.isInitialized) tokenSubtitle.text = getString(R.string.settings_token_zero)
                     })
                     addView(confirmBtn)
-                    val cancelBtn = Ui.dialogCancelBtn(this@SettingsActivity, "取消", { dlg2.dismiss() })
+                    val cancelBtn = Ui.dialogCancelBtn(this@SettingsActivity, getString(R.string.dialog_cancel), { dlg2.dismiss() })
                     cancelBtn.layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
@@ -460,7 +462,7 @@ class SettingsActivity : Activity() {
                 })
                 dlg2.show()
             }))
-            val closeBtn = Ui.dialogCancelBtn(this@SettingsActivity, "关闭", { dlg.dismiss() })
+            val closeBtn = Ui.dialogCancelBtn(this@SettingsActivity, getString(R.string.settings_btn_close), { dlg.dismiss() })
             closeBtn.layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -481,9 +483,9 @@ class SettingsActivity : Activity() {
     }
 
     private fun showUploadSizeEdit() {
-        val (dlg, box) = Ui.dialog(this, "修改上传大小上限", jellyOvershoot = 1.4f, animate = false)
-        box.addView(Ui.hint(this, "聊天附件上传的大小限制（单位 MB），范围 1~500，默认 20"))
-        val input = Ui.input(this, "如 50").apply {
+        val (dlg, box) = Ui.dialog(this, getString(R.string.settings_dialog_upload_title), jellyOvershoot = 1.4f, animate = false)
+        box.addView(Ui.hint(this, getString(R.string.settings_upload_hint)))
+        val input = Ui.input(this, getString(R.string.settings_hint_upload_example)).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setText(UploadConfig.maxMb().toString())
             setSelection(text.length)
@@ -493,17 +495,17 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(0, dp(14), 0, 0)
-            addView(Ui.dialogCancelBtn(this@SettingsActivity, "保存", {
+            addView(Ui.dialogCancelBtn(this@SettingsActivity, getString(R.string.settings_btn_save), {
                 val mb = input.text.toString().trim().toIntOrNull()
                 if (mb == null || mb <= 0) {
-                    Toast.makeText(this@SettingsActivity, "请输入正整数（MB）", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@SettingsActivity, getString(R.string.settings_toast_upload_invalid), Toast.LENGTH_SHORT).show()
                     return@dialogCancelBtn
                 }
                 UploadConfig.setMaxMb(mb)
-                if (::uploadSizeSub.isInitialized) uploadSizeSub.text = "附件上传限制 · 当前 " + UploadConfig.maxMb() + " MB"
+                if (::uploadSizeSub.isInitialized) uploadSizeSub.text = getString(R.string.settings_upload_size_sub, UploadConfig.maxMb())
                 dlg.dismiss()
             }))
-            val cancelBtn = Ui.dialogCancelBtn(this@SettingsActivity, "取消", { dlg.dismiss() })
+            val cancelBtn = Ui.dialogCancelBtn(this@SettingsActivity, getString(R.string.dialog_cancel), { dlg.dismiss() })
             cancelBtn.layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -515,14 +517,14 @@ class SettingsActivity : Activity() {
 
     private fun mcpStatus(): String {
         val servers = McpConfigStore.load(this)
-        return if (servers.isEmpty()) "动态工具接入 · 未配置"
-        else "${servers.size} 个服务 · " + servers.joinToString("、") { it.name }
+        return if (servers.isEmpty()) getString(R.string.settings_mcp_none)
+        else getString(R.string.settings_mcp_count, servers.size, servers.joinToString(getString(R.string.comma_sep)) { it.name })
     }
 
     /** 整理记忆索引副标题：AI 整理的主题索引摘要条数 */
     private fun summaryStatus(): String {
         val s = MemoryDb(this).loadSummary()?.trim()
-        return if (s.isNullOrEmpty()) "暂无 · 归档后自动生成" else "AI 整理 · " + (s.count { it == '\n' } + 1) + " 条"
+        return if (s.isNullOrEmpty()) getString(R.string.settings_summary_none) else getString(R.string.settings_summary_count, s.count { it == '\n' } + 1)
     }
 
     /** 权限管理入口副标题: 汇总当前未授权项(与本机适配后按需统计) */
@@ -535,7 +537,7 @@ class SettingsActivity : Activity() {
         checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this))
         checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager())
         checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls())
-        return if (missing == 0) "全部已授权 · 点击查看" else "$missing 项未授权 · 点击补开"
+        return if (missing == 0) getString(R.string.settings_perm_all) else getString(R.string.settings_perm_missing, missing)
     }
 
     private fun settingsItem(title: String, subtitle: String, icon: String, seed: Int, onClick: () -> Unit, subRef: ((TextView) -> Unit)? = null): LinearLayout {
