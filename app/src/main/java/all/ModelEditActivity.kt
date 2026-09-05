@@ -12,8 +12,6 @@ import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * 单个模型 Provider 编辑页 — 与主页统一视觉（灰底 + 白色圆角卡片 + 圆角输入框）
@@ -233,40 +231,34 @@ class ModelEditActivity : Activity() {
      *  余额不足(402/insufficient/balance) -> canSave=true 放行但提示;
      *  网络异常/超时 -> canSave=true 放行但提示无法验证. */
     private fun testConnectivity(base: String, key: String, model: String): TestResult {
-        var conn: HttpURLConnection? = null
-        return try {
-            val body = JSONObject().apply {
-                put("model", model)
-                put("messages", JSONArray().put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "hi")
-                }))
-                put("max_tokens", 1)
-                put("stream", false)
+        val body = JSONObject().apply {
+            put("model", model)
+            put("messages", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("content", "hi")
+            }))
+            put("max_tokens", 1)
+            put("stream", false)
+        }
+        val result = ApiClient.postJson(
+            "$base/chat/completions", body.toString(),
+            headers = authHeaders(key),
+            connectMs = 10_000, readMs = 20_000,
+        )
+        return when {
+            result.isSuccess -> TestResult(true, "")
+            else -> {
+                val e = result.exceptionOrNull()
+                val h = e as? ApiClient.HttpError
+                val lower = (h?.body ?: "").lowercase()
+                val insufficient = h != null && (h.code == 402 || lower.contains("insufficient") ||
+                    lower.contains("balance") || lower.contains("余额") || lower.contains("欠费"))
+                when {
+                    insufficient -> TestResult(true, "配置正确但账户余额不足，已保存，充值后即可使用")
+                    h != null -> TestResult(false, "HTTP ${h.code}: ${h.body.take(150)}")
+                    else -> TestResult(true, "网络异常未能验证连通性，已保存（${e?.message ?: "网络错误"}）")
+                }
             }
-            conn = URL("$base/chat/completions").openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.connectTimeout = 10000
-            conn.readTimeout = 20000
-            conn.setRequestProperty("Content-Type", "application/json")
-            applyAuthHeader(conn, key)
-            conn.doOutput = true
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            val code = conn.responseCode
-            if (code in 200..299) TestResult(true, "")
-            else {
-                val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                val lower = err.lowercase()
-                val insufficient = code == 402 || lower.contains("insufficient") || lower.contains("balance") ||
-                    lower.contains("余额") || lower.contains("欠费")
-                if (insufficient) TestResult(true, "配置正确但账户余额不足，已保存，充值后即可使用")
-                else TestResult(false, "HTTP $code: ${err.take(150)}")
-            }
-        } catch (e: Exception) {
-            // 网络/超时: 无法验证, 不判定配置错误, 放行保存但提示
-            TestResult(true, "网络异常未能验证连通性，已保存（${e.message ?: "网络错误"}）")
-        } finally {
-            conn?.disconnect()
         }
     }
 
@@ -463,13 +455,11 @@ class ModelEditActivity : Activity() {
         }
     }
 
-    /** 按当前鉴权方式给请求设置认证头 */
-    private fun applyAuthHeader(conn: HttpURLConnection, key: String) {
-        when (selectedAuthType) {
-            "x-api-key" -> conn.setRequestProperty("x-api-key", key)
-            "header" -> conn.setRequestProperty(selectedAuthHeader.ifBlank { "Authorization" }, key)
-            else -> conn.setRequestProperty("Authorization", "Bearer $key")
-        }
+    /** 按当前认证类型构造鉴权头（供 ApiClient 统一请求使用） */
+    private fun authHeaders(key: String): Map<String, String> = when (selectedAuthType) {
+        "x-api-key" -> mapOf("x-api-key" to key)
+        "header" -> mapOf(selectedAuthHeader.ifBlank { "Authorization" } to key)
+        else -> mapOf("Authorization" to "Bearer $key")
     }
 
     /** 渲染模型能力 chips：预设=只读徽标；自定义=可勾选（文本必选固定） */
@@ -539,28 +529,18 @@ class ModelEditActivity : Activity() {
 
     /** OpenAI 兼容 GET /models，解析 data[].id；失败返回 null */
     private fun fetchModelsFromNetwork(base: String, key: String): List<String>? {
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = URL("$base/models").openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 10000
-            conn.readTimeout = 15000
-            applyAuthHeader(conn, key)
-            conn.setRequestProperty("Accept", "application/json")
-            if (conn.responseCode != 200) return null
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val arr = JSONObject(body).optJSONArray("data") ?: return emptyList()
-            val list = mutableListOf<String>()
-            for (i in 0 until arr.length()) {
-                val id = arr.optJSONObject(i)?.optString("id", "") ?: ""
-                if (id.isNotEmpty()) list.add(id)
-            }
-            list
-        } catch (e: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
+        val jb = ApiClient.getJson(
+            "$base/models",
+            headers = authHeaders(key),
+            connectMs = 10_000, readMs = 15_000,
+        ).getOrNull() ?: return null
+        val arr = jb.optJSONArray("data") ?: return emptyList()
+        val list = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val id = arr.optJSONObject(i)?.optString("id", "") ?: ""
+            if (id.isNotEmpty()) list.add(id)
         }
+        return list
     }
 
     /** 拉取模型多选弹窗: 每个模型 = 勾选 + 模型名 + 能力勾选（文本固定，其余独立开关）

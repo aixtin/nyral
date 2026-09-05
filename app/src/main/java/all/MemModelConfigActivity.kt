@@ -13,8 +13,6 @@ import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * 记忆辅助模型配置页 — 与模型配置同视觉，仅配置 MemoryKeeper 生成索引用的辅助 API。
@@ -146,39 +144,34 @@ class MemModelConfigActivity : Activity() {
     private class TestResult(val canSave: Boolean, val message: String)
 
     private fun testConnectivity(base: String, key: String, model: String): TestResult {
-        var conn: HttpURLConnection? = null
-        return try {
-            val body = JSONObject().apply {
-                put("model", model)
-                put("messages", JSONArray().put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "hi")
-                }))
-                put("max_tokens", 1)
-                put("stream", false)
+        val body = JSONObject().apply {
+            put("model", model)
+            put("messages", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("content", "hi")
+            }))
+            put("max_tokens", 1)
+            put("stream", false)
+        }
+        val result = ApiClient.postJson(
+            "$base/chat/completions", body.toString(),
+            headers = ApiClient.bearer(key),
+            connectMs = 10_000, readMs = 20_000,
+        )
+        return when {
+            result.isSuccess -> TestResult(true, "")
+            else -> {
+                val e = result.exceptionOrNull()
+                val h = e as? ApiClient.HttpError
+                val lower = (h?.body ?: "").lowercase()
+                val insufficient = h != null && (h.code == 402 || lower.contains("insufficient") ||
+                    lower.contains("balance") || lower.contains("余额") || lower.contains("欠费"))
+                when {
+                    insufficient -> TestResult(true, "配置正确但账户余额不足，已保存，充值后即可使用")
+                    h != null -> TestResult(false, "HTTP ${h.code}: ${h.body.take(150)}")
+                    else -> TestResult(true, "网络异常未能验证连通性，已保存（${e?.message ?: "网络错误"}）")
+                }
             }
-            conn = URL("$base/chat/completions").openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.connectTimeout = 10000
-            conn.readTimeout = 20000
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Authorization", "Bearer $key")
-            conn.doOutput = true
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            val code = conn.responseCode
-            if (code in 200..299) TestResult(true, "")
-            else {
-                val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                val lower = err.lowercase()
-                val insufficient = code == 402 || lower.contains("insufficient") || lower.contains("balance") ||
-                    lower.contains("余额") || lower.contains("欠费")
-                if (insufficient) TestResult(true, "配置正确但账户余额不足，已保存，充值后即可使用")
-                else TestResult(false, "HTTP $code: ${err.take(150)}")
-            }
-        } catch (e: Exception) {
-            TestResult(true, "网络异常未能验证连通性，已保存（${e.message ?: "网络错误"}）")
-        } finally {
-            conn?.disconnect()
         }
     }
 
@@ -239,28 +232,18 @@ class MemModelConfigActivity : Activity() {
     }
 
     private fun fetchModelsFromNetwork(base: String, key: String): List<String>? {
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = URL("$base/models").openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 10000
-            conn.readTimeout = 15000
-            conn.setRequestProperty("Authorization", "Bearer $key")
-            conn.setRequestProperty("Accept", "application/json")
-            if (conn.responseCode != 200) return null
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val arr = JSONObject(body).optJSONArray("data") ?: return emptyList()
-            val list = mutableListOf<String>()
-            for (i in 0 until arr.length()) {
-                val id = arr.optJSONObject(i)?.optString("id", "") ?: ""
-                if (id.isNotEmpty()) list.add(id)
-            }
-            list
-        } catch (e: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
+        val jb = ApiClient.getJson(
+            "$base/models",
+            headers = ApiClient.bearer(key),
+            connectMs = 10_000, readMs = 15_000,
+        ).getOrNull() ?: return null
+        val arr = jb.optJSONArray("data") ?: return emptyList()
+        val list = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val id = arr.optJSONObject(i)?.optString("id", "") ?: ""
+            if (id.isNotEmpty()) list.add(id)
         }
+        return list
     }
 
     private fun showModelPicker(models: List<String>) {
