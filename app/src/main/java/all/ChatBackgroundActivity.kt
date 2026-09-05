@@ -334,24 +334,11 @@ class ChatBackgroundActivity : Activity() {
 
     // ---------- 图片解码 + StackBlur ----------
 
-    private fun decodeSampledUri(uri: Uri, target: Int): Bitmap? {
-        return try {
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-            var sample = 1
-            while (Math.max(opts.outWidth, opts.outHeight) / sample > target * 2) sample *= 2
-            val opts2 = BitmapFactory.Options().apply { inSampleSize = sample }
-            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts2) }
-        } catch (e: Exception) { null }
-    }
+    private fun decodeSampledUri(uri: Uri, target: Int): Bitmap? =
+        BitmapLoader.decodeSampledUri(this@ChatBackgroundActivity, uri, target)
 
-    private fun decodeSampled(path: String, target: Int): Bitmap? {
-        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(path, opts)
-        var sample = 1
-        while (Math.max(opts.outWidth, opts.outHeight) / sample > target * 2) sample *= 2
-        return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
-    }
+    private fun decodeSampled(path: String, target: Int): Bitmap? =
+        BitmapLoader.decodeSampledFile(java.io.File(path), target)
 
     /** 预模糊: 缩到中尺寸 -> 3次滑动窗口 BoxBlur(近似高斯, 平滑磨砂) -> 放大回原尺寸
      *  不依赖已废弃 RenderScript, 兼容所有版本 */

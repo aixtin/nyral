@@ -135,17 +135,7 @@ class AvatarCropActivity : Activity() {
                 Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show()
                 finish(); return
             }
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-            if (opts.outWidth <= 0 || opts.outHeight <= 0) {
-                Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show()
-                finish(); return
-            }
-            var sample = 1
-            val maxSide = maxOf(opts.outWidth, opts.outHeight)
-            while (maxSide / (sample * 2) >= 2048) sample *= 2
-            val dec = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, dec)
+            val bmp = BitmapLoader.decodeSampledBytes(bytes, 2048)
             if (bmp == null) {
                 Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show()
                 finish(); return
