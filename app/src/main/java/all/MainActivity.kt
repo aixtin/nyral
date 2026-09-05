@@ -2403,7 +2403,8 @@ class MainActivity : Activity() {
                     (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))
                 if (fakeMedia) {
                     uiScope.launch {
-                        Toast.makeText(this@MainActivity, "该文件实为文本内容, 并非真正的${if (mime.startsWith("image/")) "图片" else if (mime.startsWith("video/")) "视频" else "音频"}文件, 已拒绝发送", Toast.LENGTH_SHORT).show()
+                        val fakeType = if (mime.startsWith("image/")) "图片" else if (mime.startsWith("video/")) "视频" else "音频"
+                        Toast.makeText(this@MainActivity, getString(R.string.toast_att_fake_media, fakeType), Toast.LENGTH_SHORT).show()
                     }
                     return@execute
                 }
@@ -2477,9 +2478,14 @@ class MainActivity : Activity() {
                         val raw = MediaFileUtils.readAll(contentResolver, uri)
                         if (raw.size > maxFileBytes) {
                             uiScope.launch {
-                                Toast.makeText(this@MainActivity,
-                                    (if (isPdf) "PDF 过大(>${UploadConfig.maxMb()}MB)${if (name.lowercase().endsWith(".pdf")) "" else " 或格式异常"}" else "文件过大(>${UploadConfig.maxMb()}MB)") + "，暂不支持发送",
-                                    Toast.LENGTH_SHORT).show()
+                                val maxMb = UploadConfig.maxMb()
+                                val msg = when {
+                                    isPdf && !name.lowercase().endsWith(".pdf") ->
+                                        getString(R.string.toast_att_pdf_abnormal, maxMb)
+                                    isPdf -> getString(R.string.toast_att_pdf_large, maxMb)
+                                    else -> getString(R.string.toast_att_file_large, maxMb)
+                                }
+                                Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                             }
                             return@execute
                         }
