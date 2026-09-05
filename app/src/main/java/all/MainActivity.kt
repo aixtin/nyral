@@ -274,82 +274,6 @@ class MainActivity : Activity() {
     // 首启权限引导状态: 0=空闲 1=已弹运行时权限 2/3/4=等待从悬浮窗/所有文件/安装未知来源设置页返回
     private var firstRunGuideState = 0
 
-    companion object {
-        // 悬浮终端显隐门控: 进程级只注册一次(避免 MainActivity 重建重复注册)
-        private var terminalGateRegistered = false
-        // 当前 DA 已 resumed 的页面数(>0 即 DA 在前台)
-        private var terminalResumedCount = 0
-        // 显示防抖: 页面切换时旧页面 pause(计数--至0)与新页面 resume(计数++)存在间隙,
-        // 若 pause 瞬间立即显示会闪一下; 延迟确认仍无 DA 页面在前台才真正显示
-        private val terminalHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        private const val TERMINAL_SHOW_DEBOUNCE_MS = 350L
-        private var terminalShowRunnable: Runnable? = null
-        // 当前 RESUMED Activity 简单类名(供调试服务查询前台窗口; null 表示后台/无窗口)
-        @Volatile
-        private var resumedActivityName: String? = null
-
-        /** DA 是否有页面在前台 */
-        @JvmStatic
-        fun daInForeground(): Boolean = terminalResumedCount > 0
-
-        /** 当前前台 Activity 简单类名(无前台则为 null) */
-        @JvmStatic
-        fun foregroundActivityName(): String? = resumedActivityName
-
-        /** 服务启动/其他入口需要按当前前台状态校正悬浮窗显隐时调用 */
-        @JvmStatic
-        fun refreshTerminalOverlay() {
-            if (terminalResumedCount > 0) {
-                cancelTerminalShow()
-                AITerminalService.setOverlayVisible(false)
-            } else {
-                scheduleTerminalShow()
-            }
-        }
-
-        /** 延迟显示悬浮窗(防抖): 若期间有 DA 页面 resumed 则取消 */
-        private fun scheduleTerminalShow() {
-            terminalShowRunnable?.let { terminalHandler.removeCallbacks(it) }
-            val r = Runnable {
-                terminalShowRunnable = null
-                AITerminalService.setOverlayVisible(true)
-            }
-            terminalShowRunnable = r
-            terminalHandler.postDelayed(r, TERMINAL_SHOW_DEBOUNCE_MS)
-        }
-
-        private fun cancelTerminalShow() {
-            terminalShowRunnable?.let { terminalHandler.removeCallbacks(it) }
-            terminalShowRunnable = null
-        }
-    }
-
-    /** 悬浮终端显隐门控: DA 内(任意页面前台)隐藏, 切到其他 APP/回桌面自动显示。签名对齐 android-37 单参抽象。 */
-    private fun registerTerminalVisibilityGate() {
-        if (terminalGateRegistered) return
-        terminalGateRegistered = true
-        application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
-            override fun onActivityResumed(a: Activity) {
-                terminalResumedCount++
-                resumedActivityName = a.javaClass.simpleName
-                // 页面切换过程中(旧页 pause~新页 resume 间隙)可能已排入显示任务, 立即取消防抖并隐藏
-                cancelTerminalShow()
-                AITerminalService.setOverlayVisible(false)
-            }
-            override fun onActivityPaused(a: Activity) {
-                terminalResumedCount--
-                if (a.javaClass.simpleName == resumedActivityName) resumedActivityName = null
-                // 不立即显示: 走防抖, 避免 DA 内页面切换时闪一下(延迟后确认无 DA 页面在前台才显示)
-                if (terminalResumedCount <= 0) scheduleTerminalShow()
-            }
-            override fun onActivityCreated(a: Activity, b: Bundle?) {}
-            override fun onActivityDestroyed(a: Activity) {}
-            override fun onActivityStarted(a: Activity) {}
-            override fun onActivityStopped(a: Activity) {}
-            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-        })
-    }
-
     // ========== 首启权限引导 ==========
     /** 首次进入时一次性收取该要的权限; 只触发一次, 已收齐后不再打扰 */
     private fun runFirstRunPermissionGuide() {
@@ -413,7 +337,7 @@ class MainActivity : Activity() {
         // 首启权限引导: 首次进入一次性收齐该要的权限(运行时权限弹窗 + 特殊权限依次去设置页)
         window.decorView.post { runFirstRunPermissionGuide() }
         // 悬浮终端显隐门控: DA 前台(应用内)隐藏悬浮窗, 切到其他 APP/回桌面自动显示
-        registerTerminalVisibilityGate()
+        TerminalGate.register(application)
         // 启动自动检查更新（同一天仅一次，静默；真实更新源开源后替换 UPDATE_URL 即可）
         UpdateChecker.check(this, false)
         // 键盘模式: 全局 adjustNothing, 窗口永不被键盘压缩;
@@ -3026,61 +2950,9 @@ class MainActivity : Activity() {
      * 关联策略: ①同 _id(Android 实况图共用 id) ②RELATED_OWNER_ID(API 30+) ③同 DATA 路径名.mp4。
      * 未命中/异常返回 null, 调用方回退原静态图片压缩。
      */
-    private fun motionVideoUriOf(imgUri: Uri): Uri? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
-        return try {
-            val cr = contentResolver
-            var imgId = -1L
-            var imgData: String? = null
-            cr.query(imgUri, arrayOf(
-                MediaStore.Images.Media._ID,
-                MediaStore.Images.Media.DATA
-            ), null, null, null)?.use { c ->
-                if (c.moveToFirst()) {
-                    imgId = c.getLong(0)
-                    imgData = if (c.getColumnIndex(MediaStore.Images.Media.DATA) >= 0) c.getString(1) else null
-                }
-            }
-            if (imgId < 0) return null
-            val videoUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            // ①同 _id
-            var vid = -1L
-            cr.query(videoUri, arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME),
-                "${MediaStore.Video.Media._ID} = ?", arrayOf(imgId.toString()), null)?.use { c ->
-                if (c.moveToFirst()) vid = c.getLong(0)
-            }
-            // from now on
-            // ②RELATED_OWNER_ID (API 30+; 常量在 MediaColumns, minSdk 编译不可引用, 用字符串列名)
-            if (vid < 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                cr.query(videoUri, arrayOf(MediaStore.Video.Media._ID),
-                    "related_owner_id = ?",
-                    arrayOf(imgId.toString()), null)?.use { c ->
-                    if (c.moveToFirst()) vid = c.getLong(0)
-                }
-            }
-            // ③同 DATA 路径名.mp4 (xxx.heic + xxx.mp4 成对); 局部拷贝避免闭包 smart-cast 报错
-            val imgDataPath = imgData
-            if (vid < 0 && imgDataPath != null && imgDataPath.isNotEmpty()) {
-                val base = imgDataPath.substringBeforeLast('.')
-                if (base.isNotEmpty()) {
-                    val esc = base.replace("'", "''")
-                    cr.query(videoUri, arrayOf(MediaStore.Video.Media._ID),
-                        "${MediaStore.Video.Media.DATA} LIKE ? AND ${MediaStore.Video.Media.MIME_TYPE} LIKE ?",
-                        arrayOf("$esc%.mp4", "video/%"), null)?.use { c ->
-                        if (c.moveToFirst()) vid = c.getLong(0)
-                    }
-                }
-            }
-            if (vid < 0) null else ContentUris.withAppendedId(videoUri, vid)
-        } catch (e: Exception) {
-            Log.w("DroidAgent", "motionVideoUriOf 查询失败", e)
-            null
-        }
-    }
-
     /** 视频/实况图统一读取为 Attachment: 超限则本地压缩, 压缩失败返回 null(调用方决定回退/终止) */
     private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHint: String): LocalEngine.Attachment? {
-        val raw = readAll(uri)
+        val raw = MediaFileUtils.readAll(contentResolver, uri)
         if (raw.size <= MAX_VIDEO_BYTES) {
             return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
         }
@@ -3106,12 +2978,12 @@ class MainActivity : Activity() {
             try {
                 val cr = contentResolver
                 val mime = cr.getType(uri) ?: "application/octet-stream"
-                val name = queryDisplayName(uri) ?: "attachment"
+                val name = MediaFileUtils.queryDisplayName(contentResolver, uri) ?: "attachment"
                 val lowName = name.lowercase()
                 val isPdf = mime == "application/pdf" || lowName.endsWith(".pdf")
                 val isVideo = mime.startsWith("video/")
                 // 魔数嗅探真实格式(解决"扩展名≠真实格式"): 仅读头部, 不动文件本体
-                val head = readHead(uri, 64)
+                val head = MediaFileUtils.readHead(contentResolver, uri, 64)
                 val real = FormatSniffer.sniff(head, lowName)
                 val realType = real.substringBefore('/') // image/audio/video/text 或 empty/unknown
                 // 伪装/异常文件直接拒绝并提示真实情况
@@ -3137,7 +3009,7 @@ class MainActivity : Activity() {
                         // 实况图(LIVE photo): HEIC 查 MediaStore 关联 motion 视频, 命中即以视频发送(保留动态);
                         // 未命中回退静态压缩; 压缩失败回退静态 JPEG, 绝不阻断发送
                         if (real == FormatSniffer.IMAGE_HEIC) {
-                            val mv = motionVideoUriOf(uri)
+                            val mv = MediaFileUtils.motionVideoUriOf(contentResolver, uri)
                             if (mv != null) {
                                 val vAtt = buildVideoAttachment(mv, "video/mp4",
                                     name.replace(Regex("\\.heic$", RegexOption.IGNORE_CASE), ".mp4"),
@@ -3145,16 +3017,16 @@ class MainActivity : Activity() {
                                 if (vAtt != null) {
                                     listOf(vAtt)
                                 } else {
-                                    val bytes = compressImage(uri)
+                                    val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
                                     listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
                                 }
                             } else {
-                                val bytes = compressImage(uri)
+                                val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
                                 listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
                             }
                         } else if (real == FormatSniffer.IMAGE_GIF) {
                             val mp4Att = try {
-                                val gifBytes = readAll(uri)
+                                val gifBytes = MediaFileUtils.readAll(contentResolver, uri)
                                 if (gifBytes.size in 6..GIF_ANIM_MAX_BYTES && GifToMp4.isAnimated(gifBytes)) {
                                     val f = File(cacheDir, "anim_${System.currentTimeMillis()}.mp4")
                                     try {
@@ -3173,12 +3045,12 @@ class MainActivity : Activity() {
                                 } else null
                             } catch (e: Exception) { null }
                             if (mp4Att != null) mp4Att else {
-                                val bytes = compressImage(uri)
+                                val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
                                 // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
                                 listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
                             }
                         } else {
-                            val bytes = compressImage(uri)
+                            val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
                             // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
                             listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
                         }
@@ -3194,7 +3066,7 @@ class MainActivity : Activity() {
                     else -> {
                         // 音频以魔数真实 mime 为准(扩展名可能说谎, 如 .aac 实为 MP3): 归一到模型认识的格式
                         val effMime = if (realType == "audio" && real != FormatSniffer.UNKNOWN) real else mime
-                        val raw = readAll(uri)
+                        val raw = MediaFileUtils.readAll(contentResolver, uri)
                         if (raw.size > maxFileBytes) {
                             runOnUiThread {
                                 Toast.makeText(this@MainActivity,
@@ -3365,65 +3237,7 @@ class MainActivity : Activity() {
         return list
     }
 
-    /** 图片压缩: 最长边限制 MAX_IMAGE_SIDE, JPEG 质量 85; 超 3MB 再降至 70 */
-    private fun compressImage(uri: Uri): ByteArray {
-        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-        var sample = 1
-        while (opts.outWidth / sample > MAX_IMAGE_SIDE || opts.outHeight / sample > MAX_IMAGE_SIDE) sample *= 2
-        val dec = BitmapFactory.Options().apply { inSampleSize = sample }
-        val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, dec) }
-            ?: throw IllegalStateException("无法解码图片")
-        val scaled = if (bmp.width > MAX_IMAGE_SIDE || bmp.height > MAX_IMAGE_SIDE) {
-            val scale = MAX_IMAGE_SIDE.toFloat() / maxOf(bmp.width, bmp.height)
-            Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true).also { if (it != bmp) bmp.recycle() }
-        } else bmp
-        val out = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        if (out.size() > 3 * 1024 * 1024) {
-            out.reset()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 70, out)
-        }
-        val bytes = out.toByteArray()
-        scaled.recycle()
-        return bytes
-    }
-
-    private fun readAll(uri: Uri): ByteArray {
-        val ins: InputStream = contentResolver.openInputStream(uri) ?: throw IllegalStateException("无法打开文件")
-        return ins.use { i ->
-            val buf = ByteArrayOutputStream()
-            val chunk = ByteArray(8192)
-            while (true) {
-                val n = i.read(chunk)
-                if (n < 0) break
-                buf.write(chunk, 0, n)
-            }
-            buf.toByteArray()
-        }
-    }
-
-    /** 读取文件头 n 字节用于格式嗅探(失败返回空, 由上层按原逻辑兜底) */
-    private fun readHead(uri: Uri, n: Int): ByteArray {
-        return try {
-            contentResolver.openInputStream(uri)?.use { ins ->
-                val buf = ByteArray(n)
-                val len = ins.read(buf, 0, n)
-                if (len < 0) ByteArray(0) else if (len == n) buf else buf.copyOf(len)
-            } ?: ByteArray(0)
-        } catch (e: Exception) { ByteArray(0) }
-    }
-
-    private fun queryDisplayName(uri: Uri): String? {
-        return try {
-            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0) else null
-            }
-        } catch (e: Exception) { null }
-    }
-
-
-
+    /** 停止按钮加载环: 无限旋转(0->360度), 驱动 RotateDrawable 的 level */
     internal fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /** 气泡最大宽度: 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐); Agent 模式=屏幕*0.78(原样) */
@@ -3950,59 +3764,4 @@ class MainActivity : Activity() {
             return tv
         }
     }
-}
-
-/** 带缺口的旋转加载环: 画 270° 圆弧, 剩 90° 缺口, 旋转时有明显转动感 */
-class ArcRingDrawable(private val size: Int, stroke: Int, color: Int) : android.graphics.drawable.Drawable() {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = stroke.toFloat()
-        strokeCap = Paint.Cap.ROUND
-        this.color = color
-    }
-    private var angle = 0f
-
-    override fun draw(canvas: Canvas) {
-        val half = size / 2f
-        val r = half - paint.strokeWidth / 2f - 1f
-        canvas.save()
-        canvas.rotate(angle, half, half)
-        canvas.drawArc(half - r, half - r, half + r, half + r, 0f, 270f, false, paint)
-        canvas.restore()
-    }
-
-    fun setAngle(a: Int) {
-        angle = a.toFloat()
-        invalidateSelf()
-    }
-
-    override fun setAlpha(alpha: Int) = Unit
-    override fun setColorFilter(cf: ColorFilter?) = Unit
-    @Deprecated("Deprecated in Java")
-    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
-    override fun getIntrinsicWidth(): Int = size
-    override fun getIntrinsicHeight(): Int = size
-}
-
-
-/** 固定背景: 按位图宽高比固定绘制高度, 输入法弹起窗口变矮时只裁切不拉伸不平铺(类微信) */
-private class FixedBgDrawable(private val bmp: android.graphics.Bitmap) : android.graphics.drawable.Drawable() {
-    private val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
-    override fun draw(canvas: android.graphics.Canvas) {
-        // centerCrop: 按比例放大至完全覆盖窗口, 多余裁掉, 居中 -> 任意尺寸图片都不留空白(同微信)
-        val vw = bounds.width().coerceAtLeast(1)
-        val vh = bounds.height().coerceAtLeast(1)
-        val bw = bmp.width.coerceAtLeast(1)
-        val bh = bmp.height.coerceAtLeast(1)
-        val scale = Math.max(vw.toFloat() / bw, vh.toFloat() / bh)
-        val dw = (bw * scale).toInt()
-        val dh = (bh * scale).toInt()
-        val left = (vw - dw) / 2
-        val top = (vh - dh) / 2
-        canvas.drawBitmap(bmp, null, android.graphics.Rect(left, top, left + dw, top + dh), paint)
-    }
-    override fun setAlpha(a: Int) { paint.alpha = a }
-    override fun setColorFilter(cf: android.graphics.ColorFilter?) { paint.colorFilter = cf }
-    @Deprecated("Deprecated in Java")
-    override fun getOpacity(): Int = android.graphics.PixelFormat.OPAQUE
 }
