@@ -343,8 +343,8 @@ object DebugServer {
             val win = JSONObject()
             val act = main
             if (act != null) {
-                win.put("da_in_foreground", MainActivity.daInForeground())
-                win.put("activity", MainActivity.foregroundActivityName() ?: JSONObject.NULL)
+                win.put("da_in_foreground", TerminalGate.daInForeground())
+                win.put("activity", TerminalGate.foregroundActivityName() ?: JSONObject.NULL)
             } else {
                 win.put("da_in_foreground", false)
                 win.put("activity", JSONObject.NULL)

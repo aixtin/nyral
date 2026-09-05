@@ -258,7 +258,7 @@ class AITerminalService : Service() {
             AITerminalService.overlayView = terminal
             AITerminalService.tv = body
             // 服务于 DA 前台时启动需按当前前台状态校正一次显隐(DA 内隐藏, 切走/桌面显示)
-            try { MainActivity.refreshTerminalOverlay() } catch (e: Exception) {}
+            try { TerminalGate.refreshTerminalOverlay() } catch (e: Exception) {}
         } catch (e: Exception) {
             android.util.Log.e("AITerminal", "悬浮窗添加失败: ${e.message}")
         }
