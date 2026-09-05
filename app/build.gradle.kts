@@ -35,6 +35,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -57,4 +61,11 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    testImplementation(files(
+        "$rootDir/local-test-libs/junit-4.13.2.jar",
+        "$rootDir/local-test-libs/json-20231013.jar",
+        "$rootDir/local-test-libs/hamcrest-core-1.3.jar"
+    ))
 }

@@ -72,6 +72,11 @@ import androidx.media3.ui.PlayerView
 import android.widget.SeekBar
 import android.widget.VideoView
 import android.widget.Toast
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.PopupWindow
@@ -106,6 +111,7 @@ class MainActivity : Activity() {
 
     private val TAG = "DroidAgent"
     private val executor = Executors.newSingleThreadExecutor()
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // Markdown 本地渲染 (Markwon, 开源/无网络/不接第三方服务)
     private val markwon by lazy {
         Markwon.builder(this)
@@ -1003,7 +1009,7 @@ class MainActivity : Activity() {
             db.loadSessionMessages(id)
         }
         if (msgs.isEmpty()) {
-            Toast.makeText(this, "该会话没有消息", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.toast_no_messages, Toast.LENGTH_SHORT).show()
             return
         }
         messages.clear()
@@ -1037,7 +1043,7 @@ class MainActivity : Activity() {
                         target.animate().alpha(orig).setDuration(500).start()
                     }.start()
                 } else if (locateSeq < sessionBaseSeq) {
-                    Toast.makeText(this, "命中消息在窗口外更早历史中，已自动加载完整会话定位", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, R.string.toast_loaded_far_history, Toast.LENGTH_LONG).show()
                     // 窗口外命中: 临时全量加载该会话(仅本次, 定位后恢复窗口) —— 直接回退到旧行为一次
                     chatBox.removeAllViews()
                     sessionBaseSeq = 0
@@ -1209,7 +1215,7 @@ class MainActivity : Activity() {
         android.util.Log.i("DroidAgent", "onSend text=[$text] aiBusy=$aiBusy attachments=${attachments.size}")
         if (text.isEmpty() && attachments.isEmpty()) return
         if (aiBusy) {
-            Toast.makeText(this, "AI 正在输出，请稍候", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.toast_ai_typing, Toast.LENGTH_SHORT).show()
             return
         }
         // 会话维度 Token 统计: 引擎 record 时读取
@@ -1280,7 +1286,7 @@ class MainActivity : Activity() {
         } else {
             executor.execute {
                 val dispList = doSave()
-                runOnUiThread { continueSend(text, dispList, attachments) }
+                uiScope.launch { continueSend(text, dispList, attachments) }
             }
         }
     }
@@ -1329,7 +1335,7 @@ class MainActivity : Activity() {
         startStopSpin()
         executor.execute {
             val holder = AiBubbleHolder()
-            runOnUiThread {
+            uiScope.launch {
                 holder.attach(chatBox)
                 holder.showStatus("正在思考...")
                 scrollToBottom()
@@ -1339,22 +1345,22 @@ class MainActivity : Activity() {
                     LogStore.i(LogStore.MAIN, "开始思考")
                     AITerminal.push("thinking", "开始思考…")
                     debugSseSink?.invoke("thinking_start", "")
-                    runOnUiThread { holder.showThinking("思考中: ") }
+                    uiScope.launch { holder.showThinking("思考中: ") }
                 }
                 override fun onThinkingDelta(text: String) {
                     debugSseSink?.invoke("thinking", text)
-                    runOnUiThread { holder.appendThinking(text); scrollToBottom() }
+                    uiScope.launch { holder.appendThinking(text); scrollToBottom() }
                 }
                 override fun onThinkingEnd() {
                     AITerminal.push("thinking", "思考结束，进入作答")
                     debugSseSink?.invoke("thinking_end", "")
-                    runOnUiThread { holder.collapseThinking() }
+                    uiScope.launch { holder.collapseThinking() }
                 }
                 override fun onTool(name: String, arg: String) {
                     LogStore.i(LogStore.MAIN, "调用工具: $name")
                     AITerminal.push("tool", "$name $arg")
                     debugSseSink?.invoke("tool", "$name|$arg")
-                    runOnUiThread {
+                    uiScope.launch {
                         holder.showTool(name, arg)
                         // 进入工具调用即表示本段思考已结束: 折叠思考区, 避免一直停在"思考中"
                         holder.collapseThinking()
@@ -1365,13 +1371,13 @@ class MainActivity : Activity() {
                     LogStore.i(LogStore.MAIN, "工具结果: $name")
                     AITerminal.push("tool_result", "$name → ${result.trim()}")
                     debugSseSink?.invoke("tool_result", "$name|$result")
-                    runOnUiThread { holder.setToolResult(name, result) }
+                    uiScope.launch { holder.setToolResult(name, result) }
                 }
                 override fun onDelta(text: String) {
                     android.util.Log.i("DroidAgent", "onDelta=[$text]")
                     AITerminal.push("delta", text)
                     debugSseSink?.invoke("delta", text)
-                    runOnUiThread { holder.appendContent(text); scrollToBottom() }
+                    uiScope.launch { holder.appendContent(text); scrollToBottom() }
                 }
                 override fun onDone(reply: String) {
                     android.util.Log.i("DroidAgent", "onDone len=${reply.length}")
@@ -1382,7 +1388,7 @@ class MainActivity : Activity() {
                         LogStore.i(LogStore.MAIN, "回复完成 len=${reply.length} 会话=$replySessionId")
                         AITerminal.push("done", "回复完成 len=${reply.length}")
                     }
-                    runOnUiThread {
+                    uiScope.launch {
                         if (LocalEngine.cancelRequested) {
                             // 用户主动停止: 不写入对话/记忆
                             holder.appendContent("\n(已停止)")
@@ -1414,7 +1420,7 @@ class MainActivity : Activity() {
                 override fun onError(msg: String) {
                     LogStore.e(LogStore.MAIN, "错误: $msg")
                     AITerminal.push("error", msg)
-                    runOnUiThread {
+                    uiScope.launch {
                         holder.showError("出错了: $msg")
                         LocalEngine.cancelRequested = false
                         aiBusy = false
@@ -1623,7 +1629,7 @@ class MainActivity : Activity() {
             }
             addView(pv)
             // 点击整块进全屏弹窗预览(弹窗内同样循环播放)
-            setOnClickListener { openAttachmentPreview(listOf(file), 0) }
+            setOnClickListener { this@MainActivity.openAttachmentPreview(listOf(file), 0) }
             // 生命周期: 视图从窗口 detach(会话重建/滚动回收)即释放播放器, 防止内存/解码泄漏
             addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {
@@ -1666,7 +1672,7 @@ class MainActivity : Activity() {
                     d.setBounds(0, 0, rb.width, rb.height)
                     sb.setSpan(BubbleImageSpan(d), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     sb.setSpan(object : ClickableSpan() {
-                        override fun onClick(widget: View) { openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
+                        override fun onClick(widget: View) { this@MainActivity.openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
                     }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 } else if (vtb != null) {
                     // 视频: 首帧缩略图(带播放三角) 像图片一样内嵌气泡, 点击进入 App 内视频预览
@@ -1675,7 +1681,7 @@ class MainActivity : Activity() {
                     d.setBounds(0, 0, rb.width, rb.height)
                     sb.setSpan(BubbleImageSpan(d), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     sb.setSpan(object : ClickableSpan() {
-                        override fun onClick(widget: View) { openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
+                        override fun onClick(widget: View) { this@MainActivity.openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
                     }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 } else if (f != null && mark == "音频") {
                     // 仅本地录音(语音气泡): 播放/暂停按钮 + 时长, 点击切换; 状态由全局 playingFileName 决定
@@ -1707,7 +1713,7 @@ class MainActivity : Activity() {
                     sb.replace(start, end, replace)
                     sb.setSpan(BadgeSpan(badge, resources.displayMetrics.density), start, start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     sb.setSpan(object : ClickableSpan() {
-                        override fun onClick(widget: View) { openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
+                        override fun onClick(widget: View) { this@MainActivity.openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
                         override fun updateDrawState(ds: TextPaint) {
                             super.updateDrawState(ds)
                             ds.isUnderlineText = false
@@ -1729,598 +1735,6 @@ class MainActivity : Activity() {
     /** 视频首帧缩略图+播放三角 (已抽离 UiKit.decodeVideoThumbnail) */
 
     /** 将位图裁剪为圆角 (已抽离 UiKit.roundedBitmap) */
-
-    // 气泡 span 类 (BubbleImageSpan/BadgeSpan/WaveSpan/PlayPauseIconSpan) 已抽离 BubbleSpans.kt
-
-    /** 附件打开统一入口: 图片/视频/PDF/文本/音频 App 内弹窗预览, 其他(Office等)走系统打开/分享降级 */
-    private fun openAttachmentPreview(files: List<String>, startIndex: Int) {
-        val idx = if (startIndex in files.indices) startIndex else 0
-        val file = files[idx]
-        val f = AttachmentStore.fileOf(this, file)
-        if (f == null) {
-            Toast.makeText(this, "附件文件已不存在", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val mime = AttachmentStore.mimeOf(file)
-        when {
-            mime.startsWith("image/") || mime.startsWith("video/") -> {
-                // 同一条消息的图片/视频: 全屏左右滑动切换浏览
-                val media = files.filter { fn ->
-                    val ff = AttachmentStore.fileOf(this, fn)
-                    ff != null && AttachmentStore.mimeOf(fn).let { it.startsWith("image/") || it.startsWith("video/") }
-                }
-                val mi = media.indexOf(file).coerceAtLeast(0)
-                showMediaPreviewDialog(media, mi)
-            }
-            mime == "application/pdf" -> showPdfPreviewDialog(file)
-            mime.startsWith("text/") -> showTextPreviewDialog(file)
-            mime.startsWith("audio/") -> showAudioPreviewDialog(file)
-            else -> openAttachmentExternal(this, file)
-        }
-    }
-
-    /** 全屏媒体预览: 同消息多图/视频左右滑动切换; 图片单击关闭/双击缩放, 视频自动播放当前页 */
-    private fun showMediaPreviewDialog(media: List<String>, startIndex: Int) {
-        if (media.isEmpty()) return
-        val d = Dialog(this)
-        d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        // 外层留边距, 露出圆角: 整卡黑底圆角, 顶部标题栏白底仅顶部圆角
-        val outer = FrameLayout(this).apply {
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        outer.addView(createMediaPreviewContent(media, startIndex, d))
-        d.setContentView(outer)
-        d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        d.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        d.show()
-    }
-
-    private fun createMediaPreviewContent(media: List<String>, startIndex: Int, d: Dialog): View {
-        val screenW = resources.displayMetrics.widthPixels
-        val screenH = resources.displayMetrics.heightPixels
-        // 内容区宽度: 外层留边距后实际可用宽度
-        val contentW = screenW - dp(20)
-        lateinit var indicator: TextView
-        val root = FrameLayout(this).apply {
-            background = rounded(dp(20), Color.BLACK)
-            // 内容裁剪到圆角范围内, 视频/图片铺满底部时底角仍保持圆角
-            outlineProvider = ViewOutlineProvider.BACKGROUND
-            clipToOutline = true
-        }
-        // 垂直容器: 顶部标题栏占一行, 媒体内容在其下方填充剩余空间, 不被标题遮挡
-        val vStack = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        val hsv = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            isVerticalScrollBarEnabled = false
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        }
-        val strip = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        val videoViews = arrayOfNulls<PlayerView>(media.size)
-        media.forEachIndexed { i, file ->
-            val page = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(contentW, ViewGroup.LayoutParams.MATCH_PARENT)
-            }
-            val mime = AttachmentStore.mimeOf(file)
-            if (mime.startsWith("image/")) {
-                val iv = ImageView(this).apply {
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
-                        bottomMargin = dp(8)   // 底部留白收窄, 配合 root 圆角裁剪, 不遮圆角
-                    }
-                    setBackgroundColor(Color.BLACK)
-                }
-                val f = AttachmentStore.fileOf(this, file)
-                // 大图解码移到后台线程, 避免大图在主线程解码卡顿
-                if (f != null) {
-                    executor.execute {
-                        val bmp = decodeFullBitmap(f)
-                        runOnUiThread { iv.setImageBitmap(bmp) }
-                    }
-                }
-                // 缩放平移状态: 双击在 1x/2x 间切换; 放大后可单指拖动, 边界钳制不拖出
-                var scale = 1f
-                var tx = 0f
-                var ty = 0f
-                fun clampAndApply() {
-                    if (scale <= 1.01f) {
-                        tx = 0f; ty = 0f
-                    } else {
-                        val maxX = iv.width * (scale - 1f) / 2f
-                        val maxY = iv.height * (scale - 1f) / 2f
-                        tx = tx.coerceIn(-maxX, maxX)
-                        ty = ty.coerceIn(-maxY, maxY)
-                    }
-                    iv.scaleX = scale
-                    iv.scaleY = scale
-                    iv.translationX = tx
-                    iv.translationY = ty
-                }
-                val gd = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-                    override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                        if (scale > 1.01f) {
-                            tx -= distanceX
-                            ty -= distanceY
-                            clampAndApply()
-                            return true
-                        }
-                        return false
-                    }
-                })
-                gd.setOnDoubleTapListener(object : GestureDetector.OnDoubleTapListener {
-                    override fun onSingleTapConfirmed(e: MotionEvent): Boolean { d.dismiss(); return true }
-                    override fun onDoubleTap(e: MotionEvent): Boolean {
-                        scale = if (scale > 1.01f) 1f else 2f
-                        tx = 0f; ty = 0f
-                        iv.animate().scaleX(scale).scaleY(scale)
-                            .translationX(0f).translationY(0f).setDuration(200).start()
-                        return true
-                    }
-                    override fun onDoubleTapEvent(e: MotionEvent): Boolean = false
-                })
-                iv.setOnTouchListener { _, ev -> gd.onTouchEvent(ev); true }
-                page.addView(iv)
-            } else {
-                // 视频内核改用 Media3 ExoPlayer: 自带纯 Java 实现的 MP4 Extractor, 绕开系统 MediaPlayer/MediaExtractor
-                // 栈对特定转发视频(社交平台转存/含特殊字符/容器非标准)的拒绝(No content provider / instantiate extractor 失败)
-                val pv = PlayerView(this).apply {
-                    layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER).apply {
-                        bottomMargin = dp(8)   // 底部留白收窄, 播放控件悬浮于视频画面内, 不遮底部圆角
-                    }
-                    useController = true
-                }
-                val f = AttachmentStore.fileOf(this, file)
-                if (f != null) {
-                    val exo = ExoPlayer.Builder(this@MainActivity).build()
-                    exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
-                    // 接收端气泡循环播放管线: 预览弹窗内视频/动图 播放完一次自动重播(loop), 对齐微信大动图
-                    exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
-                    exo.prepare()
-                    exo.playWhenReady = true
-                    pv.player = exo
-                    pv.setBackgroundColor(Color.BLACK)
-                }
-                videoViews[i] = pv
-                page.addView(pv)
-            }
-            strip.addView(page)
-        }
-        hsv.addView(strip)
-
-        // 顶部标题栏(白底融合整体 UI): 文件名 + 页码 + 关闭; 仅顶部两角圆角(与整卡黑底圆角衔接)
-        val topBarBg = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadii = floatArrayOf(
-                dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(),
-                0f, 0f, 0f, 0f)
-        }
-        val topBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = topBarBg
-            setPadding(dp(10), dp(8), dp(6), dp(8))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        topBar.addView(TextView(this).apply {
-            text = media.mapNotNull { AttachmentStore.fileOf(this@MainActivity, it)?.name }.getOrNull(startIndex) ?: "预览"
-            textSize = 15f
-            setTextColor(Color.parseColor("#1A1A1A"))
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.MIDDLE
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        topBar.addView(TextView(this).apply {
-            text = "${startIndex + 1}/${media.size}"
-            textSize = 14f
-            setTextColor(Color.parseColor("#0B93F6"))
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(dp(12), dp(4), dp(8), dp(4))
-        }.also { indicator = it })
-        topBar.addView(TextView(this).apply {
-            text = "✕"
-            textSize = 22f
-            setTextColor(Color.parseColor("#1A1A1A"))
-            setPadding(dp(14), dp(2), dp(12), dp(2))
-            setOnClickListener { d.dismiss() }
-        })
-        vStack.addView(topBar)
-        vStack.addView(hsv)
-        root.addView(vStack)
-
-        fun currentPage(): Int =
-            if (media.isEmpty()) 0 else (hsv.scrollX.toFloat() / contentW).let { Math.round(it).coerceIn(0, media.size - 1) }
-
-        fun onPageChanged(page: Int) {
-            indicator.text = "${page + 1}/${media.size}"
-            media.forEachIndexed { i, fn ->
-                val pv = videoViews[i] ?: return@forEachIndexed
-                if (i == page) {
-                    val p = pv.player
-                    if (p != null && !p.isPlaying) { try { p.play() } catch (_: Exception) {} }
-                } else {
-                    val p = pv.player
-                    if (p != null && p.isPlaying) { try { p.pause() } catch (_: Exception) {} }
-                }
-            }
-        }
-
-        // 抬手后(含惯性滑动)重新定位当前页: 滚动停止时吸附到最近整页并同步页码, 避免停在中缝/页码错位
-        hsv.setOnTouchListener { _, ev ->
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                    hsv.postDelayed({
-                        val target = currentPage()
-                        hsv.smoothScrollTo(target * contentW, 0)
-                        onPageChanged(target)
-                    }, 60)
-            }
-            false
-        }
-        d.setOnDismissListener { media.forEachIndexed { i, _ -> videoViews[i]?.player?.release() } }
-
-        hsv.post {
-            hsv.scrollTo(startIndex * contentW, 0)
-            onPageChanged(startIndex)
-        }
-        return root
-    }
-
-    /** 全屏 PDF 预览: 分页式, 一页一屏, 上下翻页; 内存恒定一页(几百页不 OOM, 不再一通到底) */
-    private fun showPdfPreviewDialog(fileName: String) {
-        val f = AttachmentStore.fileOf(this, fileName) ?: return
-        val d = Dialog(this)
-        d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        val screenW = resources.displayMetrics.widthPixels
-        val contentW = screenW - dp(24)
-        // 外层留边距露出圆角: 整卡浅底圆角, 标题栏白底仅顶部圆角
-        val outer = FrameLayout(this).apply {
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(dp(20), Color.parseColor("#F7F7F8"))
-        }
-        val topBarBg = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadii = floatArrayOf(
-                dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(),
-                0f, 0f, 0f, 0f)
-        }
-        root.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = topBarBg
-            setPadding(dp(16), dp(10), dp(8), dp(10))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            addView(TextView(this@MainActivity).apply {
-                text = "📄 ${f.name}"
-                textSize = 15f
-                setTextColor(Color.parseColor("#1A1A1A"))
-                setTypeface(typeface, Typeface.BOLD)
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.MIDDLE
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "✕"
-                textSize = 22f
-                setTextColor(Color.parseColor("#1A1A1A"))
-                setPadding(dp(14), dp(2), dp(12), dp(2))
-                setOnClickListener { d.dismiss() }
-            })
-        })
-        // 中间: 单页展示区(权重1), 页码悬浮底中
-        val pageFrame = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        }
-        val pageIv = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        pageFrame.addView(pageIv)
-        val pageNo = TextView(this).apply {
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                cornerRadius = dp(12).toFloat()
-                setColor(Color.parseColor("#66000000"))
-            }
-            setPadding(dp(10), dp(3), dp(10), dp(3))
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(10) }
-        }
-        pageFrame.addView(pageNo)
-        root.addView(pageFrame)
-        // 底部导航: 上一页 / 页码 / 下一页
-        val nav = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(6), dp(16), dp(12))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        val prevBtn = TextView(this).apply {
-            text = "‹ 上一页"
-            textSize = 14f
-            setTextColor(Color.parseColor("#1A1A1A"))
-            setBackgroundColor(Color.parseColor("#00000000"))
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        val nextBtn = TextView(this).apply {
-            text = "下一页 ›"
-            textSize = 14f
-            setTextColor(Color.parseColor("#1A1A1A"))
-            setBackgroundColor(Color.parseColor("#00000000"))
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        nav.addView(prevBtn)
-        nav.addView(TextView(this).apply {
-            text = "· · ·"
-            textSize = 14f
-            setTextColor(Color.parseColor("#BBBBBB"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8); marginEnd = dp(8) }
-        })
-        nav.addView(nextBtn)
-        root.addView(nav)
-        outer.addView(root)
-        d.setContentView(outer)
-        d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        d.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        // 分页渲染状态
-        var renderer: PdfRenderer? = null
-        var cur = 0
-        var total = 0
-        var lastPage: PdfRenderer.Page? = null
-        var renderSeq = 0   // 渲染序号: 翻页递增, 过期渲染结果直接丢弃, 避免快速翻页时旧页覆盖新页
-        fun renderPage(i: Int) {
-            val r = renderer ?: return
-            val seq = ++renderSeq
-            // 渲染移到后台线程, 大 PDF 单页渲染不再阻塞主线程
-            executor.execute {
-                try {
-                    lastPage?.let { try { it.close() } catch (e: Exception) { } }
-                    lastPage = null
-                    val pg = try { r.openPage(i) } catch (e: Exception) { null } ?: return@execute
-                    lastPage = pg
-                    val targetH = (pg.height.toFloat() / pg.width * contentW).toInt().coerceAtLeast(1)
-                    val bmp = Bitmap.createBitmap(contentW, targetH, Bitmap.Config.ARGB_8888)
-                    val c = Canvas(bmp)
-                    c.drawColor(Color.WHITE)
-                    pg.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    runOnUiThread {
-                        if (seq != renderSeq) { bmp.recycle(); return@runOnUiThread }
-                        pageIv.setImageBitmap(bmp)
-                        pageNo.text = "${i + 1} / $total"
-                        prevBtn.isEnabled = i > 0
-                        nextBtn.isEnabled = i < total - 1
-                        prevBtn.setTextColor(if (i > 0) Color.parseColor("#1A1A1A") else Color.parseColor("#BBBBBB"))
-                        nextBtn.setTextColor(if (i < total - 1) Color.parseColor("#1A1A1A") else Color.parseColor("#BBBBBB"))
-                    }
-                } catch (e: Exception) {
-                    // 渲染失败静默, 保持上一页画面
-                }
-            }
-        }
-        var pfd: ParcelFileDescriptor? = null
-        try {
-            pfd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
-            renderer = PdfRenderer(pfd)
-            total = renderer!!.pageCount
-            renderPage(0)
-        } catch (e: Exception) {
-            Toast.makeText(this, "PDF 解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
-            d.dismiss()
-        }
-        prevBtn.setOnClickListener { if (cur > 0) { cur--; renderPage(cur) } }
-        nextBtn.setOnClickListener { if (cur < total - 1) { cur++; renderPage(cur) } }
-        // 左右滑动翻页(保留上下页按钮), 左滑下一页 / 右滑上一页
-        val pdfSwipe = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                val dx = e2.x - (e1?.x ?: e2.x)
-                val dy = e2.y - (e1?.y ?: e2.y)
-                if (kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.4f && kotlin.math.abs(dx) > dp(60)) {
-                    if (dx < 0 && cur < total - 1) { cur++; renderPage(cur) }
-                    else if (dx > 0 && cur > 0) { cur--; renderPage(cur) }
-                    return true
-                }
-                return false
-            }
-        })
-        pageFrame.setOnTouchListener { _, ev -> pdfSwipe.onTouchEvent(ev); true }
-        d.setOnDismissListener {
-            lastPage?.let { try { it.close() } catch (e: Exception) { } }
-            try { renderer?.close() } catch (e: Exception) { }
-            try { pfd?.close() } catch (e: Exception) { }
-        }
-        d.setOnKeyListener { _, keyCode, _ ->
-            if (keyCode == KeyEvent.KEYCODE_BACK) { d.dismiss(); true } else false
-        }
-        d.show()
-    }
-
-    /** 全屏文本预览 */
-    private fun showTextPreviewDialog(fileName: String) {
-        val f = AttachmentStore.fileOf(this, fileName) ?: return
-        val d = Dialog(this)
-        d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        val outer = FrameLayout(this).apply {
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(dp(20), Color.parseColor("#F7F7F8"))
-        }
-        val content = try {
-            f.readText()
-        } catch (e: Exception) {
-            "无法读取文本: ${e.message}"
-        }
-        val topBarBg = GradientDrawable().apply {
-            setColor(Color.WHITE)
-            cornerRadii = floatArrayOf(
-                dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(),
-                0f, 0f, 0f, 0f)
-        }
-        root.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = topBarBg
-            setPadding(dp(16), dp(10), dp(8), dp(10))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            addView(TextView(this@MainActivity).apply {
-                text = "📄 ${f.name}"
-                textSize = 15f
-                setTextColor(Color.parseColor("#1A1A1A"))
-                setTypeface(typeface, Typeface.BOLD)
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.MIDDLE
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "✕"
-                textSize = 22f
-                setTextColor(Color.parseColor("#1A1A1A"))
-                setPadding(dp(14), dp(2), dp(12), dp(2))
-                setOnClickListener { d.dismiss() }
-            })
-        })
-        val scroll = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        }
-        scroll.addView(TextView(this).apply {
-            text = content
-            textSize = 15f
-            setTextColor(Color.parseColor("#1A1A1A"))
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            // 自由复制: 长按出现选择手柄, 可拖选任意片段复制(系统自带全选/复制菜单)
-            setTextIsSelectable(true)
-        })
-        root.addView(scroll)
-        root.addView(TextView(this).apply {
-            text = "点击 ✕ 关闭"
-            textSize = 13f
-            setTextColor(Color.parseColor("#8A8A8A"))
-            setBackgroundColor(Color.parseColor("#F7F7F8"))
-            setPadding(dp(16), dp(10), dp(16), dp(14))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        })
-        outer.addView(root)
-        d.setContentView(outer)
-        d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        d.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        root.setOnClickListener { d.dismiss() }
-        d.setOnKeyListener { _, keyCode, _ ->
-            if (keyCode == KeyEvent.KEYCODE_BACK) { d.dismiss(); true } else false
-        }
-        d.show()
-    }
-
-    /** 音频预览弹窗: 播放/暂停 + 进度条 */
-    private fun showAudioPreviewDialog(fileName: String) {
-        val f = AttachmentStore.fileOf(this, fileName) ?: return
-        val d = Dialog(this)
-        d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        val player = MediaPlayer()
-        player.setAudioStreamType(AudioManager.STREAM_MUSIC)
-        try {
-            player.setDataSource(f.absolutePath)
-            player.prepare()
-        } catch (e: Exception) {
-            Toast.makeText(this, "音频加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(dp(20), Color.WHITE)
-            setPadding(dp(24), dp(28), dp(24), dp(20))
-        }
-        root.addView(TextView(this).apply {
-            text = "🎵 ${f.name}"
-            textSize = 16f
-            setTextColor(Color.parseColor("#1A1A1A"))
-            setTypeface(typeface, Typeface.BOLD)
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.MIDDLE
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(20) }
-        })
-        val playBtn = Button(this).apply {
-            text = "播放"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#0B93F6"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { bottomMargin = dp(16) }
-        }
-        val seek = SeekBar(this).apply {
-            max = player.duration.coerceAtLeast(1)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
-        }
-        val timeTv = TextView(this).apply {
-            text = "00:00 / ${fmtDuration(player.duration.toLong())}"
-            textSize = 13f
-            setTextColor(Color.parseColor("#8A8A8A"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(20) }
-        }
-        root.addView(playBtn); root.addView(seek); root.addView(timeTv)
-        root.addView(Button(this).apply {
-            text = "关闭"
-            setTextColor(Color.parseColor("#1A1A1A"))
-            setBackgroundColor(Color.parseColor("#F1F2F4"))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
-            setOnClickListener { d.dismiss() }
-        })
-        val handler = Handler(Looper.getMainLooper())
-        val ticker = object : Runnable {
-            override fun run() {
-                if (player.isPlaying) {
-                    seek.progress = player.currentPosition
-                    timeTv.text = "${fmtDuration(player.currentPosition.toLong())} / ${fmtDuration(player.duration.toLong())}"
-                }
-                handler.postDelayed(this, 500)
-            }
-        }
-        playBtn.setOnClickListener {
-            if (player.isPlaying) { player.pause(); playBtn.text = "播放" }
-            else { player.start(); playBtn.text = "暂停" }
-        }
-        seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                if (fromUser) { player.seekTo(progress); timeTv.text = "${fmtDuration(progress.toLong())} / ${fmtDuration(player.duration.toLong())}" }
-            }
-            override fun onStartTrackingTouch(sb: SeekBar) {}
-            override fun onStopTrackingTouch(sb: SeekBar) {}
-        })
-        player.setOnCompletionListener { runOnUiThread { playBtn.text = "播放"; seek.progress = seek.max } }
-        d.setOnDismissListener { handler.removeCallbacks(ticker); try { player.release() } catch (_: Exception) {} }
-        d.setContentView(root)
-        d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        d.window?.setLayout((resources.displayMetrics.widthPixels * 0.85f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
-        d.show()
-        handler.post(ticker)
-    }
-
-    /** 加载原图(限制到屏幕2倍, 避免大图 OOM) */
-    private fun decodeFullBitmap(f: File, maxSide: Int = resources.displayMetrics.widthPixels * 2): Bitmap? {
-        return try {
-            val b = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(f.absolutePath, b)
-            if (b.outWidth <= 0 || b.outHeight <= 0) return null
-            var sample = 1
-            while (maxOf(b.outWidth, b.outHeight) / sample > maxSide) sample *= 2
-            BitmapFactory.decodeFile(f.absolutePath, BitmapFactory.Options().apply {
-                inSampleSize = sample
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            })
-        } catch (e: Exception) { null }
-    }
 
     /** 从会话历史恢复的 AI 回复: 思考/工具/正文各自独立气泡, 按 timeline 记录的真实顺序竖向排列 */
     /** AI 头像: 圆形深灰蓝底 + 当前供应商首字符, 放气泡上方(与 MD 排版解耦) */
@@ -2630,7 +2044,7 @@ class MainActivity : Activity() {
             MotionEvent.ACTION_DOWN -> {
                 if (Build.VERSION.SDK_INT >= 23 &&
                     checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(this, "请先授权麦克风, 授权后重新按住说话", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, R.string.toast_req_mic_perm, Toast.LENGTH_SHORT).show()
                     requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD)
                     return true
                 }
@@ -2705,14 +2119,14 @@ class MainActivity : Activity() {
                     // 取消态下文字保持"松开手指，取消发送", 不被计时器覆盖
                     if (!speakCancel && elapsed >= 1000) speakBar.text = "松开 发送 ${elapsed / 1000}s"
                     if (elapsed >= MAX_RECORD_MS) {
-                        Toast.makeText(this@MainActivity, "已达 60 秒上限, 自动发送", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, R.string.toast_voice_60s, Toast.LENGTH_SHORT).show()
                         finishSpeakAndSend()
                     } else handler.postDelayed(this, 200)
                 }
             }
             handler.postDelayed(recTimer!!, 200)
         } catch (e: Exception) {
-            Toast.makeText(this, "录音启动失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_rec_start_fail, e.message), Toast.LENGTH_SHORT).show()
             try { audioRecord?.release() } catch (_: Exception) {}
             audioRecord = null
         }
@@ -2749,12 +2163,12 @@ class MainActivity : Activity() {
         resetSpeakBar()
         val res = finalizeRecord()
         if (res == null) {
-            Toast.makeText(this, "说话时间太短, 请重试", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.toast_voice_too_short, Toast.LENGTH_SHORT).show()
             return
         }
         val (bytes, name, durationMs) = res
         if (aiBusy) {
-            Toast.makeText(this, "AI 正在输出, 请稍后再发", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.toast_ai_busy, Toast.LENGTH_SHORT).show()
             return
         }
         val att = LocalEngine.Attachment(
@@ -2767,7 +2181,7 @@ class MainActivity : Activity() {
         try {
             doSend(listOf(att))
         } catch (e: Exception) {
-            Toast.makeText(this, "语音发送失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_voice_send_fail, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2803,7 +2217,7 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_RECORD && grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(this, "麦克风已授权, 请重新按住说话", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.toast_mic_granted, Toast.LENGTH_SHORT).show()
             return
         }
         if (requestCode == REQ_GUIDE_PERMS) {
@@ -2834,7 +2248,7 @@ class MainActivity : Activity() {
             p.setOnCompletionListener {
                 it.release()
                 if (audioPlayer === it) { audioPlayer = null; playingFileName = null }
-                runOnUiThread { stopWaveAnim(); animateVoiceBubble(fileName, false); refreshAudioBubbles() }
+                uiScope.launch { stopWaveAnim(); animateVoiceBubble(fileName, false); refreshAudioBubbles() }
             }
             p.prepare()
             p.start()
@@ -2844,7 +2258,7 @@ class MainActivity : Activity() {
             animateVoiceBubble(fileName, true)
             refreshAudioBubbles()
         } catch (e: Exception) {
-            Toast.makeText(this, "播放失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_play_fail, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2874,6 +2288,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        uiScope.cancel()
         // 调试服务随 Activity 销毁关闭, 并清引用避免泄漏
         DebugServer.stop()
         DebugServer.detach(this)
@@ -2915,7 +2330,7 @@ class MainActivity : Activity() {
         try {
             startActivityForResult(Intent.createChooser(i, title), code)
         } catch (e: Exception) {
-            Toast.makeText(this, "无法打开选择器: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_picker_fail, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2931,7 +2346,7 @@ class MainActivity : Activity() {
         if (uris.isEmpty()) return
         val MAX = 6
         if (uris.size > MAX) {
-            Toast.makeText(this, "一次最多上传 $MAX 个文件, 已保留前 $MAX 个", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_att_max_trim, MAX, MAX), Toast.LENGTH_SHORT).show()
         }
         uris.take(MAX).forEach { sendAttachmentFromUri(it) }
     }
@@ -2956,18 +2371,18 @@ class MainActivity : Activity() {
         if (raw.size <= MAX_VIDEO_BYTES) {
             return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
         }
-        runOnUiThread { Toast.makeText(this@MainActivity, "${failHint}超过50MB，正在本地压缩...", Toast.LENGTH_SHORT).show() }
+        uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_video_compressing, failHint), Toast.LENGTH_SHORT).show() }
         val out = File(cacheDir, "comp_${System.currentTimeMillis()}.mp4")
         try {
             VideoCompressor.compress(this@MainActivity, uri, out)
         } catch (e: Exception) {
-            runOnUiThread { Toast.makeText(this@MainActivity, "${failHint}压缩失败: ${e.message}", Toast.LENGTH_SHORT).show() }
+            uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_video_compress_fail, failHint, e.message), Toast.LENGTH_SHORT).show() }
             return null
         }
         val cb = out.readBytes()
         out.delete()
         if (cb.size > MAX_VIDEO_BYTES) {
-            runOnUiThread { Toast.makeText(this@MainActivity, "${failHint}压缩后仍超过50MB，暂不支持发送", Toast.LENGTH_SHORT).show() }
+            uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_video_comp_over, failHint), Toast.LENGTH_SHORT).show() }
             return null
         }
         return LocalEngine.Attachment("video/mp4", Base64.encodeToString(cb, Base64.NO_WRAP), name)
@@ -2988,20 +2403,20 @@ class MainActivity : Activity() {
                 val realType = real.substringBefore('/') // image/audio/video/text 或 empty/unknown
                 // 伪装/异常文件直接拒绝并提示真实情况
                 if (real == FormatSniffer.EMPTY) {
-                    runOnUiThread { Toast.makeText(this@MainActivity, "文件内容为空或损坏, 暂不支持发送", Toast.LENGTH_SHORT).show() }
+                    uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_att_empty, Toast.LENGTH_SHORT).show() }
                     return@execute
                 }
                 val fakeMedia = real == FormatSniffer.TEXT &&
                     (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))
                 if (fakeMedia) {
-                    runOnUiThread {
+                    uiScope.launch {
                         Toast.makeText(this@MainActivity, "该文件实为文本内容, 并非真正的${if (mime.startsWith("image/")) "图片" else if (mime.startsWith("video/")) "视频" else "音频"}文件, 已拒绝发送", Toast.LENGTH_SHORT).show()
                     }
                     return@execute
                 }
                 if (real == FormatSniffer.UNKNOWN &&
                     (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))) {
-                    runOnUiThread { Toast.makeText(this@MainActivity, "无法识别该文件真实格式(可能已损坏或类型少见), 暂不支持发送", Toast.LENGTH_SHORT).show() }
+                    uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_att_unk_fmt, Toast.LENGTH_SHORT).show() }
                     return@execute
                 }
                 val atts: List<LocalEngine.Attachment> = when {
@@ -3068,7 +2483,7 @@ class MainActivity : Activity() {
                         val effMime = if (realType == "audio" && real != FormatSniffer.UNKNOWN) real else mime
                         val raw = MediaFileUtils.readAll(contentResolver, uri)
                         if (raw.size > maxFileBytes) {
-                            runOnUiThread {
+                            uiScope.launch {
                                 Toast.makeText(this@MainActivity,
                                     (if (isPdf) "PDF 过大(>${UploadConfig.maxMb()}MB)${if (name.lowercase().endsWith(".pdf")) "" else " 或格式异常"}" else "文件过大(>${UploadConfig.maxMb()}MB)") + "，暂不支持发送",
                                     Toast.LENGTH_SHORT).show()
@@ -3093,7 +2508,7 @@ class MainActivity : Activity() {
                             ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
                             val imgs = pdfToImageAttachments(uri, name)
                             if (imgs.isEmpty()) {
-                                runOnUiThread { Toast.makeText(this@MainActivity, "无法解析该 PDF(无文本层且渲染失败), 暂不支持发送", Toast.LENGTH_SHORT).show() }
+                                uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_pdf_unparsable, Toast.LENGTH_SHORT).show() }
                                 return@execute
                             }
                             // 页图标记 pdfSourceName: 显示层隐藏(不铺图片网格), 仅作为 image_url 发给模型看图;
@@ -3102,14 +2517,14 @@ class MainActivity : Activity() {
                                 LocalEngine.Attachment("application/pdf", Base64.encodeToString(finalRaw, Base64.NO_WRAP), name,
                                     text = "（PDF 扫描件，已渲染为图片供查看）"))
                         } else if (txt.isNullOrBlank()) {
-                            runOnUiThread { Toast.makeText(this@MainActivity, "无法解析该文档文本内容, 暂不支持发送", Toast.LENGTH_SHORT).show() }
+                            uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_doc_unparsable, Toast.LENGTH_SHORT).show() }
                             return@execute
                         } else {
                             listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name, text = txt))
                         }
                     }
                 }
-                runOnUiThread {
+                uiScope.launch {
                     // 预览条方案: 附件先进输入框上方预览, 补文字后由 onSend 一并发送, 不再直接发出
                     // 总量上限 6: 无论单次还是多次累积, 超出部分拒绝加入预览条(不占发送队列)
                     val MAX_ATT = 6
@@ -3118,7 +2533,7 @@ class MainActivity : Activity() {
                     for (att in atts) {
                         val isPageImg = att.pdfSourceName != null
                         if (!isPageImg && userAtt >= MAX_ATT) {
-                            Toast.makeText(this@MainActivity, "一次最多上传 $MAX_ATT 个文件, 已丢弃多余附件", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, getString(R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()
                             break
                         }
                         pendingAttachments.add(att)
@@ -3130,7 +2545,7 @@ class MainActivity : Activity() {
                 }
             } catch (e: Exception) {
                 android.util.Log.e("DroidAgent", "读取附件失败", e)
-                runOnUiThread { Toast.makeText(this@MainActivity, "读取附件失败: ${e.message}", Toast.LENGTH_SHORT).show() }
+                uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_att_read_fail, e.message), Toast.LENGTH_SHORT).show() }
             }
         }
     }
