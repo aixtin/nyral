@@ -1,4 +1,5 @@
 package io.github.aixtin.droidagent
+import io.github.aixtin.droidagent.R
 
 import android.animation.ValueAnimator
 import android.app.Dialog
@@ -65,7 +66,7 @@ import android.widget.Toast
                 layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
             }
             searchEdit = EditText(this@buildDrawer).apply {
-                hint = "搜索会话"
+                hint = getString(R.string.mui_hint_search)
                 setHintTextColor(Color.parseColor("#BBBBBB"))
                 textSize = 13f
                 setTextColor(Color.parseColor("#1A1A1A"))
@@ -118,7 +119,7 @@ import android.widget.Toast
                 setOnClickListener { startNewSession() }
             })
             addView(TextView(this@buildDrawer).apply {
-                text = "会话记录"
+                text = getString(R.string.mui_records)
                 textSize = 12f
                 setTextColor(Color.parseColor("#999999"))
                 setPadding(dp(20), dp(12), dp(20), dp(4))
@@ -264,7 +265,7 @@ import android.widget.Toast
         collapseSearchBox()
         val hits = db.searchChatMessages(kw)
         if (hits.isEmpty()) {
-            Toast.makeText(this, "未找到包含「$kw」的会话", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.mui_toast_no_session, kw), Toast.LENGTH_SHORT).show()
             return
         }
         showSearchResults(kw, hits)
@@ -295,7 +296,7 @@ import android.widget.Toast
             val contentHits = sortHits(hits.filter { it.matchedField == 0 })
             val thinkHits = sortHits(hits.filter { it.matchedField == 1 })
             c.removeAllViews()
-            c.addView(buildSearchColumn("会话", kw, contentHits, d),
+            c.addView(buildSearchColumn(getString(R.string.mui_col_session), kw, contentHits, d),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             c.addView(View(this).apply {
                 setBackgroundColor(Color.parseColor("#F0F0F2"))
@@ -303,7 +304,7 @@ import android.widget.Toast
                     leftMargin = dp(10); rightMargin = dp(10)
                 }
             })
-            c.addView(buildSearchColumn("AI思考", kw, thinkHits, d),
+            c.addView(buildSearchColumn(getString(R.string.mui_col_ai_think), kw, thinkHits, d),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
 
@@ -318,7 +319,7 @@ import android.widget.Toast
             gravity = Gravity.CENTER_VERTICAL
         }
         titleRow.addView(TextView(this).apply {
-            text = "「$kw」 · 共 ${hits.size} 条命中"
+            text = getString(R.string.mui_search_hits, kw, hits.size)
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#1A1A1A"))
@@ -331,16 +332,16 @@ import android.widget.Toast
             background = Ui.rounded(Color.parseColor("#EAF4FE"), dp(10), this@showSearchResults)
             Ui.press(this)
         }
-        val fieldBtn = sortBtn("相关性")
-        val dirBtn = sortBtn("倒序")
+        val fieldBtn = sortBtn(getString(R.string.mui_field_relevance))
+        val dirBtn = sortBtn(getString(R.string.mui_sort_desc))
         fieldBtn.setOnClickListener {
             sortBy = if (sortBy == 1) 0 else 1
-            fieldBtn.text = if (sortBy == 1) "时间" else "相关性"
+            fieldBtn.text = if (sortBy == 1) getString(R.string.mui_field_time) else getString(R.string.mui_field_relevance)
             rebuildCols()
         }
         dirBtn.setOnClickListener {
             asc = !asc
-            dirBtn.text = if (asc) "正序" else "倒序"
+            dirBtn.text = if (asc) getString(R.string.mui_sort_asc) else getString(R.string.mui_sort_desc)
             rebuildCols()
         }
         titleRow.addView(fieldBtn, LinearLayout.LayoutParams(
@@ -389,7 +390,7 @@ import android.widget.Toast
         })
         if (hits.isEmpty()) {
             col.addView(TextView(this).apply {
-                text = "无命中"
+                text = getString(R.string.mui_no_hits)
                 textSize = 12f
                 setTextColor(Color.parseColor("#BBBBBB"))
                 gravity = Gravity.CENTER
@@ -401,7 +402,7 @@ import android.widget.Toast
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         hits.forEach { hit ->
             val snippet = hit.matchedField.takeIf { it == 0 }?.let { hit.content } ?: hit.thinking
-            val title = hit.title.ifBlank { "(未命名会话)" }
+            val title = hit.title.ifBlank { getString(R.string.mui_unnamed_session) }
             val roleTag = if (hit.role == "user") "我" else "AI"
             val item = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -453,7 +454,7 @@ import android.widget.Toast
             setTextColor(Color.parseColor("#999999"))
             setPadding(0, dp(2), 0, dp(2))
         }
-        panel.addView(row("上下文消耗"))
+        panel.addView(row(getString(R.string.mui_row_ctx_usage)))
         tokenPanelCtx = TextView(this).apply {
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
@@ -461,7 +462,7 @@ import android.widget.Toast
             setPadding(0, 0, 0, dp(10))
         }
         panel.addView(tokenPanelCtx)
-        panel.addView(row("本会话消耗"))
+        panel.addView(row(getString(R.string.mui_row_cur_usage)))
         tokenPanelSess = TextView(this).apply {
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
@@ -469,7 +470,7 @@ import android.widget.Toast
         }
         panel.addView(tokenPanelSess)
         panel.addView(TextView(this).apply {
-            text = "完整统计见 设置 → Token 统计"
+            text = getString(R.string.mui_token_stat_hint)
             textSize = 11f
             setTextColor(Color.parseColor("#BBBBBB"))
             setPadding(0, dp(10), 0, 0)
@@ -539,32 +540,32 @@ import android.widget.Toast
 
     /** 会话长按操作菜单: 置顶/取消置顶 + 重命名 + 删除 */
     internal fun MainActivity.showSessionMenu(s: MemoryDb.SessionInfo) {
-        val (dlg, box) = Ui.dialog(this, "会话操作")
+        val (dlg, box) = Ui.dialog(this, getString(R.string.mui_dlg_session_ops))
         box.addView(Ui.dialogText(this, "「${s.title}」"))
-        box.addView(Ui.primaryBtn(this, if (s.pinned) "取消置顶" else "置顶") {
+        box.addView(Ui.primaryBtn(this, if (s.pinned) getString(R.string.mui_unpin) else getString(R.string.mui_pin)) {
             dlg.dismiss()
             db.setPinned(s.id, !s.pinned)
             refreshSessionList()
-            Toast.makeText(this, if (s.pinned) "已取消置顶" else "已置顶", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, if (s.pinned) getString(R.string.mui_toast_unpinned) else getString(R.string.mui_toast_pinned), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
-        box.addView(Ui.lightBtn(this, "重命名") {
+        box.addView(Ui.lightBtn(this, getString(R.string.mui_rename)) {
             dlg.dismiss()
             showRenameDialog(s)
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(10)
         })
-        box.addView(Ui.dangerBtn(this, "删除会话") {
+        box.addView(Ui.dangerBtn(this, getString(R.string.mui_delete_session)) {
             dlg.dismiss()
             confirmDeleteSession(s)
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(10)
         })
-        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() },
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.mui_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10)
@@ -574,28 +575,28 @@ import android.widget.Toast
 
     /** 重命名会话: 输入框 + 保存 */
     internal fun MainActivity.showRenameDialog(s: MemoryDb.SessionInfo) {
-        val (dlg, box) = Ui.dialog(this, "重命名会话")
-        box.addView(Ui.fieldLabel(this, "新名称"))
-        val input = Ui.input(this, "输入会话名称")
+        val (dlg, box) = Ui.dialog(this, getString(R.string.mui_dlg_rename))
+        box.addView(Ui.fieldLabel(this, getString(R.string.mui_field_new_name)))
+        val input = Ui.input(this, getString(R.string.mui_hint_input_name))
         input.setText(s.title)
         box.addView(input, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        box.addView(Ui.primaryBtn(this, "保存") {
+        box.addView(Ui.primaryBtn(this, getString(R.string.mui_save)) {
             val name = input.text.toString().trim()
             if (name.isEmpty()) {
-                Toast.makeText(this, "名称不能为空", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.mui_toast_name_empty), Toast.LENGTH_SHORT).show()
                 return@primaryBtn
             }
             dlg.dismiss()
             db.renameSession(s.id, name)
             if (currentSessionId == s.id) currentSessionTitle = name
             refreshSessionList()
-            Toast.makeText(this, "已重命名", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.mui_toast_renamed), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
-        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() },
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.mui_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10)
@@ -605,16 +606,16 @@ import android.widget.Toast
 
     /** 删除会话: 二次确认后执行 */
     internal fun MainActivity.confirmDeleteSession(s: MemoryDb.SessionInfo) {
-        val (dlg, box) = Ui.dialog(this, "删除会话")
-        box.addView(Ui.dialogText(this, "确定删除「${s.title}」？该操作不可恢复。"))
-        box.addView(Ui.dangerBtn(this, "删除") {
+        val (dlg, box) = Ui.dialog(this, getString(R.string.mui_delete_session))
+        box.addView(Ui.dialogText(this, getString(R.string.mui_dlg_confirm_delete, s.title)))
+        box.addView(Ui.dangerBtn(this, getString(R.string.mui_delete)) {
             dlg.dismiss()
             db.deleteSession(s.id)
             refreshSessionList()
-            Toast.makeText(this, "会话已删除", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.mui_toast_deleted), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() },
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.mui_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10)
@@ -640,7 +641,7 @@ import android.widget.Toast
         }
         fun item(label: String, enabled: Boolean, onClick: () -> Unit) {
             val tv = TextView(this).apply {
-                text = label + if (enabled) "" else "（当前模型不支持）"
+                text = label + if (enabled) "" else getString(R.string.mui_cap_unsupported_suffix)
                 textSize = 14f
                 isAllCaps = false
                 setPadding(dp(18), dp(12), dp(18), dp(12))
@@ -648,7 +649,7 @@ import android.widget.Toast
                 alpha = if (enabled) 1f else 0.5f
                 setOnClickListener {
                     if (!enabled) {
-                        Toast.makeText(this@showAttachSheet, "当前模型不支持该类型", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@showAttachSheet, getString(R.string.mui_toast_cap_unsupported), Toast.LENGTH_SHORT).show()
                         return@setOnClickListener
                     }
                     dismissAttachPopup()
@@ -657,10 +658,10 @@ import android.widget.Toast
             }
             col.addView(tv)
         }
-        item("相册", hasImage) { pickImage() }
-        item("视频", hasVideo) { pickVideo() }
-        item("音频", hasAudio) { pickAudio() }
-        item("其他文件", true) { pickFile() }
+        item(getString(R.string.mui_attach_album), hasImage) { pickImage() }
+        item(getString(R.string.mui_attach_video), hasVideo) { pickVideo() }
+        item(getString(R.string.mui_attach_audio), hasAudio) { pickAudio() }
+        item(getString(R.string.mui_attach_other), true) { pickFile() }
         col.measure(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         val popH = col.measuredHeight
         // focusable=false: 不抢输入框焦点, 键盘保持弹出; 弹窗浮在键盘上方
@@ -751,7 +752,7 @@ import android.widget.Toast
             val curEffort = ApiConfig.thinkingEffortOf(curId)
             val eff = if (levels.any { it.first == curEffort }) curEffort else ApiConfig.THINK_AUTO
             list.addView(TextView(this).apply {
-                text = "思考强度"
+                text = getString(R.string.mui_think_intensity)
                 textSize = 11f
                 setTextColor(Color.parseColor("#999999"))
                 setPadding(dp(18), dp(8), dp(6), dp(2))
