@@ -1,12 +1,9 @@
 package io.github.aixtin.droidagent
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * MemoryGate: 记忆检索决策闸门(关键时候才翻记忆)。
@@ -48,7 +45,8 @@ object MemoryGate {
     private fun judge(context: Context, recent: String): Pair<Boolean, String>? {
         try {
             MemoryApiConfig.init(context.applicationContext)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("DroidAgent", "MemoryGate: 辅助模型配置初始化失败，记忆判断将按未配置处理: ${e.message}")
         }
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content",
@@ -62,20 +60,13 @@ object MemoryGate {
         body.put("temperature", 0.1)
         body.put("max_tokens", 40)
 
-        val conn = URL(MemoryApiConfig.chatUrl()).openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.setRequestProperty("Authorization", "Bearer ${MemoryApiConfig.apiKey()}")
-        conn.doOutput = true
-        conn.connectTimeout = 10000
-        conn.readTimeout = 20000
-        conn.outputStream.use { it.write(body.toString().toByteArray()) }
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val resp = if (stream != null) BufferedReader(InputStreamReader(stream)).readText() else ""
-        conn.disconnect()
-        if (code !in 200..299) throw RuntimeException("MemoryGate judge API $code")
-        val obj = JSONObject(resp)
+        val obj = ApiClient.postJson(
+            MemoryApiConfig.chatUrl(),
+            body.toString(),
+            headers = ApiClient.bearer(MemoryApiConfig.apiKey()),
+            connectMs = 10_000,
+            readMs = 20_000,
+        ).getOrElse { throw RuntimeException("MemoryGate judge API 失败: ${it.message}") }
         val content = obj.getJSONArray("choices").getJSONObject(0)
             .getJSONObject("message").getString("content").trim()
         val usage = obj.optJSONObject("usage")
@@ -87,7 +78,8 @@ object MemoryGate {
                 (if (usedPrompt > 0) usedPrompt else recent.take(1200).length / 3L).toInt().coerceAtLeast(0),
                 (if (usedCompletion > 0) usedCompletion else content.length / 3L).toInt().coerceAtLeast(0)
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("DroidAgent", "MemoryGate: token 统计(辅助)记录失败: ${e.message}")
         }
         val lines = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val first = lines.firstOrNull()?.uppercase() ?: ""

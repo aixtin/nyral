@@ -3,10 +3,6 @@ package io.github.aixtin.droidagent
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -156,21 +152,13 @@ object MemoryKeeper {
         body.put("messages", messages)
         body.put("temperature", 0.3)
 
-        val conn = URL(MemoryApiConfig.chatUrl()).openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.setRequestProperty("Authorization", "Bearer ${MemoryApiConfig.apiKey()}")
-        conn.doOutput = true
-        conn.connectTimeout = 20000
-        conn.readTimeout = 60000
-        conn.outputStream.use { it.write(body.toString().toByteArray()) }
-        val code = conn.responseCode
-        // errorStream 可能为 null(网络层异常无响应体), 判空避免 NPE 掩盖真实错误码
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val resp = if (stream != null) BufferedReader(InputStreamReader(stream)).readText() else ""
-        conn.disconnect()
-        if (code !in 200..299) throw RuntimeException("API $code")
-        val obj = JSONObject(resp)
+        val obj = ApiClient.postJson(
+            MemoryApiConfig.chatUrl(),
+            body.toString(),
+            headers = ApiClient.bearer(MemoryApiConfig.apiKey()),
+            connectMs = 20_000,
+            readMs = 60_000,
+        ).getOrElse { throw RuntimeException("API 失败: ${it.message}") }
         val content = obj.getJSONArray("choices").getJSONObject(0)
             .getJSONObject("message").getString("content").trim()
         // 辅助 AI token 统计: 有真实 usage 用真实值, 否则本地估算(仅成功请求计入)
