@@ -482,7 +482,7 @@ class MainActivity : Activity() {
         input = EditText(this).apply {
             var enterHandled = false
             var inTextFix = false
-            hint = "输入消息..."
+            hint = getString(R.string.ma_hint_input)
             textSize = 15f
             // 显式声明多行文本类型: 未设 MULTI_LINE 时部分输入法会错误地把回车按两次插入
             setInputType(EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE)
@@ -588,7 +588,7 @@ class MainActivity : Activity() {
         inputBar.addView(inputArea)
         // 按住说话条: 语音模式下以浮层盖在输入框上, 长按录音松手发送, 上滑取消, <1秒不发送
         speakBar = TextView(this).apply {
-            text = "按住 说话"
+            text = getString(R.string.ma_hold_to_speak)
             textSize = 15f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -656,7 +656,7 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
         sendBtn = Button(this).apply {
-            text = "发送"
+            text = getString(R.string.ma_send)
             textSize = 13f
             isAllCaps = false
             // 取消系统默认 minHeight(48dp)/minWidth, 否则气泡被撑大
@@ -697,7 +697,7 @@ class MainActivity : Activity() {
             setOnClickListener {
                 LocalEngine.requestCancel()
                 stopBtn.isEnabled = false
-                stopBtn.text = "停止中..."
+                stopBtn.text = getString(R.string.ma_stopping)
                 stopSpinAnim?.cancel()
                 android.util.Log.i("agent", "stop clicked, cancelRequested=${LocalEngine.cancelRequested}")
             }
@@ -860,8 +860,8 @@ class MainActivity : Activity() {
             }
         }
         // 键盘弹起时点击输入区以外收起键盘: 在 root.dispatchTouchEvent 实现(见 root 定义处), 无其它点击监听
-        summary?.let { appendSys("已加载历史对话摘要，可继续之前的上下文。") }
-        appendSys("agent 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。")
+        summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
+        appendSys(getString(R.string.ma_sys_engine_started))
         // 恢复最近一次会话，避免杀后台后聊天记录与列表丢失
         val recent = db.listSessions(1, ModeConfig.modeValue())
         if (recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()) {
@@ -902,7 +902,7 @@ class MainActivity : Activity() {
             if (recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()) {
                 openSession(recent[0].id)
             } else {
-                appendSys("agent 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。")
+                appendSys(getString(R.string.ma_sys_engine_started))
                 refreshSessionList()
             }
         }
@@ -979,8 +979,8 @@ class MainActivity : Activity() {
         currentSaved = true
         currentSessionId = null
         currentSessionTitle = null
-        summary?.let { appendSys("已加载历史对话摘要，可继续之前的上下文。") }
-        appendSys("agent 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。")
+        summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
+        appendSys(getString(R.string.ma_sys_engine_started))
         refreshSessionList()
         closeDrawer()
     }
@@ -1009,7 +1009,7 @@ class MainActivity : Activity() {
         currentSessionTitle = db.sessionTitleOf(id)
         chatBox.removeAllViews()
         if (sessionBaseSeq > 0) {
-            appendSys("该会话历史较长，仅展示最近 $MEM_WINDOW 条消息；更早内容保留在会话中，可用搜索定位。")
+            appendSys(getString(R.string.ma_sys_window_hint, MEM_WINDOW))
         }
         msgs.forEachIndexed { i, m ->
             val v = when {
@@ -1090,7 +1090,7 @@ class MainActivity : Activity() {
     private fun maybeSaveCurrent() {
         if (!currentSaved && messages.isNotEmpty()) {
             val title = messages.firstOrNull { it.role == "user" }?.content
-                ?.replace("\n", " ")?.take(20) ?: "未命名会话"
+                ?.replace("\n", " ")?.take(20) ?: getString(R.string.ma_unnamed_session)
             val sid = currentSessionId
             if (sid != null) {
                 db.updateSession(sid, title, messages, ModeConfig.modeValue(), sessionBaseSeq)
@@ -1107,7 +1107,7 @@ class MainActivity : Activity() {
         val list = db.listSessions(20, ModeConfig.modeValue())
         if (list.isEmpty()) {
             sessionList.addView(TextView(this).apply {
-                text = "暂无历史会话\n新对话会自动保存到这里"
+                text = getString(R.string.ma_no_sessions)
                 textSize = 12f
                 setTextColor(Color.parseColor("#BBBBBB"))
                 gravity = Gravity.CENTER
@@ -1134,7 +1134,7 @@ class MainActivity : Activity() {
                     setTextColor(Color.parseColor("#1A1A1A"))
                 })
                 addView(TextView(this@MainActivity).apply {
-                    text = (if (s.pinned) "已置顶 · " else "") + fmtTime(s.updatedAt)
+                    text = (if (s.pinned) getString(R.string.ma_pinned_prefix) else "") + fmtTime(s.updatedAt)
                     textSize = 11f
                     setTextColor(Color.parseColor("#AAAAAA"))
                     setPadding(0, dp(2), 0, 0)
@@ -1321,13 +1321,13 @@ class MainActivity : Activity() {
         sendBtn.visibility = View.GONE
         stopBtn.visibility = View.VISIBLE
         stopBtn.isEnabled = true
-        stopBtn.text = "停止"
+        stopBtn.text = getString(R.string.ma_stop)
         startStopSpin()
         executor.execute {
             val holder = AiBubbleHolder(this@MainActivity)
             uiScope.launch {
                 holder.attach(chatBox)
-                holder.showStatus("正在思考...")
+                holder.showStatus(getString(R.string.ma_thinking))
                 scrollToBottom()
             }
             LocalEngine.chat(this@MainActivity, history, object : LocalEngine.Callback {
@@ -1335,7 +1335,7 @@ class MainActivity : Activity() {
                     LogStore.i(LogStore.MAIN, "开始思考")
                     AITerminal.push("thinking", "开始思考…")
                     debugSseSink?.invoke("thinking_start", "")
-                    uiScope.launch { holder.showThinking("思考中: ") }
+                    uiScope.launch { holder.showThinking(getString(R.string.ma_thinking_prefix)) }
                 }
                 override fun onThinkingDelta(text: String) {
                     debugSseSink?.invoke("thinking", text)
@@ -1395,7 +1395,7 @@ class MainActivity : Activity() {
                             }
                         }
                             // 兜底: 引擎重试后仍无正文时给出明确提示, 避免"思考了但没输出"静默空白
-                            if (reply.isBlank()) appendSys("模型未返回内容，请再发一次")
+                            if (reply.isBlank()) appendSys(getString(R.string.ma_sys_no_reply))
                         holder.finishContent()
                         aiBusy = false
                         TaskService.stop(this@MainActivity)
@@ -1411,7 +1411,7 @@ class MainActivity : Activity() {
                     LogStore.e(LogStore.MAIN, "错误: $msg")
                     AITerminal.push("error", msg)
                     uiScope.launch {
-                        holder.showError("出错了: $msg")
+                        holder.showError(getString(R.string.ma_error_fmt, msg))
                         LocalEngine.cancelRequested = false
                         aiBusy = false
                         TaskService.stop(this@MainActivity)
@@ -2199,7 +2199,7 @@ class MainActivity : Activity() {
         recHandler = null
         speaking = false
         speakCancel = false
-        speakBar.text = "按住 说话"
+        speakBar.text = getString(R.string.ma_hold_to_speak)
         speakBar.background = rounded(dp(22), Color.parseColor("#9AA0A6"))
     }
 
