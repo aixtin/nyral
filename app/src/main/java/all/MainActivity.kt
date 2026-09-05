@@ -38,9 +38,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.pdf.PdfRenderer
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -107,8 +105,8 @@ import android.text.style.TypefaceSpan
 class MainActivity : Activity() {
 
     private val TAG = "agent"
-    private val executor = Executors.newSingleThreadExecutor()
-    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    internal val executor = Executors.newSingleThreadExecutor()
+    internal val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // Markdown 本地渲染 (Markwon, 开源/无网络/不接第三方服务)
     internal val markwon by lazy {
         Markwon.builder(this)
@@ -153,9 +151,11 @@ class MainActivity : Activity() {
     internal lateinit var attachBtn: Button
     private lateinit var attachWrap: FrameLayout
     // 附件预览条: 选中附件先进入输入框上方预览, 补文字后一并发送(仿主流IM)
-    private lateinit var attachPreviewWrap: HorizontalScrollView
-    private lateinit var attachPreviewRow: LinearLayout
-    private val pendingAttachments = mutableListOf<LocalEngine.Attachment>()
+    internal lateinit var attachPreviewWrap: HorizontalScrollView
+    internal lateinit var attachPreviewRow: LinearLayout
+    internal val pendingAttachments = mutableListOf<LocalEngine.Attachment>()
+    // 附件发送链路(解析/校验/预览) 已抽离 AttachmentSender
+    private val attachmentSender = AttachmentSender(this)
     // 附件选择请求码
     private val REQ_IMAGE = 1001
     private val REQ_FILE = 1002
@@ -165,10 +165,7 @@ class MainActivity : Activity() {
     private val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
     private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
     // 图片压缩上限: 最长边/质量
-    private val MAX_IMAGE_SIDE = 2048
-    private val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
-    private val MAX_VIDEO_BYTES = 37 * 1024 * 1024 // MiMo 视频 base64 ≤50MB(原始约 ≤37MB)
-    private val GIF_ANIM_MAX_BYTES = 20 * 1024 * 1024 // 动图转视频的源 GIF 上限(超出回退静态图), 防超大内存占用
+    internal val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
     // 录音: 上限 60 秒 / 10MB(语音消息足够, 超限直接拒)
     private val MAX_RECORD_MS = 60_000L
     private val MAX_AUDIO_BYTES = 10 * 1024 * 1024
@@ -2341,317 +2338,9 @@ class MainActivity : Activity() {
         if (uris.size > MAX) {
             Toast.makeText(this, getString(R.string.toast_att_max_trim, MAX, MAX), Toast.LENGTH_SHORT).show()
         }
-        uris.take(MAX).forEach { sendAttachmentFromUri(it) }
+        uris.take(MAX).forEach { attachmentSender.sendAttachmentFromUri(it) }
     }
 
-    /**
-     * 读取附件并发送:
-     * - 图片: 压缩后 Base64
-     * - 视频: 限 50MB, 超限本地转码压缩后再发, 压缩后仍超限拒绝
-     * - 其余(含 PDF/txt/md/Word/Excel/PPT/压缩包): 本地解析提取文本
-     *   (text 随 history 注入模型; 支持 PDF/MD/TXT/DOCX/XLSX/PPTX/ZIP/TAR/TGZ 等,
-     *   提取不到或纯二进制文件则退回直发普通文件)
-     */
-    /**
-     * 实况图(motion photo)抽取: HEIC 图片查 MediaStore 关联的 motion 视频 URI。
-     * 方案待办: 识别 HEIC 时查 MediaStore 关联 motion 视频 URI, 命中走 video 分支。
-     * 关联策略: ①同 _id(Android 实况图共用 id) ②RELATED_OWNER_ID(API 30+) ③同 DATA 路径名.mp4。
-     * 未命中/异常返回 null, 调用方回退原静态图片压缩。
-     */
-    /** 视频/实况图统一读取为 Attachment: 超限则本地压缩, 压缩失败返回 null(调用方决定回退/终止) */
-    private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHint: String): LocalEngine.Attachment? {
-        val raw = MediaFileUtils.readAll(contentResolver, uri)
-        if (raw.size <= MAX_VIDEO_BYTES) {
-            return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
-        }
-        uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_video_compressing, failHint), Toast.LENGTH_SHORT).show() }
-        val out = File(cacheDir, "comp_${System.currentTimeMillis()}.mp4")
-        try {
-            VideoCompressor.compress(this@MainActivity, uri, out)
-        } catch (e: Exception) {
-            uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_video_compress_fail, failHint, e.message), Toast.LENGTH_SHORT).show() }
-            return null
-        }
-        val cb = out.readBytes()
-        out.delete()
-        if (cb.size > MAX_VIDEO_BYTES) {
-            uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_video_comp_over, failHint), Toast.LENGTH_SHORT).show() }
-            return null
-        }
-        return LocalEngine.Attachment("video/mp4", Base64.encodeToString(cb, Base64.NO_WRAP), name)
-    }
-
-    private fun sendAttachmentFromUri(uri: Uri) {
-        executor.execute {
-            try {
-                val cr = contentResolver
-                val mime = cr.getType(uri) ?: "application/octet-stream"
-                val name = MediaFileUtils.queryDisplayName(contentResolver, uri) ?: "attachment"
-                val lowName = name.lowercase()
-                val isPdf = mime == "application/pdf" || lowName.endsWith(".pdf")
-                val isVideo = mime.startsWith("video/")
-                // 魔数嗅探真实格式(解决"扩展名≠真实格式"): 仅读头部, 不动文件本体
-                val head = MediaFileUtils.readHead(contentResolver, uri, 64)
-                val real = FormatSniffer.sniff(head, lowName)
-                val realType = real.substringBefore('/') // image/audio/video/text 或 empty/unknown
-                // 伪装/异常文件直接拒绝并提示真实情况
-                if (real == FormatSniffer.EMPTY) {
-                    uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_att_empty, Toast.LENGTH_SHORT).show() }
-                    return@execute
-                }
-                val fakeMedia = real == FormatSniffer.TEXT &&
-                    (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))
-                if (fakeMedia) {
-                    uiScope.launch {
-                        val fakeType = if (mime.startsWith("image/")) "图片" else if (mime.startsWith("video/")) "视频" else "音频"
-                        Toast.makeText(this@MainActivity, getString(R.string.toast_att_fake_media, fakeType), Toast.LENGTH_SHORT).show()
-                    }
-                    return@execute
-                }
-                if (real == FormatSniffer.UNKNOWN &&
-                    (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))) {
-                    uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_att_unk_fmt, Toast.LENGTH_SHORT).show() }
-                    return@execute
-                }
-                val atts: List<LocalEngine.Attachment> = when {
-                    mime.startsWith("image/") || realType == "image" -> {
-                        // 实况图(LIVE photo): HEIC 查 MediaStore 关联 motion 视频, 命中即以视频发送(保留动态);
-                        // 未命中回退静态压缩; 压缩失败回退静态 JPEG, 绝不阻断发送
-                        if (real == FormatSniffer.IMAGE_HEIC) {
-                            val mv = MediaFileUtils.motionVideoUriOf(contentResolver, uri)
-                            if (mv != null) {
-                                val vAtt = buildVideoAttachment(mv, "video/mp4",
-                                    name.replace(Regex("\\.heic$", RegexOption.IGNORE_CASE), ".mp4"),
-                                    "实况视频")
-                                if (vAtt != null) {
-                                    listOf(vAtt)
-                                } else {
-                                    val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
-                                    listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                                }
-                            } else {
-                                val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
-                                listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                            }
-                        } else if (real == FormatSniffer.IMAGE_GIF) {
-                            val mp4Att = try {
-                                val gifBytes = MediaFileUtils.readAll(contentResolver, uri)
-                                if (gifBytes.size in 6..GIF_ANIM_MAX_BYTES && GifToMp4.isAnimated(gifBytes)) {
-                                    val f = File(cacheDir, "anim_${System.currentTimeMillis()}.mp4")
-                                    try {
-                                        val frames = GifToMp4.convert(gifBytes, f)
-                                        if (frames > 0 && f.length() in 1..MAX_VIDEO_BYTES.toLong()) {
-                                            val mp4 = f.readBytes()
-                                            f.delete()
-                                            listOf(LocalEngine.Attachment(
-                                                "video/mp4", Base64.encodeToString(mp4, Base64.NO_WRAP),
-                                                name.replace(Regex("\\.gif$", RegexOption.IGNORE_CASE), ".mp4")))
-                                        } else { f.delete(); null }
-                                    } catch (e: Exception) {
-                                        try { f.delete() } catch (_: Exception) {}
-                                        null
-                                    }
-                                } else null
-                            } catch (e: Exception) { null }
-                            if (mp4Att != null) mp4Att else {
-                                val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
-                                // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
-                                listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                            }
-                        } else {
-                            val bytes = MediaFileUtils.compressImage(contentResolver, uri, MAX_IMAGE_SIDE)
-                            // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
-                            listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                        }
-                    }
-                    isVideo || realType == "video" -> {
-                        val vAtt = buildVideoAttachment(uri,
-                            if (realType == "video") real else mime, name, "视频")
-                        if (vAtt == null) {
-                            return@execute
-                        }
-                        listOf(vAtt)
-                    }
-                    else -> {
-                        // 音频以魔数真实 mime 为准(扩展名可能说谎, 如 .aac 实为 MP3): 归一到模型认识的格式
-                        val effMime = if (realType == "audio" && real != FormatSniffer.UNKNOWN) real else mime
-                        val raw = MediaFileUtils.readAll(contentResolver, uri)
-                        if (raw.size > maxFileBytes) {
-                            uiScope.launch {
-                                val maxMb = UploadConfig.maxMb()
-                                val msg = when {
-                                    isPdf && !name.lowercase().endsWith(".pdf") ->
-                                        getString(R.string.toast_att_pdf_abnormal, maxMb)
-                                    isPdf -> getString(R.string.toast_att_pdf_large, maxMb)
-                                    else -> getString(R.string.toast_att_file_large, maxMb)
-                                }
-                                Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
-                            }
-                            return@execute
-                        }
-                        // m4a: 部分设备/APP 生成 isom/mp42 容器, MiMo 仅接受 ftyp M4A; 修正 major_brand 避免 400
-                        val finalRaw = if ((effMime.startsWith("audio/") || lowName.endsWith(".m4a")) &&
-                            raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
-                            raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
-                            val brand = String(raw, 8, 4)
-                            if (brand != "M4A " && brand != "M4A\u0000") {
-                                val out = raw.clone()
-                                out[8] = 'M'.code.toByte(); out[9] = '4'.code.toByte()
-                                out[10] = 'A'.code.toByte(); out[11] = ' '.code.toByte()
-                                out
-                            } else raw
-                        } else raw
-                        val txt = DocTextExtractor.extract(name, finalRaw)
-                        // 无文本层 PDF(扫描件)且模型支持图像: 渲染为图片走 image_url, 避免 MiMo 对 input_file 500
-                        if (txt.isNullOrBlank() && isPdf &&
-                            ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
-                            val imgs = pdfToImageAttachments(uri, name)
-                            if (imgs.isEmpty()) {
-                                uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_pdf_unparsable, Toast.LENGTH_SHORT).show() }
-                                return@execute
-                            }
-                            // 页图标记 pdfSourceName: 显示层隐藏(不铺图片网格), 仅作为 image_url 发给模型看图;
-                            // 追加 PDF 卡片附件: 气泡以文件卡片展示(点击进 PDF 全屏预览), 不再"一通到底"
-                            imgs.map { it.copy(pdfSourceName = name) } + listOf(
-                                LocalEngine.Attachment("application/pdf", Base64.encodeToString(finalRaw, Base64.NO_WRAP), name,
-                                    text = "（PDF 扫描件，已渲染为图片供查看）"))
-                        } else if (txt.isNullOrBlank()) {
-                            uiScope.launch { Toast.makeText(this@MainActivity, R.string.toast_doc_unparsable, Toast.LENGTH_SHORT).show() }
-                            return@execute
-                        } else {
-                            listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name, text = txt))
-                        }
-                    }
-                }
-                uiScope.launch {
-                    // 预览条方案: 附件先进输入框上方预览, 补文字后由 onSend 一并发送, 不再直接发出
-                    // 总量上限 6: 无论单次还是多次累积, 超出部分拒绝加入预览条(不占发送队列)
-                    val MAX_ATT = 6
-                    // PDF 扫描件页图(pdfSourceName 非空)是同一个 PDF 的内部展开, 不占用户文件计数
-                    var userAtt = pendingAttachments.count { it.pdfSourceName == null }
-                    for (att in atts) {
-                        val isPageImg = att.pdfSourceName != null
-                        if (!isPageImg && userAtt >= MAX_ATT) {
-                            Toast.makeText(this@MainActivity, getString(R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()
-                            break
-                        }
-                        pendingAttachments.add(att)
-                        if (!isPageImg) {
-                            userAtt += 1
-                            addAttachPreview(att)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("agent", "读取附件失败", e)
-                uiScope.launch { Toast.makeText(this@MainActivity, getString(R.string.toast_att_read_fail, e.message), Toast.LENGTH_SHORT).show() }
-            }
-        }
-    }
-
-    /** 附件预览条加一项: 图片显缩略图, 其他显格式角标; 右上角 × 删除该项 */
-    private fun addAttachPreview(att: LocalEngine.Attachment) {
-        attachPreviewWrap.visibility = View.VISIBLE
-        val cell = FrameLayout(this)
-        val thumb: View = if (att.mime.startsWith("image/")) {
-            ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                background = rounded(dp(8), Color.parseColor("#EFEFF1"))
-                try {
-                    val arr = Base64.decode(att.base64, Base64.NO_WRAP)
-                    val raw = BitmapFactory.decodeByteArray(arr, 0, arr.size)
-                    if (raw != null) {
-                        val s = minOf(raw.width, raw.height)
-                        val crop = Bitmap.createBitmap(raw, (raw.width - s) / 2, (raw.height - s) / 2, s, s)
-                        val thumbBmp = Bitmap.createScaledBitmap(crop, dp(48), dp(48), true)
-                        if (thumbBmp != crop) crop.recycle()
-                        raw.recycle()
-                        setImageBitmap(thumbBmp)
-                    }
-                } catch (e: Exception) {
-                    setImageBitmap(null)
-                }
-                layoutParams = FrameLayout.LayoutParams(dp(48), dp(48))
-            }
-        } else {
-            TextView(this).apply {
-                text = badgeOf(att.mime, att.name)
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                background = rounded(dp(8), Color.parseColor("#8A8F9C"))
-                layoutParams = FrameLayout.LayoutParams(dp(48), dp(48))
-            }
-        }
-        val del = Button(this).apply {
-            text = "×"
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            isAllCaps = false
-            minHeight = 0
-            minWidth = 0
-            background = rounded(dp(9), Color.parseColor("#E5484D"))
-            layoutParams = FrameLayout.LayoutParams(dp(18), dp(18), Gravity.TOP or Gravity.END)
-            setOnClickListener {
-                attachPreviewRow.removeView(cell)
-                pendingAttachments.remove(att)
-                if (pendingAttachments.isEmpty()) attachPreviewWrap.visibility = View.GONE
-            }
-        }
-        cell.addView(thumb)
-        cell.addView(del)
-        attachPreviewRow.addView(cell, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
-    }
-
-    /** 附件格式角标文案 (已抽离 UiKit.badgeOf) */
-
-    /** 无文本层 PDF(扫描件): 用系统 PdfRenderer 渲染前几页为 JPEG, 走 image_url 让多模态模型看图。
-     *  返回空列表表示渲染失败。 */
-    private fun pdfToImageAttachments(uri: Uri, name: String): List<LocalEngine.Attachment> {
-        val list = mutableListOf<LocalEngine.Attachment>()
-        val pfd: ParcelFileDescriptor = try {
-            contentResolver.openFileDescriptor(uri, "r") ?: return list
-        } catch (e: Exception) { return list }
-        var renderer: PdfRenderer? = null
-        try {
-            renderer = PdfRenderer(pfd)
-            val maxPages = minOf(renderer.pageCount, 10)
-            for (i in 0 until maxPages) {
-                val page = renderer.openPage(i)
-                try {
-                    val w = page.width
-                    val h = page.height
-                    val scale = if (maxOf(w, h) > MAX_IMAGE_SIDE) MAX_IMAGE_SIDE.toFloat() / maxOf(w, h) else 1f
-                    val bmp = Bitmap.createBitmap(
-                        (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1),
-                        Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(Color.WHITE)
-                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    val out = ByteArrayOutputStream()
-                    bmp.compress(Bitmap.CompressFormat.JPEG, 82, out)
-                    if (out.size() > 3 * 1024 * 1024) {
-                        out.reset()
-                        bmp.compress(Bitmap.CompressFormat.JPEG, 68, out)
-                    }
-                    val bytes = out.toByteArray()
-                    bmp.recycle()
-                    list.add(LocalEngine.Attachment("image/jpeg",
-                        Base64.encodeToString(bytes, Base64.NO_WRAP), "${name.removeSuffix(".pdf")}_p${i + 1}.jpg"))
-                } finally {
-                    try { page.close() } catch (e: Exception) { /* 单页失败跳过 */ }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("agent", "PDF 渲染失败", e)
-        } finally {
-            try { renderer?.close() } catch (e: Exception) { }
-            try { pfd.close() } catch (e: Exception) { }
-        }
-        return list
-    }
-
-    /** 停止按钮加载环: 无限旋转(0->360度), 驱动 RotateDrawable 的 level */
     internal fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /** 气泡最大宽度: 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐); Agent 模式=屏幕*0.78(原样) */
