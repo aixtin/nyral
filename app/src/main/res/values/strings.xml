@@ -25,6 +25,11 @@
     <string name="toast_att_pdf_large">PDF 过大(>%1$sMB)，暂不支持发送</string>
     <string name="toast_att_pdf_abnormal">PDF 过大(>%1$sMB) 或格式异常，暂不支持发送</string>
     <string name="toast_att_file_large">文件过大(>%1$sMB)，暂不支持发送</string>
+    <!-- 附件类型标签(video压缩/伪造类型提示的%1$s前置词) -->
+    <string name="att_label_video">视频</string>
+    <string name="att_label_live_video">实况视频</string>
+    <string name="att_label_image">图片</string>
+    <string name="att_label_audio">音频</string>
     <!-- 视频压缩 -->
     <string name="toast_video_compressing">%1$s超过50MB，正在本地压缩...</string>
     <string name="toast_video_compress_fail">%1$s压缩失败: %2$s</string>
