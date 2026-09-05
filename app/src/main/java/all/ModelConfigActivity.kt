@@ -1,5 +1,7 @@
 package io.github.aixtin.droidagent
 
+import io.github.aixtin.droidagent.R
+
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
@@ -25,10 +27,10 @@ class ModelConfigActivity : Activity() {
 
         val root = Ui.pageRoot(this)
 
-        // ---- 自绘标题栏 + 右上角"＋ 添加" ----
-        root.addView(Ui.titleBar(this, "模型配置", right = { bar ->
+        // ---- 自绘标题栏 + 右上角getString(R.string.mcfg_02) ----
+        root.addView(Ui.titleBar(this, getString(R.string.mcfg_01), right = { bar ->
             bar.addView(TextView(this).apply {
-                text = "＋ 添加"
+                text = getString(R.string.mcfg_02)
                 textSize = 15f
                 setTextColor(Ui.PRIMARY)
                 setPadding(dp(12), dp(6), dp(4), dp(6))
@@ -64,7 +66,7 @@ class ModelConfigActivity : Activity() {
         val providers = ApiConfig.providers().filter { it.type != "local" }
         if (providers.isEmpty()) {
             container.addView(TextView(this).apply {
-                text = "暂无模型供应商\n点击右上角「＋ 添加」新建"
+                text = getString(R.string.mcfg_03)
                 textSize = 13f
                 setTextColor(0xFF999999.toInt())
                 gravity = Gravity.CENTER
@@ -115,15 +117,15 @@ class ModelConfigActivity : Activity() {
                 }
                 addView(Ui.itemTitle(this@ModelConfigActivity, p.label))
                 addView(Ui.itemSub(this@ModelConfigActivity,
-                    if (p.defaultModel.isNotBlank()) p.defaultModel else "未设置模型"))
+                    if (p.defaultModel.isNotBlank()) p.defaultModel else getString(R.string.mcfg_04)))
             })
 
             // 状态标签
             addView(TextView(this@ModelConfigActivity).apply {
                 text = when {
-                    isCurrent -> "当前"
-                    configured -> "已配置"
-                    else -> "未配置"
+                    isCurrent -> getString(R.string.mcfg_05)
+                    configured -> getString(R.string.mcfg_06)
+                    else -> getString(R.string.mcfg_07)
                 }
                 textSize = 11f
                 setTextColor(android.graphics.Color.WHITE)

@@ -1,5 +1,7 @@
 package io.github.aixtin.droidagent
 
+import io.github.aixtin.droidagent.R
+
 import android.app.Activity
 import android.os.Bundle
 import android.view.Gravity
@@ -45,10 +47,10 @@ class MemModelConfigActivity : Activity() {
 
         val root = Ui.pageRoot(this)
 
-        // ---- 自绘标题栏 + 右上角"保存" ----
-        root.addView(Ui.titleBar(this, "记忆辅助模型", right = { bar ->
+        // ---- 自绘标题栏 + 右上角getString(R.string.mmcfg_02) ----
+        root.addView(Ui.titleBar(this, getString(R.string.mmcfg_01), right = { bar ->
             bar.addView(TextView(this).apply {
-                text = "保存"
+                text = getString(R.string.mmcfg_02)
                 textSize = 15f
                 setTextColor(Ui.PRIMARY)
                 setPadding(dp(12), dp(6), dp(4), dp(6))
@@ -66,7 +68,7 @@ class MemModelConfigActivity : Activity() {
         }
 
         // 启用开关行
-        card.addView(Ui.fieldLabel(this, "独立配置"))
+        card.addView(Ui.fieldLabel(this, getString(R.string.mmcfg_03)))
         val enableRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -79,7 +81,7 @@ class MemModelConfigActivity : Activity() {
             Ui.press(this)
         }
         enableRow.addView(TextView(this).apply {
-            text = "使用独立的辅助模型 API"
+            text = getString(R.string.mmcfg_04)
             textSize = 15f
             setTextColor(Ui.TEXT)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -87,11 +89,11 @@ class MemModelConfigActivity : Activity() {
         enableBox = Ui.check(this, enabled)
         enableRow.addView(enableBox)
         card.addView(enableRow)
-        card.addView(Ui.hint(this, "关闭时自动跟随主对话 API（默认保底，行为与未配置前一致）"))
+        card.addView(Ui.hint(this, getString(R.string.mmcfg_05)))
 
         // 名称（可选，仅展示用）
-        card.addView(Ui.fieldLabel(this, "名称（可选）"))
-        labelInput = Ui.input(this, "如 记忆索引模型").apply {
+        card.addView(Ui.fieldLabel(this, getString(R.string.mmcfg_06)))
+        labelInput = Ui.input(this, getString(R.string.mmcfg_07)).apply {
             setText(cfg.label)
         }
         card.addView(labelInput)
@@ -112,26 +114,26 @@ class MemModelConfigActivity : Activity() {
         card.addView(keyInput)
 
         // 模型名 + 拉取
-        card.addView(Ui.fieldLabel(this, "模型名"))
+        card.addView(Ui.fieldLabel(this, getString(R.string.mmcfg_08)))
         val modelRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        modelInput = Ui.input(this, "如 deepseek-chat").apply {
+        modelInput = Ui.input(this, getString(R.string.mmcfg_09)).apply {
             setText(cfg.model)
         }
         modelRow.addView(modelInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        modelRow.addView(Ui.lightBtn(this, "拉取") { fetchModels() }, LinearLayout.LayoutParams(
+        modelRow.addView(Ui.lightBtn(this, getString(R.string.mmcfg_10)) { fetchModels() }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             leftMargin = dp(8)
         })
         card.addView(modelRow)
-        card.addView(Ui.hint(this, "建议选择轻量模型（如 deepseek-chat / glm-4-flash），索引生成更快"))
+        card.addView(Ui.hint(this, getString(R.string.mmcfg_11)))
 
         content.addView(card)
 
         // 底部说明
-        content.addView(Ui.hint(this, "说明：辅助模型只负责把归档对话提炼为 summary 主题索引；原文记忆的向量化与检索始终在本地 BGE 完成，不受本配置影响。"))
+        content.addView(Ui.hint(this, getString(R.string.mmcfg_12)))
 
         root.addView(ScrollView(this).apply {
             addView(content)
@@ -172,11 +174,11 @@ class MemModelConfigActivity : Activity() {
                 val h = e as? ApiClient.HttpError
                 val lower = (h?.body ?: "").lowercase()
                 val insufficient = h != null && (h.code == 402 || lower.contains("insufficient") ||
-                    lower.contains("balance") || lower.contains("余额") || lower.contains("欠费"))
+                    lower.contains("balance") || lower.contains(getString(R.string.mmcfg_13)) || lower.contains(getString(R.string.mmcfg_14)))
                 when {
-                    insufficient -> TestResult(true, "配置正确但账户余额不足，已保存，充值后即可使用")
+                    insufficient -> TestResult(true, getString(R.string.mmcfg_15))
                     h != null -> TestResult(false, "HTTP ${h.code}: ${h.body.take(150)}")
-                    else -> TestResult(true, "网络异常未能验证连通性，已保存（${e?.message ?: "网络错误"}）")
+                    else -> TestResult(true, getString(R.string.mmcfg_31, e?.message ?: getString(R.string.mmcfg_32)))
                 }
             }
         }
@@ -189,28 +191,28 @@ class MemModelConfigActivity : Activity() {
         val label = labelInput.text.toString().trim()
 
         if (enabled && (base.isEmpty() || key.isEmpty() || model.isEmpty())) {
-            Toast.makeText(this, "启用独立配置需填全 Base URL / API Key / 模型名", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.mmcfg_16), Toast.LENGTH_SHORT).show()
             return
         }
 
         if (!enabled) {
             // 未启用：直接保存（字段可留空，不生效）
             MemoryApiConfig.save(MemoryApiConfig.Config(false, label, base, key, model))
-            Toast.makeText(this, "已保存（跟随主对话 API）", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.mmcfg_17), Toast.LENGTH_SHORT).show()
             finish()
             return
         }
 
-        Toast.makeText(this, "正在测试连通性...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.mmcfg_18), Toast.LENGTH_SHORT).show()
         Thread {
             val res = testConnectivity(base, key, model)
             uiScope.launch {
                 if (!res.canSave) {
-                    Toast.makeText(this@MemModelConfigActivity, "连通性测试失败，未保存：${res.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MemModelConfigActivity, getString(R.string.mmcfg_27, res.message), Toast.LENGTH_LONG).show()
                     return@launch
                 }
                 MemoryApiConfig.save(MemoryApiConfig.Config(true, label, base, key, model))
-                val tip = if (res.message.isNotEmpty()) "已启用独立辅助模型。${res.message}" else "已启用独立辅助模型"
+                val tip = if (res.message.isNotEmpty()) getString(R.string.mmcfg_28, res.message) else getString(R.string.mmcfg_19)
                 Toast.makeText(this@MemModelConfigActivity, tip, Toast.LENGTH_LONG).show()
                 finish()
             }
@@ -222,16 +224,16 @@ class MemModelConfigActivity : Activity() {
         val base = baseInput.text.toString().trim().trimEnd('/')
         val key = keyInput.text.toString().trim()
         if (base.isEmpty() || key.isEmpty()) {
-            Toast.makeText(this, "请先填写 Base URL 和 API Key", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.mmcfg_20), Toast.LENGTH_SHORT).show()
             return
         }
-        Toast.makeText(this, "正在拉取模型列表...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.mmcfg_21), Toast.LENGTH_SHORT).show()
         Thread {
             val models = fetchModelsFromNetwork(base, key)
             uiScope.launch {
                 when {
-                    models == null -> Toast.makeText(this@MemModelConfigActivity, "拉取失败：网络错误或接口不兼容", Toast.LENGTH_SHORT).show()
-                    models.isEmpty() -> Toast.makeText(this@MemModelConfigActivity, "接口返回空列表", Toast.LENGTH_SHORT).show()
+                    models == null -> Toast.makeText(this@MemModelConfigActivity, getString(R.string.mmcfg_22), Toast.LENGTH_SHORT).show()
+                    models.isEmpty() -> Toast.makeText(this@MemModelConfigActivity, getString(R.string.mmcfg_23), Toast.LENGTH_SHORT).show()
                     else -> showModelPicker(models)
                 }
             }
@@ -254,7 +256,7 @@ class MemModelConfigActivity : Activity() {
     }
 
     private fun showModelPicker(models: List<String>) {
-        val (dlg, box) = Ui.dialog(this, "选择模型")
+        val (dlg, box) = Ui.dialog(this, getString(R.string.mmcfg_24))
         val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val checked = BooleanArray(models.size)
         models.forEachIndexed { i, m ->
@@ -285,15 +287,15 @@ class MemModelConfigActivity : Activity() {
         box.addView(ScrollView(this).apply { addView(listBox) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
 
-        box.addView(Ui.primaryBtn(this, "确定") {
+        box.addView(Ui.primaryBtn(this, getString(R.string.mmcfg_25)) {
             dlg.dismiss()
             val picked = models.filterIndexed { i, _ -> checked[i] }
             if (picked.isNotEmpty()) modelInput.setText(picked.first())
-            Toast.makeText(this, "已选择 ${picked.size} 个模型", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.mmcfg_30, picked.size), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
-        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.mmcfg_26)) { dlg.dismiss() }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(10)
         })

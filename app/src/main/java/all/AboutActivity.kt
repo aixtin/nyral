@@ -1,5 +1,7 @@
 package io.github.aixtin.droidagent
 
+import io.github.aixtin.droidagent.R
+
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -26,7 +28,7 @@ class AboutActivity : Activity() {
         Ui.statusBar(this)
 
         val root = Ui.pageRoot(this)
-        root.addView(Ui.titleBar(this, "关于"))
+        root.addView(Ui.titleBar(this, getString(R.string.about_01)))
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -47,7 +49,7 @@ class AboutActivity : Activity() {
             gravity = Gravity.CENTER
         })
         brand.addView(TextView(this).apply {
-            text = "本地智能体 · V1.0"
+            text = getString(R.string.about_02)
             textSize = 14f
             setTextColor(Ui.SUB)
             gravity = Gravity.CENTER
@@ -61,7 +63,7 @@ class AboutActivity : Activity() {
             setPadding(0, dp(18), 0, 0)
         })
         brand.addView(TextView(this).apply {
-            text = "喜欢散狗粮"
+            text = getString(R.string.about_03)
             textSize = 13f
             setTextColor(Ui.SUB)
             gravity = Gravity.CENTER
@@ -71,19 +73,19 @@ class AboutActivity : Activity() {
 
         // ---- 项目信息卡片 ----
         val card = Ui.card(this)
-        card.addView(infoRow("定位", "安卓 Agent"))
+        card.addView(infoRow(getString(R.string.about_04), getString(R.string.about_05)))
         card.addView(Ui.divider(this))
-        card.addView(infoRow("版本", "v1.0").apply {
+        card.addView(infoRow(getString(R.string.about_06), "v1.0").apply {
             isClickable = true
             setOnClickListener { onVersionTap() }
             Ui.press(this)
         })
         card.addView(Ui.divider(this))
-        card.addView(infoRow("数据", "记忆自托管 · 对话经模型 API"))
+        card.addView(infoRow(getString(R.string.about_07), getString(R.string.about_08)))
         card.addView(Ui.divider(this))
-        card.addView(infoRow("权限", "普通应用权限"))
+        card.addView(infoRow(getString(R.string.about_09), getString(R.string.about_10)))
         card.addView(Ui.divider(this))
-        card.addView(infoRow("更新", "点击检查新版本").apply {
+        card.addView(infoRow(getString(R.string.about_11), getString(R.string.about_12)).apply {
             isClickable = true
             setOnClickListener { UpdateChecker.check(this@AboutActivity, true) }
             Ui.press(this)
@@ -92,7 +94,7 @@ class AboutActivity : Activity() {
 
         // ---- 链接卡片（博客 / 仓库）----
         val linkCard = Ui.card(this)
-        linkCard.addView(infoRow("个人博客", "atin.asia").apply {
+        linkCard.addView(infoRow(getString(R.string.about_13), "atin.asia").apply {
             isClickable = true
             setOnClickListener { openUrl("https://atin.asia") }
             Ui.press(this)
@@ -101,7 +103,7 @@ class AboutActivity : Activity() {
 
         // ---- 底部说明 ----
         content.addView(TextView(this).apply {
-            text = "DroidAgent — 你的安卓智能体管家"
+            text = getString(R.string.about_14)
             textSize = 11f
             setTextColor(0xFFAAAAAA.toInt())
             gravity = Gravity.CENTER
@@ -140,16 +142,16 @@ class AboutActivity : Activity() {
     /** 连续点击版本号 7 次解锁调试服务入口（借鉴安卓开发者模式） */
     private fun onVersionTap() {
         if (DebugServer.unlocked(this)) {
-            android.widget.Toast.makeText(this, "调试服务入口已开启", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(this, getString(R.string.about_15), android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         versionTap++
         if (versionTap >= 7) {
             versionTap = 0
             DebugServer.setUnlocked(this, true)
-            android.widget.Toast.makeText(this, "已开启调试服务入口", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(this, getString(R.string.about_16), android.widget.Toast.LENGTH_SHORT).show()
         } else {
-            android.widget.Toast.makeText(this, "再点 ${7 - versionTap} 次开启调试服务入口", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(this, getString(R.string.about_21, 7 - versionTap), android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -157,7 +159,7 @@ class AboutActivity : Activity() {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (e: Exception) {
-            android.widget.Toast.makeText(this, "未找到可用的浏览器", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(this, getString(R.string.about_17), android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 

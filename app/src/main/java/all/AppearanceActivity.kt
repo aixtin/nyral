@@ -1,5 +1,7 @@
 package io.github.aixtin.droidagent
 
+import io.github.aixtin.droidagent.R
+
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
@@ -39,7 +41,7 @@ class AppearanceActivity : Activity() {
         Ui.statusBar(this)
 
         val root = Ui.pageRoot(this)
-        root.addView(Ui.titleBar(this, "外观设置"))
+        root.addView(Ui.titleBar(this, getString(R.string.appr_01)))
 
         val scroll = ScrollView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -55,66 +57,66 @@ class AppearanceActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // ---- 分组：标题设置 ----
-        content.addView(Ui.groupLabel(this, "标题设置"))
+        content.addView(Ui.groupLabel(this, getString(R.string.appr_02)))
         val cardTitle = Ui.card(this)
         // 主页标题
-        cardTitle.addView(sectionTitle("主页标题"))
+        cardTitle.addView(sectionTitle(getString(R.string.appr_03)))
         cardTitle.addView(flatInput(
-            hint = "输入主页标题（留空恢复默认 DroidAgent）",
+            hint = getString(R.string.appr_04),
             current = TitleConfig.mainTitle(),
             maxLen = 20,
             ref = { et -> mainTitleInput = et }
         ))
-        cardTitle.addView(hintRow("主页标题 · 留空恢复默认 · 最多 20 字"))
+        cardTitle.addView(hintRow(getString(R.string.appr_05)))
         // 侧栏标题
         cardTitle.addView(Ui.divider(this))
-        cardTitle.addView(sectionTitle("侧栏标题"))
+        cardTitle.addView(sectionTitle(getString(R.string.appr_06)))
         cardTitle.addView(flatInput(
-            hint = "输入侧栏标题（留空恢复默认 DroidAgent）",
+            hint = getString(R.string.appr_07),
             current = TitleConfig.drawerTitle(),
             maxLen = 20,
             ref = { et -> drawerTitleInput = et }
         ))
-        cardTitle.addView(hintRow("侧栏标题 · 留空恢复默认 · 最多 20 字"))
+        cardTitle.addView(hintRow(getString(R.string.appr_08)))
         // 侧栏便签
         cardTitle.addView(Ui.divider(this))
-        cardTitle.addView(sectionTitle("侧栏便签"))
+        cardTitle.addView(sectionTitle(getString(R.string.appr_09)))
         cardTitle.addView(flatInput(
-            hint = "输入便签内容（留空恢复默认）",
+            hint = getString(R.string.appr_10),
             current = TitleConfig.drawerNote(),
             maxLen = 18,
             ref = { et -> drawerNoteInput = et },
             multiline = true
         ))
-        cardTitle.addView(saveRow("便签留空恢复默认 · 最多 18 字", "保存", {
+        cardTitle.addView(saveRow(getString(R.string.appr_11), getString(R.string.appr_12), {
             if (mainTitleReady && drawerTitleReady && drawerNoteReady) {
                 TitleConfig.setMainTitle(mainTitleInput.text.toString().trim())
                 TitleConfig.setDrawerTitle(drawerTitleInput.text.toString().trim())
                 TitleConfig.setDrawerNote(drawerNoteInput.text.toString().trim())
-                Toast.makeText(this, "标题与便签已保存", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.appr_13), Toast.LENGTH_SHORT).show()
             }
         }))
         content.addView(cardTitle)
 
         // ---- 分组：聊天 ----
-        content.addView(Ui.groupLabel(this, "聊天"))
+        content.addView(Ui.groupLabel(this, getString(R.string.appr_14)))
         val cardChat = Ui.card(this)
         // 聊天模式开关
         cardChat.addView(settingsSwitch(
-            "聊天模式",
-            "并排头像 · 纯文本正文",
+            getString(R.string.appr_15),
+            getString(R.string.appr_16),
             "💬", 15,
             ModeConfig.chatMode()
         ) { on -> ModeConfig.setChatMode(on) })
         // 聊天背景
         cardChat.addView(Ui.divider(this))
-        cardChat.addView(settingsItem("聊天背景", "渐变预设 / 自定义图片", "🎨", 4, {
+        cardChat.addView(settingsItem(getString(R.string.appr_17), getString(R.string.appr_18), "🎨", 4, {
             startActivity(Intent(this@AppearanceActivity, ChatBackgroundActivity::class.java))
         }))
         content.addView(cardChat)
 
         // ---- 分组：悬浮终端 ----
-        content.addView(Ui.groupLabel(this, "悬浮终端"))
+        content.addView(Ui.groupLabel(this, getString(R.string.appr_19)))
         val cardTerm = Ui.card(this)
         cardTerm.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -132,16 +134,16 @@ class AppearanceActivity : Activity() {
             }
             fun refreshSub() {
                 subTitle.text = if (android.provider.Settings.canDrawOverlays(this@AppearanceActivity))
-                    "实时显示 AI 执行状态 · 左上角 · 不挡触摸"
+                    getString(R.string.appr_20)
                 else
-                    "开启需授予悬浮窗权限 · 半透明黑底白字"
+                    getString(R.string.appr_21)
             }
             refreshSub()
             swTerm.setOnCheckedChangeListener { _, on ->
                 if (on) {
                     if (!android.provider.Settings.canDrawOverlays(this@AppearanceActivity)) {
                         swTerm.isChecked = false
-                        Toast.makeText(this@AppearanceActivity, "需授予「显示在其他应用上层」权限后开启", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@AppearanceActivity, getString(R.string.appr_22), Toast.LENGTH_SHORT).show()
                         try {
                             startActivity(Intent(
                                 android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -154,12 +156,12 @@ class AppearanceActivity : Activity() {
                         try { AITerminalService.start(this@AppearanceActivity) } catch (e: Exception) {
                             LogStore.e(LogStore.MAIN, "悬浮终端服务启动失败: ${e.message}")
                         }
-                        Toast.makeText(this@AppearanceActivity, "悬浮终端已显示于左上角", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@AppearanceActivity, getString(R.string.appr_23), Toast.LENGTH_SHORT).show()
                     }
                 } else {
                     AITerminal.setEnabled(this@AppearanceActivity, false)
                     try { AITerminalService.stop(this@AppearanceActivity) } catch (e: Exception) { }
-                    Toast.makeText(this@AppearanceActivity, "悬浮终端已关闭", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@AppearanceActivity, getString(R.string.appr_24), Toast.LENGTH_SHORT).show()
                 }
                 refreshSub()
             }
@@ -169,7 +171,7 @@ class AppearanceActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     setMargins(dp(12), 0, dp(8), 0)
                 }
-                addView(Ui.itemTitle(this@AppearanceActivity, "AI 悬浮终端"))
+                addView(Ui.itemTitle(this@AppearanceActivity, getString(R.string.appr_25)))
                 addView(subTitle)
             })
             addView(swTerm)
