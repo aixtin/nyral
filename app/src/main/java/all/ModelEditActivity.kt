@@ -11,6 +11,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
+import io.github.aixtin.nyral.R
 import org.json.JSONObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,9 +89,9 @@ class ModelEditActivity : Activity() {
         val root = Ui.pageRoot(this)
 
         // ---- 自绘标题栏 + 右上角"保存" ----
-        root.addView(Ui.titleBar(this, if (isNew) "添加模型" else (p?.label ?: "编辑模型"), right = { bar ->
+        root.addView(Ui.titleBar(this, if (isNew) getString(R.string.title_model_add) else (p?.label ?: getString(R.string.title_model_edit)), right = { bar ->
             bar.addView(TextView(this).apply {
-                text = "保存"
+                text = getString(R.string.menu_save)
                 textSize = 15f
                 setTextColor(Ui.PRIMARY)
                 setPadding(dp(12), dp(6), dp(4), dp(6))
@@ -109,14 +110,14 @@ class ModelEditActivity : Activity() {
         }
 
         // 名称（新建与自定义可编辑；仅预设只读）
-        card.addView(Ui.fieldLabel(this, "名称"))
-        labelInput = Ui.input(this, "如 我的模型").apply {
+        card.addView(Ui.fieldLabel(this, getString(R.string.label_name)))
+        labelInput = Ui.input(this, getString(R.string.hint_name_example)).apply {
             isEnabled = isNew || p?.isPreset == false
             setText(if (isNew) "" else (p?.label ?: ""))
         }
         card.addView(labelInput)
         if (p?.isPreset == true && !isNew) {
-            card.addView(Ui.hint(this, "预设供应商名称不可修改"))
+            card.addView(Ui.hint(this, getString(R.string.hint_preset_name_locked)))
         }
 
         // Base URL
@@ -135,56 +136,56 @@ class ModelEditActivity : Activity() {
         card.addView(keyInput)
 
         // 鉴权方式（Bearer / x-api-key / 自定义 Header）
-        card.addView(Ui.fieldLabel(this, "鉴权方式"))
+        card.addView(Ui.fieldLabel(this, getString(R.string.label_auth_type)))
         authTypeContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
         card.addView(authTypeContainer)
         renderAuthTypeSelector()
-        authHeaderInput = Ui.input(this, "如 X-API-Key / Authorization").apply {
+        authHeaderInput = Ui.input(this, getString(R.string.hint_auth_header_example)).apply {
             setText(selectedAuthHeader)
         }
         card.addView(authHeaderInput)
-        card.addView(Ui.hint(this, "Bearer=标准 OpenAI 兼容；x-api-key=部分厂商；自定义 Header=其它鉴权头"))
+        card.addView(Ui.hint(this, getString(R.string.hint_auth_type_desc)))
 
         // 模型名 + 联网拉取列表
-        card.addView(Ui.fieldLabel(this, "模型名"))
+        card.addView(Ui.fieldLabel(this, getString(R.string.label_model_name)))
         val modelRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
-        modelInput = Ui.input(this, "拉取选择或手动填写").apply {
+        modelInput = Ui.input(this, getString(R.string.hint_model_input)).apply {
             setText("") // 不预填默认模型, 由用户显式选择
         }
         modelRow.addView(modelInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        modelRow.addView(Ui.lightBtn(this, "拉取") { fetchModels() }, LinearLayout.LayoutParams(
+        modelRow.addView(Ui.lightBtn(this, getString(R.string.btn_fetch)) { fetchModels() }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             leftMargin = dp(8)
         })
         modelRow.addView(Ui.lightBtn(this, "＋") {
             val name = modelInput.text.toString().trim()
             if (name.isEmpty()) {
-                Toast.makeText(this@ModelEditActivity, "请先填写模型名", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ModelEditActivity, getString(R.string.toast_fill_model_name), Toast.LENGTH_SHORT).show()
                 return@lightBtn
             }
             if (selectedModels.contains(name)) {
-                Toast.makeText(this@ModelEditActivity, "该模型已在列表中", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ModelEditActivity, getString(R.string.toast_model_already_exists), Toast.LENGTH_SHORT).show()
                 return@lightBtn
             }
             selectedModels.add(name)
             renderSelectedModels()
             modelInput.setText("")
-            Toast.makeText(this@ModelEditActivity, "已添加 $name", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@ModelEditActivity, getString(R.string.toast_model_added, name), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             leftMargin = dp(8)
         })
         card.addView(modelRow)
-        card.addView(Ui.hint(this, "点击「拉取」联网获取该供应商的模型列表，选择后自动填入"))
+        card.addView(Ui.hint(this, getString(R.string.hint_fetch_desc)))
 
         // 已选子模型列表（多选结果展示 + 可移除）
-        card.addView(Ui.fieldLabel(this, "模型列表"))
+        card.addView(Ui.fieldLabel(this, getString(R.string.label_models)))
         modelsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(2), dp(2), dp(2), dp(2))
@@ -193,28 +194,28 @@ class ModelEditActivity : Activity() {
         renderSelectedModels()
 
         // 思考强度（六档 chips）
-        card.addView(Ui.fieldLabel(this, "思考强度"))
+        card.addView(Ui.fieldLabel(this, getString(R.string.label_effort)))
         effortContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
         card.addView(effortContainer)
         renderEffortSelector()
-        card.addView(Ui.hint(this, "自动=不传参；不支持的模型档位自动忽略"))
+        card.addView(Ui.hint(this, getString(R.string.hint_effort_desc)))
 
         // 模型能力（预设只读展示；自定义可勾选）
-        card.addView(Ui.fieldLabel(this, "模型能力"))
+        card.addView(Ui.fieldLabel(this, getString(R.string.label_caps)))
         capsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
         card.addView(capsContainer)
         renderCapSelector()
-        card.addView(Ui.hint(this, if (p?.isPreset == true && !isNew) "预设能力已内置，仅展示" else "勾选该模型支持的输入与工具能力；文本默认支持"))
+        card.addView(Ui.hint(this, if (p?.isPreset == true && !isNew) getString(R.string.hint_caps_preset_locked) else getString(R.string.hint_caps_desc)))
 
         // 删除（仅自定义）
         if (!isNew && p?.isPreset == false) {
-            card.addView(Ui.dangerBtn(this, "删除该模型") { delete() }, LinearLayout.LayoutParams(
+            card.addView(Ui.dangerBtn(this, getString(R.string.btn_delete_model)) { delete() }, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(8)
             })
@@ -261,9 +262,9 @@ class ModelEditActivity : Activity() {
                 val insufficient = h != null && (h.code == 402 || lower.contains("insufficient") ||
                     lower.contains("balance") || lower.contains("余额") || lower.contains("欠费"))
                 when {
-                    insufficient -> TestResult(true, "配置正确但账户余额不足，已保存，充值后即可使用")
+                    insufficient -> TestResult(true, getString(R.string.toast_balance_insufficient))
                     h != null -> TestResult(false, "HTTP ${h.code}: ${h.body.take(150)}")
-                    else -> TestResult(true, "网络异常未能验证连通性，已保存（${e?.message ?: "网络错误"}）")
+                    else -> TestResult(true, getString(R.string.toast_net_unverified, e?.message ?: getString(R.string.net_error)))
                 }
             }
         }
@@ -276,15 +277,15 @@ class ModelEditActivity : Activity() {
         // 模型名未填但已选子模型时, 用第一个已选子模型(用户显式配置, 非默认值)
         val model = modelInput.text.toString().trim().ifEmpty { selectedModels.firstOrNull() ?: "" }
         if (base.isEmpty() || model.isEmpty()) {
-            Toast.makeText(this, "请填写 Base URL，并在「拉取」中选择模型", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_fill_base_and_model), Toast.LENGTH_SHORT).show()
             return
         }
-        Toast.makeText(this, "正在测试连通性...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.toast_testing), Toast.LENGTH_SHORT).show()
         Thread {
             val res = testConnectivity(base, key, model)
             uiScope.launch {
                 if (!res.canSave) {
-                    Toast.makeText(this@ModelEditActivity, "连通性测试失败，未保存：${res.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@ModelEditActivity, getString(R.string.toast_test_fail, res.message), Toast.LENGTH_LONG).show()
                     return@launch
                 }
                 val id = doSave(setAsCurrent) ?: return@launch
@@ -296,19 +297,19 @@ class ModelEditActivity : Activity() {
     }
 
     private fun saveAndApply() {
-        saveWithTest(true, "已保存并设为当前")
+        saveWithTest(true, getString(R.string.toast_saved_and_current))
     }
 
     /** 仅保存(不切换当前): 同样测试连通性, 避免存下不可用的配置 */
     private fun saveOnly() {
-        saveWithTest(false, "已保存")
+        saveWithTest(false, getString(R.string.toast_saved))
     }
 
     /** 右上角"保存"下拉菜单 */
     private fun showSaveMenu() {
         val menu = PopupMenu(this, saveBtn)
-        menu.menu.add(0, 1, 0, "保存并应用")
-        menu.menu.add(0, 2, 0, if (isNew) "仅添加" else "仅保存")
+        menu.menu.add(0, 1, 0, getString(R.string.menu_save_apply))
+        if (isNew) menu.menu.add(0, 2, 0, getString(R.string.menu_add_only)) else menu.menu.add(0, 2, 0, getString(R.string.menu_save_only))
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> saveAndApply()
@@ -326,7 +327,7 @@ class ModelEditActivity : Activity() {
         modelsContainer.removeAllViews()
         if (selectedModels.isEmpty()) {
             modelsContainer.addView(TextView(this).apply {
-                text = "未选择子模型（仅使用主模型）"
+                text = getString(R.string.hint_no_submodel)
                 textSize = 12f
                 setTextColor(0xFFAAAAAA.toInt())
                 setPadding(dp(2), dp(6), 0, dp(6))
@@ -374,7 +375,7 @@ class ModelEditActivity : Activity() {
             }
             val allCaps = listOf(ApiConfig.CAP_TEXT) + ApiConfig.CAP_LABELS.keys.toList()
             allCaps.forEach { cap ->
-                val label = if (cap == ApiConfig.CAP_TEXT) "文本" else ApiConfig.CAP_LABELS[cap] ?: cap
+                val label = if (cap == ApiConfig.CAP_TEXT) getString(R.string.cap_text) else ApiConfig.CAP_LABELS[cap] ?: cap
                 val selected = cap in modelCaps
                 val chip = TextView(this).apply {
                     text = label
@@ -438,7 +439,7 @@ class ModelEditActivity : Activity() {
         val types = listOf(
             "bearer" to "Bearer",
             "x-api-key" to "x-api-key",
-            "header" to "自定义 Header"
+            "header" to getString(R.string.auth_header_custom)
         )
         types.forEach { (key, name) ->
             val selected = key == selectedAuthType
@@ -477,7 +478,7 @@ class ModelEditActivity : Activity() {
         if (!presetLocked) {
             // 手动模型：能力按每个模型独立勾选，见下方「模型列表」
             capsContainer.addView(TextView(this).apply {
-                text = "能力已按模型独立配置：在下方「模型列表」为每个模型勾选（默认仅文本）"
+                text = getString(R.string.hint_caps_per_model)
                 textSize = 12f
                 setTextColor(0xFF999999.toInt())
                 setPadding(dp(2), dp(2), dp(2), dp(2))
@@ -486,7 +487,7 @@ class ModelEditActivity : Activity() {
         }
         val caps: List<String> = ApiConfig.modelCapabilities(providerId ?: "", modelInput.text.toString().trim()).toList()
         caps.forEach { cap ->
-            val label = if (cap == ApiConfig.CAP_TEXT) "文本" else ApiConfig.CAP_LABELS[cap] ?: cap
+            val label = if (cap == ApiConfig.CAP_TEXT) getString(R.string.cap_text) else ApiConfig.CAP_LABELS[cap] ?: cap
             val selected = cap in selectedCaps
             val chip = TextView(this).apply {
                 text = label
@@ -518,16 +519,16 @@ class ModelEditActivity : Activity() {
         val base = baseInput.text.toString().trim().trimEnd('/')
         val key = keyInput.text.toString().trim()
         if (base.isEmpty() || key.isEmpty()) {
-            Toast.makeText(this, "请先填写 Base URL 和 API Key", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_fill_base_and_key), Toast.LENGTH_SHORT).show()
             return
         }
-        Toast.makeText(this, "正在拉取模型列表...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.toast_fetching_models), Toast.LENGTH_SHORT).show()
         Thread {
             val models = fetchModelsFromNetwork(base, key)
             uiScope.launch {
                 when {
-                    models == null -> Toast.makeText(this@ModelEditActivity, "拉取失败：网络错误或接口不兼容", Toast.LENGTH_SHORT).show()
-                    models.isEmpty() -> Toast.makeText(this@ModelEditActivity, "接口返回空列表", Toast.LENGTH_SHORT).show()
+                    models == null -> Toast.makeText(this@ModelEditActivity, getString(R.string.toast_fetch_fail), Toast.LENGTH_SHORT).show()
+                    models.isEmpty() -> Toast.makeText(this@ModelEditActivity, getString(R.string.toast_empty_models), Toast.LENGTH_SHORT).show()
                     else -> showModelPicker(models)
                 }
             }
@@ -560,7 +561,7 @@ class ModelEditActivity : Activity() {
         models.forEach { m ->
             pickCaps[m] = (selectedModelCaps[m] ?: ApiConfig.guessModelCaps(m)).toMutableSet()
         }
-        val (dlg, box) = Ui.dialog(this, "选择模型（可多选，能力可勾选）")
+        val (dlg, box) = Ui.dialog(this, getString(R.string.dialog_pick_models))
 
         val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         models.forEachIndexed { i, m ->
@@ -602,7 +603,7 @@ class ModelEditActivity : Activity() {
                 val allCaps = listOf(ApiConfig.CAP_TEXT) + ApiConfig.CAP_LABELS.keys.toList()
                 val caps = pickCaps.getOrPut(m) { mutableSetOf(ApiConfig.CAP_TEXT) }
                 allCaps.forEach { cap ->
-                    val label = if (cap == ApiConfig.CAP_TEXT) "文本" else ApiConfig.CAP_LABELS[cap] ?: cap
+                    val label = if (cap == ApiConfig.CAP_TEXT) getString(R.string.cap_text) else ApiConfig.CAP_LABELS[cap] ?: cap
                     val selected = cap in caps
                     val chip = TextView(this@ModelEditActivity).apply {
                         text = label
@@ -630,7 +631,7 @@ class ModelEditActivity : Activity() {
         box.addView(ScrollView(this).apply { addView(listBox) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)))
 
-        box.addView(Ui.primaryBtn(this, "确定") {
+        box.addView(Ui.primaryBtn(this, getString(R.string.dialog_ok)) {
             dlg.dismiss()
             selectedModels.clear()
             selectedModels.addAll(models.filterIndexed { i, _ -> checked[i] })
@@ -641,11 +642,11 @@ class ModelEditActivity : Activity() {
             }
             if (modelInput.text.isNullOrBlank() && selectedModels.isNotEmpty()) modelInput.setText(selectedModels[0])
             renderSelectedModels()
-            Toast.makeText(this, "已选择 ${selectedModels.size} 个模型", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_models_selected, selectedModels.size), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
-        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(10)
         })
@@ -658,7 +659,7 @@ class ModelEditActivity : Activity() {
         val key = keyInput.text.toString().trim()
         val model = modelInput.text.toString().trim().ifEmpty { selectedModels.firstOrNull() ?: "" }
         if (base.isEmpty() || model.isEmpty()) {
-            Toast.makeText(this, "请填写 Base URL，并在「拉取」中选择模型", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_fill_base_and_model), Toast.LENGTH_SHORT).show()
             return null
         }
         if (isNew) {
@@ -683,7 +684,7 @@ class ModelEditActivity : Activity() {
     private fun delete() {
         val id = providerId ?: return
         ApiConfig.deleteProvider(id)
-        Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.toast_deleted), Toast.LENGTH_SHORT).show()
         finish()
     }
 

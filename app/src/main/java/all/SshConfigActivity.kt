@@ -1,5 +1,7 @@
 package io.github.aixtin.nyral
 
+import io.github.aixtin.nyral.R
+
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -51,7 +53,7 @@ class SshConfigActivity : Activity() {
         val root = Ui.pageRoot(this)
 
         // ---- 自绘标题栏 ----
-        root.addView(Ui.titleBar(this, "SSH 连接配置"))
+        root.addView(Ui.titleBar(this, getString(R.string.ssh_title)))
 
         // ---- 内容区 ----
         val content = LinearLayout(this).apply {
@@ -62,13 +64,13 @@ class SshConfigActivity : Activity() {
         content.addView(configList)
         refreshList()
 
-        content.addView(Ui.primaryBtn(this, "添加连接") { showEditDialog(-1) }, LinearLayout.LayoutParams(
+        content.addView(Ui.primaryBtn(this, getString(R.string.ssh_add)) { showEditDialog(-1) }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
 
         content.addView(TextView(this).apply {
-            text = "提示: 点击条目编辑; 密码/私钥二选一, 均留空则不填。\n数据经 Android Keystore 加密存储。"
+            text = getString(R.string.ssh_tip)
             textSize = 12f
             setTextColor(0xFF999999.toInt())
             setPadding(dp(4), dp(10), dp(4), dp(4))
@@ -92,21 +94,21 @@ class SshConfigActivity : Activity() {
                 try {
                     val content = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     if (content.isNullOrBlank()) {
-                        Toast.makeText(this, "文件为空", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, getString(R.string.ssh_err_empty), Toast.LENGTH_SHORT).show()
                     } else {
                         val st = keyStates[field]
                         if (st != null) {
                             st.content = content.trim()
-                            st.fileName = queryDisplayName(uri) ?: "私钥文件"
+                            st.fileName = queryDisplayName(uri) ?: getString(R.string.ssh_key_file_label)
                             st.folded = true
                             updateKeyField(field, st.toggleBtn)
                         } else {
                             field.setText(content.trim())
                         }
-                        Toast.makeText(this, "私钥已导入", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, getString(R.string.ssh_toast_key_imported), Toast.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(this, "读取失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.ssh_err_read, e.message), Toast.LENGTH_SHORT).show()
                 }
             }
             pendingKeyField = null
@@ -117,7 +119,7 @@ class SshConfigActivity : Activity() {
         configList.removeAllViews()
         if (configs.isEmpty()) {
             configList.addView(TextView(this).apply {
-                text = "暂无 SSH 连接\n点击下方「添加连接」创建"
+                text = getString(R.string.ssh_empty)
                 textSize = 13f
                 setTextColor(0xFF999999.toInt())
                 gravity = Gravity.CENTER
@@ -153,9 +155,9 @@ class SshConfigActivity : Activity() {
 
     private fun buildDesc(cfg: SshConfigStore.SshConfig): String {
         val sb = StringBuilder("${cfg.user}@${cfg.host}:${cfg.port}")
-        if (cfg.password != null) sb.append(" [密码]")
-        if (cfg.privateKey != null) sb.append(" [密钥]")
-        if (cfg.hasProxy) sb.append(" [跳板:${cfg.proxyUser ?: ""}@${cfg.proxyHost}]")
+        if (cfg.password != null) sb.append(getString(R.string.ssh_desc_pwd))
+        if (cfg.privateKey != null) sb.append(getString(R.string.ssh_desc_key))
+        if (cfg.hasProxy) sb.append(getString(R.string.ssh_desc_proxy, cfg.proxyUser ?: "", cfg.proxyHost))
         return sb.toString()
     }
 
@@ -248,7 +250,7 @@ class SshConfigActivity : Activity() {
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(toggleBtn)
                 addView(TextView(this@SshConfigActivity).apply {
-                    text = "导入"
+                    text = getString(R.string.ssh_import)
                     textSize = 13f
                     setTextColor(0xFF0B93F6.toInt())
                     setPadding(dp(8), 0, 0, 0)
@@ -263,7 +265,7 @@ class SshConfigActivity : Activity() {
             st.toggleBtn = toggleBtn
 
             val delBtn = TextView(this).apply {
-                text = "删除"
+                text = getString(R.string.ssh_delete)
                 textSize = 13f
                 setTextColor(0xFFE53935.toInt())
                 setPadding(dp(8), 0, 0, 0)
@@ -297,37 +299,37 @@ class SshConfigActivity : Activity() {
             setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         val editTexts = mutableListOf<EditText>()
-        addField(container, editTexts, "名称(如 vps/dev188)", cfg.name)
-        addField(container, editTexts, "主机 IP", cfg.host)
-        addField(container, editTexts, "端口", cfg.port.toString())
-        addField(container, editTexts, "用户名", cfg.user)
-        addField(container, editTexts, "密码(留空不填)", cfg.password ?: "")
-        addKeyField(container, editTexts, "私钥内容(粘贴 PEM, 留空不填)", cfg.privateKey ?: "") { field ->
+        addField(container, editTexts, getString(R.string.ssh_label_name), cfg.name)
+        addField(container, editTexts, getString(R.string.ssh_label_host), cfg.host)
+        addField(container, editTexts, getString(R.string.ssh_label_port), cfg.port.toString())
+        addField(container, editTexts, getString(R.string.ssh_label_user), cfg.user)
+        addField(container, editTexts, getString(R.string.ssh_label_pwd), cfg.password ?: "")
+        addKeyField(container, editTexts, getString(R.string.ssh_label_key), cfg.privateKey ?: "") { field ->
             openKeyFilePicker(field)
         }
-        addField(container, editTexts, "密钥口令 passphrase", cfg.passphrase ?: "")
+        addField(container, editTexts, getString(R.string.ssh_label_passphrase), cfg.passphrase ?: "")
         container.addView(TextView(this).apply {
-            text = "━━ 跳板机(留空=直连) ━━"
+            text = getString(R.string.ssh_proxy_section)
             textSize = 13f
             setTextColor(0xFF666666.toInt())
             setPadding(0, dp(12), 0, dp(4))
         })
-        addField(container, editTexts, "跳板机主机 IP", cfg.proxyHost ?: "")
-        addField(container, editTexts, "跳板机端口", cfg.proxyPort.toString())
-        addField(container, editTexts, "跳板机用户名", cfg.proxyUser ?: "")
-        addField(container, editTexts, "跳板机密码(留空不填)", cfg.proxyPassword ?: "")
-        addKeyField(container, editTexts, "跳板机私钥内容(粘贴 PEM)", cfg.proxyPrivateKey ?: "") { field ->
+        addField(container, editTexts, getString(R.string.ssh_label_proxy_host), cfg.proxyHost ?: "")
+        addField(container, editTexts, getString(R.string.ssh_label_proxy_port), cfg.proxyPort.toString())
+        addField(container, editTexts, getString(R.string.ssh_label_proxy_user), cfg.proxyUser ?: "")
+        addField(container, editTexts, getString(R.string.ssh_label_proxy_pwd), cfg.proxyPassword ?: "")
+        addKeyField(container, editTexts, getString(R.string.ssh_label_proxy_key), cfg.proxyPrivateKey ?: "") { field ->
             openKeyFilePicker(field)
         }
-        addField(container, editTexts, "跳板机密钥口令", cfg.proxyPassphrase ?: "")
+        addField(container, editTexts, getString(R.string.ssh_label_proxy_pass), cfg.proxyPassphrase ?: "")
 
         // 三明治结构弹窗: 卡片固定高度(圆角四角恒可见), 只有中间内容区滚动;
         // 若用 Ui.dialog+maxHeightRatio 会变成"整卡在透明窗里滚", 滚到中间四角全被裁出视窗
-        val (dlg, content, bottom) = Ui.dialogFixed(this, if (isEdit) "编辑连接" else "添加连接", 0.72)
+        val (dlg, content, bottom) = Ui.dialogFixed(this, if (isEdit) getString(R.string.ssh_edit) else getString(R.string.ssh_add), 0.72)
         content.addView(container, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        btnRow.addView(Ui.primaryBtn(this, "保存") {
+        btnRow.addView(Ui.primaryBtn(this, getString(R.string.settings_btn_save)) {
             val port = editTexts[2].text.toString().toIntOrNull() ?: 22
             val keyContent = keyStates[editTexts[5]]?.content ?: editTexts[5].text.toString()
             val proxyKeyContent = keyStates[editTexts[11]]?.content ?: editTexts[11].text.toString()
@@ -347,7 +349,7 @@ class SshConfigActivity : Activity() {
                 proxyPassphrase = editTexts[12].text.toString().ifEmpty { null }
             )
             if (newCfg.name.isEmpty() || newCfg.host.isEmpty() || newCfg.user.isEmpty()) {
-                Toast.makeText(this, "名称/主机/用户名必填", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.ssh_toast_required), Toast.LENGTH_SHORT).show()
                 return@primaryBtn
             }
             if (isEdit) configs[index] = newCfg else configs.add(newCfg)
@@ -358,7 +360,7 @@ class SshConfigActivity : Activity() {
             marginEnd = dp(8)
         })
         if (isEdit) {
-            btnRow.addView(Ui.dangerBtn(this, "删除") {
+            btnRow.addView(Ui.dangerBtn(this, getString(R.string.ssh_delete)) {
                 configs.removeAt(index)
                 SshConfigStore.save(this, configs)
                 refreshList()
@@ -371,7 +373,7 @@ class SshConfigActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })
-        bottom.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+        bottom.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(10)
         })

@@ -1,5 +1,7 @@
 package io.github.aixtin.nyral
 
+import io.github.aixtin.nyral.R
+
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -57,7 +59,7 @@ class MemoryListActivity : Activity() {
         val root = Ui.pageRoot(this)
 
         // ---- 自绘标题栏：左返回 + 标题 + 右上角 ⋯ ----
-        root.addView(Ui.titleBar(this, "长期记忆", right = { bar ->
+        root.addView(Ui.titleBar(this, getString(R.string.settings_memory), right = { bar ->
             moreBtn = TextView(this@MemoryListActivity).apply {
                 text = "⋯"
                 textSize = 26f
@@ -92,7 +94,7 @@ class MemoryListActivity : Activity() {
             setBackgroundColor(Color.WHITE)
             visibility = View.GONE
         }
-        delSelBtn = Ui.dangerBtn(this, "删除已选(0)") { confirmDeleteSelected() }
+        delSelBtn = Ui.dangerBtn(this, getString(R.string.memory_del_selected, 0)) { confirmDeleteSelected() }
         bottomBar.addView(delSelBtn, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             height = dp(44)
@@ -132,8 +134,8 @@ class MemoryListActivity : Activity() {
                 }
             })
         }
-        item("多选") { enterMultiMode() }
-        item("删除所有") { confirmDeleteAll() }
+        item(getString(R.string.memory_multi)) { enterMultiMode() }
+        item(getString(R.string.memory_delete_all)) { confirmDeleteAll() }
 
         col.measure(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         val popH = col.measuredHeight
@@ -184,7 +186,7 @@ class MemoryListActivity : Activity() {
         moreBtn.textSize = 17f
         moreBtn.typeface = android.graphics.Typeface.DEFAULT_BOLD
         moreBtn.setPadding(dp(12), dp(0), dp(6), dp(0))
-        moreBtn.text = "取消"
+        moreBtn.text = getString(R.string.dialog_cancel)
         moreBtn.setOnClickListener { exitMultiMode() }
         bottomBar.visibility = View.VISIBLE
         updateDelSelBtn()
@@ -204,23 +206,23 @@ class MemoryListActivity : Activity() {
     }
 
     private fun updateDelSelBtn() {
-        delSelBtn.text = "删除已选(${selectedIds.size})"
+        delSelBtn.text = getString(R.string.memory_del_selected, selectedIds.size)
     }
 
     private fun confirmDeleteSelected() {
         if (selectedIds.isEmpty()) {
-            Toast.makeText(this, "请先勾选要删除的记忆", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.memory_toast_select_first), Toast.LENGTH_SHORT).show()
             return
         }
-        val (dlg, box) = Ui.dialog(this, "删除所选")
-        box.addView(Ui.dialogText(this, "确定删除选中的 ${selectedIds.size} 条记忆？该操作不可恢复。"))
+        val (dlg, box) = Ui.dialog(this, getString(R.string.memory_dialog_del_selected))
+        box.addView(Ui.dialogText(this, getString(R.string.memory_confirm_del_selected, selectedIds.size)))
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() },
+        row.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
-        row.addView(Ui.dangerBtn(this, "删除", {
+        row.addView(Ui.dangerBtn(this, getString(R.string.memory_btn_delete), {
             db.deleteMany(selectedIds.toList())
             dlg.dismiss()
-            Toast.makeText(this, "已删除 ${selectedIds.size} 条记忆", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.memory_toast_deleted_selected, selectedIds.size), Toast.LENGTH_SHORT).show()
             exitMultiMode()
         }), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(8) })
         box.addView(row, LinearLayout.LayoutParams(
@@ -235,18 +237,18 @@ class MemoryListActivity : Activity() {
     private fun confirmDeleteAll() {
         val count = db.count()
         if (count == 0) {
-            Toast.makeText(this, "暂无记忆", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.memory_none), Toast.LENGTH_SHORT).show()
             return
         }
-        val (dlg, box) = Ui.dialog(this, "删除所有")
-        box.addView(Ui.dialogText(this, "确定删除全部 $count 条记忆？该操作不可恢复。"))
+        val (dlg, box) = Ui.dialog(this, getString(R.string.memory_delete_all))
+        box.addView(Ui.dialogText(this, getString(R.string.memory_confirm_delete_all, count)))
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() },
+        row.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
-        row.addView(Ui.dangerBtn(this, "删除", {
+        row.addView(Ui.dangerBtn(this, getString(R.string.memory_btn_delete), {
             db.clearAll()
             dlg.dismiss()
-            Toast.makeText(this, "已删除全部记忆", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.memory_toast_deleted_all), Toast.LENGTH_SHORT).show()
             if (multiMode) exitMultiMode() else refresh()
         }), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(8) })
         box.addView(row, LinearLayout.LayoutParams(
@@ -263,7 +265,7 @@ class MemoryListActivity : Activity() {
         val mems = db.all()
         if (mems.isEmpty()) {
             container.addView(TextView(this).apply {
-                text = "暂无记忆"
+                text = getString(R.string.memory_none)
                 textSize = 14f
                 setTextColor(0xFF999999.toInt())
                 setPadding(0, dp(40), 0, dp(40))
@@ -272,7 +274,7 @@ class MemoryListActivity : Activity() {
             return
         }
         container.addView(TextView(this).apply {
-            text = "共 " + mems.size + " 条记忆"
+            text = getString(R.string.memory_count, mems.size)
             textSize = 12f
             setTextColor(0xFF999999.toInt())
             setPadding(dp(4), 0, dp(4), dp(8))
@@ -329,7 +331,7 @@ class MemoryListActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             // 上边标题: 会话名称（旧数据无会话名则显示"未命名会话"）
             addView(TextView(this@MemoryListActivity).apply {
-                text = mem.sessionTitle?.takeIf { it.isNotBlank() } ?: "未命名会话"
+                text = mem.sessionTitle?.takeIf { it.isNotBlank() } ?: getString(R.string.memory_unnamed_session)
                 textSize = 13f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 setTextColor(0xFF0B93F6.toInt())
@@ -360,10 +362,10 @@ class MemoryListActivity : Activity() {
 
     private fun showDetail(mem: MemoryDb.Mem) {
         // 三明治结构：标题固定、内容滚动、按钮固定底部，长内容与键盘都不影响按钮
-        val (dlg, content, bottom) = Ui.dialogFixed(this, "记忆详情", 0.65)
+        val (dlg, content, bottom) = Ui.dialogFixed(this, getString(R.string.memory_detail_title), 0.65)
 
         content.addView(TextView(this@MemoryListActivity).apply {
-            text = mem.sessionTitle?.takeIf { it.isNotBlank() } ?: "未命名会话"
+            text = mem.sessionTitle?.takeIf { it.isNotBlank() } ?: getString(R.string.memory_unnamed_session)
             textSize = 13f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setTextColor(0xFF0B93F6.toInt())
@@ -378,7 +380,7 @@ class MemoryListActivity : Activity() {
         })
 
         content.addView(TextView(this).apply {
-            text = "创建时间  " + formatTs(mem.ts)
+            text = getString(R.string.memory_created, formatTs(mem.ts))
             textSize = 12f
             setTextColor(0xFF999999.toInt())
             setPadding(0, 0, 0, dp(12))
@@ -388,14 +390,14 @@ class MemoryListActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        row.addView(Ui.lightBtn(this, "编辑", {
+        row.addView(Ui.lightBtn(this, getString(R.string.memory_edit), {
             dlg.dismiss()
             showEdit(mem)
         }), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
             marginEnd = dp(8)
             height = dp(42)
         })
-        row.addView(Ui.dangerBtn(this, "删除", {
+        row.addView(Ui.dangerBtn(this, getString(R.string.memory_btn_delete), {
             dlg.dismiss()
             confirmDelete(mem)
         }), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -405,7 +407,7 @@ class MemoryListActivity : Activity() {
         bottom.addView(row, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        bottom.addView(Ui.dialogCancelBtn(this, "关闭") { dlg.dismiss() },
+        bottom.addView(Ui.dialogCancelBtn(this, getString(R.string.settings_btn_close)) { dlg.dismiss() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
@@ -416,18 +418,18 @@ class MemoryListActivity : Activity() {
 
     private fun showEdit(mem: MemoryDb.Mem) {
         // 三明治结构：标题/保存按钮固定，输入区滚动；键盘弹出只压缩中间内容区
-        val (dlg, content, bottom) = Ui.dialogFixed(this, "编辑记忆", 0.65)
-        content.addView(Ui.fieldLabel(this, "内容"))
-        val input = Ui.input(this, "输入记忆内容")
+        val (dlg, content, bottom) = Ui.dialogFixed(this, getString(R.string.memory_edit_title), 0.65)
+        content.addView(Ui.fieldLabel(this, getString(R.string.memory_field_content)))
+        val input = Ui.input(this, getString(R.string.memory_hint_input))
         input.setText(mem.content)
         input.setTextColor(0xFF1A1A1A.toInt())
         content.addView(input)
-        content.addView(Ui.hint(this, "保存后将重新计算语义向量，可能影响检索结果"))
+        content.addView(Ui.hint(this, getString(R.string.memory_hint_revector)))
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() },
+        row.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
-        row.addView(Ui.primaryBtn(this, "保存", {
+        row.addView(Ui.primaryBtn(this, getString(R.string.settings_btn_save), {
             val text = input.text.toString().trim()
             if (text.isEmpty() || text == mem.content) {
                 dlg.dismiss()
@@ -449,7 +451,7 @@ class MemoryListActivity : Activity() {
         pending.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         pending.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
         val info = TextView(this).apply {
-            text = "计算语义向量中…"
+            text = getString(R.string.memory_computing)
             textSize = 14f
             setTextColor(0xFF333333.toInt())
             background = Ui.rounded(Color.WHITE, 14, this@MemoryListActivity)
@@ -476,12 +478,12 @@ class MemoryListActivity : Activity() {
     // ---- 删除确认 ----
 
     private fun confirmDelete(mem: MemoryDb.Mem) {
-        val (dlg, box) = Ui.dialog(this, "删除记忆")
-        box.addView(Ui.dialogText(this, "确定删除这条记忆？该操作不可恢复。"))
+        val (dlg, box) = Ui.dialog(this, getString(R.string.memory_delete_title))
+        box.addView(Ui.dialogText(this, getString(R.string.memory_confirm_delete_one)))
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() },
+        row.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
-        row.addView(Ui.dangerBtn(this, "删除", {
+        row.addView(Ui.dangerBtn(this, getString(R.string.memory_btn_delete), {
             db.delete(mem.id)
             dlg.dismiss()
             refresh()

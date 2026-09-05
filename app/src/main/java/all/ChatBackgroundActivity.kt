@@ -1,5 +1,7 @@
 package io.github.aixtin.nyral
 
+import io.github.aixtin.nyral.R
+
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -79,7 +81,7 @@ class ChatBackgroundActivity : Activity() {
         }
 
         val root = Ui.pageRoot(this)
-        root.addView(Ui.titleBar(this, "聊天背景"))
+        root.addView(Ui.titleBar(this, getString(R.string.cb_title)))
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -87,7 +89,7 @@ class ChatBackgroundActivity : Activity() {
         }
 
         // 分组1: 内置预设
-        content.addView(Ui.groupLabel(this, "内置预设"))
+        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_preset)))
         val grid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(14), dp(12), dp(14))
@@ -114,7 +116,7 @@ class ChatBackgroundActivity : Activity() {
         content.addView(grid)
 
         // 分组2: 自定义图片
-        content.addView(Ui.groupLabel(this, "自定义图片"))
+        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_custom)))
         val cardImg = Ui.card(this)
         cardImg.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -134,15 +136,15 @@ class ChatBackgroundActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     setMargins(dp(12), 0, dp(8), 0)
                 }
-                addView(Ui.itemTitle(this@ChatBackgroundActivity, "从相册选择"))
-                addView(Ui.itemSub(this@ChatBackgroundActivity, "选择后自动预模糊处理"))
+                addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.persona_pick_album)))
+                addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_sub_auto_blur)))
             })
             addView(Ui.arrow(this@ChatBackgroundActivity))
         })
         content.addView(cardImg)
 
         // 分组3: 模糊强度
-        content.addView(Ui.groupLabel(this, "模糊强度"))
+        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_blur)))
         val cardBlur = Ui.card(this)
         cardBlur.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -150,7 +152,7 @@ class ChatBackgroundActivity : Activity() {
             addView(LinearLayout(this@ChatBackgroundActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                addView(Ui.itemTitle(this@ChatBackgroundActivity, "模糊强度"))
+                addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.cb_blur_title)))
                 blurValText = TextView(this@ChatBackgroundActivity).apply {
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                         marginStart = dp(8)
@@ -198,18 +200,18 @@ class ChatBackgroundActivity : Activity() {
                         }
                         saveState()
                         Toast.makeText(this@ChatBackgroundActivity,
-                            if (currentBlur <= 1) "模糊强度: 原图" else "模糊强度: $currentBlur",
+                            if (currentBlur <= 1) getString(R.string.cb_blur_original) else getString(R.string.cb_blur_level, currentBlur),
                             Toast.LENGTH_SHORT).show()
                     }
                 })
             }
             addView(blurSeek)
-            addView(Ui.itemSub(this@ChatBackgroundActivity, "左端 = 原图，右端 = 最重，拖动松手后生效"))
+            addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_blur_hint)))
         })
         content.addView(cardBlur)
 
         // 分组4: 恢复默认
-        content.addView(Ui.groupLabel(this, "恢复默认"))
+        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_reset)))
         val cardReset = Ui.card(this)
         cardReset.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -221,7 +223,7 @@ class ChatBackgroundActivity : Activity() {
                 saveState()
                 File(filesDir, CUSTOM_FILE).delete()
                 File(filesDir, ORIG_FILE).delete()
-                Toast.makeText(this@ChatBackgroundActivity, "已恢复默认背景", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ChatBackgroundActivity, getString(R.string.cb_toast_restored), Toast.LENGTH_SHORT).show()
                 refreshAll()
             }
             Ui.press(this)
@@ -231,8 +233,8 @@ class ChatBackgroundActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     setMargins(dp(12), 0, dp(8), 0)
                 }
-                addView(Ui.itemTitle(this@ChatBackgroundActivity, "恢复默认背景"))
-                addView(Ui.itemSub(this@ChatBackgroundActivity, "回到纯色浅底"))
+                addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.cb_reset_title)))
+                addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_reset_sub)))
             })
             addView(Ui.arrow(this@ChatBackgroundActivity))
         })
@@ -266,7 +268,7 @@ class ChatBackgroundActivity : Activity() {
                 currentPreset = idx
                 saveState()
                 refreshAll()
-                Toast.makeText(this@ChatBackgroundActivity, "已应用预设背景", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ChatBackgroundActivity, getString(R.string.cb_toast_preset), Toast.LENGTH_SHORT).show()
             }
             Ui.press(this)
         }
@@ -279,7 +281,7 @@ class ChatBackgroundActivity : Activity() {
 
     private fun refreshBlurText(p: Int) {
         if (!::blurValText.isInitialized) return
-        blurValText.text = if (p <= 1) "原图" else p.toString()
+        blurValText.text = if (p <= 1) getString(R.string.cb_original) else p.toString()
     }
 
     /** 强度 1-48: 1=原图(不模糊), 48=最重; 滑块值即真实半径 */
@@ -301,7 +303,7 @@ class ChatBackgroundActivity : Activity() {
     private fun applyCustomImage(uri: Uri) {
         try {
             val src = decodeSampledUri(uri, 720)
-            if (src == null) { Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show(); return }
+            if (src == null) { Toast.makeText(this, getString(R.string.cb_err_read), Toast.LENGTH_SHORT).show(); return }
             // 保存未模糊原图, 供后续滑块重算模糊使用(修复: 返回主页后再次调整无效)
             saveCustom(src.copy(Bitmap.Config.ARGB_8888, false), ORIG_FILE)
             val blured = stackBlur(src, currentBlur)
@@ -309,9 +311,9 @@ class ChatBackgroundActivity : Activity() {
             currentType = "custom"
             saveState()
             refreshAll()
-            Toast.makeText(this, "已应用自定义背景", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.cb_toast_custom), Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "处理失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.cb_err_fail, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
