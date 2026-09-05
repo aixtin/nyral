@@ -46,23 +46,23 @@ internal class AttachmentSender(private val host: MainActivity) {
         host.uiScope.launch { Toast.makeText(host, host.getString(resId, *args.map { it ?: "" }.toTypedArray()), Toast.LENGTH_SHORT).show() }
     }
 
-    private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHint: String): LocalEngine.Attachment? {
+    private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHintRes: Int): LocalEngine.Attachment? {
         val raw = MediaFileUtils.readAll(host.contentResolver, uri)
         if (raw.size <= MAX_VIDEO_BYTES) {
             return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
         }
-        toast(io.github.aixtin.nyral.R.string.toast_video_compressing, failHint)
+        toast(io.github.aixtin.nyral.R.string.toast_video_compressing, host.getString(failHintRes))
         val out = File(host.cacheDir, "comp_${System.currentTimeMillis()}.mp4")
         try {
             VideoCompressor.compress(host, uri, out)
         } catch (e: Exception) {
-            toast(io.github.aixtin.nyral.R.string.toast_video_compress_fail, failHint, e.message)
+            toast(io.github.aixtin.nyral.R.string.toast_video_compress_fail, host.getString(failHintRes), e.message)
             return null
         }
         val cb = out.readBytes()
         out.delete()
         if (cb.size > MAX_VIDEO_BYTES) {
-            toast(io.github.aixtin.nyral.R.string.toast_video_comp_over, failHint)
+            toast(io.github.aixtin.nyral.R.string.toast_video_comp_over, host.getString(failHintRes))
             return null
         }
         return LocalEngine.Attachment("video/mp4", Base64.encodeToString(cb, Base64.NO_WRAP), name)
@@ -91,8 +91,8 @@ internal class AttachmentSender(private val host: MainActivity) {
                     (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))
                 if (fakeMedia) {
                     host.uiScope.launch {
-                        val fakeType = if (mime.startsWith("image/")) "图片" else if (mime.startsWith("video/")) "视频" else "音频"
-                        Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_fake_media, fakeType), Toast.LENGTH_SHORT).show()
+                        val fakeTypeRes = when { mime.startsWith("image/") -> io.github.aixtin.nyral.R.string.att_label_image; mime.startsWith("video/") -> io.github.aixtin.nyral.R.string.att_label_video; else -> io.github.aixtin.nyral.R.string.att_label_audio }
+                        Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_fake_media, host.getString(fakeTypeRes)), Toast.LENGTH_SHORT).show()
                     }
                     return@execute
                 }
@@ -110,7 +110,7 @@ internal class AttachmentSender(private val host: MainActivity) {
                             if (mv != null) {
                                 val vAtt = buildVideoAttachment(mv, "video/mp4",
                                     name.replace(Regex("\\.heic$", RegexOption.IGNORE_CASE), ".mp4"),
-                                    "实况视频")
+                                    io.github.aixtin.nyral.R.string.att_label_live_video)
                                 if (vAtt != null) {
                                     listOf(vAtt)
                                 } else {
@@ -154,7 +154,7 @@ internal class AttachmentSender(private val host: MainActivity) {
                     }
                     isVideo || realType == "video" -> {
                         val vAtt = buildVideoAttachment(uri,
-                            if (realType == "video") real else mime, name, "视频")
+                            if (realType == "video") real else mime, name, io.github.aixtin.nyral.R.string.att_label_video)
                         if (vAtt == null) {
                             return@execute
                         }
