@@ -55,20 +55,6 @@ class AboutActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(7), 0, 0)
         })
-        brand.addView(TextView(this).apply {
-            text = "atin"
-            textSize = 16f
-            setTextColor(Ui.TEXT)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(18), 0, 0)
-        })
-        brand.addView(TextView(this).apply {
-            text = getString(R.string.about_03)
-            textSize = 13f
-            setTextColor(Ui.SUB)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(4), 0, 0)
-        })
         content.addView(brand)
 
         // ---- 项目信息卡片 ----
@@ -92,11 +78,29 @@ class AboutActivity : Activity() {
         })
         content.addView(card)
 
-        // ---- 链接卡片（博客 / 仓库）----
+        // ---- 链接卡片（博客 / 仓库 / 免责声明 / 隐私政策）----
         val linkCard = Ui.card(this)
         linkCard.addView(infoRow(getString(R.string.about_13), "atin.asia").apply {
             isClickable = true
             setOnClickListener { openUrl("https://atin.asia") }
+            Ui.press(this)
+        })
+        linkCard.addView(Ui.divider(this))
+        linkCard.addView(infoRow(getString(R.string.about_22), getString(R.string.about_23)).apply {
+            isClickable = true
+            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_22), Agreements.DISCLAIMER_TEXT) }
+            Ui.press(this)
+        })
+        linkCard.addView(Ui.divider(this))
+        linkCard.addView(infoRow(getString(R.string.about_24), getString(R.string.about_23)).apply {
+            isClickable = true
+            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_24), Agreements.PRIVACY_TEXT) }
+            Ui.press(this)
+        })
+        linkCard.addView(Ui.divider(this))
+        linkCard.addView(infoRow(getString(R.string.about_25), getString(R.string.about_26)).apply {
+            isClickable = true
+            setOnClickListener { openUrl(getString(R.string.about_27)) }
             Ui.press(this)
         })
         content.addView(linkCard)
