@@ -1,12 +1,14 @@
 package io.github.aixtin.droidagent
 
 import android.app.Activity
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.PopupMenu
+import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -18,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 
 
 /**
@@ -305,19 +308,73 @@ class ModelEditActivity : Activity() {
         saveWithTest(false, getString(R.string.toast_saved))
     }
 
-    /** 右上角"保存"下拉菜单 */
+    /** 右上角"保存"下拉弹窗（仿长期记忆 PopupWindow 样式，锚定按钮从右上下拉，圆角卡片） */
+    private var savePopup: PopupWindow? = null
+
+    /** 右上角"保存"下拉弹窗：PopupWindow 锚定保存按钮下方右对齐下拉（替代系统 PopupMenu 直角样式） */
     private fun showSaveMenu() {
-        val menu = PopupMenu(this, saveBtn)
-        menu.menu.add(0, 1, 0, getString(R.string.menu_save_apply))
-        if (isNew) menu.menu.add(0, 2, 0, getString(R.string.menu_add_only)) else menu.menu.add(0, 2, 0, getString(R.string.menu_save_only))
-        menu.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                1 -> saveAndApply()
-                2 -> saveOnly()
-            }
-            true
+        if (savePopup?.isShowing == true) {
+            dismissSaveMenu()
+            return
         }
-        menu.show()
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            background = Ui.rounded(0xFFFFFFFF.toInt(), 14, this@ModelEditActivity)
+            elevation = dp(10).toFloat()
+        }
+        fun item(text: String, onClick: () -> Unit) {
+            col.addView(TextView(this@ModelEditActivity).apply {
+                this.text = text
+                textSize = 15f
+                setTextColor(0xFF333333.toInt())
+                setPadding(dp(18), dp(12), dp(18), dp(12))
+                isClickable = true
+                setOnClickListener { dismissSaveMenu(); onClick() }
+                Ui.press(this)
+            })
+        }
+        val labelApply = getString(R.string.menu_save_apply)
+        val labelOnly = if (isNew) getString(R.string.menu_add_only) else getString(R.string.menu_save_only)
+        item(labelApply) { saveAndApply() }
+        col.addView(Ui.divider(this))
+        item(labelOnly) { saveOnly() }
+
+        // 弹窗宽度：按文本实测宽度 + 左右 padding 贴合内容。
+        // 不用 WRAP_CONTENT：本设备 PopupWindow 的 wrap 测量会把内容拉成全屏宽。
+        val probe = TextView(this).apply { textSize = 15f }
+        val textW = ceil(maxOf(probe.paint.measureText(labelApply), probe.paint.measureText(labelOnly))).toInt()
+        val popW = textW + dp(52)
+        val popH = dp(120)
+        savePopup = PopupWindow(col, popW, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
+            elevation = dp(10).toFloat()
+            isTouchable = true
+            isOutsideTouchable = true
+            setBackgroundDrawable(GradientDrawable())
+            setTouchInterceptor { _, e ->
+                if (e.action == MotionEvent.ACTION_OUTSIDE) {
+                    val p = IntArray(2)
+                    saveBtn.getLocationOnScreen(p)
+                    val inBtn = e.rawX >= p[0] && e.rawX <= p[0] + saveBtn.width &&
+                            e.rawY >= p[1] && e.rawY <= p[1] + saveBtn.height
+                    if (!inBtn) dismissSaveMenu()
+                }
+                false
+            }
+        }
+        // 右对齐（xoff 使弹窗右缘对齐按钮右缘）；向下下拉，底部空间不足则自动上翻
+        val xoff = saveBtn.width - popW
+        val loc = IntArray(2)
+        saveBtn.getLocationOnScreen(loc)
+        val below = resources.displayMetrics.heightPixels - (loc[1] + saveBtn.height)
+        val yoff = if (below < popH + dp(8)) -(popH + saveBtn.height + dp(6)) else dp(6)
+        savePopup!!.showAsDropDown(saveBtn, xoff, yoff)
+    }
+
+    private fun dismissSaveMenu() {
+        val p = savePopup ?: return
+        p.dismiss()
+        savePopup = null
     }
 
     /** 渲染已选子模型列表：每个模型 = 模型名 + ✕ 移除 + 能力勾选/标注

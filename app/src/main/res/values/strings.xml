@@ -403,6 +403,12 @@
     <string name="mmcfg_26">取消</string>
     <string name="mcp_31">测试失败: %1$s</string>
     <string name="about_21">再点 %1$d 次开启调试服务入口</string>
+    <string name="about_22">免责声明</string>
+    <string name="about_23">点击阅读</string>
+    <string name="about_24">隐私政策</string>
+    <string name="about_25">反馈渠道</string>
+    <string name="about_26">QQ群 243464572</string>
+    <string name="about_27">https://qun.qq.com/universal-share/share?ac=1&amp;authKey=kyxRze78CB2vLS0MIbwVdwbO%2FPkV12GUqZoL8x%2FQsdVPkkselnkBnlctyVQkInEA&amp;busi_data=eyJncm91cENvZGUiOiIyNDM0NjQ1NzIiLCJ0b2tlbiI6IjF4cThsZWQxbklma3Znc0N6UU54eEd2R04wWGRLS0Z1ajFXK01VQTMvTFdMRzRMUHBuanhqZHRQWDVYa1dTT2MiLCJ1aW4iOiIyMTE3ODgwMjAifQ%3D%3D&amp;data=c42AopbvmmkUNOjzv9J3S7p4T3w8xeLakhSm9yHCC4OLPZ2EelGZhgLAQTIwcJBbGAWViVla_PFA2wGjoIvliw&amp;svctype=4&amp;tempid=h5_group_info</string>
     <string name="mmcfg_27">连通性测试失败，未保存：%1$s</string>
     <string name="mmcfg_28">已启用独立辅助模型。%1$s</string>
     <string name="mmcfg_29">已启用独立辅助模型</string>
@@ -461,4 +467,45 @@
 <string name='ma_thinking_prefix'>思考中: </string>
 <string name='ma_sys_no_reply'>模型未返回内容，请再发一次</string>
 <string name='ma_error_fmt'>出错了: %1$s</string>
+    <!-- 首启引导页 -->
+    <string name="guide_app_name">DroidAgent</string>
+    <string name="guide_slogan">手机上的 AI 助手</string>
+    <string name="guide_f1_t">智能对话</string>
+    <string name="guide_f1_d">接入主流大模型，支持多模型切换</string>
+    <string name="guide_f2_t">工具调用</string>
+    <string name="guide_f2_d">联网搜索、网页抓取、文件处理</string>
+    <string name="guide_f3_t">本地文件</string>
+    <string name="guide_f3_d">读取、分析手机中的文档与图片</string>
+    <string name="guide_f4_t">远程连接</string>
+    <string name="guide_f4_d">SSH 直达你的服务器</string>
+    <string name="guide_perm_note">使用以上功能需要授权通知、麦克风、悬浮窗、文件访问等权限，均可在 设置→权限管理 中随时调整。</string>
+    <string name="guide_start">开始授权</string>
+    <string name="guide_later">稍后再说</string>
+    <string name="guide_agree_pre">我已阅读并同意</string>
+    <string name="guide_disclaimer">《免责声明》</string>
+    <string name="guide_privacy">《隐私政策》</string>
+    <string name="guide_agree_hint">请先勾选"我已阅读并同意免责声明与隐私政策"</string>
+    <string name="guide_agree_unread">你还没有阅读%s，请先阅读并同意再勾选</string>
+    <string name="guide_dlg_cancel">暂不同意</string>
+    <string name="guide_dlg_read_go">请滑动阅读到底部</string>
+    <string name="guide_dlg_read">我已阅读并同意</string>
+    <!-- 首启模式选择弹窗 -->
+    <string name="guide_mode_title">选择使用模式</string>
+    <string name="guide_mode_sub">两种模式都会带来不同体验</string>
+    <string name="guide_mode_recommend">★ 推荐</string>
+    <string name="guide_mode_agent_title">Agent 模式</string>
+    <string name="guide_mode_agent_desc">无头像、保留 Markdown 渲染
+适合追求完整 Agent 能力与样式还原</string>
+    <string name="guide_mode_chat_title">聊天模式</string>
+    <string name="guide_mode_chat_desc">双头像并排、纯文本简洁展示
+适合日常聊天体感</string>
+    <string name="guide_mode_tip">选择后可在 设置→外观 中随时切换</string>
+    <!-- 首启授权页(替代模式选择弹窗, 独立 Activity) -->
+    <string name="guide_perm_title">完成授权与设置</string>
+    <string name="guide_perm_intro">为了让智能体正常工作，请授权以下能力；已授权项会显示"已完成"。均可在 设置→权限管理 中随时调整。</string>
+    <string name="guide_perm_go">去授权</string>
+    <string name="guide_perm_done">已完成</string>
+    <string name="guide_perm_enter">进入 APP</string>
+    <string name="guide_perm_skip">暂不授权，跳过</string>
+    <string name="guide_mode_card_title">使用模式</string>
 </resources>

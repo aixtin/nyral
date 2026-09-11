@@ -17,14 +17,22 @@
         android:icon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light" android:networkSecurityConfig="@xml/network_security_config">
 
+        <!-- 首启引导页作为 launcher：全新安装先看引导，点"开始授权"后进主界面 -->
         <activity
-            android:name=".MainActivity"
+            android:name=".GuideActivity"
             android:exported="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- 主界面：由引导页或系统通知等跳入，不再直接响应桌面图标 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
         </activity>
 
         <!-- 任务执行前台服务: AI 处理任务期间防止进程被回收, dataSync 类型 -->
@@ -101,6 +109,13 @@
             android:exported="false"
             android:label="权限管理"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".FirstRunSetupActivity"
+            android:exported="false"
+            android:label="完成授权与设置"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+
 
         <activity
             android:name=".ChatBackgroundActivity"

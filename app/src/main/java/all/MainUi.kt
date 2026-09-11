@@ -491,8 +491,8 @@ import android.widget.Toast
             p.layoutParams = lp
             // 果冻展开: 锚点=面板右上角(∑ 图标处), 向左下角弹性弹出
             p.pivotY = 0f
-            p.scaleX = 0.15f
-            p.scaleY = 0.15f
+            p.scaleX = 0.7f
+            p.scaleY = 0.7f
             p.alpha = 0f
             p.visibility = View.VISIBLE
             // 首次展开时 GONE 状态 width=0, post 到布局完成后再取宽设 pivot
@@ -500,8 +500,8 @@ import android.widget.Toast
                 p.pivotX = p.width.toFloat()
                 p.animate()
                     .scaleX(1f).scaleY(1f).alpha(1f)
-                    .setDuration(360)
-                    .setInterpolator(OvershootInterpolator(2.2f))
+                    .setDuration(260)
+                    .setInterpolator(OvershootInterpolator(0.8f))
                     .start()
             }
         } else {
@@ -514,8 +514,8 @@ import android.widget.Toast
         if (p.visibility != View.VISIBLE) return
         p.animate().cancel()
         p.animate()
-            .scaleX(0.15f).scaleY(0.15f).alpha(0f)
-            .setDuration(180)
+            .scaleX(0.45f).scaleY(0.45f).alpha(0f)
+            .setDuration(160)
             .withEndAction {
                 p.visibility = View.GONE
                 tokenMask.visibility = View.GONE
@@ -660,7 +660,6 @@ import android.widget.Toast
         }
         item(getString(R.string.mui_attach_album), hasImage) { pickImage() }
         item(getString(R.string.mui_attach_video), hasVideo) { pickVideo() }
-        item(getString(R.string.mui_attach_audio), hasAudio) { pickAudio() }
         item(getString(R.string.mui_attach_other), true) { pickFile() }
         col.measure(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         val popH = col.measuredHeight
@@ -691,16 +690,16 @@ import android.widget.Toast
         // 果冻展开: 弹窗向上弹出(锚定 attachBtn), 锚点=弹窗左下角, 向右上弹性弹出
         col.pivotX = 0f
         col.pivotY = col.height.toFloat()
-        col.scaleX = 0.15f
-        col.scaleY = 0.15f
+        col.scaleX = 0.7f
+        col.scaleY = 0.7f
         col.alpha = 0f
         col.post {
             col.pivotX = 0f
             col.pivotY = col.height.toFloat()
             col.animate()
                 .scaleX(1f).scaleY(1f).alpha(1f)
-                .setDuration(360)
-                .setInterpolator(OvershootInterpolator(2.2f))
+                .setDuration(260)
+                    .setInterpolator(OvershootInterpolator(0.8f))
                 .start()
         }
     }
@@ -713,8 +712,8 @@ import android.widget.Toast
         val v = p.contentView
         v.animate().cancel()
         v.animate()
-            .scaleX(0.15f).scaleY(0.15f).alpha(0f)
-            .setDuration(180)
+            .scaleX(0.45f).scaleY(0.45f).alpha(0f)
+            .setDuration(160)
             .withEndAction {
                 attachClosing = false
                 if (attachPopup === p) {
@@ -914,16 +913,16 @@ import android.widget.Toast
                 // 果冻展开: 弹窗向上弹出(锚定 modelBtn), 锚点=弹窗左下角, 向右上弹性弹出
                 wrap.pivotX = 0f
                 wrap.pivotY = wrap.height.toFloat()
-                wrap.scaleX = 0.15f
-                wrap.scaleY = 0.15f
+                wrap.scaleX = 0.7f
+                wrap.scaleY = 0.7f
                 wrap.alpha = 0f
                 wrap.post {
                     wrap.pivotX = 0f
                     wrap.pivotY = wrap.height.toFloat()
                     wrap.animate()
                         .scaleX(1f).scaleY(1f).alpha(1f)
-                        .setDuration(360)
-                        .setInterpolator(OvershootInterpolator(2.2f))
+                        .setDuration(260)
+                    .setInterpolator(OvershootInterpolator(0.8f))
                         .start()
                 }
             } else {
@@ -945,8 +944,8 @@ import android.widget.Toast
         val v = p.contentView
         v.animate().cancel()
         v.animate()
-            .scaleX(0.15f).scaleY(0.15f).alpha(0f)
-            .setDuration(180)
+            .scaleX(0.45f).scaleY(0.45f).alpha(0f)
+            .setDuration(160)
             .withEndAction {
                 modelClosing = false
                 if (modelPopup === p) {
@@ -956,4 +955,145 @@ import android.widget.Toast
             }
             .start()
     }
+
+// ============================================================
+// 抽屉跟手拖拽控制器(微信式): 关闭态左边缘右拖开 / 打开态遮罩或面板左拖关,
+// 面板与遮罩 1:1 跟随手指, 抬手按 fling 速度/过半位置吸附;
+// 替代旧 GestureDetector "fling 后播固定动画" 的迟滞手感
+// ============================================================
+internal class DrawerDragController(private val act: MainActivity) {
+    private companion object {
+        const val EDGE_DP = 48          // 关闭态: 左边缘跟手响应区宽度(覆盖拇指肚起点; 该区已由 Activity 整块声明系统手势排除)
+        const val MAX_ALPHA = 0.4f      // 遮罩最大透明度(= #66000000 的 0.4)
+        const val FLING_VX = 500f       // 吸附速度阈值(px/s)
+        const val SNAP_FRAC = 0.5f      // 吸附位置阈值(开过半则吸附到开)
+    }
+
+    private val slop = android.view.ViewConfiguration.get(act).scaledTouchSlop
+    private var tracker: android.view.VelocityTracker? = null
+    private var mode = 0                // 0=无 1=待开(边缘按下) 2=待关(开态按下)
+    private var dragging = false
+    private var downX = 0f
+    private var downY = 0f
+    private var startTrans = 0f
+    private var dragStartOpen = false   // 拖拽开始时抽屉的开合态, ACTION_CANCEL 时回弹到此态
+
+    private val w get() = act.DRAWER_WIDTH.toFloat()
+
+    /** fling 兜底检测用: 正在跟手拖拽的序列不再触发 fling, 避免重复开关 */
+    fun isDragging() = dragging
+
+    /** root.onInterceptTouchEvent 调用: 水平拖拽超阈值时抢手势 */
+    fun onIntercept(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                tracker?.recycle()
+                tracker = android.view.VelocityTracker.obtain()
+                tracker?.addMovement(ev)
+                dragging = false
+                downX = ev.rawX
+                downY = ev.rawY
+                startTrans = act.drawerPanel.translationX
+                mode = when {
+                    // Token 面板展开时不抢手势, 避免抽屉从面板下滑出
+                    act.tokenMask.visibility == View.VISIBLE -> 0
+                    act.drawerOpen -> 2
+                    ev.rawX <= act.dp(EDGE_DP) -> 1
+                    else -> 0
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (mode != 0 && !dragging) {
+                    val dx = ev.rawX - downX
+                    val dy = ev.rawY - downY
+                    val wantOpen = mode == 1
+                    val dirOk = if (wantOpen) dx > 0 else dx < 0
+                    if (kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy) && dirOk) {
+                        dragging = true
+                        beginDrag(wantOpen)
+                        tracker?.addMovement(ev)
+                        return true
+                    }
+                }
+                tracker?.addMovement(ev)
+            }
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> reset()
+        }
+        return false
+    }
+
+    /** root.onTouchEvent 调用(拦截成功后): 面板/遮罩跟随手指 + 抬手吸附 */
+    fun onTouch(ev: MotionEvent): Boolean {
+        if (!dragging) return false
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                tracker?.addMovement(ev)
+                val trans = (startTrans + (ev.rawX - downX)).coerceIn(-w, 0f)
+                act.drawerPanel.translationX = trans
+                act.drawerMask.visibility = View.VISIBLE
+                act.drawerMask.alpha = ((trans + w) / w) * MAX_ALPHA
+            }
+            MotionEvent.ACTION_UP -> {
+                // 正常抬手: 按 fling 速度/过半位置吸附
+                tracker?.addMovement(ev)
+                tracker?.computeCurrentVelocity(1000)
+                val vx = tracker?.xVelocity ?: 0f
+                val frac = (act.drawerPanel.translationX + w) / w
+                val open = when {
+                    vx > FLING_VX -> true
+                    vx < -FLING_VX -> false
+                    frac > SNAP_FRAC -> true
+                    else -> false
+                }
+                snap(open)
+                reset()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                // 系统取消(全面屏返回手势抢占/父视图拦截等): 回弹到拖拽前状态, 不按当前位置吸附
+                snap(dragStartOpen)
+                reset()
+            }
+        }
+        return true
+    }
+
+    private fun beginDrag(openDir: Boolean) {
+        dragStartOpen = !openDir   // 待开=从关拖起, 待关=从开拖起
+        act.drawerPanel.animate().cancel()
+        act.drawerMask.animate().cancel()
+        if (openDir) {
+            // 同 openDrawer 前置: 收键盘 + 刷新会话列表, 遮罩先显示
+            val imm = act.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.hideSoftInputFromWindow(act.window.decorView.windowToken, 0)
+            act.refreshSessionList()
+            act.drawerMask.visibility = View.VISIBLE
+        }
+    }
+
+    /** 抬手吸附: 剩余距离越短动画越快, 统一减速插值器 */
+    private fun snap(open: Boolean) {
+        act.drawerOpen = open
+        val cur = act.drawerPanel.translationX
+        val target = if (open) 0f else -w
+        val dist = kotlin.math.abs(target - cur)
+        val dur = (170 + 130 * (dist / w)).toLong().coerceIn(150, 300)
+        val dec = android.view.animation.DecelerateInterpolator(1.3f)
+        if (open) {
+            act.drawerMask.visibility = View.VISIBLE
+            act.drawerPanel.animate().translationX(0f).setDuration(dur).setInterpolator(dec).start()
+            act.drawerMask.animate().alpha(MAX_ALPHA).setDuration(dur).setInterpolator(dec).start()
+        } else {
+            act.drawerPanel.animate().translationX(-w).setDuration(dur).setInterpolator(dec).start()
+            act.drawerMask.animate().alpha(0f).setDuration(dur).setInterpolator(dec)
+                .withEndAction { act.drawerMask.visibility = View.GONE }.start()
+        }
+    }
+
+    private fun reset() {
+        mode = 0
+        dragging = false
+        tracker?.recycle()
+        tracker = null
+    }
+}
 

@@ -19,6 +19,7 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -229,6 +230,8 @@ class MainActivity : Activity() {
     internal lateinit var sessionList: LinearLayout
     internal var drawerOpen = false
     private lateinit var swipeDetector: GestureDetector
+    /** 抽屉跟手拖拽控制器(微信式): root 拦截水平边缘/遮罩手势, 1:1 跟随 + 抬手吸附 */
+    private lateinit var drawerDrag: DrawerDragController
     private var summary: String? = null
     internal lateinit var db: MemoryDb
     internal var aiBusy = false
@@ -361,8 +364,12 @@ class MainActivity : Activity() {
         // 记忆落库时快照当前会话标题, 长期记忆卡片按会话名分组展示
         MemoryTools.sessionTitleProvider = { currentSessionTitle }
 
+        // 抽屉跟手拖拽: root 拦截水平边缘/遮罩手势, 1:1 跟随 + 抬手吸附(替代旧 fling 固定动画)
+        drawerDrag = DrawerDragController(this)
+
         swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (drawerDrag.isDragging()) return false
                 val dx = e2.x - (e1?.x ?: e2.x)
                 val dy = e2.y - (e1?.y ?: e2.y)
                 if (abs(dx) > abs(dy) * 1.5f && abs(dx) > dp(60).toFloat() && abs(velocityX) > 500f) {
@@ -375,6 +382,14 @@ class MainActivity : Activity() {
         })
 
         root = object : FrameLayout(this) {
+            override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+                if (drawerDrag.onIntercept(ev)) return true
+                return super.onInterceptTouchEvent(ev)
+            }
+            override fun onTouchEvent(ev: MotionEvent): Boolean {
+                if (drawerDrag.onTouch(ev)) return true
+                return super.onTouchEvent(ev)
+            }
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                 swipeDetector.onTouchEvent(ev)
                 // 键盘弹起时, 点击输入区以外(消息区/背景/标题栏)收起键盘并清光标; 未弹键盘或点击输入框/按钮时不影响
@@ -741,6 +756,17 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.END))
         setContentView(root)
+        // 全面屏手势导航(Android10+): 左边缘横滑默认是系统"返回", 会抢走抽屉跟手手势。
+        // 学 AndroidX DrawerLayout / QQ 侧边栏: 把整块抽屉区域(左缘 0..280dp 宽, 全屏高)声明为系统手势排除区,
+        // 该区域内系统返回全程让位, 边缘慢拖 1:1 跟手; 区域之外(屏幕右侧/中间)系统返回照常。
+        // (系统文档称每边沿边长度限 200dp, 但 DrawerLayout 式整块排除在 Android12+ 及国产 ROM 实践中全屏有效, 微信/QQ 同款)
+        if (Build.VERSION.SDK_INT >= 29) {
+            root.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                if (v.height > 0) {
+                    v.systemGestureExclusionRects = listOf(Rect(0, 0, DRAWER_WIDTH, v.height))
+                }
+            }
+        }
         // 布局完成后锁定 bgLayer 为全屏高度(首次布局未弹键盘, root.height 即完整高度);
         // 此后键盘弹出压缩 root 时 bgLayer 保持固定, 背景顶部不动、底部被键盘盖住(壁纸不跟随抬起)
         root.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
@@ -1617,6 +1643,9 @@ class MainActivity : Activity() {
                 topMargin = dp(6)
                 gravity = if (isUser) Gravity.END else Gravity.START
             }
+            // 圆角气泡: 背景套圆角 + clipToOutline 裁剪内嵌播放画面, 与图片/缩略图气泡圆角体系一致
+            background = rounded(dp(14), if (isUser) BUBBLE_USER else BUBBLE_AI)
+            clipToOutline = true
             addView(pv)
             // 点击整块进全屏弹窗预览(弹窗内同样循环播放)
             setOnClickListener { this@MainActivity.openAttachmentPreview(listOf(file), 0) }
@@ -2328,10 +2357,15 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != Activity.RESULT_OK || data == null) return
         // 支持一次多选, 但每次携带上限 6 个: 超出部分丢弃并提示
+        // 去重: 部分选择器单选时 data 与 clipData 同时携带同一 URI, 直接收集会重复上传同一文件
         val uris = mutableListOf<Uri>()
-        data.data?.let { uris.add(it) }
+        val seen = HashSet<String>()
+        data.data?.let { if (seen.add(it.toString())) uris.add(it) }
         data.clipData?.let { cd ->
-            for (i in 0 until cd.itemCount) uris.add(cd.getItemAt(i).uri)
+            for (i in 0 until cd.itemCount) {
+                val u = cd.getItemAt(i).uri
+                if (seen.add(u.toString())) uris.add(u)
+            }
         }
         if (uris.isEmpty()) return
         val MAX = 6
