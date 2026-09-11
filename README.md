@@ -108,4 +108,29 @@ android-agent-app/
 
 本项目采用 [MIT License](LICENSE)。
 
+### 第三方依赖许可证
+
+本项目运行时依赖以下第三方组件，均在各自许可证条款下使用（许可证全文见各组件官方仓库）：
+
+| 依赖 | 版本 | 许可证 |
+|---|---|---|
+| kotlin-stdlib | 1.9.22 | Apache-2.0 |
+| kotlinx-coroutines-android | 1.8.1 | Apache-2.0 |
+| androidx.media3（exoplayer/ui/common 等） | 1.4.1 | Apache-2.0 |
+| androidx.*（core/annotation/collection 等） | - | Apache-2.0 |
+| org.apache.commons:commons-compress / commons-io / commons-codec / commons-lang3 | 1.27.1+ | Apache-2.0 |
+| io.noties.markwon（core/ext-strikethrough/ext-tables） | 4.6.2 | Apache-2.0 |
+| com.atlassian.commonmark | 0.13.0 | BSD-2-Clause |
+| com.microsoft.onnxruntime:onnxruntime-android | 1.17.3 | MIT |
+| org.slf4j:slf4j-api | 1.7.36 | MIT |
+| com.android.tools（构建期，不打包进 APK） | - | Apache-2.0 |
+| org.bouncycastle:bcprov-jdk18on | 1.78.1 | Bouncy Castle Licence |
+| com.github.mwiede:jsch（含 jzlib/jbcrypt） | 0.2.17 | Revised BSD / ISC |
+| org.tukaani:xz | 1.9 | Public Domain |
+| org.mozilla:rhino | 1.7.14 | MPL-2.0 |
+| com.github.junrar:junrar | 7.5.5 | UnRAR freeware license |
+
+MPL-2.0（rhino）与 UnRAR license（junrar）的授权声明随依赖 jar 内嵌保留；junrar 按 UnRAR 授权仅用于解压，不用于构建 RAR 兼容压缩器。
+
+
 - 2026-09-04 v1.1.1(versionCode 21): 视频气泡取帧失败到顶由永久放弃改为20s冷却后自动重试自愈(下次渲染/滚动/回前台即恢复), 修复视频气泡退化回文件卡片问题。
