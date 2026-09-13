@@ -131,11 +131,11 @@ class FirstRunSetupActivity : Activity() {
     }
 
     private fun goMain(skip: Boolean) {
-        if (skip) {
-            // 标记已处理授权引导，避免主界面再次弹出；可在 设置→权限管理 补开
-            getSharedPreferences("app_prefs", MODE_PRIVATE)
-                .edit().putBoolean("first_run_perms_done", true).apply()
-        }
+        // 2026-09-14 修正: 逐项授权页(去授权/已完成)由用户自主处理完毕后, 无论是否跳过都标记
+        // first_run_perms_done, 避免进主界面后 MainActivity 旧强制引导再把全部权限轰炸一遍;
+        // 未授权的权限(通知/麦克风/悬浮窗/文件/未知来源)改走功能按需请求。
+        getSharedPreferences("app_prefs", MODE_PRIVATE)
+            .edit().putBoolean("first_run_perms_done", true).apply()
         startActivity(Intent(this, MainActivity::class.java))
         finish()
     }

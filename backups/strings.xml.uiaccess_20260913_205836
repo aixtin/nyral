@@ -510,7 +510,4 @@
     <string name="guide_perm_enter">进入 APP</string>
     <string name="guide_perm_skip">暂不授权，跳过</string>
     <string name="guide_mode_card_title">使用模式</string>
-    <!-- 无障碍控制服务 -->
-    <string name="accessibility_service_label">DroidAgent 无障碍控制</string>
-    <string name="accessibility_service_desc">用于 AI 读取当前屏幕元素并控制第三方 App（原型）。开启后请保持开启，仅在本应用内使用。</string>
 </resources>

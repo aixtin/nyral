@@ -254,16 +254,6 @@ object DebugServer {
                     method == "POST" && path == "/v1/browser/click" -> browserClick(out, body)
                     method == "POST" && path == "/v1/browser/type" -> browserType(out, body)
                     method == "POST" && path == "/v1/browser/eval" -> browserEval(out, body)
-                    method == "POST" && path == "/v1/app/scan" -> appScan(out)
-                    method == "POST" && path == "/v1/app/click" -> appClick(out, body)
-                    method == "POST" && path == "/v1/app/type" -> appType(out, body)
-                    method == "POST" && path == "/v1/app/back" -> appBack(out)
-                    method == "POST" && path == "/v1/app/home" -> appHome(out)
-                    method == "POST" && path == "/v1/app/launch" -> appLaunch(out, body)
-                    method == "POST" && path == "/v1/app/installed" -> appInstalled(out)
-                    method == "POST" && path == "/v1/js/run" -> jsRun(out, body)
-                    method == "POST" && path == "/v1/sh/run" -> shRun(c, out, body)
-                    method == "GET" && path == "/v1/status" -> writeJson(out, 200, statusJson(c))
                     else -> {
                         writeJson(out, 404, JSONObject().put("error", "not found"), false)
                         keepAlive = false
@@ -551,66 +541,6 @@ object DebugServer {
         }
         try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
         writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
-    }
-
-    // ================= 无障碍控制第三方 App (/v1/app/*, 桥接 UiControlService) =================
-    private fun appScan(out: OutputStream) {
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.scan()))
-    }
-
-    private fun appClick(out: OutputStream, body: String) {
-        val idx = try { JSONObject(body).optInt("index", -1) } catch (e: Exception) { -1 }
-        val result = UiControlService.click(idx)
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", result))
-    }
-
-    private fun appType(out: OutputStream, body: String) {
-        val o = try { JSONObject(body) } catch (e: Exception) { null }
-        val idx = o?.optInt("index", -1) ?: -1
-        val text = o?.optString("text", "").orEmpty()
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.type(idx, text)))
-    }
-
-    private fun appBack(out: OutputStream) {
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.back()))
-    }
-
-    private fun appHome(out: OutputStream) {
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.home()))
-    }
-
-    private fun appLaunch(out: OutputStream, body: String) {
-        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
-        val pkg = try { JSONObject(body).optString("pkg", "") } catch (e: Exception) { "" }
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.launch(act, pkg)))
-    }
-
-    private fun appInstalled(out: OutputStream) {
-        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.installed(act)))
-    }
-
-    private fun jsRun(out: OutputStream, body: String) {
-        val o = try { JSONObject(body) } catch (e: Exception) { null }
-        val code = o?.optString("code", "").orEmpty()
-        val timeout = o?.optLong("timeoutMs", 8000L) ?: 8000L
-        if (code.isBlank()) { writeJson(out, 400, JSONObject().put("error", "code required")); return }
-        writeJson(out, 200, JSONObject().put("ok", true).put("result", ScriptEngine.runJs(code, timeout)))
-    }
-
-    /** /v1/sh/run: 就地执行 Shell 脚本(与 LocalEngine.sh_run 工具同源) */
-    private fun shRun(c: Context, out: OutputStream, body: String) {
-        val r = ScriptEngine.runSh(c, body)
-        writeJson(out, 200, JSONObject().put("result", r))
-    }
-
-    /** /v1/status: 就地脚本能力状态(root 可用性, 供调试侧判断提权能力) */
-    private fun statusJson(c: Context): JSONObject {
-        val o = JSONObject()
-        o.put("sh_run", JSONObject()
-            .put("root", ScriptEngine.isRootAvailable(c))
-            .put("danger_block", true))
-        return o
     }
 
     private fun browserEval(out: OutputStream, body: String) {

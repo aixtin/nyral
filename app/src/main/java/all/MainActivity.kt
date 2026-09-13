@@ -361,8 +361,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 首启权限引导: 首次进入一次性收齐该要的权限(运行时权限弹窗 + 特殊权限依次去设置页)
-        window.decorView.post { runFirstRunPermissionGuide() }
+        // 2026-09-14 废弃启动强制权限引导: 权限全权交给 FirstRunSetupActivity 逐项授权页
+        // (去授权/已完成 + 进入APP) + 功能按需请求, 不再在启动时把全部权限轰炸一遍。
+        // window.decorView.post { runFirstRunPermissionGuide() }
         // 悬浮终端显隐门控: DA 前台(应用内)隐藏悬浮窗, 切到其他 APP/回桌面自动显示
         TerminalGate.register(application)
         // 启动自动检查更新（同一天仅一次，静默；真实更新源开源后替换 UPDATE_URL 即可）
@@ -398,8 +399,12 @@ class MainActivity : Activity() {
         browserPage = BrowserPage(this)
         browserSlide = BrowserSlideController(this)
         // AI open_browser 工具桥接: 主线程打开全屏浏览器页
-        LocalEngine.onOpenBrowser = { url -> runOnUiThread { browserPage.open(url) } }
-        LocalEngine.onBrowserScan = { runOnUiThread { browserPage.scan() }; browserPage.elementsSnapshot().toString() }
+        LocalEngine.onOpenBrowser = { url ->
+            runOnUiThread { browserPage.open(url) }
+            // 等待页面加载完成并同步扫描回填, 确保后续 browser_scan/click 拿到新页元素(慢网/重站点防串页)
+            if (browserPage.waitLoaded(10_000)) browserPage.scanSync(4000)
+        }
+        LocalEngine.onBrowserScan = { val c = browserPage.scanSync(4000); browserPage.elementsSnapshot().toString() }
         LocalEngine.onBrowserClick = { i -> browserPage.clickIndex(i) }
         LocalEngine.onBrowserType = { i, t -> browserPage.typeIndex(i, t) }
         LocalEngine.onBrowserUpload = { i, local -> browserPage.uploadIndex(i, local) }
