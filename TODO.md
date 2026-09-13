@@ -17,6 +17,10 @@
 
 - [ ] 补充基础单元测试（零测试是最大隐患，修 A 坏 B 风险高；覆盖工具链/记忆/TokenStore 等核心逻辑，2026-08-31 列入）
 - [ ] MainActivity 再拆分（已从 4241 行拆到 2552 行，仍偏大；进一步抽 UI/逻辑到独立文件，2026-08-31 列入）
+- [ ] DebugServer chat 并发竞态修复（2026-09-13 压测发现：debugSseSink 单引用被并发连接覆盖，多客户端同时 /v1/chat 会串话/丢事件，先到连接 30s 后以"调试链路超时"兜底；方案：改为按连接路由或并发安全 sink 注册表）
+- [ ] 压测遗留：DebugServer 单 accept 线程 + cachedThreadPool 每连接一线程，50 并发约 278 RPS 封顶；如需更高吞吐可改复用连接/限流（2026-09-13 压测结论，可选）
+- [ ] browser_scan 异步回填竞态修复（2026-09-13 浏览器压测发现：scan 端点触发 injectScanner 后立即返回，onElements 回填前 elements 已被 clear，紧随的快照读到 0，AI 链路 scan→读元素→click 会断裂；已验证页面正常可识别 24 元素但时序断裂；方案：scan 端点同步等待 JS 回填，复用 actionLatch/CountDownLatch 机制）
+- [ ] browser open 页面就绪等待（2026-09-13 压测发现：open 仅 loadUrl 不等待 onPageFinished，重站点/慢网下快照读到旧页串页（example→bing、zhihu→csdn 复现）；方案：AI/工具侧轮询 URL 或暴露加载状态）
 
 ## 已完成里程碑
 - 2026-09-13: v2.0 正式签名发布（versionCode 30，自建 keystore 接入 release signingConfig，密钥异地备份）+ 版本号动态化修复更新检测
