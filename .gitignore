@@ -23,3 +23,6 @@ Thumbs.db
 site_auth.json
 Download/DroidAgent_work/
 workdir/
+keystore.properties
+*.keystore
+*.jks
