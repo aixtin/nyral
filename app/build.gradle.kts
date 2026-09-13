@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -6,6 +8,22 @@ plugins {
 android {
     namespace = "io.github.aixtin.nyral"
     compileSdk = 34
+
+    // 正式签名（keystore.properties 不入库，密码不硬编码）
+    val keystoreProps = rootProject.file("keystore.properties")
+    val hasReleaseKey = keystoreProps.exists()
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                val p = Properties()
+                keystoreProps.inputStream().use { p.load(it) }
+                storeFile = file(p.getProperty("storeFile"))
+                storePassword = p.getProperty("storePassword")
+                keyAlias = p.getProperty("keyAlias")
+                keyPassword = p.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "io.github.aixtin.nyral"
@@ -21,6 +39,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
         }
     }
 
