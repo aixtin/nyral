@@ -61,7 +61,10 @@ class AboutActivity : Activity() {
         val card = Ui.card(this)
         card.addView(infoRow(getString(R.string.about_04), getString(R.string.about_05)))
         card.addView(Ui.divider(this))
-        card.addView(infoRow(getString(R.string.about_06), "v1.0").apply {
+        val versionName = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        }.getOrNull() ?: "1.0"
+        card.addView(infoRow(getString(R.string.about_06), "v$versionName").apply {
             isClickable = true
             setOnClickListener { onVersionTap() }
             Ui.press(this)
