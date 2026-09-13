@@ -60,13 +60,32 @@ class LocalFileProvider : ContentProvider() {
     override fun onCreate() = true
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
+        val path = uri.path ?: return null
+        val ctx = context ?: return null
+        // 工作目录文件(content://<pkg>.files/work/<文件名>): 供浏览器上传 file input 使用
+        if (path.startsWith("/work/")) {
+            val name = Uri.decode(path.removePrefix("/work/"))
+            val msUri = WorkDir.publicUri(ctx, name)
+            if (msUri != null) {
+                return runCatching { ctx.contentResolver.openFileDescriptor(msUri, "r") }.getOrNull()
+            }
+            // 兜底: MANAGE_EXTERNAL_STORAGE 已授权时 File 直读
+            return runCatching {
+                ParcelFileDescriptor.open(
+                    java.io.File(WorkDir.displayPath, name), ParcelFileDescriptor.MODE_READ_ONLY)
+            }.getOrNull()
+        }
         val fileName = uri.lastPathSegment ?: return null
-        val f = AttachmentStore.fileOf(context ?: return null, fileName) ?: return null
+        val f = AttachmentStore.fileOf(ctx, fileName) ?: return null
         return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
-    override fun getType(uri: Uri): String =
-        AttachmentStore.mimeOf(uri.lastPathSegment ?: "")
+    override fun getType(uri: Uri): String {
+        val path = uri.path ?: return ""
+        val name = if (path.startsWith("/work/")) Uri.decode(path.removePrefix("/work/"))
+                   else uri.lastPathSegment ?: ""
+        return AttachmentStore.mimeOf(name)
+    }
 
     override fun query(uri: Uri, projection: Array<String>?, selection: String?,
                        selectionArgs: Array<String>?, sortOrder: String?): Cursor? = null

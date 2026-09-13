@@ -11,7 +11,7 @@ android {
         applicationId = "io.github.aixtin.droidagent"
         minSdk = 24
         targetSdk = 34
-        versionCode = 23
+        versionCode = 29
         versionName = "1.3"
         ndk {
             abiFilters += listOf("arm64-v8a")

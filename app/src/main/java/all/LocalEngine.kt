@@ -55,6 +55,28 @@ object LocalEngine {
     @Volatile
     var cancelRequested = false
 
+    /** 浏览器页桥接: AI 调用 open_browser 时由 MainActivity 注册回调打开全屏浏览器页(需主线程执行) */
+    @Volatile
+    var onOpenBrowser: ((url: String?) -> Unit)? = null
+
+    /** 浏览器页操作桥接(scan/click/type): MainActivity 注册回调, 内部 post 主线程执行并同步返回文本结果 */
+    @Volatile
+    var onBrowserScan: (() -> String)? = null
+    @Volatile
+    var onBrowserClick: ((Int) -> String)? = null
+    @Volatile
+    var onBrowserType: ((Int, String) -> String)? = null
+    @Volatile
+    var onBrowserUpload: ((Int, String) -> String)? = null
+
+    /** 浏览器页清缓存桥接: AI 调用 browser_clear_cache 时由 MainActivity 注册回调, 内部主线程执行并返回结果 */
+    @Volatile
+    var onBrowserClear: ((Boolean) -> String)? = null
+
+    /** 浏览器登录态 Cookie 回灌桥接: AI 调用 browser_save_cookies 时取浏览器当前登录 Cookie(主线程), site 非空按该域、为空取当前页域名 */
+    @Volatile
+    var onBrowserSaveCookies: ((site: String?) -> String)? = null
+
     /** 当前活跃连接, 取消时 disconnect 以打断阻塞读 */
     @Volatile
     private var activeConn: HttpURLConnection? = null
@@ -66,7 +88,14 @@ object LocalEngine {
     }
 
     private val toolRegistry = listOf(
-        ToolSpec("web_search", "联网搜索(Bing), 返回结果标题+链接+摘要", "JSON: {\"q\":\"搜索关键词\",\"max_results\":5}"),
+        ToolSpec("web_search", "后台静默联网搜索(Bing), 结果仅供AI参考阅读, 用户看不到页面; 若用户想看搜索结果页/网页请改用 open_browser", "JSON: {\"q\":\"搜索关键词\",\"max_results\":5}"),
+        ToolSpec("open_browser", "在用户手机上打开全屏浏览器页并加载网页; 若传入的是非URL文本则自动作为搜索词打开百度搜索。当用户要求搜索/查资料/看网页时优先用本工具, 直接在手机屏幕展示可看到的搜索页(用户可见)", "JSON: {\"url\":\"https://... 或 搜索词\"}"),
+        ToolSpec("browser_scan", "读取全屏浏览器页当前已识别的可操作元素清单(带 [索引+坐标]), 供后续 browser_click/browser_type 定位; 页面刚加载时若返回'暂无元素'可稍后再调一次(页面加载完成后自动扫描)", "无参数"),
+        ToolSpec("browser_click", "在全屏浏览器页点击第 N 个可操作元素(索引来自 browser_scan 结果, 0 起); 点击后如需确认页面变化可再调 browser_scan", "JSON: {\"index\":0}"),
+        ToolSpec("browser_type", "向全屏浏览器页第 N 个可操作元素(输入框/富文本)输入文本, 索引来自 browser_scan 结果, 0 起; 支持搜索框/登录表单等", "JSON: {\"index\":0,\"text\":\"要输入的文本\"}"),
+        ToolSpec("browser_upload", "向全屏浏览器页第 N 个文件选择框上传工作目录(Download/DroidAgent_work)里的文件/图片; index 来自 browser_scan(若扫描不到 file input 则按页面第 N 个 input[type=file] 定位, 默认0), local 为工作目录内文件名", "JSON: {\"index\":0,\"local\":\"文件名\"}"),
+        ToolSpec("browser_clear_cache", "清除全屏浏览器页的缓存并强制刷新当前页; full=true 时额外清除全部站点登录Cookie(会退出所有网站登录)。页面样式错乱/数据过期/正常刷新无效时使用。默认 false 只清普通缓存不动登录", "JSON: {\"full\":false}"),
+        ToolSpec("browser_save_cookies", "把全屏浏览器页当前登录态的 Cookie 存入 site_auth.json(供 web_fetch/web_download 静默抓取自动注入登录态); site 传目标域名, 不传则自动取浏览器当前页域名。用于\"浏览器登录一次→静默通道带登录态\": 先 open_browser 登录目标站点, 再调用本工具回灌", "JSON: {\"site\":\"可选域名\"}"),
         ToolSpec("web_fetch", "抓取网页并提取正文文本; 若 site_auth.json 已配置该域名 Cookie 会自动注入, 无需重复传", "JSON: {\"url\":\"https://...\",\"max_chars\":3000}"),
         ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web_fetch/web_download 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}"),
         ToolSpec("get_time", "获取当前日期时间", "无参数"),
@@ -95,7 +124,14 @@ object LocalEngine {
      * 不占用对话 token; 文本协议降级模式才按需把完整 desc+params 追加进上下文。
      */
     private val toolIndex: Map<String, String> = mapOf(
-        "web_search" to "联网搜索(Bing), 返回标题+链接+摘要",
+        "web_search" to "后台静默检索(Bing), 结果仅AI参考, 用户看不到页面; 用户想看搜索页时用 open_browser",
+        "open_browser" to "打开全屏浏览器页(用户可见): 用户要求搜索/查资料/看网页时优先用它, 传URL打开网页, 传搜索词直接打开百度搜索",
+        "browser_scan" to "读浏览器页可操作元素清单(带索引), 供 click/type 定位",
+        "browser_click" to "点击浏览器页第 N 个元素(...)",
+        "browser_type" to "向浏览器页输入框输入文本(...)",
+        "browser_upload" to "向网页文件选择框上传工作目录文件(配合 browser_scan 定位)",
+        "browser_clear_cache" to "清浏览器页缓存并刷新(full=true 连登录Cookie一起清)",
+        "browser_save_cookies" to "把浏览器当前登录 Cookie 存入 site_auth(供静默抓取带登录态); site 可选域名, 缺省取当前页域名",
         "web_fetch" to "抓取网页提取正文",
         "site_auth" to "管理站点登录 Cookie(site_auth.json)",
         "get_time" to "获取当前日期时间",
@@ -193,6 +229,21 @@ object LocalEngine {
         fun bool(desc: String): JSONObject = JSONObject().put("type", "boolean").put("description", desc)
 
         return when (name) {
+            "open_browser" -> obj(listOf("url"), "url" to str("要打开的URL(以http开头)或直接填搜索关键词"))
+            "browser_scan" -> obj()
+            "browser_click" -> obj(listOf("index"),
+                "index" to int("要点击的元素索引(0 起, 来自 browser_scan)"))
+            "browser_type" -> obj(listOf("index", "text"),
+                "index" to int("要输入的元素索引(0 起, 来自 browser_scan)"),
+                "text" to str("要输入的文本"))
+            "browser_upload" -> obj(listOf("index", "local"),
+                "index" to int("文件选择框元素索引(0 起, 来自 browser_scan); 扫描不到 file input 时表示页面第 N 个 file input"),
+                "local" to str("要上传的工作目录文件名(Download/DroidAgent_work 下)"))
+            "browser_clear_cache" -> obj(listOf("full"),
+                "full" to bool("true=连登录Cookie一起清除(退出所有网站登录); false=仅清页面缓存(默认)"))
+            "browser_save_cookies" -> obj(listOf("site"),
+                "site" to str("目标域名, 不传则自动取浏览器当前页域名"))
+
             "web_search" -> obj(listOf("q"),
                 "q" to str("搜索关键词"),
                 "max_results" to int("返回结果条数(1-10)", 5))
@@ -847,12 +898,15 @@ object LocalEngine {
             }
             append("\n请在每一轮回复中都切实遵守上述人设: 以该身份的口吻与行为方式回应, 不要脱离设定, 也不要复述本设定本身。\n\n")
         }
-        // 聊天模式: 强制纯文本正文, 禁止 Markdown
-        val mdBan = if (ModeConfig.chatMode())
-            "\n当前为聊天模式: 一律用纯文本自然语言回答, 禁止输出任何 Markdown 标记(如 # 标题、**加粗**、`代码`、- 列表、[链接](url)、表格等), 直接输出正文。" else ""
+        // 聊天模式且关闭 Markdown 时: 强制纯文本正文, 禁止 Markdown(放开 MD 后长文答案自然用 MD 排版, 不再加禁令)
+        val mdBan = if (ModeConfig.chatPlainText())
+            "\n当前为聊天模式: 一律用纯文本自然语言回答, 禁止输出任何 Markdown 标记(如 # 标题、**加粗**、`代码`、- 列表、[链接](url)、表格等), 直接输出正文。"
+        else
+            "\n回答时鼓励使用 Markdown(如 # 标题、- 列表、`代码`、代码块、表格等)增强可读性; 涉及对比或数据时优先用表格呈现。"
         messages.put(JSONObject().put("role", "system").put("content",
             personaBlock +
             "根据用户需求选择工具。工具清单(名称+用途):\n" +
+            "搜索策略(重要·三级)：1) 一般搜索默认先用 web_search 后台静默快查(不打断用户界面)，拿到标题+摘要直接汇报，用户没要求看页面就不要开浏览器展示页；2) 仅当用户明确要\"看页面/看结果页/进某站\"，或 web_search 无有效结果、需要登录态、卡验证码/登录墙时，才升级调用 open_browser 打开全屏浏览器页(用户可见)；3) 浏览器页内遇到验证码/登录墙：不要硬点，停下提示用户点底部\"接管\"按钮手动完成(输验证码/登录)，用户再点\"交还 AI\"后你可继续 browser_* 操作；用户登录成功后调用 browser_save_cookies 把该站点登录 Cookie 存入 site_auth.json，此后 web_fetch/web_download 静默抓取自动带登录态，无需再开浏览器。\n" +
             toolIndex.entries.joinToString("\n") { (n, d) -> "- $n: $d" } +
             buildMcpIndex() +
             "\n可用SSH连接:$sshHint\n" +
@@ -948,6 +1002,13 @@ object LocalEngine {
             "workdir_grep" -> WorkTools.grep(context, arg)
             "workdir_head" -> WorkTools.head(context, arg)
             "workdir_stats" -> WorkTools.stats(context, arg)
+            "open_browser" -> openBrowser(arg)
+            "browser_scan" -> browserScan()
+            "browser_click" -> browserClick(arg)
+            "browser_type" -> browserType(arg)
+            "browser_upload" -> browserUpload(context, arg)
+            "browser_clear_cache" -> browserClearCache(arg)
+            "browser_save_cookies" -> browserSaveCookies(context, arg)
             "web_search" -> WebTools.search(arg)
             "web_fetch" -> WebTools.fetch(context, arg)
             "site_auth" -> WebTools.siteAuth(context, arg)
@@ -964,6 +1025,85 @@ object LocalEngine {
      * 而 calc/memory_search/ssh_run 的旧实现期望裸字符串, 这里抽字段转换;
      * 其余工具旧实现本身吃 JSON 字符串, 原样透传(JSON 与非 JSON 均兼容)。
      */
+    /** open_browser 工具: 解析 url/搜索词参数并回调 MainActivity 打开全屏浏览器页 */
+    private fun openBrowser(argRaw: String): String {
+        var url: String? = null
+        val t = argRaw.trim()
+        if (t.startsWith("{")) {
+            val json = try { org.json.JSONObject(t) } catch (e: Exception) { null }
+            url = json?.optString("url")?.takeIf { it.isNotBlank() }
+        } else if (t.isNotEmpty()) {
+            url = t
+        }
+        // 空参数时返回当前状态, 不误开默认页
+        if (url == null) return "请指定要打开的 URL 或搜索词"
+        val cb = onOpenBrowser
+        if (cb == null) return "浏览器桥接未初始化"
+        cb(url)
+        return "已在全屏浏览器页打开: $url"
+    }
+
+    /** browser_scan 工具: 触发重扫并同步返回当前元素清单 */
+    private fun browserScan(): String {
+        val cb = onBrowserScan ?: return "浏览器桥接未初始化"
+        return cb()
+    }
+
+    /** browser_click 工具: 点击第 index 个元素 */
+    private fun browserClick(argRaw: String): String {
+        val idx = try { JSONObject(argRaw.trim()).optInt("index", -1) } catch (e: Exception) { -1 }
+        if (idx < 0) return "请指定 index(来自 browser_scan 结果)"
+        val cb = onBrowserClick ?: return "浏览器桥接未初始化"
+        return cb(idx)
+    }
+
+    /** browser_type 工具: 向第 index 个元素输入文本 */
+    private fun browserType(argRaw: String): String {
+        val j = try { JSONObject(argRaw.trim()) } catch (e: Exception) { return "参数格式错误" }
+        val idx = j.optInt("index", -1); val text = j.optString("text", "")
+        val cb = onBrowserType ?: return "浏览器桥接未初始化"
+        if (idx < 0) return "请指定 index(来自 browser_scan 结果)"
+        if (text.isBlank()) return "请指定要输入的 text"
+        return cb(idx, text)
+    }
+
+    /** browser_upload 工具: 把工作目录文件注入浏览器页第 N 个 file input(配合 browser_scan 定位); 返回指令结果 */
+    private fun browserUpload(context: Context, argRaw: String): String {
+        val j = try { JSONObject(argRaw.trim()) } catch (e: Exception) { return "参数格式错误" }
+        val idx = j.optInt("index", 0)
+        val local = j.optString("local", "").trim()
+        if (local.isBlank()) return "请指定要上传的工作目录文件名(local)"
+        if (!WorkDir.exists(context, local)) return "工作目录不存在该文件: $local (可先用 workdir_list 查看可上传文件)"
+        val cb = onBrowserUpload ?: return "浏览器桥接未初始化"
+        return cb(idx, local)
+    }
+
+    /** browser_clear_cache 工具: 清浏览器页缓存(+登录Cookie), 交由 MainActivity 主线程执行并返回结果 */
+    private fun browserClearCache(argRaw: String): String {
+        val full = try { JSONObject(argRaw.trim()).optBoolean("full", false) } catch (e: Exception) { false }
+        val cb = onBrowserClear ?: return "浏览器桥接未初始化"
+        return cb(full)
+    }
+
+    /** browser_save_cookies 工具: 把浏览器当前登录 Cookie 回灌进 site_auth.json(供 web_fetch/web_download 静默注入) */
+    private fun browserSaveCookies(context: Context, argRaw: String): String {
+        val site = runCatching { JSONObject(argRaw.trim()).optString("site").trim().ifBlank { null } }.getOrNull()
+        val cb = onBrowserSaveCookies ?: return "浏览器桥接未初始化"
+        val raw = cb(site)
+        if (raw.isBlank()) return "浏览器页未打开或该站点无登录态 Cookie 可取；请先用 open_browser 打开并登录目标站点后再调用"
+        val esc = { s: String -> s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "").replace("\r", "") }
+        return if (site != null) {
+            WebTools.siteAuth(context, "{\"action\":\"set\",\"site\":\"${esc(site)}\",\"cookie\":\"${esc(raw)}\"}")
+        } else {
+            // 未显式指定 site: BrowserPage 约定返回 "域名\tcookie"
+            val idx = raw.indexOf('\t')
+            if (idx <= 0) return "未获取到有效站点信息: $raw"
+            val d = raw.substring(0, idx); val ck = raw.substring(idx + 1)
+            if (ck.isBlank()) return "浏览器当前页($d)无登录态 Cookie; 请先在浏览器页登录该站点"
+            WebTools.siteAuth(context, "{\"action\":\"set\",\"site\":\"${esc(d)}\",\"cookie\":\"${esc(ck)}\"}")
+        }
+    }
+
     private fun normalizeArgs(name: String, argRaw: String): String {
         val t = argRaw.trim()
         if (!t.startsWith("{")) return t  // 已是裸字符串(文本协议兜底路径)

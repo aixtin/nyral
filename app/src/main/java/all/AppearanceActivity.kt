@@ -108,6 +108,14 @@ class AppearanceActivity : Activity() {
             "💬", 15,
             ModeConfig.chatMode()
         ) { on -> ModeConfig.setChatMode(on) })
+        // 聊天模式显示 Markdown 开关
+        cardChat.addView(Ui.divider(this))
+        cardChat.addView(settingsSwitch(
+            getString(R.string.appr_26),
+            getString(R.string.appr_27),
+            "📝", 16,
+            ModeConfig.chatMarkdown()
+        ) { on -> ModeConfig.setChatMarkdown(on) })
         // 聊天背景
         cardChat.addView(Ui.divider(this))
         cardChat.addView(settingsItem(getString(R.string.appr_17), getString(R.string.appr_18), "🎨", 4, {

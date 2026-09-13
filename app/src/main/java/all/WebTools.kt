@@ -24,55 +24,164 @@ object WebTools {
     private const val CONNECT_TIMEOUT = 15000
     private const val READ_TIMEOUT = 30000
     private const val SITE_AUTH_FILE = "site_auth.json"
+    /** site_auth.json 内元信息键(带 __ 前缀, 所有站点遍历均跳过): 最近一次保存时间戳(epoch ms) */
+    private const val SITE_AUTH_META = "__updated_at"
     private val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36"
     // Bing 搜索用桌面 UA: 移动 UA 下 cn.bing.com 返回非标准结构, 无法解析
     private val SEARCH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
     /**
      * 参数: {"q":"搜索关键词","max_results":5}
-     * 返回: Bing 搜索结果(标题+链接+摘要), 最多 max_results 条
+     * 返回: 多引擎网页搜索结果(标题+链接+摘要), 最多 max_results 条。
+     * 引擎优先级: 搜狗移动端 -> 必应RSS -> 必应网页 -> 百度, 单个引擎空结果/被反爬时自动切换下一个。
      */
     fun search(arg: String): String {
         val json = try { JSONObject(arg) } catch (e: Exception) { null }
         val query = json?.optString("q")?.takeIf { it.isNotBlank() } ?: arg.trim()
         val maxResults = (json?.optInt("max_results", 5) ?: 5).coerceIn(1, 10)
         if (query.isBlank()) return "错误: 搜索关键词为空"
-        if (!query.matches(Regex("[\\s\\S]{1,200}"))) return "错误: 关键词过长"
-        // 走必应 RSS 接口(format=rss), 返回标准 XML, 比抓 HTML 页解析更稳定
-        val url = "https://cn.bing.com/search?q=" + URLEncoder.encode(query, "UTF-8") + "&format=rss"
-        return try {
-            val raw = download(url, SEARCH_UA) ?: return "错误: 搜索失败(超时或网络不可用)"
-            parseRssResults(raw, maxResults)
-        } catch (e: Exception) {
-            "错误: ${e.message}"
+        if (query.length > 200) return "错误: 关键词过长"
+
+        val attempts = listOf(
+            "搜狗移动端" to { sogouSearch(query) },
+            "必应RSS" to { bingRssSearch(query) },
+            "必应网页" to { bingHtmlSearch(query) },
+            "百度" to { baiduSearch(query) },
+        )
+        val failures = mutableListOf<String>()
+        for ((name, fn) in attempts) {
+            val hits = try { fn() } catch (e: Exception) { emptyList<SearchHit>() }
+            val effective = hits.take(maxResults)
+            if (effective.isNotEmpty()) {
+                return formatSearchResults("搜索结果来源:【$name】", effective)
+            }
+            failures += name
         }
+        return "未找到搜索结果(已依次尝试: ${failures.joinToString("→")}, 均为空或被拦截)。" +
+                "\n建议换更精确的关键词重试, 或直接 web_fetch 访问百度百科/豆瓣/猫眼等已知站点。"
     }
 
-    /** 解析必应 RSS 结果(标准 <item> 结构: title/link/description) */
-    private fun parseRssResults(xml: String, maxResults: Int): String {
-        val items = Regex("(?is)<item>.*?</item>").findAll(xml).take(maxResults).toList()
-        if (items.isEmpty()) return "未找到搜索结果"
-        val sb = StringBuilder()
-        var idx = 0
-        for (item in items) {
+    private data class SearchHit(val title: String, val link: String, val snippet: String)
+
+    private fun formatSearchResults(tag: String, hits: List<SearchHit>): String {
+        val sb = StringBuilder(tag)
+        hits.forEachIndexed { i, h ->
+            sb.append("\n${i + 1}. ${h.title}\n   ${h.link}\n   ${if (h.snippet.isEmpty()) "(无摘要)" else h.snippet}")
+        }
+        return sb.toString().trim()
+    }
+
+    /** 去除 HTML 标签 + 解码实体 + 挤压空白 */
+    private fun cleanHtml(s: String): String {
+        return s.replace(Regex("<[^>]+>"), " ")
+            .replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<")
+            .replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'")
+            .replace("&apos;", "'").replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun cleanUrl(u: String?): String =
+        (u ?: "").trim().replace("&amp;", "&").replace(Regex("\\s+"), "")
+
+    /** 反爬/验证页特征: 命中任一视为该引擎抓取失败, 交给下一引擎 */
+    private fun blocked(html: String): Boolean =
+        listOf("安全验证", "验证码", "captcha", "请开启JavaScript", "访问过于频繁", "发生错误")
+            .any { html.contains(it, ignoreCase = true) }
+
+    /** 相对链接解析为绝对链接 */
+    private fun toAbs(base: String, href: String): String? {
+        val h = href.trim()
+        if (h.isEmpty()) return null
+        if (h.startsWith("http://") || h.startsWith("https://")) return h
+        if (h.startsWith("//")) return "https:$h"
+        if (h.startsWith("/")) {
+            val root = Regex("^(https?://[^/]+)").find(base)?.groupValues?.get(1) ?: return null
+            return root + h
+        }
+        return null
+    }
+
+    /** 引擎1: 必应 RSS 接口(format=rss), 标准 XML 结构, 最稳定 */
+    private fun bingRssSearch(query: String): List<SearchHit> {
+        val url = "https://cn.bing.com/search?q=" + URLEncoder.encode(query, "UTF-8") + "&format=rss&setlang=zh-cn"
+        val raw = download(url, SEARCH_UA) ?: return emptyList()
+        if (blocked(raw) || !raw.contains("<item")) return emptyList()
+        val out = mutableListOf<SearchHit>()
+        for (item in Regex("(?is)<item>.*?</item>").findAll(raw)) {
             val m = item.value
             val title = Regex("(?is)<title>(.*?)</title>").find(m)?.groupValues?.get(1)
                 ?.replace(Regex("<[^>]+>"), "")?.trim() ?: continue
-            // RSS 里 link 常为必应 ck/a 重定向, description 内嵌真实链接优先取
+            // RSS 里 link 常为必应重定向, description 内嵌真实链接优先取
             val descRaw = Regex("(?is)<description>(.*?)</description>").find(m)?.groupValues?.get(1).orEmpty()
             val realLink = Regex("(?i)href=\"(https?://[^\"]+)\"").find(descRaw)?.groupValues?.get(1)
             val link = realLink ?: Regex("(?is)<link>(.*?)</link>").find(m)?.groupValues?.get(1)?.trim()
-            val snippet = descRaw
-                .replace(Regex("<[^>]+>"), "")
-                .replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<")
-                .replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'")
-                .trim()
-            if (link != null && title.isNotEmpty()) {
-                idx++
-                sb.append("$idx. $title\n   $link\n   $snippet\n")
-            }
+            if (link != null && title.isNotEmpty()) out += SearchHit(title, link, cleanHtml(descRaw))
         }
-        return if (sb.isEmpty()) "未找到可解析的搜索结果" else sb.toString().trim()
+        return out
+    }
+
+    /** 引擎2: 必应网页版, 解析 b_algo 结果块, 对中文冷门词命中率高于 RSS */
+    private fun bingHtmlSearch(query: String): List<SearchHit> {
+        val url = "https://cn.bing.com/search?q=" + URLEncoder.encode(query, "UTF-8") + "&setlang=zh-cn"
+        val raw = download(url, SEARCH_UA) ?: return emptyList()
+        if (blocked(raw)) return emptyList()
+        val out = mutableListOf<SearchHit>()
+        for (block in Regex("(?is)<li class=\"b_algo\".*?</li>").findAll(raw)) {
+            val b = block.value
+            val a = Regex("(?is)<h2[^>]*>\\s*<a[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>").find(b) ?: continue
+            val link = cleanUrl(toAbs(url, a.groupValues[1])).takeIf { it.isNotEmpty() } ?: continue
+            val title = cleanHtml(a.groupValues[2])
+            if (title.isEmpty()) continue
+            val snippet = Regex("(?is)<p[^>]*>(.*?)</p>").find(b)?.groupValues?.get(1).orEmpty()
+            out += SearchHit(title, link, cleanHtml(snippet))
+        }
+        return out
+    }
+
+    /** 引擎3: 百度网页版, 解析 result c-container 结果块, 中文命中率最高但反爬最严 */
+    private fun baiduSearch(query: String): List<SearchHit> {
+        val url = "https://www.baidu.com/s?wd=" + URLEncoder.encode(query, "UTF-8") + "&rn=10"
+        val raw = download(url, SEARCH_UA) ?: return emptyList()
+        if (blocked(raw)) return emptyList()
+        val out = mutableListOf<SearchHit>()
+        for (block in Regex("(?is)<div class=\"result c-container\".*?</div>").findAll(raw)) {
+            val b = block.value
+            val a = Regex("(?is)<h3[^>]*>.*?<a[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>").find(b) ?: continue
+            val link = cleanUrl(toAbs(url, a.groupValues[1])).takeIf { it.isNotEmpty() } ?: continue
+            val title = cleanHtml(a.groupValues[2])
+            if (title.isEmpty()) continue
+            val snippet = Regex("(?is)<(?:span|div)[^>]*class=\"[^\"]*(?:content-right|c-abstract)[^\"]*\"[^>]*>(.*?)</(?:span|div)>")
+                .find(b)?.groupValues?.get(1).orEmpty()
+            out += SearchHit(title, link, cleanHtml(snippet))
+        }
+        return out
+    }
+
+    /** 引擎1: 搜狗移动端 (m.sogou.com), 国内直连稳定、无验证码、无需cookie。
+     *  实测冷门影片名稳定返回 6~10 条相关结果(标题+真实链接+摘要)。
+     *  真实链接藏在 href 的 url= / pcurl= 参数里(URL 编码), 解析失败则用搜狗跳转链接兜底。 */
+    private fun sogouSearch(query: String): List<SearchHit> {
+        val url = "https://m.sogou.com/web/searchList.jsp?keyword=" + URLEncoder.encode(query, "UTF-8")
+        val raw = download(url, SEARCH_UA) ?: return emptyList()
+        if (blocked(raw)) return emptyList()
+        val out = mutableListOf<SearchHit>()
+        val aRe = Regex("(?is)<a class=\"resultLink[^\"]*\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>")
+        for (am in aRe.findAll(raw)) {
+            val href = am.groupValues[1]
+            val title = cleanHtml(am.groupValues[2])
+            if (title.isEmpty() || listOf("大家还在搜", "相关搜索").any { title.contains(it) }) continue
+            // 真实链接藏在 href 的 url= / pcurl= 参数里(URL编码), 解析失败则用搜狗跳转链接
+            val real = Regex("[?&](?:url|pcurl)=([^&]+)").find(href)
+                ?.groupValues?.get(1)?.let {
+                    try { java.net.URLDecoder.decode(it, "UTF-8") } catch (e: Exception) { null }
+                }?.takeIf { it.startsWith("http") }
+                ?: toAbs(url, href) ?: continue
+            // 摘要: 该结果 a 标签之后最近的一个 txt-summary 块
+            val after = raw.substring(am.range.last + 1, minOf(raw.length, am.range.last + 1 + 4000))
+            val snippet = Regex("(?is)class=\"txt-summary[^\"]*\"[^>]*>\\s*<div class=\"[^\"]*\">(.*?)</div>")
+                .find(after)?.groupValues?.get(1)?.let { cleanHtml(it) }.orEmpty()
+            out += SearchHit(title, real, snippet)
+        }
+        return out
     }
 
     /**
@@ -89,12 +198,15 @@ object WebTools {
             return "错误: URL必须以http://或https://开头"
         }
         return try {
-            val raw = download(url, UA, mergeHeaders(context, url, parseHeaders(json)))
+            val headers = mergeHeaders(context, url, parseHeaders(json))
+            val raw = download(url, UA, headers)
                 ?: return "错误: 下载失败(超时或网络不可用)"
             val text = extractText(raw)
             val cleaned = text.replace(Regex("\\s+"), " ").trim()
             if (cleaned.isEmpty()) return "网页无可见文本(可能是JS渲染页面, 建议用浏览器查看)"
-            if (cleaned.length > maxChars) cleaned.substring(0, maxChars) + "\n...[已截断]" else cleaned
+            val body = if (cleaned.length > maxChars) cleaned.substring(0, maxChars) + "\n...[已截断]" else cleaned
+            val hint = loginExpiredHint(context, url, headers, cleaned)
+            if (hint != null) "$body\n\n[提示] $hint" else body
         } catch (e: Exception) {
             "错误: ${e.message}"
         }
@@ -116,10 +228,16 @@ object WebTools {
                 if (auth == null || auth.length() == 0) return "未配置任何站点凭据"
                 val sb = StringBuilder("已配置站点凭据 (site_auth.json):\n")
                 val it = auth.keys()
+                var cnt = 0
                 while (it.hasNext()) {
                     val k = it.next()
+                    if (k.startsWith("__")) continue
+                    cnt++
                     sb.append("- $k: ${maskCookie(auth.optString(k))}\n")
                 }
+                if (cnt == 0) return "未配置任何站点凭据"
+                val ts = auth.optLong(SITE_AUTH_META, 0L)
+                if (ts > 0) sb.append("最近更新: ${formatTs(ts)}\n")
                 return sb.toString().trim()
             }
             "set" -> {
@@ -144,14 +262,53 @@ object WebTools {
         }
     }
 
+    /** 登录态失效特征文本(命中任一即疑似登录页, 仅对 site_auth 已配置域名检测, 避免公开页误报) */
+    private val LOGIN_EXPIRED_HINTS = listOf(
+        "请登录", "请先登录", "请重新登录", "登录后查看", "登录后继续", "登录后可", "登录后即可",
+        "登录过期", "登录已过期", "会话已过期", "登录状态已失效", "登录失效",
+        "please log in", "please sign in", "please login", "login required",
+        "log in to continue", "sign in to continue", "login to continue"
+    )
+
+    /** 时间戳转展示串: "MM-dd HH:mm" */
+    private fun formatTs(ts: Long): String {
+        return try {
+            val df = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+            df.format(java.util.Date(ts))
+        } catch (e: Exception) { ts.toString() }
+    }
+
+    /**
+     * 检测抓取正文是否疑似登录失效页: 仅当该 URL 域名在 site_auth 中配置过(应带登录态) 且实际注入了 Cookie,
+     * 且正文出现登录页特征文本时, 返回提示文案; 否则返回 null。用于登录态过期时引导 AI 走浏览器重登自愈。
+     */
+    private fun loginExpiredHint(context: Context, url: String, headers: Map<String, String>, body: String): String? {
+        val host = runCatching { java.net.URL(url).host }.getOrNull() ?: return null
+        val auth = loadSiteAuth(context) ?: return null
+        var configured = false
+        val it = auth.keys()
+        while (it.hasNext()) {
+            val site = it.next()
+            if (site.startsWith("__")) continue
+            if (host == site || host.endsWith(".$site")) { configured = true; break }
+        }
+        if (!configured) return null
+        val injected = headers.entries.firstOrNull { it.key.equals("Cookie", true) }?.value
+        if (injected.isNullOrBlank()) return null
+        val low = body.lowercase()
+        if (!LOGIN_EXPIRED_HINTS.any { low.contains(it.lowercase()) }) return null
+        return "抓取结果疑似登录失效页(该站点在 site_auth 中配置了登录态): 登录态可能已过期, 建议用 open_browser 打开重新登录后 browser_save_cookies 更新"
+    }
+
     /** 读取工作目录 site_auth.json; 不存在或解析失败返回 null */
     private fun loadSiteAuth(context: Context): JSONObject? {
         val bytes = WorkDir.read(context, SITE_AUTH_FILE) ?: return null
         return try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (e: Exception) { null }
     }
 
-    /** 写入 site_auth.json (保留原文件未覆盖的其它字段) */
+    /** 写入 site_auth.json (保留原文件未覆盖的其它字段); 统一记录最近保存时间戳 */
     private fun saveSiteAuth(context: Context, auth: JSONObject): Boolean {
+        if (auth != null) auth.put(SITE_AUTH_META, System.currentTimeMillis())
         return WorkDir.write(context, SITE_AUTH_FILE, auth.toString().toByteArray(Charsets.UTF_8))
     }
 
@@ -163,6 +320,7 @@ object WebTools {
         val it = auth.keys()
         while (it.hasNext()) {
             val site = it.next()
+            if (site.startsWith("__")) continue
             if (host == site || host.endsWith(".$site")) {
                 val merged = LinkedHashMap(extra)
                 merged["Cookie"] = auth.optString(site)

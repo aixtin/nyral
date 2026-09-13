@@ -305,7 +305,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 }
             }
             val block = b
-            b.view?.let { host.makeCopyable(it) { block.text.toString() } }
+            b.view?.let { host.makeCopyable(it) {
+                val rawB = ModeConfig.stripChatProtocolPrefix(block.text.toString())
+                if (ModeConfig.chatPlainText()) stripMarkdownForChat(rawB) else rawB
+            } }
             addChatBubble(b.view)
             // 记录每段正文真实插入位置, 恢复时按原位渲染(不固定末尾)
             timelineEvents.add(ContentMarker)
@@ -406,8 +409,48 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (b.typeFinishedRender) return
         b.typeFinishedRender = true
         b.typeActive = false
-        b.view?.let { if (ModeConfig.chatMode()) it.text = b.text.toString().trimEnd() else host.markwon.setMarkdown(it, b.text.toString()) }
+        b.view?.let {
+            if (ModeConfig.chatPlainText()) it.text = stripMarkdownForChat(b.text.toString()).trimEnd()
+            else host.markwon.setMarkdown(it, ModeConfig.stripChatProtocolPrefix(b.text.toString()))
+        }
         host.scrollToBottom()
+    }
+
+    /** 聊天模式兜底: 把模型手滑输出的 Markdown 标记剥成纯文本(软约束失效时的硬兜底)。
+     *  仅处理成对/行首的常见 MD 标记, 不误伤正常文本(2*3、外贸价 10-5 等不配对星号不受影响)。 */
+    private fun stripMarkdownForChat(raw: String): String {
+        var s = raw.ifBlank { return raw }
+        // 代码块: 去掉围栏行, 保留内容
+        s = s.replace(Regex("(?s)```[^\\r\\n]*\\r?\\n?(.*?)```"), "$1")
+        // 行内代码: `x` -> x
+        s = s.replace(Regex("`([^`]+)`"), "$1")
+        // 粗斜体/加粗/斜体: ***x*** -> x, **x** -> x, *x* -> x
+        s = s.replace(Regex("\\*\\*\\*(.+?)\\*\\*\\*"), "$1")
+            .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+            .replace(Regex("\\*(.+?)\\*"), "$1")
+        // 删除线: ~~x~~ -> x
+        s = s.replace(Regex("~~(.+?)~~"), "$1")
+        // 图片/链接: ![alt](url) -> alt, [text](url) -> text
+        s = s.replace(Regex("!\\[([^\\]]*)\\]\\([^)]*\\)"), "$1")
+        s = s.replace(Regex("\\[([^\\]]+)\\]\\([^)]*\\)"), "$1")
+        // 标题: 行首 # -> 去掉
+        s = s.replace(Regex("(?m)^\\s*#{1,6}\\s*"), "")
+        // 引用: 行首 > -> 去掉
+        s = s.replace(Regex("(?m)^\\s*>+\\s*"), "")
+        // 无序/有序列表: 行首 - * + 或 1. -> 去掉标记
+        s = s.replace(Regex("(?m)^\\s*(?:[-*+]|\\d{1,3}\\.)\\s+"), "")
+        // 表格分隔行(|---|---|)整行去掉; 竖线 -> 空格, 并清理行尾多余空格
+        s = s.replace(Regex("(?m)^\\s*\\|?\\s*:?-{3,}:?\\s*(?:\\|\\s*:?-{3,}:?\\s*)*\\|?\\s*$"), "")
+        s = s.replace("|", " ")
+        s = s.replace(Regex("(?m)[ \\t]+$"), "")
+        // 协议前缀(全半角)剥离: 正文不应残留 思考/答案/TOOL 前缀(原生tools分支不做行级剥离, 此处渲染兜底)
+        // 思考/TOOL 行整体剔除(思考已由thinking区承载), 答案行仅去前缀保留正文
+        s = s.replace(Regex("(?m)^\\s*思考\\s*[:：].*\\r?\\n?"), "")
+            .replace(Regex("(?m)^\\s*TOOL\\s*[:：].*\\r?\\n?"), "")
+            .replace(Regex("(?m)^\\s*答案\\s*[:：]\\s*"), "")
+        // 压缩多余空行, 保留段落分隔
+        s = s.replace(Regex("\\n{3,}"), "\n\n").trim()
+        return s
     }
 
     fun finishContent() {
@@ -511,8 +554,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             setTextColor(color)
             if (italic) setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC))
             setPadding(0, host.dp(2), 0, host.dp(2))
-            // 自适应上限: 与用户气泡/恢复路径同一宽度基准(屏幕宽*0.78)
-            maxWidth = (host.resources.displayMetrics.widthPixels * 0.78f).toInt()
+            // 自适应上限: 与正文气泡同一基准(Agent=全屏 / 聊天=chatMaxW)
+            maxWidth = host.chatMaxW()
         }
         bubbleBox?.addView(tv)
         // 交互行(点击展开/收起)不能 textIsSelectable: 该模式下首次点击会被文本选择机制吞掉, 需点两次才响应

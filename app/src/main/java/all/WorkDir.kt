@@ -277,6 +277,15 @@ object WorkDir {
         return found
     }
 
+    /** 返回工作目录文件的 MediaStore content uri(不存在返回 null); 供文件 Provider 打开上传文件 */
+    fun publicUri(context: Context, name: String): Uri? {
+        if (!supported()) return null
+        val n = sanitize(name)
+        var uri = findUri(context, n)
+        if (uri == null) { rescan(context); uri = findUri(context, n) }
+        return uri
+    }
+
     /** 文件名清洗: 去路径分隔与非法字符 */
     fun sanitize(name: String): String {
         return name.replace(Regex("[\\\\/:*?\"<>|\n\r]"), "_")

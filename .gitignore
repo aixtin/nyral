@@ -18,3 +18,8 @@ captures/
 # OS
 .DS_Store
 Thumbs.db
+
+# 本地敏感数据与工作目录(含 Cookie 登录态, 严禁提交)
+site_auth.json
+Download/DroidAgent_work/
+workdir/
