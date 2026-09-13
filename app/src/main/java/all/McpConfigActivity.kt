@@ -53,7 +53,7 @@ class McpConfigActivity : Activity() {
 
         content.addView(TextView(this).apply {
             text = getString(R.string.mcp_03) +
-                "示例地址: 本机 http://127.0.0.1:8787/mcp · 局域网 http://192.168.2.132:8787/mcp (MT 管理器)\n" +
+                "示例地址: 本机 http://127.0.0.1:8787/mcp · 局域网 http://192.168.x.x:8787/mcp\n" +
                 getString(R.string.mcp_04)
             textSize = 12f
             setTextColor(0xFF999999.toInt())

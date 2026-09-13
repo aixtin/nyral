@@ -280,7 +280,7 @@
     <string name="appr_13">标题与便签已保存</string>
     <string name="appr_14">聊天</string>
     <string name="appr_15">聊天模式</string>
-    <string name="appr_16">并排头像 · 纯文本正文</string>
+    <string name="appr_16">并排头像 · 支持 Markdown 排版</string>
     <string name="appr_17">聊天背景</string>
     <string name="appr_18">渐变预设 / 自定义图片</string>
     <string name="appr_19">悬浮终端</string>
@@ -290,6 +290,8 @@
     <string name="appr_23">悬浮终端已显示于左上角</string>
     <string name="appr_24">悬浮终端已关闭</string>
     <string name="appr_25">AI 悬浮终端</string>
+    <string name="appr_26">显示 Markdown</string>
+    <string name="appr_27">长文问答按列表/加粗/表格排版 · 关闭则纯文本</string>
     <string name="perm_01">权限管理</string>
     <string name="perm_02">已授权 0 / 0</string>
     <string name="perm_03">部分手机在权限长时间未使用后会自动收回，出现「未授权」项时点击即可补开。</string>

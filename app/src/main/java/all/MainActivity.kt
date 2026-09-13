@@ -95,9 +95,13 @@ import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
 import io.noties.markwon.MarkwonSpansFactory
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
-import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.ext.tables.TableTheme
 import io.noties.markwon.core.MarkwonTheme
 import org.commonmark.node.FencedCodeBlock
+import org.commonmark.node.IndentedCodeBlock
+import io.noties.markwon.SpanFactory
+import io.noties.markwon.RenderProps
+import io.noties.markwon.MarkwonConfiguration
 import org.commonmark.node.Code
 import android.text.style.TypefaceSpan
 
@@ -120,9 +124,25 @@ class MainActivity : Activity() {
                     builder.headingTextSizeMultipliers(floatArrayOf(1.5f, 1.35f, 1.2f, 1.1f, 1.05f, 1.0f))
                     builder.headingTypeface(android.graphics.Typeface.DEFAULT_BOLD)
                 }
+                override fun configureSpansFactory(builder: MarkwonSpansFactory.Builder) {
+                    // 代码块圆角背景 + 选中时淡化背景让系统高亮可见 (替换 markwon 默认直角整行背景)
+                    val codeBlockFactory = object : SpanFactory {
+                        override fun getSpans(configuration: MarkwonConfiguration, props: RenderProps): Any? {
+                            return RoundedCodeBlockSpan(configuration.theme(), resources.displayMetrics.density)
+                        }
+                    }
+                    builder.setFactory(FencedCodeBlock::class.java, codeBlockFactory)
+                    builder.setFactory(IndentedCodeBlock::class.java, codeBlockFactory)
+                }
             })
             .usePlugin(StrikethroughPlugin.create())
-            .usePlugin(TablePlugin.create(this))
+            .usePlugin(RoundedTablePlugin.create(TableTheme.buildWithDefaults(this)
+                    .tableCellPadding((10 * resources.displayMetrics.density).toInt())
+                    .tableBorderWidth((1 * resources.displayMetrics.density).toInt())
+                    .tableBorderColor(0xFF9CA3AF.toInt())
+                    .tableHeaderRowBackgroundColor(0xFFDEE3EA.toInt())
+                    .tableOddRowBackgroundColor(0xFFF3F4F6.toInt())
+                    .build(), resources.displayMetrics.density))
             .build()
     }
     // role, content, thinking(assistant 思考内容, 持久化到会话以便切回时恢复思考区), tools(工具调用序列 JSON)
@@ -142,6 +162,7 @@ class MainActivity : Activity() {
     private var lastAvatarStamp = 0L
     private lateinit var chatBox: LinearLayout
     private lateinit var scroll: ScrollView
+    private var scrollUserScrolled = false   // 用户手动上翻后不再自动拉底(不打扰阅读)
     private lateinit var root: FrameLayout
     // 独立固定全屏背景层: 壁纸/渐变背景挂此层(不随键盘压缩上移), root 为透明壳
     private lateinit var bgLayer: FrameLayout
@@ -150,6 +171,7 @@ class MainActivity : Activity() {
     private lateinit var input: EditText
     internal lateinit var modelBtn: Button
     internal lateinit var attachBtn: Button
+    private lateinit var attachBtn2: Button   // 槽A(语音槽内)的附件按钮, 输入文字时显示
     private lateinit var attachWrap: FrameLayout
     // 附件预览条: 选中附件先进入输入框上方预览, 补文字后一并发送(仿主流IM)
     internal lateinit var attachPreviewWrap: HorizontalScrollView
@@ -232,6 +254,12 @@ class MainActivity : Activity() {
     private lateinit var swipeDetector: GestureDetector
     /** 抽屉跟手拖拽控制器(微信式): root 拦截水平边缘/遮罩手势, 1:1 跟随 + 抬手吸附 */
     private lateinit var drawerDrag: DrawerDragController
+    /** 右侧整屏浏览器操作页(自研 Agent 浏览器雏形): 全屏 WebView + AI 状态条/高亮圈/思考摘要 */
+    internal lateinit var browserPage: BrowserPage
+    private val autoSavedHinted = java.util.HashSet<String>()
+    fun browserPageReady(): Boolean = ::browserPage.isInitialized
+    /** 浏览器页右侧跟手滑入控制器(镜像抽屉): 右缘左滑整页推入, 左缘右滑/✕/返回键推回 */
+    private lateinit var browserSlide: BrowserSlideController
     private var summary: String? = null
     internal lateinit var db: MemoryDb
     internal var aiBusy = false
@@ -366,6 +394,29 @@ class MainActivity : Activity() {
 
         // 抽屉跟手拖拽: root 拦截水平边缘/遮罩手势, 1:1 跟随 + 抬手吸附(替代旧 fling 固定动画)
         drawerDrag = DrawerDragController(this)
+        // 右侧整屏浏览器页 + 右缘滑入控制器
+        browserPage = BrowserPage(this)
+        browserSlide = BrowserSlideController(this)
+        // AI open_browser 工具桥接: 主线程打开全屏浏览器页
+        LocalEngine.onOpenBrowser = { url -> runOnUiThread { browserPage.open(url) } }
+        LocalEngine.onBrowserScan = { runOnUiThread { browserPage.scan() }; browserPage.elementsSnapshot().toString() }
+        LocalEngine.onBrowserClick = { i -> browserPage.clickIndex(i) }
+        LocalEngine.onBrowserType = { i, t -> browserPage.typeIndex(i, t) }
+        LocalEngine.onBrowserUpload = { i, local -> browserPage.uploadIndex(i, local) }
+        LocalEngine.onBrowserClear = { full -> browserPage.clearCacheForAi(full) }
+        LocalEngine.onBrowserSaveCookies = { site -> browserPage.cookieStringFor(site) }
+        // 自动落盘: 页面加载后检测到当前域 Cookie 变化即写入 site_auth.json(浏览器登录一次, 静默通道自动带登录态)
+        browserPage.autoSaveCookie = { host, cookie ->
+            val ok = runCatching {
+                val jo = org.json.JSONObject()
+                    .put("action", "set").put("site", host).put("cookie", cookie)
+                WebTools.siteAuth(this, jo.toString())
+            }.getOrNull()?.contains("已保存") == true
+            if (ok && autoSavedHinted.add(host)) {
+                Toast.makeText(this, "已自动保存 $host 登录态(site_auth)", Toast.LENGTH_SHORT).show()
+            }
+        }
+
 
         swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
@@ -374,7 +425,7 @@ class MainActivity : Activity() {
                 val dy = e2.y - (e1?.y ?: e2.y)
                 if (abs(dx) > abs(dy) * 1.5f && abs(dx) > dp(60).toFloat() && abs(velocityX) > 500f) {
                     if (dx < 0 && drawerOpen) closeDrawer()
-                    else if (dx > 0 && !drawerOpen) openDrawer()
+                    else if (dx > 0 && !drawerOpen && !browserPage.open) openDrawer()
                     return true
                 }
                 return false
@@ -383,10 +434,12 @@ class MainActivity : Activity() {
 
         root = object : FrameLayout(this) {
             override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+                if (browserSlide.onIntercept(ev)) return true
                 if (drawerDrag.onIntercept(ev)) return true
                 return super.onInterceptTouchEvent(ev)
             }
             override fun onTouchEvent(ev: MotionEvent): Boolean {
+                if (browserSlide.onTouch(ev)) return true
                 if (drawerDrag.onTouch(ev)) return true
                 return super.onTouchEvent(ev)
             }
@@ -465,6 +518,11 @@ class MainActivity : Activity() {
         scroll = ScrollView(this).apply {
             addView(chatBox)
             isFillViewport = true
+            // 用户一旦手动滑动(上翻阅读), 标记后不再被自动滚动打断
+            setOnTouchListener { _, ev ->
+                if (ev.actionMasked == MotionEvent.ACTION_DOWN) scrollUserScrolled = true
+                false
+            }
         }
         applyChatBackground()
         // 内容容器: scroll+inputBar 整体, 键盘弹出时高度动画缩小 = 消息+输入框上移, 标题栏与背景不动(同微信)
@@ -496,7 +554,6 @@ class MainActivity : Activity() {
         }
         input = EditText(this).apply {
             var enterHandled = false
-            var inTextFix = false
             hint = getString(R.string.ma_hint_input)
             textSize = 15f
             // 显式声明多行文本类型: 未设 MULTI_LINE 时部分输入法会错误地把回车按两次插入
@@ -553,22 +610,9 @@ class MainActivity : Activity() {
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun afterTextChanged(s: Editable?) {
-                    // 兜底: 部分输入法经 commitText 注入(不过 KeyEvent), 连续换行 \n\n 归一为单个 \n
-                    if (!inTextFix && s != null && s.indexOf("\n\n") >= 0) {
-                        inTextFix = true
-                        var i = 0
-                        while (i < s.length - 1) {
-                            if (s[i] == '\n' && s[i + 1] == '\n') {
-                                s.delete(i + 1, i + 2)
-                            } else {
-                                i++
-                            }
-                        }
-                        inTextFix = false
-                    }
-                    updateInputMode()
-                }
+                // 曾在此把 \n\n 归一为单个 \n 兜底"输入法双行"——但会吞掉用户刻意连续换行/空行分段，
+                // 导致回车只能换一行; 现 MULTI_LINE 输入类型 + Enter 深度拦截已防双行, 删除归一以支持自由多行
+                override fun afterTextChanged(s: Editable?) { updateInputMode() }
             })
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -616,9 +660,11 @@ class MainActivity : Activity() {
         }
         inputArea.addView(speakBar)
         // 录音入口(麦克风): 点击在 麦克风图标(文字输入) 与 键盘图标(语音模式) 间切换
+        // 槽A: 固定 36dp, 与槽B(attachWrap)共同保证输入框左右宽距恒定
+        // 无字→语音按钮; 输入文字→切换为附件按钮(原地替换, 不移动)
         val micWrap = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                dp(36), ViewGroup.LayoutParams.MATCH_PARENT).apply {
                 marginStart = dp(8)
             }
         }
@@ -630,7 +676,6 @@ class MainActivity : Activity() {
             minWidth = 0
             setPadding(0, 0, 0, 0)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
-                marginEnd = dp(4)
                 // 底边距由下方 onGlobalLayout 统一精确计算, 此处只给初始占位值
                 bottomMargin = dp(10)
             }
@@ -639,11 +684,28 @@ class MainActivity : Activity() {
             setOnClickListener { toggleVoiceMode() }
         }
         micWrap.addView(micBtn)
+        attachBtn2 = Button(this).apply {
+            text = ""
+            background = attachIconBg(resources.displayMetrics.density)
+            isAllCaps = false
+            minHeight = 0
+            minWidth = 0
+            setPadding(0, 0, 0, 0)
+            layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
+                bottomMargin = dp(10)
+            }
+            // 默认隐藏: 输入文字后由 updateInputMode 切换为显示(语音槽让位给附件)
+            visibility = View.GONE
+            setOnClickListener { showAttachSheet() }
+        }
+        micWrap.addView(attachBtn2)
         inputBar.addView(micWrap)
         // 附件入口(+): 输入框与发送按钮之间, 点击弹出相册/文件/音频
         attachWrap = FrameLayout(this).apply {
+            // 固定 36dp 槽位: 附件/发送/停止 三按钮叠放共用此位置, 原地替换内容,
+            // 输入框左右宽距与按钮位置全程恒定, 不再随文字状态跳动
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                dp(36), ViewGroup.LayoutParams.MATCH_PARENT).apply {
                 marginStart = dp(8)
             }
         }
@@ -655,64 +717,48 @@ class MainActivity : Activity() {
             minWidth = 0
             setPadding(0, 0, 0, 0)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
-                marginEnd = dp(4)
                 // 底边距由 onGlobalLayout 统一计算, 此处只给初始占位值
                 bottomMargin = dp(10)
             }
             setOnClickListener { showAttachSheet() }
         }
         attachWrap.addView(attachBtn)
-        inputBar.addView(attachWrap)
-        // 按钮容器: 高度跟随输入框, 按钮自身 layout_gravity=BOTTOM 钉死在右下角
-        // 容器跟随输入区高度; 按钮用layout_gravity=BOTTOM+marginBottom=10dp钉死:
-        // 单行时与输入框居中, 多行时相对屏幕底部位置不变(不会跑到右上角)
-        val btnWrap = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
         sendBtn = Button(this).apply {
             text = getString(R.string.ma_send)
             textSize = 13f
             isAllCaps = false
-            // 取消系统默认 minHeight(48dp)/minWidth, 否则气泡被撑大
             minHeight = 0
             minWidth = 0
             setTextColor(Color.WHITE)
             background = rounded(dp(16), Color.parseColor("#0B93F6"))
             setPadding(dp(2), dp(5), dp(2), dp(5))
-            // 显式固定宽高(宽度砍至约 3/4, 不再随文字撑宽); 相对底部10dp: 单行与输入框居中, 多行时位置不变
-            layoutParams = FrameLayout.LayoutParams(
-                dp(44), dp(36), Gravity.BOTTOM).apply {
-                marginStart = dp(4)
+            layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 bottomMargin = dp(10)
             }
-            // 默认隐藏发送按钮, 输入文字时切换显示 (见 updateInputMode)
+            // 默认隐藏发送按钮, 输入文字时切换显示 (见 updateInputMode); 与附件按钮原地替换
             visibility = View.GONE
             setOnClickListener { onSend() }
             Ui.press(this)
         }
-        btnWrap.addView(sendBtn)
+        attachWrap.addView(sendBtn)
         stopBtn = Button(this).apply {
-            text = "■ 停止"
+            text = "■"
             textSize = 13f
             isAllCaps = false
-            // 取消系统默认 minHeight(48dp)/minWidth
             minHeight = 0
             minWidth = 0
             setTextColor(Color.WHITE)
-            background = rounded(dp(16), Color.parseColor("#E5484D"))
-            setPadding(dp(2), dp(5), dp(2), dp(5))
+            background = rounded(dp(18), Color.parseColor("#E5484D"))
+            setPadding(0, 0, 0, 0)
             visibility = View.GONE
-            // 显式固定高度, 与发送按钮一致, 同样相对底部固定
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36), Gravity.BOTTOM).apply {
-                marginStart = dp(4)
+            // 固定 36dp, 与附件/发送同槽位叠放
+            layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 bottomMargin = dp(10)
             }
             setOnClickListener {
                 LocalEngine.requestCancel()
                 stopBtn.isEnabled = false
-                stopBtn.text = getString(R.string.ma_stopping)
+                stopBtn.text = "…"
                 stopSpinAnim?.cancel()
                 android.util.Log.i("agent", "stop clicked, cancelRequested=${LocalEngine.cancelRequested}")
             }
@@ -720,8 +766,8 @@ class MainActivity : Activity() {
         }
         stopSpin = ArcRingDrawable(dp(16), dp(3), Color.WHITE)
         stopBtn.setCompoundDrawablesWithIntrinsicBounds(stopSpin, null, null, null)
-        btnWrap.addView(stopBtn)
-        inputBar.addView(btnWrap)
+        attachWrap.addView(stopBtn)
+        inputBar.addView(attachWrap)
         bodyWrap.addView(inputBar)
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -755,6 +801,20 @@ class MainActivity : Activity() {
             resources.displayMetrics.widthPixels / 2,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.END))
+        // 右侧整屏浏览器操作页: 挂 root 最上层(Gravity.END), 右缘左滑整页推入
+        root.addView(browserPage.root, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
+        // 右缘也注册系统手势排除区: 避免手势导航把"右缘左滑"误判为系统返回, 与左缘抽屉同策略
+        if (Build.VERSION.SDK_INT >= 29) {
+            browserPage.root.addOnLayoutChangeListener { _, l, _, r, b, _, _, _, _ ->
+                if (browserPage.root.isAttachedToWindow && r - l > 0 && b > 0) {
+                    try {
+                        browserPage.root.setSystemGestureExclusionRects(listOf(
+                            android.graphics.Rect(r - l - dp(72), 0, r - l, b)))
+                    } catch (_: Exception) {}
+                }
+            }
+        }
         setContentView(root)
         // 全面屏手势导航(Android10+): 左边缘横滑默认是系统"返回", 会抢走抽屉跟手手势。
         // 学 AndroidX DrawerLayout / QQ 侧边栏: 把整块抽屉区域(左缘 0..280dp 宽, 全屏高)声明为系统手势排除区,
@@ -802,6 +862,7 @@ class MainActivity : Activity() {
                     }
                     setMargin(modelBtn)
                     setMargin(micBtn)
+                    setMargin(attachBtn2)
                     setMargin(attachBtn)
                     setMargin(sendBtn)
                     setMargin(stopBtn)
@@ -1178,6 +1239,10 @@ class MainActivity : Activity() {
 
 
     override fun onBackPressed() {
+        if (browserPage.open) {
+            if (!browserPage.goBack()) browserPage.close()
+            return
+        }
         if (drawerOpen) {
             closeDrawer()
             return
@@ -1197,7 +1262,31 @@ class MainActivity : Activity() {
     private fun currentModelSupportsVoice(): Boolean =
         ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_AUDIO)
 
-    /** 刷新语音切换按钮显隐: 仅当当前模型支持语音时展示; 不支持时隐藏并强制退回文字输入 */
+    /** 统一刷新底栏三形态布局(槽位固定/输入框左右宽距恒不动):
+     * 支持语音模型: 无字→槽A=语音 槽B=附件(+); 有字→槽A=附件(+) 槽B=发送
+     * 不支持语音模型: 无论有无文字→槽A=附件(+) 槽B=发送 (语音槽由附件接管, 不留空白)
+     * AI输出/语音模式期间不切换 */
+    private fun applyInputMode() {
+        if (aiBusy || voiceMode) return
+        val hasText = input.text.isNotBlank()
+        if (!currentModelSupportsVoice()) {
+            // 不支持语音: 恒为 [附件(槽A)][发送(槽B)]
+            micBtn.visibility = View.GONE
+            attachBtn2.visibility = View.VISIBLE
+            attachBtn.visibility = View.GONE
+            sendBtn.visibility = View.VISIBLE
+            return
+        }
+        // 槽A(micWrap): 有字→附件按钮; 无字→让语音按钮显示
+        attachBtn2.visibility = if (hasText) View.VISIBLE else View.GONE
+        // 槽B(attachWrap): 有字→发送; 无字→附件按钮
+        attachBtn.visibility = if (hasText) View.GONE else View.VISIBLE
+        sendBtn.visibility = if (hasText) View.VISIBLE else View.GONE
+        // 有字时语音按钮 INVISIBLE 占位防槽塌陷(槽A由附件按钮接管), 无字显示
+        micBtn.visibility = if (hasText) View.INVISIBLE else View.VISIBLE
+    }
+
+    /** 刷新语音切换按钮及底栏: 仅当当前模型支持语音时展示语音; 不支持时隐藏并强制退回文字输入 */
     internal fun refreshVoiceButton() {
         if (!currentModelSupportsVoice()) {
             if (voiceMode) {
@@ -1205,25 +1294,14 @@ class MainActivity : Activity() {
                 input.visibility = View.VISIBLE
                 speakBar.visibility = View.GONE
                 micBtn.background = micIconBg(false, density = resources.displayMetrics.density)
-                sendBtn.visibility = if (input.text.isNotBlank()) View.VISIBLE else View.GONE
             }
-            micBtn.visibility = View.GONE
-        } else {
-            micBtn.visibility = if (input.text.isNotBlank()) View.GONE else View.VISIBLE
         }
+        applyInputMode()
     }
 
-    /** 底栏交互: 输入框有文字→隐藏麦克风显示发送按钮; 空→恢复麦克风. AI输出/语音模式期间不切换 */
+    /** 底栏交互入口: 输入框文字变化时刷新三形态布局 */
     private fun updateInputMode() {
-        if (aiBusy || voiceMode) return
-        val hasText = input.text.isNotBlank()
-        // 麦克风按钮仅在当前模型支持语音时展示
-        micBtn.visibility = if (hasText || !currentModelSupportsVoice()) View.GONE else View.VISIBLE
-        sendBtn.visibility = if (hasText) View.VISIBLE else View.GONE
-        // 附件按钮(+): 输入文字时向左移 10px(远离发送按钮), 空输入恢复默认间距
-        val am = attachWrap.layoutParams as LinearLayout.LayoutParams
-        am.marginStart = if (hasText) dp(8) - 10 else dp(8)
-        attachWrap.layoutParams = am
+        applyInputMode()
     }
 
     private fun doSend(attachments: List<LocalEngine.Attachment>) {
@@ -1344,10 +1422,11 @@ class MainActivity : Activity() {
         val history = if (docTexts.isBlank()) buildHistory() else buildHistory() + "\n$docTexts\n"
         aiBusy = true
         replySessionId = currentSessionId  // 快照: 回调回来时若已切会话, 拒绝写入
+        attachBtn2.visibility = View.GONE
+        attachBtn.visibility = View.GONE
         sendBtn.visibility = View.GONE
         stopBtn.visibility = View.VISIBLE
         stopBtn.isEnabled = true
-        stopBtn.text = getString(R.string.ma_stop)
         startStopSpin()
         executor.execute {
             val holder = AiBubbleHolder(this@MainActivity)
@@ -1524,9 +1603,12 @@ class MainActivity : Activity() {
     /** 生成一条消息气泡 View (用户右深色 / AI 左浅色) */
     private fun bubble(content: String, isUser: Boolean): View {
         val maxW = chatMaxW()
+        // Agent 模式用户右气泡最大宽=chatBox内容宽(屏宽-左右padding 12dp*2), 与AI同为全屏幅宽且左右对称;
+        // 不可用全屏w: 全屏w+END右对齐且可用区<气泡宽时左边缘偏移为负→左边越出屏幕
+        val userMaxW = if (ModeConfig.chatMode()) maxW else (maxW - dp(24)).coerceAtLeast(dp(120))
         // 接收端气泡循环播放管线: 纯视频单附件消息 -> 气泡内嵌 PlayerView 自动循环播放(动图/多帧媒体
         // 播放完一次自动重播 loop), 对齐微信"大动图循环视频"; 非纯视频/异常回退原缩略图渲染
-        val loopView = try { videoLoopBubble(content, isUser, maxW) } catch (e: Exception) { null }
+        val loopView = try { videoLoopBubble(content, isUser, if (isUser) userMaxW else maxW) } catch (e: Exception) { null }
         if (loopView != null) return loopView
         // 纯图片附件消息: 贴边不留白; 纯文件/上传音频保留正常内边距(文件卡片角标+文件名需留白)
         val pureImage = isUser && content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
@@ -1551,8 +1633,8 @@ class MainActivity : Activity() {
                         try { text = renderUserContent(content) } catch (_: Throwable) {}
                     }
                 }
-            } else if (ModeConfig.chatMode()) text = content.trim()
-            else markwon.setMarkdown(this, content.trim())
+            } else if (ModeConfig.chatPlainText()) text = ModeConfig.stripChatProtocolPrefix(content.trim())
+            else markwon.setMarkdown(this, ModeConfig.stripChatProtocolPrefix(content.trim()))
             textSize = 15f
             val edgeImage = pureImage || pureVideo
             setLineSpacing(if (edgeImage) 0f else dp(3).toFloat(), 1f)
@@ -1572,7 +1654,7 @@ class MainActivity : Activity() {
             }
             // 纯图/纯视频气泡: 背景改透明, 气泡形态完全由图片圆角(dp14)体现, 彻底消除四角蓝色边线
             background = if (edgeImage) null else rounded(dp(14), if (isUser) BUBBLE_USER else BUBBLE_AI)
-            maxWidth = maxW
+            maxWidth = if (isUser) userMaxW else maxW
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 // 用户气泡>60字符固定宽, 短文本自适应; 文件卡片始终自适应(由 maxWidth 负责超宽省略);
@@ -1581,7 +1663,7 @@ class MainActivity : Activity() {
                 // 否则长文件名(content>60)触发 maxW 固定宽, 图片 span 在 TextView 内默认左对齐,
                 // 整个图片气泡会被推到屏幕左侧(右对齐被固定宽度架空)
                 width = when {
-                    isUser && content.length > 60 && !isFileCard && !edgeImage -> maxW
+                    isUser && content.length > 60 && !isFileCard && !edgeImage -> userMaxW
                     else -> ViewGroup.LayoutParams.WRAP_CONTENT
                 }
                 gravity = if (isUser) Gravity.END else Gravity.START
@@ -1886,11 +1968,12 @@ class MainActivity : Activity() {
         // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致
         fun contentRow(): TextView = TextView(this@MainActivity).apply {
             textSize = 15f
-            if (ModeConfig.chatMode()) {
-                text = content.trimEnd()
+            val renderContent = ModeConfig.stripChatProtocolPrefix(content)
+            if (ModeConfig.chatPlainText()) {
+                text = renderContent.trimEnd()
             } else {
                 // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                markwon.setMarkdown(this, content)
+                markwon.setMarkdown(this, renderContent)
             }
             setLineSpacing(dp(3).toFloat(), 1f)
             setTextColor(BUBBLE_AI_TEXT)
@@ -1989,16 +2072,42 @@ class MainActivity : Activity() {
         // 导致发送后焦点被气泡抢走、输入框失焦无法继续打字。改用 scrollTo 纯滚动不碰焦点。
         // 时序修正: setText 后立即 post 滚动会读到旧高度, 布局完成高度变化后再滚到新位置, 来回交错造成"变长又缩回"抖动;
         // 改为布局完成后(OnGlobalLayout)再滚动, 一次到位; 同帧多次调用合并, 避免 post 堆积。
+        // 兜底: 冷启动恢复会话时若 ScrollView 此刻无待布局事件, OnGlobalLayout 不触发(无 dirty),
+        // 气泡渲染完也不滚动 → 重启后停在历史顶部; 故延时后直接落底, 保证"重启后停在最新消息"。
         if (scrollPending) return
         scrollPending = true
         val v = scroll
+        val h = android.os.Handler(Looper.getMainLooper())
+        var lastBottom = -1
+        // 瞬移落底(无动画): 仅在布局回调内/首帧绘制前执行, 用户看不到顶部, 无"蹦"的跳变
+        fun snap() {
+            val child = v.getChildAt(0) ?: return
+            lastBottom = child.bottom
+            val maxY = (child.bottom - v.height).coerceAtLeast(0)
+            if (maxY != v.scrollY) v.scrollTo(0, maxY)
+        }
+        // 平滑修正(有动画): 渲染分帧导致底部高度后移时温和滚过去, 避免硬跳;
+        // 高度无变化或用户已手动滑动则不再干预
+        fun ease() {
+            val child = v.getChildAt(0) ?: return
+            if (child.bottom == lastBottom) { if (scrollPending) scrollPending = false; return }
+            lastBottom = child.bottom
+            if (scrollUserScrolled) { if (scrollPending) scrollPending = false; return }
+            val maxY = (child.bottom - v.height).coerceAtLeast(0)
+            if (maxY != v.scrollY) v.smoothScrollTo(0, maxY)
+        }
         v.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 v.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                scrollPending = false
-                v.scrollTo(0, v.getChildAt(0)?.bottom ?: 0)
+                if (scrollPending) { scrollPending = false; snap() }
             }
         })
+        // 首帧兜底 + 多档平滑兜底: 冷启动恢复会话若 OnGlobalLayout 未触发或无 dirty,
+        // 由 post/smooth 依次温和落底, 保证"重启后停在最新消息"且无瞬跳感
+        v.post { snap() }
+        h.postDelayed({ ease() }, 250)
+        h.postDelayed({ ease() }, 700)
+        h.postDelayed({ ease() }, 1500)
     }
 
     /** 展开/收起气泡时保持当前阅读位置: 记录某 view 顶部相对视口的偏移, 布局变化后恢复滚动, 避免 ScrollView 内容高度骤变被 clamp 回底部 */
@@ -2011,10 +2120,46 @@ class MainActivity : Activity() {
         }
     }
 
-    /** 气泡文本支持自由选择复制: 长按出现选择手柄, 可拖选部分文本; 顶部菜单含 全选/复制 */
+    /** 长按进入"原文本模式": 弹窗展示该条消息的原始文本, 在该模式下自由选择/复制全文或片段 */
     internal fun makeCopyable(tv: TextView, textProvider: () -> String = { tv.text.toString() }) {
-        tv.setTextIsSelectable(true)
-        // 不拦截长按: 交给系统进入文本选择模式, 支持拖动手柄自由复制任意片段
+        // 拦截长按, 进入原文本模式(不启用系统文本选择, 避免两套交互冲突)
+        tv.setOnLongClickListener {
+            openRawText(textProvider())
+            true
+        }
+    }
+
+    /** "原文本模式"对话框: 只读展示原始文本, 支持长按/手柄自由选择复制片段 */
+    internal fun openRawText(text: String) {
+        val tv = TextView(this).apply {
+            this.text = text
+            textSize = 14f
+            setTextColor(0xFF1F2328.toInt())
+            setTextIsSelectable(true)
+            setHighlightColor(0x6633B5E5)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            typeface = Typeface.MONOSPACE
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        val bg = GradientDrawable().apply {
+            cornerRadius = dp(16).toFloat()
+            setColor(0xFFFAFAFA.toInt())
+        }
+        val scroll = ScrollView(this).apply {
+            background = bg
+            addView(tv)
+        }
+        val d = Dialog(this)
+        d.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        d.setContentView(scroll)
+        d.window?.apply {
+            setBackgroundDrawable(ColorDrawable(0))
+            setLayout(
+                (resources.displayMetrics.widthPixels * 0.92f).toInt(),
+                (resources.displayMetrics.heightPixels * 0.7f).toInt())
+        }
+        d.show()
     }
 
     /** 切换语音模式: 胶囊 折叠(仅麦克风图标,无背景) <-> 向左果冻展开("按住 说话"胶囊+键盘图标); 录音中禁止切换; 不支持语音禁止进入 */
@@ -2308,6 +2453,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         uiScope.cancel()
+        if (::browserPage.isInitialized) browserPage.destroy()
         // 调试服务随 Activity 销毁关闭, 并清引用避免泄漏
         DebugServer.stop()
         DebugServer.detach(this)
@@ -2380,7 +2526,8 @@ class MainActivity : Activity() {
     /** 气泡最大宽度: 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐); Agent 模式=屏幕*0.78(原样) */
     internal fun chatMaxW(): Int {
         val w = resources.displayMetrics.widthPixels
-        return if (ModeConfig.chatMode()) (w - dp(120)).coerceAtLeast(dp(100)) else (w * 0.78f).toInt()
+        // Agent 模式=全屏宽; 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐)
+        return if (ModeConfig.chatMode()) (w - dp(120)).coerceAtLeast(dp(100)) else w
     }
 
     /** 停止按钮加载环: 无限旋转(0->360度), 驱动 RotateDrawable 的 level */

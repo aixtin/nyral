@@ -15,6 +15,7 @@ import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -227,6 +228,18 @@ object DebugServer {
                 method == "POST" && path == "/v1/mem/search" -> memSearch(c, out, body)
                 method == "POST" && path == "/v1/chat" -> chat(c, out, body)
                 method == "GET" && path == "/v1/ping" -> writeJson(out, 200, JSONObject().put("pong", true).put("time", System.currentTimeMillis()))
+                // 浏览器页调试(完整闭环: 状态快照 / open / close / status / think / scan / highlight / click / type)
+                method == "GET" && path == "/v1/browser" -> writeJson(out, 200, browserJson())
+                method == "POST" && path == "/v1/browser/open" -> browserOpen(out, body)
+                method == "POST" && path == "/v1/browser/close" -> browserCmd(out, body) { p, _ -> p.close() }
+                method == "POST" && path == "/v1/browser/status" -> browserCmd(out, body) { p, s -> p.setStatus(s) }
+                method == "POST" && path == "/v1/browser/think" -> browserCmd(out, body) { p, s -> p.setThink(s) }
+                method == "POST" && path == "/v1/browser/scan" -> browserCmd(out, body) { p, _ -> p.scan() }
+                method == "POST" && path == "/v1/browser/highlight" -> browserHighlight(out, body)
+                method == "POST" && path == "/v1/browser/highlight/xy" -> browserHighlightXY(out, body)
+                method == "POST" && path == "/v1/browser/click" -> browserClick(out, body)
+                method == "POST" && path == "/v1/browser/type" -> browserType(out, body)
+                method == "POST" && path == "/v1/browser/eval" -> browserEval(out, body)
                 else -> writeJson(out, 404, JSONObject().put("error", "not found"))
             }
         } catch (e: Exception) {
@@ -401,6 +414,126 @@ object DebugServer {
         }
         val result = MemoryTools.search(c, q)
         writeJson(out, 200, JSONObject().put("query", q).put("result", result))
+    }
+
+    // ================= /v1/browser (浏览器页调试闭环) =================
+    private fun browserJson(): JSONObject {
+        val act = main ?: return JSONObject().put("ok", false).put("error", "MainActivity not alive")
+        var url = ""; var open = false; var count = 0; var highlighted = -1
+        val elements = JSONArray()
+        val latch = CountDownLatch(1)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) {
+                val p = act.browserPage
+                url = p.currentUrl; open = p.open; count = p.elementCount; highlighted = p.highlightedIndex
+                for (m in p.elementsSnapshot()) {
+                    val o = JSONObject()
+                    for ((k, v) in m) o.put(k, v)
+                    elements.put(o)
+                }
+            }
+            latch.countDown()
+        }
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        return JSONObject().put("ok", true)
+            .put("open", open).put("url", url)
+            .put("count", count).put("highlighted", highlighted)
+            .put("elements", elements)
+    }
+
+    private fun browserOpen(out: OutputStream, body: String) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val url = try { JSONObject(body).optString("url", "") } catch (e: Exception) { "" }
+        val latch = CountDownLatch(1)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) act.browserPage.open(url.ifBlank { null })
+            latch.countDown()
+        }
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        writeJson(out, 200, JSONObject().put("ok", true).put("open", true).put("url", url))
+    }
+
+    private fun browserCmd(out: OutputStream, body: String, op: (BrowserPage, String) -> Unit) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val v = try { if (body.isBlank()) "" else JSONObject(body).let { it.optString("status", it.optString("think", "")) } } catch (e: Exception) { "" }
+        val latch = CountDownLatch(1)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) op(act.browserPage, v)
+            latch.countDown()
+        }
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        writeJson(out, 200, JSONObject().put("ok", true))
+    }
+
+    private fun browserHighlight(out: OutputStream, body: String) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val idx = try { JSONObject(body).optInt("index", -1) } catch (e: Exception) { -1 }
+        val latch = CountDownLatch(1); var msg = ""
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) {
+                val p = act.browserPage
+                msg = when {
+                    p.elementCount == 0 -> "页面暂无元素"
+                    idx < 0 || idx >= p.elementCount -> "索引 $idx 越界(共 ${p.elementCount} 个)"
+                    else -> { p.highlightIndex(idx); "已高亮 $idx" }
+                }
+            } else msg = "浏览器页未初始化"
+            latch.countDown()
+        }
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
+    }
+
+    private fun browserHighlightXY(out: OutputStream, body: String) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val x = try { JSONObject(body).optInt("x", -1) } catch (e: Exception) { -1 }
+        val y = try { JSONObject(body).optInt("y", -1) } catch (e: Exception) { -1 }
+        val latch = CountDownLatch(1); var msg = ""
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) { msg = act.browserPage.highlightNear(x, y) } else msg = "浏览器页未初始化"
+            latch.countDown()
+        }
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
+    }
+
+    private fun browserClick(out: OutputStream, body: String) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val idx = try { JSONObject(body).optInt("index", -1) } catch (e: Exception) { -1 }
+        val latch = CountDownLatch(1); var msg = ""
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) msg = act.browserPage.clickIndex(idx) else msg = "浏览器页未初始化"
+            latch.countDown()
+        }
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
+    }
+
+    private fun browserEval(out: OutputStream, body: String) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val script = try { JSONObject(body).optString("script", "") } catch (e: Exception) { "" }
+        if (script.isBlank()) { writeJson(out, 400, JSONObject().put("error", "script required")); return }
+        val latch = CountDownLatch(1); var msg = ""
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) act.browserPage.evalScript(script, latch) else latch.countDown()
+        }
+        try { latch.await(2, TimeUnit.SECONDS) } catch (e: Exception) {}
+        msg = if (act.browserPageReady()) act.browserPage.lastActionResult() else "浏览器页未初始化"
+        writeJson(out, 200, JSONObject().put("ok", true).put("result", msg))
+    }
+
+    private fun browserType(out: OutputStream, body: String) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val idx = try { JSONObject(body).optInt("index", -1) } catch (e: Exception) { -1 }
+        val text = try { JSONObject(body).optString("text", "") } catch (e: Exception) { "" }
+        if (text.isBlank()) { writeJson(out, 400, JSONObject().put("error", "text required")); return }
+        val latch = CountDownLatch(1); var msg = ""
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (act.browserPageReady()) msg = act.browserPage.typeIndex(idx, text) else msg = "浏览器页未初始化"
+            latch.countDown()
+        }
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
     }
 
     // ================= /v1/chat (SSE) =================
