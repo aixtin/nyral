@@ -102,10 +102,21 @@ internal class BrowserPage(private val act: MainActivity) {
     internal val elementCount: Int get() = elements.size
     internal val highlightedIndex: Int get() = elemPos
 
-    /** 重新注入 JS 扫描器收集页面元素(结果异步回填 elements, 读取需稍后) */
-    internal fun scan() {
-        val u = runCatching { web.url }.getOrNull()
-        if (!u.isNullOrBlank()) injectScanner()
+    /**
+     * 同步扫描页面元素: 注入 JS 扫描器并阻塞等待 onElements 回填完成(超时兜底)。
+     * 由非 UI 线程调用(DebugServer 工作线程 / LocalEngine 工具线程), 回填在 UI 线程 onElements 完成。
+     * 返回识别到的元素数; 页面无地址立即返回当前数。
+     */
+    internal fun scanSync(timeoutMs: Long): Int {
+        val latch = CountDownLatch(1)
+        act.runOnUiThread {
+            scanLatch = latch
+            val u = runCatching { web.url }.getOrNull()
+            if (u.isNullOrBlank()) { latch.countDown(); return@runOnUiThread }
+            injectScanner()
+        }
+        try { latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: InterruptedException) {}
+        return elements.size
     }
 
     /** 当前已识别元素快照(doc 绝对坐标), 供调试接口返回 JSON */
@@ -195,14 +206,28 @@ internal class BrowserPage(private val act: MainActivity) {
 
     @Volatile
     private var actionLatch: CountDownLatch? = null
+    /** scan 同步等待: DebugServer / AI 工具触发重扫时阻塞等 onElements 回填, 防止异步竞态读到旧/空元素 */
+    @Volatile private var scanLatch: CountDownLatch? = null
+    /** open 页面就绪等待: 记录最近一次 open 触发的加载, onPageFinished 时置完成 */
+    @Volatile private var loadDoneLatch: CountDownLatch? = null
 
     /** 供 MainActivity/未来 AI 引擎调用的公开能力; url 为关键词时自动转百度搜索 */
     internal fun open(url: String? = null) {
         if (url != null) {
             lastUrl = url; loaded = true; paintStatus("正在打开 $url")
+            loadDoneLatch = CountDownLatch(1)
             web.loadUrl(toLoadableUrl(url))
         } else ensureLoad()
         slideIn()
+    }
+
+    /**
+     * 等待最近一次 open 的页面加载完成(onPageFinished), 由非 UI 线程调用。
+     * 无进行中加载立即返回 true; 超时返回 false。
+     */
+    internal fun waitLoaded(timeoutMs: Long): Boolean {
+        val l = loadDoneLatch ?: return true
+        return try { l.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: InterruptedException) { false }
     }
 
     /** AI 清除浏览器缓存: full=true 连登录 Cookie 一起清(会退出所有站点登录); 清完强制刷新当前页(主线程执行) */
@@ -350,8 +375,10 @@ internal class BrowserPage(private val act: MainActivity) {
                     super.onPageFinished(view, url)
                     if (url?.startsWith("file:///android_asset/home.html") == true) {
                         paintStatus("欢迎页")
+                        loadDoneLatch?.countDown(); loadDoneLatch = null
                         return
                     }
+                    loadDoneLatch?.countDown(); loadDoneLatch = null
                     tryAutoSaveCookie(url)
                     injectScanner()
                     refreshDrawerUrl(url)
@@ -508,6 +535,7 @@ internal class BrowserPage(private val act: MainActivity) {
         if (!loaded) {
             loaded = true
             paintStatus("欢迎页已就绪")
+            loadDoneLatch = CountDownLatch(1)
             web.loadUrl("file:///android_asset/home.html")
         }
     }
@@ -575,6 +603,8 @@ internal class BrowserPage(private val act: MainActivity) {
                 } catch (e: Exception) {}
                 paintStatus("已分析页面，识别到 ${elements.size} 个可操作元素")
                 nextElement()
+                scanLatch?.countDown()
+                scanLatch = null
             }
         }
 
