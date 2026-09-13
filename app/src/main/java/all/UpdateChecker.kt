@@ -29,19 +29,10 @@ object UpdateChecker {
     // 跳转目标：仓库 Releases 页面
     private const val RELEASE_URL = "https://github.com/aixtin/droid-agent/releases/latest"
 
-    private const val PREFS = "update_check"
-    private const val KEY_LAST_DATE = "last_auto_date"
-
     private val main = Handler(Looper.getMainLooper())
 
-    /** manual=true 来自关于页手动点击；false 为启动自动检查。 */
+    /** manual=true 来自关于页手动点击；false 为启动自动检查（每次启动均检查）。 */
     fun check(ctx: Context, manual: Boolean) {
-        if (!manual) {
-            val sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val today = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
-            if (sp.getString(KEY_LAST_DATE, "") == today) return
-            sp.edit().putString(KEY_LAST_DATE, today).apply()
-        }
         Thread {
             when (val result = fetchLatest()) {
                 is FetchResult.NoRelease -> {
@@ -109,9 +100,10 @@ object UpdateChecker {
             d.dismiss()
             openReleasePage(ctx)
         })
-        box.addView(Ui.dialogCancelBtn(ctx, "取消") { d.dismiss() }.apply {
-            (layoutParams as LinearLayout.LayoutParams).topMargin = Ui.dp(ctx, 10)
-        })
+        val cancelBtn = Ui.dialogCancelBtn(ctx, "取消") { d.dismiss() }
+        box.addView(cancelBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = Ui.dp(ctx, 10) })
         d.show()
     }
 
