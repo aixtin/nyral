@@ -13,14 +13,14 @@
 
 ## 工程结构
 
-代码全部位于 `app/src/main/java/all/`（包名 `io.github.aixtin.nyral`），共 66 个 Kotlin 源文件、约 2 万行。按职责分簇如下：
+代码全部位于 `app/src/main/java/all/`（包名 `io.github.aixtin.nyral`），共 68 个 Kotlin 源文件、约 2 万行。按职责分簇如下：
 
 ### 引擎与对话
 
 | 载体 | 职责 |
 |------|------|
 | `LocalEngine.kt` | 核心引擎：工具注册表 + 两步式路由（tool_choice）+ 原生 function calling + SSE 流式解析 + 工具调用循环（40 轮上限）+ 上下文组装 |
-| `MainActivity.kt` | 聊天主界面：气泡渲染、录音、附件收发、事件分发、会话管理（约 2400 行，拆分后的主体） |
+| `MainActivity.kt` | 聊天主界面：气泡渲染、录音、附件收发、事件分发、会话管理（约 2552 行，拆分后的主体） |
 | `MainUi.kt` / `UiKit.kt` / `BubbleSpans.kt` / `Typewriter.kt` | UI 构建与动效、气泡 span、打字机动效 |
 | `ModeConfig.kt` | 聊天 / Agent 双模式开关与分派 |
 
@@ -49,11 +49,12 @@
 | `FileTools.kt` | 远程文件操作 |
 | `WorkDir.kt` / `WorkTools.kt` | 本地工作目录（Download/agent_work）：list/read/write/grep/head/stats |
 
-### 联网工具
+### 联网工具 / 浏览器
 
 | 载体 | 职责 |
 |------|------|
-| `WebTools.kt` | web_search（必应 RSS）/ web_fetch / web_download / site_auth（Cookie 注入） |
+| `WebTools.kt` | web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度）/ web_fetch / web_download / site_auth（Cookie 注入） |
+| `BrowserPage.kt` | 自研 Agent 浏览器：整屏 WebView 接管、AI 状态条 + 高亮圈（坐标画框 + 滚动跟随）、验证码一键交还用户 |
 
 ### 附件多模态链路
 
@@ -107,7 +108,8 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v1.3 / versionCode 23）。
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.0 / versionCode 30）。
+- 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 
 ### 装机
 
@@ -124,9 +126,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 发布新版本到 GitHub Releases 的标准闭环：
 
 1. **代码收口**：合并功能分支到 `main`，提交信息遵循 `feat:/docs:/fix:/i18n:` 前缀
-2. **构建**：`gradle assembleDebug` 产出 APK
+2. **构建**：`gradle assembleRelease`（正式签名）产出 APK；日常调试用 `assembleDebug`
 3. **推送**：`git push` main（涉及历史改写时用 `git push --force`）
-4. **打 tag**：如 `git tag v1.3 && git push origin v1.3`
+4. **打 tag**：如 `git tag v2.0 && git push origin v2.0`（版本号必须递增，否则旧版 UpdateChecker 不触发更新）
 5. **创建 Release**：GitHub Releases 新建，附 APK 归档（含 SHA256 校验值）
 6. **同步文档**：改动涉及架构决策时，追加 `docs/ADR-架构决策记录.md` 的 ADR-00x 条目，并更新本文档索引
 

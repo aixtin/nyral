@@ -7,18 +7,20 @@
       - 处理路径分类定案(2026-08-28)：文本/PDF 本地处理不走模型；图片/视频/音频 必须走模型（多模态）
       - PDF 本地解析提取文本(接解析库)：发 PDF 不用喂视觉模型，省 token
 - [x] LICENSE（MIT）与 README 已补齐（2026-08-31）
-- [ ] GitHub Release 发布（附 APK，发布后更新弹窗才生效）
+- [x] GitHub Release 发布（v1.3/v2.0 已发布，附正式签名 APK，更新弹窗已生效；2026-09-13）
 - [ ] UI 优化（聊天界面、SSH 配置界面视觉与交互）
-- [ ] 整理上下文：对话上下文分级管理（短期滚动 / 中期摘要 / 长期按需检索），解决 token 无限累积
+- [x] 整理上下文：对话上下文分级管理（短期滚动 / 中期摘要 / 长期按需检索），解决 token 无限累积（ADR-009 已落地）
 - [ ] 记忆写入 VPS：agent 本地记忆（SQLite）经 SSH 同步到 VPS 记忆库
       - 目标：复用 assistant 记忆库连接卡机制（VPS /opt/agent-memory/assistant记忆/ + memory-api :8899）
       - 链路：手机 App → SSH（VPS 公网 22）→ VPS 本地 127.0.0.1:8899 /save
       - 效果：记忆云端持久化，换机/重装不丢；agent 与 assistant 共享记忆资产
 
 - [ ] 补充基础单元测试（零测试是最大隐患，修 A 坏 B 风险高；覆盖工具链/记忆/TokenStore 等核心逻辑，2026-08-31 列入）
-- [ ] MainActivity 再拆分（已从 4241 行拆到 2845 行，仍偏大；进一步抽 UI/逻辑到独立文件，2026-08-31 列入）
+- [ ] MainActivity 再拆分（已从 4241 行拆到 2552 行，仍偏大；进一步抽 UI/逻辑到独立文件，2026-08-31 列入）
 
 ## 已完成里程碑
+- 2026-09-13: v2.0 正式签名发布（versionCode 30，自建 keystore 接入 release signingConfig，密钥异地备份）+ 版本号动态化修复更新检测
+- 2026-09-11: v1.3（versionCode 23）+ 开源准备收口（浏览器模块与 Markdown 渲染源码入库、脱敏内网 IP、清理备份/补丁脚本）+ 开发者文档（docs/README + ADR 13 条）
 - 2026-08-28: 模型能力表（ApiConfig.modelCapabilities）：预设=内置表(MiMo全模态/DeepSeek文本+工具/GLM文本+工具)+名称兜底；自定义模型编辑页新增能力勾选(图片/视频/音频/工具调用，默认文本+工具)
 - 2026-08-28: 新增 web_search 工具（Bing cn.bing.com 桌面UA 解析 b_algo，无 key），清单首位 web_search→web_fetch→get_time→calc→memory_search→ssh/file
 - 2026-08-28: 工具清单调整（web_fetch 前置、冷门 ssh/file 后置）+ 删除 memory_save（MemoryKeeper 全量自动归档取代）+ "记住"语义即时归档（MemoryKeeper.push force）

@@ -25,7 +25,8 @@ agent 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 - pending 队列落盘 + 原子消费事务：进程被杀不丢消息、不重复归档
 
 **工具调用（40 轮上限）**
-- 联网：web_search（必应 RSS）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
+- 联网：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
+- 浏览器（自研 Agent 浏览器雏形）：整屏 WebView 接管，AI 步骤播报 + 页面高亮圈 + 验证码一键交还用户
 - SSH/SFTP：ssh_run / file_list / file_read / file_info / file_write / ssh_upload / ssh_download / ssh_ls，支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
 - 本地工作目录（Download/agent_work）：workdir_list / read / write / grep（批量全文搜索）/ head（防上下文爆炸）/ stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义
 - 其他：get_time / calc（Rhino 解释模式）/ memory_search
@@ -54,6 +55,7 @@ gradle assembleDebug
 要求：JDK 17、Gradle 8.5+、Android SDK 34。仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内构建快），海外网络可自行删除对应 `maven(...)` 行。
 
 > 注意：本项目无 gradle wrapper（`gradlew`），请使用本机 Gradle 8.5+ 直接构建。
+> 正式签名包用 `gradle assembleRelease`（自建 keystore 经 `keystore.properties` 读取；keystore 与 properties 已入 .gitignore，需自行准备密钥）。
 
 ## 快速开始
 
@@ -73,7 +75,8 @@ android-agent-app/
 │   ├── ApiConfig.kt / MemoryApiConfig.kt  # 供应商与模型能力表
 │   ├── MemoryDb.kt / MemoryKeeper.kt / MemoryEmbedder.kt / BertTokenizer.kt  # 记忆三级体系
 │   ├── SshTools.kt / SshConfigStore.kt / FileTools.kt / WorkDir.kt / WorkTools.kt  # SSH/SFTP/工作目录
-│   ├── WebTools.kt            # 搜索/抓取/下载/site_auth
+│   ├── WebTools.kt            # 搜索（四引擎轮换）/抓取/下载/site_auth
+│   ├── BrowserPage.kt         # 自研 Agent 浏览器（整屏 WebView + AI 接管/高亮/接管验证码）
 │   ├── AttachmentStore.kt / DocTextExtractor.kt / PdfTextExtractor.kt / VideoCompressor.kt  # 附件链路
 │   └── SettingsActivity.kt / ModelEditActivity.kt / ...  # 各配置页
 └── app/src/main/assets/mem_model/   # bge-small 量化 ONNX 模型 + vocab
@@ -90,17 +93,20 @@ android-agent-app/
 - [x] 多模型能力表与自定义模型
 - [x] 本地记忆（bge 语义检索 + 关键词召回 + 三级分层）
 - [x] SSH 远程文件系统 + 跳板机 + SFTP 上传下载
-- [x] 联网工具（必应 RSS 搜索/抓取/下载/site_auth Cookie 注入）
+- [x] 联网工具（四引擎轮换搜索/抓取/下载/site_auth Cookie 注入）
 - [x] 附件多模态：图片/视频/音频/PDF/Office（v19）
 - [x] 语音输入闭环（录音/发送/语音气泡，v20）
 - [x] 会话搜索 + Token 统计 + 前台服务保活
 - [x] 工作目录批量工具（grep/head/stats，40 轮工具上限）
+- [x] 浏览器模块（自研 Agent 浏览器：整屏接管 + AI 高亮 + 验证码交还）
+- [x] GitHub Release 发布（v1.3/v2.0 正式签名包，应用内更新弹窗生效）
 - [ ] 记忆经 SSH 同步到自托管 VPS（复用 assistant 记忆库协议）
 - [ ] 对话上下文分级管理进一步优化
-- [ ] GitHub Release 发布（附 APK，发布后应用内更新弹窗生效）
 
 ## 版本记录
 
+- **v2.0（2026-09-13）**：正式签名发布（自建 keystore 经 keystore.properties 读取，release 挂 signingConfig，密钥已异地备份）；版本号动态化 + 启动自动检查更新修复；settings.gradle 镜像注释补全（versionCode 30）
+- **v1.3（2026-09-11）**：MainActivity 系列拆分（MediaPreviews/AiBubbleHolder/AttachmentSender/TerminalGate 等）+ 协程统一铺开 + UI 文案外置 i18n + 代码体检优化（Bitmap 采样解码、明文流量白名单）+ 首启授权/引导页 + 开发者文档与 ADR（versionCode 23）
 - **v1.1（2026-09-04）**：修复 SSE 流式连接/流句柄泄漏（统一移入 finally 释放，取消/异常不泄漏）；makeCopyable 非空断言防御加固；versionCode 19→20 / versionName 1.1；SSE 消息与 streamOnce 全文日志由 Log.i 降为 Log.v 防刷屏。
 - **v1.0**：基线特性版本（versionCode 19）
 
