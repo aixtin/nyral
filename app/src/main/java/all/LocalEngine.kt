@@ -99,7 +99,7 @@ object LocalEngine {
     private val toolRegistry = listOf(
         ToolSpec("web_search", "后台静默联网搜索(Bing), 结果仅供AI参考阅读, 用户看不到页面; 若用户想看搜索结果页/网页请改用 browser(action=open)", "JSON: {\"q\":\"搜索关键词\",\"max_results\":5}"),
         ToolSpec("browser", "全屏浏览器控制(在用户手机上打开可见浏览器页): action=open 打开URL/搜索词(用户要求搜索/查资料/看网页时优先用), scan 读可操作元素清单(带索引), text 读整页文字, scroll 滚动(delta 像素正下负上), click 点击第N元素(index), type 向输入框输入文本(index+text), upload 上传工作目录文件到文件选择框(index+local), clear_cache 清缓存刷新(full=true 连登录Cookie一起清), save_cookies 把当前登录Cookie存入site_auth(site 可选域名)。页面遇验证码/登录墙时提示用户点\"接管\"手动完成。", "JSON: {\"action\":\"open|scan|text|scroll|click|type|upload|clear_cache|save_cookies\",...}"),
-        ToolSpec("app", "第三方App控制(需先授权无障碍): action=scan 扫描当前屏幕可操作元素清单(带索引), click 点击第N元素(index), text 向输入框输入文本(index+text), back 模拟返回键, home 回桌面, launch 按包名启动App(pkg), installed 列出已安装第三方应用", "JSON: {\"action\":\"scan|click|text|back|home|launch|installed\",...}"),
+        ToolSpec("app", "第三方App控制(需先授权无障碍): action=scan 扫描当前屏幕可操作元素清单(带索引, 空树返回EMPTY_TREE标记), click 点击第N元素(index), text 向输入框输入文本(index+text), tap 坐标注入点击(x+y, 视觉兜底用), screenshot 截当前屏保存工作目录返回路径(视觉兜底用), back 模拟返回键, home 回桌面, launch 按包名启动App(pkg), installed 列出已安装第三方应用", "JSON: {\"action\":\"scan|click|text|tap|screenshot|back|home|launch|installed\",...}"),
         ToolSpec("workdir", "手机工作目录(Download/Nyral_work)文件操作: action=list 列文件, read 读文本文件(name), write 写文件(name+content, 同名覆盖), grep 全文搜索(kw, 可选ext扩展名过滤/case大小写), head 读前N行或N字符(name+lines或chars), stats 统计概览", "JSON: {\"action\":\"list|read|write|grep|head|stats\",...}"),
         ToolSpec("file", "远端文件操作(SSH连接): action=list 列目录(conn+path), read 读文件(conn+path+lines), info 查看文件详情(conn+path), write 写/追加文件(conn+path+content+append), upload SFTP上传(conn+local+remote), download SFTP下载(conn+remote+local可选), ls SFTP列目录(conn+path)", "JSON: {\"action\":\"list|read|info|write|upload|download|ls\",\"conn\":\"连接名\",...}"),
         ToolSpec("web_fetch", "抓取网页并提取正文文本; 若 site_auth.json 已配置该域名 Cookie 会自动注入, 无需重复传", "JSON: {\"url\":\"https://...\",\"max_chars\":3000}"),
@@ -126,7 +126,7 @@ object LocalEngine {
     private val toolIndex: Map<String, String> = mapOf(
         "web_search" to "后台静默检索(Bing), 结果仅AI参考, 用户看不到页面; 用户想看搜索页时用 browser(action=open)",
         "browser" to "全屏浏览器控制(用户可见): open 打开网页/搜索词, scan 扫元素, text 读文字, scroll 滚动, click 点击, type 输入, upload 上传文件, clear_cache 清缓存, save_cookies 存登录Cookie",
-        "app" to "第三方App控制: scan 扫屏幕元素, click 点击, text 输入, back 返回, home 桌面, launch 启动App, installed 查已装",
+        "app" to "第三方App控制: scan 扫屏幕元素(空树EMPTY_TREE), click 点击, text 输入, tap 坐标点击(x+y), screenshot 截图, back 返回, home 桌面, launch 启动App, installed 查已装",
         "workdir" to "手机工作目录文件: list 列文件, read 读, write 写, grep 搜索, head 读前N行, stats 统计",
         "file" to "远端文件(SSH): list 列目录, read 读, info 详情, write 写, upload 上传, download 下载, ls 列目录",
         "web_fetch" to "抓取网页提取正文",
@@ -304,10 +304,12 @@ object LocalEngine {
                 "full" to bool("clear_cache 时: true=连登录Cookie一起清除(退出所有网站登录); false=仅清页面缓存(默认)"),
                 "site" to str("save_cookies 时: 目标域名, 不传则自动取浏览器当前页域名", required = false))
             "app" -> obj(listOf("action"),
-                "action" to str("操作", enums = listOf("scan", "click", "text", "back", "home", "launch", "installed")),
+                "action" to str("操作", enums = listOf("scan", "click", "text", "back", "home", "launch", "installed", "tap", "screenshot")),
                 "index" to int("click/text 时: 元素索引(0 起, 来自 scan)"),
                 "text" to str("text 时: 要输入的文本", required = false),
-                "pkg" to str("launch 时: 要启动的应用包名, 如 com.tencent.mm", required = false))
+                "pkg" to str("launch 时: 要启动的应用包名, 如 com.tencent.mm", required = false),
+                "x" to int("tap 时: 屏幕横坐标(px, 0 起)"),
+                "y" to int("tap 时: 屏幕纵坐标(px, 0 起)"))
             "js_run" -> obj(listOf("code"),
                 "code" to str("要执行的 JS 脚本(应用内就地, 纯计算/逻辑/数据操作)"),
                 "timeoutMs" to int("超时毫秒, 默认 8000, 防死循环", 8000))
@@ -1082,6 +1084,8 @@ object LocalEngine {
         "app_home" to ("app" to "home"),
         "app_launch" to ("app" to "launch"),
         "app_installed" to ("app" to "installed"),
+        "app_tap" to ("app" to "tap"),
+        "app_screenshot" to ("app" to "screenshot"),
         "workdir_list" to ("workdir" to "list"),
         "workdir_read" to ("workdir" to "read"),
         "workdir_write" to ("workdir" to "write"),
@@ -1229,7 +1233,13 @@ object LocalEngine {
                         if (pkg.isEmpty()) "请指定要启动的应用包名 pkg" else UiControlService.launch(context, pkg)
                     }
                     "installed" -> UiControlService.installed(context)
-                    else -> "app 需指定 action: scan/click/text/back/home/launch/installed"
+                    "tap" -> {
+                        val x = jo.optInt("x", -1)
+                        val y = jo.optInt("y", -1)
+                        if (x < 0 || y < 0) "请指定坐标 x/y(px, 来自 app_screenshot 视觉识别)" else UiControlService.tap(x, y)
+                    }
+                    "screenshot" -> UiControlService.screenshot()
+                    else -> "app 需指定 action: scan/click/text/tap/screenshot/back/home/launch/installed"
                 }
             }
             "ask_user" -> askUser(context, argRaw)

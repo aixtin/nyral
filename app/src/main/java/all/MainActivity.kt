@@ -187,7 +187,7 @@ class MainActivity : Activity() {
     private lateinit var browserBar: LinearLayout
     private lateinit var browserBarStatus: TextView
     private lateinit var browserBarTakeover: TextView
-    private lateinit var input: EditText
+    internal lateinit var input: EditText
     internal lateinit var modelBtn: Button
     internal lateinit var attachBtn: Button
     private lateinit var attachBtn2: Button   // 槽A(语音槽内)的附件按钮, 输入文字时显示
@@ -203,66 +203,40 @@ class MainActivity : Activity() {
     private val REQ_FILE = 1002
     private val REQ_AUDIO = 1003
     private val REQ_VIDEO = 1004
-    private val REQ_RECORD = 1005
+    internal val REQ_RECORD = 1005
     private val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
     private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
     // 图片压缩上限: 最长边/质量
     internal val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
     // 录音: 上限 60 秒 / 10MB(语音消息足够, 超限直接拒)
-    private val MAX_RECORD_MS = 60_000L
-    private val MAX_AUDIO_BYTES = 10 * 1024 * 1024
+    internal val MAX_RECORD_MS = 60_000L
+    internal val MAX_AUDIO_BYTES = 10 * 1024 * 1024
     // 录音状态
-    private lateinit var micBtn: Button
-    private var audioRecord: AudioRecord? = null
-    private var recPcm: ByteArrayOutputStream? = null
-    private var recStop = false
-    private var recThread: Thread? = null
-    private var recStartMs = 0L
-    private var recTimer: Runnable? = null
+    internal lateinit var micBtn: Button
+    internal var audioRecord: AudioRecord? = null
+    internal var recPcm: ByteArrayOutputStream? = null
+    internal var recStop = false
+    internal var recThread: Thread? = null
+    internal var recStartMs = 0L
+    internal var recTimer: Runnable? = null
     // 必须与 postDelayed 使用同一 Handler 实例: removeCallbacks 要求消息 target 匹配, 新建实例移除会静默失败
-    private var recHandler: Handler? = null
-    private lateinit var speakBar: TextView
-    private var voiceMode = false
-    private var speaking = false
-    private var speakCancel = false
-    private var audioPlayer: MediaPlayer? = null
-    private var playingFileName: String? = null
+    internal var recHandler: Handler? = null
+    internal lateinit var speakBar: TextView
+    internal var voiceMode = false
+    internal var speaking = false
+    internal var speakCancel = false
+    internal var audioPlayer: MediaPlayer? = null
+    internal var playingFileName: String? = null
     // 纯语音气泡注册表(弱引用): 播放状态变化时统一刷新播放/暂停图标
-    private val audioBubbles = mutableListOf<WeakReference<TextView>>()
+    internal val audioBubbles = mutableListOf<WeakReference<TextView>>()
     // 语音气泡内声波动画共享相位 + 驱动动画 (WaveState 已抽离 BubbleSpans.kt)
-    private val waveState = WaveState()
-    private var waveAnim: ValueAnimator? = null
-    private fun startWaveAnim() {
-        if (waveAnim != null) return
-        waveAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 800
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = android.view.animation.LinearInterpolator()
-            addUpdateListener {
-                waveState.phase = it.animatedValue as Float
-                for (wr in audioBubbles) wr.get()?.invalidate()
-            }
-            start()
-        }
-    }
-    private fun stopWaveAnim() {
-        waveAnim?.cancel(); waveAnim = null
-        waveState.phase = 0f
-        for (wr in audioBubbles) wr.get()?.invalidate()
-    }
-    private fun refreshAudioBubbles() {
-        val it = audioBubbles.iterator()
-        while (it.hasNext()) {
-            val tv = it.next().get() ?: run { it.remove(); null } ?: continue
-            val c = tv.tag as? String ?: continue
-            tv.text = renderUserContent(c)
-        }
-    }
+    internal val waveState = WaveState()
+    internal var waveAnim: ValueAnimator? = null
     internal var modelPopup: PopupWindow? = null
     internal var modelClosing = false   // 弹窗收起动画进行中, 防重复触发
     internal var attachPopup: PopupWindow? = null
     internal var attachClosing = false  // 附件弹窗收起动画进行中, 防重复触发
-    private lateinit var sendBtn: Button
+    internal lateinit var sendBtn: Button
     private lateinit var stopBtn: Button
     private lateinit var stopSpin: ArcRingDrawable      // 停止按钮上的无限旋转加载环(带缺口弧)
     private var stopSpinAnim: ValueAnimator? = null        // 旋转动画驱动
@@ -1356,21 +1330,7 @@ class MainActivity : Activity() {
     // ===================== 左侧抽屉 =====================
 
 
-
-
     // ===================== 会话全文搜索 =====================
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     // ===================== 多会话 =====================
@@ -1543,8 +1503,6 @@ class MainActivity : Activity() {
     }
 
 
-
-
     override fun onBackPressed() {
         if (browserPage.hamburgerOpen) {
             browserPage.collapseHamburger()
@@ -1570,7 +1528,7 @@ class MainActivity : Activity() {
     private fun onSend() = doSend(pendingAttachments.toList())
 
     /** 当前模型是否支持语音输入: 预设=内置能力表, 手动=用户配置勾选(与附件弹窗能力判断同一来源) */
-    private fun currentModelSupportsVoice(): Boolean =
+    internal fun currentModelSupportsVoice(): Boolean =
         ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_AUDIO)
 
     /** 统一刷新底栏三形态布局(槽位固定/输入框左右宽距恒不动):
@@ -1611,11 +1569,11 @@ class MainActivity : Activity() {
     }
 
     /** 底栏交互入口: 输入框文字变化时刷新三形态布局 */
-    private fun updateInputMode() {
+    internal fun updateInputMode() {
         applyInputMode()
     }
 
-    private fun doSend(attachments: List<LocalEngine.Attachment>) {
+    internal fun doSend(attachments: List<LocalEngine.Attachment>) {
         val text = input.text.toString().trim()
         android.util.Log.i("Nyral", "onSend text=[$text] aiBusy=$aiBusy attachments=${attachments.size}")
         if (text.isEmpty() && attachments.isEmpty()) return
@@ -1834,10 +1792,11 @@ class MainActivity : Activity() {
                                 currentSaved = false
                                 // 回复完成即时落库, 防止进程被杀丢失最后一条回复
                                 maybeSaveCurrent()
+                                // 兜底: 引擎重试后仍无正文时给出明确提示, 避免"思考了但没输出"静默空白
+                                // 仅在仍是原会话时追加, 防止切会话后提示写入新会话
+                                if (reply.isBlank()) appendSys(getString(R.string.ma_sys_no_reply))
                             }
                         }
-                            // 兜底: 引擎重试后仍无正文时给出明确提示, 避免"思考了但没输出"静默空白
-                            if (reply.isBlank()) appendSys(getString(R.string.ma_sys_no_reply))
                         holder.finishContent()
                         aiBusy = false
                         TaskService.stop(this@MainActivity)
@@ -2232,7 +2191,7 @@ class MainActivity : Activity() {
     }
 
     /** 用户气泡渲染: [图片](att://file) 直接内嵌缩略图(点击打开原图); 其他附件保持蓝色链接, 其余文本原样 */
-    private fun renderUserContent(content: String): CharSequence {
+    internal fun renderUserContent(content: String): CharSequence {
         val sb = SpannableStringBuilder(content)
         try {
             val re = Regex("\\[([^\\]]+)\\]\\(att://([^)]+)\\)")
@@ -2656,220 +2615,6 @@ class MainActivity : Activity() {
     }
 
     /** 切换语音模式: 胶囊 折叠(仅麦克风图标,无背景) <-> 向左果冻展开("按住 说话"胶囊+键盘图标); 录音中禁止切换; 不支持语音禁止进入 */
-    private fun toggleVoiceMode() {
-        if (speaking) return
-        if (!voiceMode && !currentModelSupportsVoice()) return
-        voiceMode = !voiceMode
-        if (voiceMode) {
-            // input 用 INVISIBLE 而非 GONE: 仍在 inputArea 中占位, 收起时切回 VISIBLE 不触发重排, 无闪框
-            input.visibility = View.INVISIBLE
-            speakBar.visibility = View.VISIBLE
-            // 仿搜索框展开动画: 回弹极低, 突出展开过程; 锚定右边缘(切换按钮侧), 从右往左展开
-            speakBar.scaleX = 0.3f
-            speakBar.alpha = 1f
-            speakBar.post {
-                speakBar.pivotX = speakBar.width.toFloat()
-                speakBar.animate().scaleX(1f).setDuration(300)
-                    .setInterpolator(OvershootInterpolator(0.1f)).withLayer().start()
-            }
-            micBtn.background = micIconBg(false, true, resources.displayMetrics.density)
-            sendBtn.visibility = View.GONE
-            val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.hideSoftInputFromWindow(input.windowToken, 0)
-        } else {
-            // 收起: 动画期间不动文本/背景(避免动画前同步 resetSpeakBar 触发重绘卡顿),
-            // 从右往左缩回+淡出结束后再复位胶囊并恢复输入框
-            val onEnd = {
-                speakBar.visibility = View.GONE
-                speakBar.scaleX = 1f
-                speakBar.alpha = 1f
-                resetSpeakBar()
-                input.visibility = View.VISIBLE
-                micBtn.background = micIconBg(false, false, resources.displayMetrics.density)
-                updateInputMode()
-            }
-            speakBar.pivotX = speakBar.width.toFloat()
-            speakBar.animate().scaleX(0.3f).alpha(0f).setDuration(220)
-                .setInterpolator(OvershootInterpolator(0.1f))
-                .withEndAction { onEnd() }.start()
-        }
-    }
-
-    /** 按住说话手势: 按下开始录音, 上滑进入取消区, 松手发送/取消 */
-    private fun handleSpeakTouch(ev: MotionEvent): Boolean {
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                if (Build.VERSION.SDK_INT >= 23 &&
-                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(this, R.string.toast_req_mic_perm, Toast.LENGTH_SHORT).show()
-                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD)
-                    return true
-                }
-                speakCancel = false
-                speaking = true
-                startRecording()
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (!speaking) return true
-                val loc = IntArray(2)
-                speakBar.getLocationOnScreen(loc)
-                val cancelZone = ev.rawY < loc[1] - dp(90)
-                if (cancelZone != speakCancel) {
-                    speakCancel = cancelZone
-                    speakBar.text = if (speakCancel) "松开手指，取消发送" else "松开 发送"
-                    speakBar.background = rounded(dp(22),
-                        if (speakCancel) Color.parseColor("#9AA0A6") else Color.parseColor("#07C160"))
-                }
-            }
-            MotionEvent.ACTION_UP -> {
-                if (!speaking) return true
-                if (speakCancel) discardRecording() else finishSpeakAndSend()
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                if (speaking) discardRecording()
-            }
-        }
-        return true
-    }
-
-    /** 开始录音(语音模式): 计时显示在按住说话条, 超 60 秒自动发送 */
-    private fun startRecording() {
-        try {
-            // 录音统一 AudioRecord 采 PCM16 单声道 44100Hz, 发送前封装 WAV:
-            // 云端多模态 API 仅接受 mp3/flac/m4a/wav/ogg; MediaRecorder 的 MPEG_4+AAC 是 mp4 容器
-            // (冒充 m4a 被 400 拒), OGG/VORBIS 又因设备 HAL 不支持 start 失败, 故 AudioRecord 最稳
-            val sampleRate = 44100
-            val minBuf = AudioRecord.getMinBufferSize(
-                sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            val bufSize = maxOf(minBuf * 2, 8192)
-            val ar = AudioRecord(
-                MediaRecorder.AudioSource.MIC, sampleRate,
-                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufSize)
-            if (ar.state != AudioRecord.STATE_INITIALIZED) {
-                ar.release()
-                throw IllegalStateException("AudioRecord init failed")
-            }
-            val pcm = ByteArrayOutputStream()
-            ar.startRecording()
-            audioRecord = ar
-            recPcm = pcm
-            recStop = false
-            recStartMs = System.currentTimeMillis()
-            recThread = Thread {
-                val buf = ByteArray(bufSize)
-                try {
-                    while (!recStop) {
-                        val n = ar.read(buf, 0, buf.size)
-                        if (n > 0) pcm.write(buf, 0, n)
-                        else if (n < 0) break
-                    }
-                } catch (e: Exception) { /* 停止时 read 抛错: 忽略 */ }
-            }.also { it.isDaemon = true; it.start() }
-            speakBar.text = getString(R.string.ma_release_send)
-            speakBar.background = rounded(dp(22), Color.parseColor("#07C160"))
-            // 复用同一成员 Handler 入队: 复位时才能用 removeCallbacks 停表(target 匹配)
-            recHandler = Handler(Looper.getMainLooper())
-            val handler = recHandler!!
-            recTimer = object : Runnable {
-                override fun run() {
-                    val elapsed = System.currentTimeMillis() - recStartMs
-                    // 取消态下文字保持"松开手指，取消发送", 不被计时器覆盖
-                    if (!speakCancel && elapsed >= 1000) speakBar.text = "松开 发送 ${elapsed / 1000}s"
-                    if (elapsed >= MAX_RECORD_MS) {
-                        Toast.makeText(this@MainActivity, R.string.toast_voice_60s, Toast.LENGTH_SHORT).show()
-                        finishSpeakAndSend()
-                    } else handler.postDelayed(this, 200)
-                }
-            }
-            handler.postDelayed(recTimer!!, 200)
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.toast_rec_start_fail, e.message), Toast.LENGTH_SHORT).show()
-            try { audioRecord?.release() } catch (_: Exception) {}
-            audioRecord = null
-        }
-    }
-
-    /** 结束录音并整理结果: 过短(<1秒)/超限(10MB)/失败返回 null, 正常返回(字节,文件名,时长) */
-    private fun finalizeRecord(): Triple<ByteArray, String, Long>? {
-        val ar = audioRecord ?: return null
-        val startMs = recStartMs
-        recStop = true
-        recThread?.join(1000)
-        recThread = null
-        audioRecord = null
-        recTimer?.let { recHandler?.removeCallbacks(it) }
-        recTimer = null
-        recHandler = null
-        try { ar.stop() } catch (e: Exception) { /* 过短时 stop 抛错: 静默丢弃 */ }
-        try { ar.release() } catch (e: Exception) {}
-        val pcm = recPcm?.toByteArray()
-        recPcm = null
-        val durationMs = System.currentTimeMillis() - startMs
-        if (pcm == null || pcm.size == 0) return null
-        if (durationMs < 1000) return null
-        if (pcm.size > MAX_AUDIO_BYTES - 44) return null
-        val bytes = toWav(pcm, 44100)
-        return Triple(bytes, "语音_${System.currentTimeMillis()}.wav", durationMs)
-    }
-
-    /** PCM16 单声道 → WAV 封装 (已抽离 UiKit.toWav) */
-
-    /** 松手发送: 直接作为语音消息发送, 不进附件预览条 */
-    private fun finishSpeakAndSend() {
-        // 先复位说话条再发送: 发送链路偶发异常时也不会残留"松开 发送"录音态
-        resetSpeakBar()
-        val res = finalizeRecord()
-        if (res == null) {
-            Toast.makeText(this, R.string.toast_voice_too_short, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val (bytes, name, durationMs) = res
-        if (aiBusy) {
-            Toast.makeText(this, R.string.toast_ai_busy, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val att = LocalEngine.Attachment(
-            mime = "audio/wav",
-            base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
-            name = name,
-            text = getString(R.string.ma_voice_msg),
-            isVoice = true
-        )
-        try {
-            doSend(listOf(att))
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.toast_voice_send_fail, e.message), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /** 取消发送: 停止并删除录音, 重置说话条 */
-    private fun discardRecording() {
-        val ar = audioRecord ?: run { resetSpeakBar(); return }
-        recStop = true
-        recThread?.join(1000)
-        recThread = null
-        audioRecord = null
-        recPcm = null
-        recTimer?.let { recHandler?.removeCallbacks(it) }
-        recTimer = null
-        recHandler = null
-        try { ar.stop() } catch (e: Exception) {}
-        try { ar.release() } catch (e: Exception) {}
-        resetSpeakBar()
-    }
-
-    /** 说话条复位到待命态 */
-    private fun resetSpeakBar() {
-        // 必须停表: recTimer 每 200ms 会把文本改回"松开 发送 Ns", 不清掉松手后会继续残留计时
-        recTimer?.let { recHandler?.removeCallbacks(it) }
-        recTimer = null
-        recHandler = null
-        speaking = false
-        speakCancel = false
-        speakBar.text = getString(R.string.ma_hold_to_speak)
-        speakBar.background = rounded(dp(22), Color.parseColor("#9AA0A6"))
-    }
-
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_RECORD && grantResults.isNotEmpty() &&
@@ -2881,65 +2626,6 @@ class MainActivity : Activity() {
             // 首启引导: 运行时权限结果已回, 继续特殊权限设置页(用户拒了的也不再强制)
             firstRunGuideState = 0
             startNextSpecialPermission()
-        }
-    }
-
-    /** 音频附件点击: 播放/停止当前 m4a 文件 */
-    private fun togglePlayAudio(fileName: String) {
-        if (playingFileName == fileName && audioPlayer?.isPlaying == true) {
-            audioPlayer?.stop()
-            playingFileName = null
-            stopWaveAnim()
-            animateVoiceBubble(fileName, false)
-            refreshAudioBubbles()
-            return
-        }
-        audioPlayer?.release()
-        audioPlayer = null
-        playingFileName = null
-        val f = AttachmentStore.fileOf(this, fileName) ?: return
-        try {
-            val p = MediaPlayer()
-            p.setAudioStreamType(AudioManager.STREAM_MUSIC)
-            p.setDataSource(f.absolutePath)
-            p.setOnCompletionListener {
-                it.release()
-                if (audioPlayer === it) { audioPlayer = null; playingFileName = null }
-                uiScope.launch { stopWaveAnim(); animateVoiceBubble(fileName, false); refreshAudioBubbles() }
-            }
-            p.prepare()
-            p.start()
-            audioPlayer = p
-            playingFileName = fileName
-            startWaveAnim()
-            animateVoiceBubble(fileName, true)
-            refreshAudioBubbles()
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.toast_play_fail, e.message), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /** 语音气泡播放动画: 播放时整体轻微缩小(0.96)后回弹循环, 停止/播完恢复原尺寸 */
-    private fun animateVoiceBubble(fileName: String, playing: Boolean) {
-        for (wr in audioBubbles) {
-            val tv = wr.get() ?: continue
-            val c = tv.tag as? String ?: continue
-            val fname = Regex("""\(att://([^)]+)\)""").find(c)?.groupValues?.get(1) ?: continue
-            if (fname != fileName) continue
-            tv.clearAnimation()
-            tv.scaleX = 1f
-            tv.scaleY = 1f
-            if (playing) {
-                tv.startAnimation(android.view.animation.ScaleAnimation(
-                    1f, 0.96f, 1f, 0.96f,
-                    android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
-                    android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f).apply {
-                    duration = 220
-                    repeatCount = 2
-                    repeatMode = android.view.animation.Animation.REVERSE
-                    interpolator = android.view.animation.DecelerateInterpolator()
-                })
-            }
         }
     }
 
@@ -2964,7 +2650,6 @@ class MainActivity : Activity() {
     }
 
     /** 音频文件时长(ms) 与时长格式化已抽离 UiKit.audioDurationMs / fmtDuration */
-
 
 
     internal fun pickImage() {

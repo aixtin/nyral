@@ -1,8 +1,8 @@
-# DroidAgent
+# Nyral
 
 > 记忆自托管 · 模型按需选 · 开源 · 免 Root
 
-DroidAgent 是一款运行在 Android 上的开源智能体（Agent）助手：把大模型对话、本地长期记忆、SSH 远程操作、联网工具和语音/附件多模态收进一个 App。数据自托管，无需 Root，不依赖任何第三方服务端。
+Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大模型对话、本地长期记忆、SSH 远程操作、联网工具和语音/附件多模态收进一个 App。数据自托管，无需 Root，不依赖任何第三方服务端。
 
 ## 核心特性
 
@@ -28,7 +28,7 @@ DroidAgent 是一款运行在 Android 上的开源智能体（Agent）助手：�
 - 联网：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
 - 浏览器（自研 Agent 浏览器雏形）：整屏 WebView 接管，AI 步骤播报 + 页面高亮圈 + 验证码一键交还用户
 - SSH/SFTP：ssh_run / file_list / file_read / file_info / file_write / ssh_upload / ssh_download / ssh_ls，支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
-- 本地工作目录（Download/DroidAgent_work）：workdir_list / read / write / grep（批量全文搜索）/ head（防上下文爆炸）/ stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义
+- 本地工作目录（Download/Nyral_work）：workdir_list / read / write / grep（批量全文搜索）/ head（防上下文爆炸）/ stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义
 - 其他：get_time / calc（Rhino 解释模式）/ memory_search
 
 **界面**
@@ -46,8 +46,8 @@ DroidAgent 是一款运行在 Android 上的开源智能体（Agent）助手：�
 ## 构建
 
 ```bash
-git clone https://github.com/aixtin/droid-agent.git
-cd droid-agent/android-agent-app
+git clone https://github.com/aixtin/nyral.git
+cd nyral/android-agent-app
 gradle assembleDebug
 # 产物: app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -68,7 +68,7 @@ gradle assembleDebug
 
 ```
 android-agent-app/
-├── app/src/main/java/io/github/aixtin/droidagent 注: 源码实际位于 java/all/ (包名 io.github.aixtin.droidagent)
+├── app/src/main/java/io/github/aixtin/nyral 注: 源码实际位于 java/all/ (包名 io.github.aixtin.nyral)
 │   ├── MainActivity.kt        # 聊天主界面/气泡渲染/录音/附件
 │   ├── MainUi.kt / Ui.kt / UiKit.kt / BubbleSpans.kt / Typewriter.kt  # UI 构建与动效
 │   ├── LocalEngine.kt         # 两步式路由 + SSE 流式解析 + 工具调用循环

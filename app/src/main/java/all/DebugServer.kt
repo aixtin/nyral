@@ -261,6 +261,8 @@ object DebugServer {
                     method == "POST" && path == "/v1/app/home" -> appHome(out)
                     method == "POST" && path == "/v1/app/launch" -> appLaunch(out, body)
                     method == "POST" && path == "/v1/app/installed" -> appInstalled(out)
+                    method == "POST" && path == "/v1/app/tap" -> appTap(out, body)
+                    method == "GET" && path == "/v1/app/screenshot" -> appScreenshot(out)
                     method == "POST" && path == "/v1/js/run" -> jsRun(out, body)
                     method == "POST" && path == "/v1/sh/run" -> shRun(c, out, body)
                     method == "GET" && path == "/v1/status" -> writeJson(out, 200, statusJson(c))
@@ -588,6 +590,17 @@ object DebugServer {
     private fun appInstalled(out: OutputStream) {
         val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
         writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.installed(act)))
+    }
+
+    private fun appTap(out: OutputStream, body: String) {
+        val o = try { JSONObject(body) } catch (e: Exception) { null }
+        val x = o?.optInt("x", -1) ?: -1
+        val y = o?.optInt("y", -1) ?: -1
+        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.tap(x, y)))
+    }
+
+    private fun appScreenshot(out: OutputStream) {
+        writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.screenshot()))
     }
 
     private fun jsRun(out: OutputStream, body: String) {
