@@ -1,6 +1,6 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
-import io.github.aixtin.droidagent.R
+import io.github.aixtin.nyral.R
 
 import android.app.Activity
 import android.content.Intent
@@ -16,7 +16,6 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
@@ -98,95 +97,63 @@ class AppearanceActivity : Activity() {
         }))
         content.addView(cardTitle)
 
-        // ---- 分组：聊天 ----
-        content.addView(Ui.groupLabel(this, getString(R.string.appr_14)))
-        val cardChat = Ui.card(this)
-        // 聊天模式开关
-        cardChat.addView(settingsSwitch(
-            getString(R.string.appr_15),
-            getString(R.string.appr_16),
-            "💬", 15,
-            ModeConfig.chatMode()
-        ) { on -> ModeConfig.setChatMode(on) })
-        // 聊天模式显示 Markdown 开关
-        cardChat.addView(Ui.divider(this))
-        cardChat.addView(settingsSwitch(
-            getString(R.string.appr_26),
-            getString(R.string.appr_27),
-            "📝", 16,
-            ModeConfig.chatMarkdown()
-        ) { on -> ModeConfig.setChatMarkdown(on) })
-        // 聊天背景
-        cardChat.addView(Ui.divider(this))
-        cardChat.addView(settingsItem(getString(R.string.appr_17), getString(R.string.appr_18), "🎨", 4, {
-            startActivity(Intent(this@AppearanceActivity, ChatBackgroundActivity::class.java))
-        }))
-        content.addView(cardChat)
-
-        // ---- 分组：悬浮终端 ----
-        content.addView(Ui.groupLabel(this, getString(R.string.appr_19)))
-        val cardTerm = Ui.card(this)
-        cardTerm.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(14), dp(12), dp(14))
-            val swTerm = Switch(this@AppearanceActivity)
-            swTerm.isChecked = AITerminal.isEnabled(this@AppearanceActivity)
-            // 副标题随授权态联动
-            val subTitle = TextView(this@AppearanceActivity).apply {
-                textSize = 12f
-                setTextColor(0xFF999999.toInt())
-                setPadding(0, dp(3), 0, 0)
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-            }
-            fun refreshSub() {
-                subTitle.text = if (android.provider.Settings.canDrawOverlays(this@AppearanceActivity))
-                    getString(R.string.appr_20)
-                else
-                    getString(R.string.appr_21)
-            }
-            refreshSub()
-            swTerm.setOnCheckedChangeListener { _, on ->
-                if (on) {
-                    if (!android.provider.Settings.canDrawOverlays(this@AppearanceActivity)) {
-                        swTerm.isChecked = false
-                        Toast.makeText(this@AppearanceActivity, getString(R.string.appr_22), Toast.LENGTH_SHORT).show()
-                        try {
-                            startActivity(Intent(
-                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:$packageName")))
-                        } catch (e: Exception) {
-                            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
-                        }
-                    } else {
-                        AITerminal.setEnabled(this@AppearanceActivity, true)
-                        try { AITerminalService.start(this@AppearanceActivity) } catch (e: Exception) {
-                            LogStore.e(LogStore.MAIN, "悬浮终端服务启动失败: ${e.message}")
-                        }
-                        Toast.makeText(this@AppearanceActivity, getString(R.string.appr_23), Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    AITerminal.setEnabled(this@AppearanceActivity, false)
-                    try { AITerminalService.stop(this@AppearanceActivity) } catch (e: Exception) { }
-                    Toast.makeText(this@AppearanceActivity, getString(R.string.appr_24), Toast.LENGTH_SHORT).show()
-                }
-                refreshSub()
-            }
-            addView(Ui.iconBadge(this@AppearanceActivity, "▶", 21))
+        // ---- 分组：快捷开关（九宫格） ----
+        content.addView(Ui.groupLabel(this, getString(R.string.appr_32)))
+        val cardGrid = Ui.card(this)
+        cardGrid.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(12), dp(10), dp(12))
+            // 行1：聊天模式 / 聊天背景 / 主题
             addView(LinearLayout(this@AppearanceActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(dp(12), 0, dp(8), 0)
-                }
-                addView(Ui.itemTitle(this@AppearanceActivity, getString(R.string.appr_25)))
-                addView(subTitle)
+                orientation = LinearLayout.HORIZONTAL
+                addView(gridSwitch(R.drawable.ic_appr_chat_mode, 15, getString(R.string.appr_15), {
+                    if (ModeConfig.chatMode()) getString(R.string.appr_33) else getString(R.string.appr_34)
+                }) { ModeConfig.setChatMode(!ModeConfig.chatMode()) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
+                addView(gridAction(R.drawable.ic_appr_bg, 4, getString(R.string.appr_17), {
+                    when (ChatBackgroundActivity.loadType(this@AppearanceActivity)) {
+                        "preset" -> getString(R.string.appr_37)
+                        "custom" -> getString(R.string.appr_38)
+                        else -> getString(R.string.appr_36)
+                    }
+                }) { startActivity(Intent(this@AppearanceActivity, ChatBackgroundActivity::class.java)) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
+                addView(gridAction(R.drawable.ic_appr_theme, 9, getString(R.string.appr_29), {
+                    getString(ThemeManager.current(this@AppearanceActivity).nameRes)
+                }) { showThemePicker() },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
             })
-            addView(swTerm)
+            // 行2：显示 MD / AI 悬浮终端 / 输入澄清（设置页移入）
+            addView(LinearLayout(this@AppearanceActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+                addView(gridSwitch(R.drawable.ic_appr_md, 16, getString(R.string.appr_26), {
+                    if (ModeConfig.chatMarkdown()) getString(R.string.appr_33) else getString(R.string.appr_34)
+                }) { ModeConfig.setChatMarkdown(!ModeConfig.chatMarkdown()) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
+                addView(gridSwitch(R.drawable.ic_appr_terminal, 21, getString(R.string.appr_25), {
+                    terminalStatusText()
+                }) { toggleTerminal() },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
+                addView(gridSwitch(R.drawable.ic_appr_ask, 22, getString(R.string.settings_ask_user), {
+                    if (AskUserConfig.enabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)
+                }) { AskUserConfig.setEnabled(this@AppearanceActivity, !AskUserConfig.enabled(this@AppearanceActivity)) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
+            })
         })
-        content.addView(cardTerm)
+        content.addView(cardGrid)
 
         setContentView(root)
+    }
+
+    /** 跳转卡状态刷新器（onResume 统一刷新，返回后反映最新背景/主题） */
+    private val gridRefreshers = mutableListOf<() -> Unit>()
+
+    override fun onResume() {
+        super.onResume()
+        gridRefreshers.forEach { it() }
     }
 
     /** 分组小节标题（加粗） */
@@ -242,7 +209,7 @@ class AppearanceActivity : Activity() {
         addView(TextView(this@AppearanceActivity).apply {
             this.text = text
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
         })
     }
 
@@ -254,7 +221,7 @@ class AppearanceActivity : Activity() {
         addView(TextView(this@AppearanceActivity).apply {
             text = hint
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         addView(TextView(this@AppearanceActivity).apply {
@@ -270,63 +237,160 @@ class AppearanceActivity : Activity() {
         })
     }
 
-    /** 列表项（跳转类） */
-    private fun settingsItem(title: String, subtitle: String, icon: String, seed: Int, onClick: () -> Unit): LinearLayout {
+    /** 九宫格开关卡：图标 + 名称 + 状态，点击切换后自动刷新状态文案 */
+    private fun gridSwitch(iconRes: Int, seed: Int, title: String, status: () -> String, onClick: () -> Unit): LinearLayout {
         return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(14), dp(12), dp(14))
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
             isClickable = true
-            setOnClickListener { onClick() }
-            Ui.press(this)
-            addView(Ui.iconBadge(this@AppearanceActivity, icon, seed))
-            addView(LinearLayout(this@AppearanceActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(dp(12), 0, dp(8), 0)
-                }
-                addView(Ui.itemTitle(this@AppearanceActivity, title))
-                addView(TextView(this@AppearanceActivity).apply {
-                    text = subtitle
-                    textSize = 12f
-                    setTextColor(0xFF999999.toInt())
-                    setPadding(0, dp(3), 0, 0)
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                })
+            background = Ui.rounded(0xFFF4F5F7.toInt(), 14, this@AppearanceActivity)
+            setPadding(dp(6), dp(12), dp(6), dp(12))
+            val statusTv = TextView(this@AppearanceActivity).apply {
+                textSize = 11f
+                setTextColor(Ui.SUB)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(4), 0, 0)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            fun refresh() { statusTv.text = status() }
+            refresh()
+            addView(Ui.iconBadgeRes(this@AppearanceActivity, iconRes, seed, sizeDp = 38))
+            addView(TextView(this@AppearanceActivity).apply {
+                text = title
+                textSize = 13f
+                setTextColor(Ui.TEXT)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, 0)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             })
-            addView(Ui.arrow(this@AppearanceActivity))
+            addView(statusTv)
+            Ui.press(this)
+            setOnClickListener {
+                onClick()
+                refresh()
+            }
         }
     }
 
-    /** 开关项（聊天模式） */
-    private fun settingsSwitch(title: String, subtitle: String, icon: String, seed: Int, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
+    /** 九宫格跳转卡：图标 + 名称 + 当前值，点击跳转（聊天背景/主题），onResume 自动刷新状态 */
+    private fun gridAction(iconRes: Int, seed: Int, title: String, status: () -> String, onClick: () -> Unit): LinearLayout {
         return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(14), dp(12), dp(14))
-            addView(Ui.iconBadge(this@AppearanceActivity, icon, seed))
-            addView(LinearLayout(this@AppearanceActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(dp(12), 0, dp(8), 0)
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            isClickable = true
+            background = Ui.rounded(0xFFF4F5F7.toInt(), 14, this@AppearanceActivity)
+            setPadding(dp(6), dp(12), dp(6), dp(12))
+            val statusTv = TextView(this@AppearanceActivity).apply {
+                textSize = 11f
+                setTextColor(Ui.SUB)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(4), 0, 0)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            fun refresh() { statusTv.text = status() }
+            refresh()
+            gridRefreshers.add { refresh() }
+            addView(Ui.iconBadgeRes(this@AppearanceActivity, iconRes, seed, sizeDp = 38))
+            addView(TextView(this@AppearanceActivity).apply {
+                text = title
+                textSize = 13f
+                setTextColor(Ui.TEXT)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, 0)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            })
+            addView(statusTv)
+            Ui.press(this)
+            setOnClickListener { onClick() }
+        }
+    }
+
+    /** 悬浮终端宫格状态文案：开启→已开启；关闭且有权限→已关闭；关闭且无权限→需授权 */
+    private fun terminalStatusText(): String {
+        if (!AITerminal.isEnabled(this)) {
+            return if (android.provider.Settings.canDrawOverlays(this)) getString(R.string.appr_34)
+            else getString(R.string.appr_35)
+        }
+        return getString(R.string.appr_33)
+    }
+
+    /** 悬浮终端宫格点击：开启时关闭；关闭时先校验悬浮窗权限（无权限跳授权页），通过后启动服务 */
+    private fun toggleTerminal() {
+        if (AITerminal.isEnabled(this)) {
+            AITerminal.setEnabled(this, false)
+            try { AITerminalService.stop(this) } catch (e: Exception) { }
+            Toast.makeText(this, getString(R.string.appr_24), Toast.LENGTH_SHORT).show()
+        } else {
+            if (!android.provider.Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, getString(R.string.appr_22), Toast.LENGTH_SHORT).show()
+                try {
+                    startActivity(Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")))
+                } catch (e: Exception) {
+                    startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
                 }
-                addView(Ui.itemTitle(this@AppearanceActivity, title))
-                addView(TextView(this@AppearanceActivity).apply {
-                    text = subtitle
-                    textSize = 12f
-                    setTextColor(0xFF999999.toInt())
-                    setPadding(0, dp(3), 0, 0)
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                })
-            })
-            addView(Switch(this@AppearanceActivity).apply {
-                isChecked = checked
-                setOnCheckedChangeListener { _, on -> onChange(on) }
-            })
+            } else {
+                AITerminal.setEnabled(this, true)
+                try { AITerminalService.start(this) } catch (e: Exception) {
+                    LogStore.e(LogStore.MAIN, "悬浮终端服务启动失败: ${e.message}")
+                }
+                Toast.makeText(this, getString(R.string.appr_23), Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /** 主题选择弹窗：单选，选中即保存并全量即时生效 */
+    private fun showThemePicker() {
+        val (dlg, box) = Ui.dialog(this, getString(R.string.appr_31))
+        val cur = ThemeManager.current(this).id
+        ThemeManager.themes.forEachIndexed { idx, t ->
+            if (idx > 0) box.addView(Ui.divider(this@AppearanceActivity))
+            val selected = t.id == cur
+            box.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), dp(15), dp(14), dp(15))
+                isClickable = true
+                Ui.press(this)
+                setOnClickListener {
+                    ThemeManager.setTheme(this@AppearanceActivity, t.id)
+                    // 即时生效：刷新全局语义色与气泡色，并重建本页 + 主页（若存活）
+                    Ui.applyTheme(t)
+                    applyBubbleTheme(t)
+                    dlg.dismiss()
+                    Toast.makeText(this@AppearanceActivity,
+                        getString(R.string.appr_30, getString(t.nameRes)), Toast.LENGTH_SHORT).show()
+                    MainActivity.instance?.recreate()
+                    recreate()
+                }
+                addView(TextView(this@AppearanceActivity).apply {
+                    text = if (selected) "●" else "○"
+                    textSize = 18f
+                    setTextColor(if (selected) t.primary else 0xFFCCCCCC.toInt())
+                })
+                addView(TextView(this@AppearanceActivity).apply {
+                    text = getString(t.nameRes)
+                    textSize = 15f
+                    setTextColor(Ui.TEXT)
+                    setPadding(dp(10), 0, 0, 0)
+                })
+            })
+        }
+        dlg.show()
+    }
 }

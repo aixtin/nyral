@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.app.Activity
 import android.app.Application

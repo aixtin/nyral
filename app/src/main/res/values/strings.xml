@@ -31,9 +31,14 @@
     <string name="att_label_image">图片</string>
     <string name="att_label_audio">音频</string>
     <!-- 视频压缩 -->
-    <string name="toast_video_compressing">%1$s超过50MB，正在本地压缩...</string>
+    <string name="toast_video_compressing">%1$s超过37MB，正在本地压缩...</string>
+    <string name="toast_video_stored_lib">%1$s较大，已存入私有附件库，将发送索引卡</string>
+    <string name="toast_video_store_fail">%1$s落库失败: %2$s</string>
+    <string name="toast_video_too_long">%1$s视频时长超过3分钟，无法发送</string>
+    <string name="toast_video_too_big">%1$s视频超过50MB，无法发送</string>
+    <string name="toast_audio_too_long">音频时长超过10分钟，无法发送</string>
     <string name="toast_video_compress_fail">%1$s压缩失败: %2$s</string>
-    <string name="toast_video_comp_over">%1$s压缩后仍超过50MB，暂不支持发送</string>
+    <string name="toast_video_comp_over">%1$s压缩后仍超过37MB，暂不支持发送</string>
     <!-- 文档/PDF 解析 -->
     <string name="toast_pdf_unparsable">无法解析该 PDF(无文本层且渲染失败), 暂不支持发送</string>
     <string name="toast_doc_unparsable">无法解析该文档文本内容, 暂不支持发送</string>
@@ -53,6 +58,14 @@
     <string name="dialog_pick_models">选择模型（可多选，能力可勾选）</string>
     <string name="dialog_ok">确定</string>
     <string name="dialog_cancel">取消</string>
+    <string name="ask_user_title">AI 需要确认</string>
+    <string name="ask_user_pick">用户选择: %1$s</string>
+    <string name="ask_user_typed">用户输入: %1$s</string>
+    <string name="ask_user_cancel">用户取消(未选择)</string>
+    <string name="ask_user_custom_hint">输入其他内容…</string>
+    <string name="ask_user_submit">提交</string>
+    <string name="ask_user_empty">请输入内容</string>
+    <string name="ask_user_trace">AI 确认: %1$s → %2$s</string>
     <string name="toast_models_selected">已选择 %1$d 个模型</string>
     <string name="btn_delete_model">删除该模型</string>
     <string name="toast_deleted">已删除</string>
@@ -94,6 +107,22 @@
     <string name="settings_memory">长期记忆</string>
     <string name="settings_memory_count">已存储 %1$d 条记忆</string>
     <string name="settings_memory_index">整理记忆索引</string>
+    <string name="settings_files">文件管理</string>
+    <string name="settings_files_sub">附件列表 / 查看 / 导出 / 删除</string>
+    <string name="files_empty">附件库为空
+聊天中上传的附件会自动存入这里</string>
+    <string name="files_view">查看</string>
+    <string name="files_export">导出</string>
+    <string name="files_delete">删除</string>
+    <string name="files_delete_title">删除附件</string>
+    <string name="files_delete_msg">删除后不可恢复，确定删除「%1$s」吗？</string>
+    <string name="files_delete_confirm">确认删除</string>
+    <string name="files_deleted">已删除</string>
+    <string name="files_delete_fail">删除失败</string>
+    <string name="files_open_fail">无法打开: %1$s</string>
+    <string name="files_not_found">附件不存在</string>
+    <string name="files_exported">已导出到 %1$s</string>
+    <string name="files_export_fail">导出失败: %1$s</string>
     <string name="settings_group_model">模型 API</string>
     <string name="settings_model_config">模型配置</string>
     <string name="settings_model_current">当前: %1$s · %2$s</string>
@@ -105,6 +134,8 @@
     <string name="settings_ai_persona">AI 个性化</string>
     <string name="settings_ai_persona_sub">AI 名字 · 人设 · 双头像</string>
     <string name="settings_group_other">其他</string>
+    <string name="settings_ask_user">输入澄清</string>
+    <string name="settings_ask_user_sub">AI 遇到模糊需求时先弹窗确认</string>
     <string name="settings_log">运行日志</string>
     <string name="settings_log_sub">主日志 / 辅助 AI 日志</string>
     <string name="settings_upload_size">上传大小上限</string>
@@ -115,7 +146,7 @@
     <string name="settings_perm">权限管理</string>
     <string name="settings_perm_sub">查看与补开全部权限</string>
     <string name="settings_about">关于</string>
-    <string name="settings_about_sub">DroidAgent v1.0 · 本地引擎</string>
+    <string name="settings_about_sub">Nyral · 本地引擎</string>
     <string name="settings_about_motto">本机运行的爱，全部来自我家那位</string>
     <string name="settings_token_total">主 AI %1$d · 辅助 AI %2$d tokens</string>
     <string name="settings_debug_enable">启用调试服务</string>
@@ -189,7 +220,7 @@
     <string name="persona_hint_avatar_set">已设置自定义头像</string>
     <string name="persona_hint_change">更换头像</string>
     <string name="persona_me">我</string>
-    <string name="persona_hint_ai_name">输入 AI 名字（留空恢复默认 DroidAgent）</string>
+    <string name="persona_hint_ai_name">输入 AI 名字（留空恢复默认 Nyral）</string>
     <string name="persona_hint_ai_name_sub">留空恢复默认 · 最多 20 字 · 随人设一起保存</string>
     <string name="persona_hint_ai_persona">描述 AI 的身份与回答风格…</string>
     <string name="persona_hint_ai_persona_sub">留空使用内置默认人设 · 最多 200 字</string>
@@ -268,10 +299,10 @@
     <string name="appr_01">外观设置</string>
     <string name="appr_02">标题设置</string>
     <string name="appr_03">主页标题</string>
-    <string name="appr_04">输入主页标题（留空恢复默认 DroidAgent）</string>
+    <string name="appr_04">输入主页标题（留空恢复默认 Nyral）</string>
     <string name="appr_05">主页标题 · 留空恢复默认 · 最多 20 字</string>
     <string name="appr_06">侧栏标题</string>
-    <string name="appr_07">输入侧栏标题（留空恢复默认 DroidAgent）</string>
+    <string name="appr_07">输入侧栏标题（留空恢复默认 Nyral）</string>
     <string name="appr_08">侧栏标题 · 留空恢复默认 · 最多 20 字</string>
     <string name="appr_09">侧栏便签</string>
     <string name="appr_10">输入便签内容（留空恢复默认）</string>
@@ -315,6 +346,10 @@
     <string name="perm_21">无法打开悬浮窗设置页</string>
     <string name="perm_22">无法打开文件访问设置页</string>
     <string name="perm_23">无法打开安装来源设置页</string>
+    <string name="perm_24">Root 权限</string>
+    <string name="perm_25">系统级提权：就地执行 Shell 脚本、读取系统文件等高级操作</string>
+    <string name="perm_26">检测中…</string>
+    <string name="perm_27">本机未授予 Root 权限。请在系统的 Root 授权工具（如 KernelSU / Magisk）中为本应用授权；App 不会跳转具体授权软件。</string>
     <string name="mcp_01">MCP 服务</string>
     <string name="mcp_02">添加 MCP 服务</string>
     <string name="mcp_03">MCP(Model Context Protocol)服务把外部工具动态挂入助手。\n</string>
@@ -348,7 +383,7 @@
     <string name="about_11">更新</string>
     <string name="about_12">点击检查新版本</string>
     <string name="about_13">个人博客</string>
-    <string name="about_14">DroidAgent — 你的安卓智能体管家</string>
+    <string name="about_14">Nyral — 你的安卓智能体管家</string>
     <string name="about_15">调试服务入口已开启</string>
     <string name="about_16">已开启调试服务入口</string>
     <string name="about_17">未找到可用的浏览器</string>
@@ -459,7 +494,9 @@
 <string name='ma_send'>发送</string>
 <string name='ma_stopping'>停止中...</string>
 <string name='ma_sys_loaded_summary'>已加载历史对话摘要，可继续之前的上下文。</string>
-<string name='ma_sys_engine_started'>DroidAgent 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。</string>
+<string name='ma_sys_engine_started'>Nyral 本地引擎已启动。SSH 目标请先到「SSH 配置」添加。</string>
+<string name='welcome_intro_title'>欢迎使用 Nyral</string>
+<string name='welcome_intro_body'>本地引擎已启动，直接输入问题即可开始对话。\n\n可以试试这些能力：\n- **联网搜索**：查资料、搜实时信息\n- **SSH 终端**：远程执行命令（先到「SSH 配置」添加目标）\n- **浏览器**：打开网页，让 AI 帮你浏览操作\n- **附件 / 语音**：发图片、视频、音频、PDF；长按麦克风说话\n\n想了解我还能做什么，随时问「你能做什么」。</string>
 <string name='ma_sys_window_hint'>该会话历史较长，仅展示最近 %1$d 条消息；更早内容保留在会话中，可用搜索定位。</string>
 <string name='ma_unnamed_session'>未命名会话</string>
 <string name='ma_no_sessions'>暂无历史会话\n新对话会自动保存到这里</string>
@@ -470,7 +507,7 @@
 <string name='ma_sys_no_reply'>模型未返回内容，请再发一次</string>
 <string name='ma_error_fmt'>出错了: %1$s</string>
     <!-- 首启引导页 -->
-    <string name="guide_app_name">DroidAgent</string>
+    <string name="guide_app_name">Nyral</string>
     <string name="guide_slogan">手机上的 AI 助手</string>
     <string name="guide_f1_t">智能对话</string>
     <string name="guide_f1_d">接入主流大模型，支持多模型切换</string>
@@ -511,6 +548,201 @@
     <string name="guide_perm_skip">暂不授权，跳过</string>
     <string name="guide_mode_card_title">使用模式</string>
     <!-- 无障碍控制服务 -->
-    <string name="accessibility_service_label">DroidAgent 无障碍控制</string>
+    <string name="accessibility_service_label">Nyral 无障碍控制</string>
     <string name="accessibility_service_desc">用于 AI 读取当前屏幕元素并控制第三方 App（原型）。开启后请保持开启，仅在本应用内使用。</string>
+    <!-- 主题 -->
+    <string name="appr_28">主题</string>
+    <string name="appr_29">主题</string>
+    <string name="appr_30">当前：%1$s</string>
+    <string name="appr_31">选择主题</string>
+    <string name="appr_32">快捷开关</string>
+    <string name="appr_33">已开启</string>
+    <string name="appr_34">已关闭</string>
+    <string name="appr_35">需授权</string>
+    <string name="appr_36">默认</string>
+    <string name="appr_37">渐变预设</string>
+    <string name="appr_38">自定义图片</string>
+    <!-- 浏览器接管/交互状态 -->
+    <string name="br_click_view_not_ready">点击: 视图未就绪</string>
+    <string name="br_tapped">已物理点击(%1$d,%2$d)</string>
+    <string name="br_opening">正在打开 %1$s</string>
+    <string name="br_highlight_fmt">高亮: %1$s</string>
+    <string name="br_element">元素</string>
+    <string name="br_takeover">✋ 接管</string>
+    <string name="br_ready">AI 准备就绪</string>
+    <string name="br_think">思考▾</string>
+    <string name="br_no_think">（还没有思考摘要）</string>
+    <string name="br_return_ai">🤖 交还 AI</string>
+    <string name="br_returned_hint">已交还给你操作，点完验证码后再交还 AI</string>
+    <string name="br_taken_hint">你已接管，现在可点击网页（如验证码）</string>
+    <string name="br_ai_resume">AI 继续操作</string>
+    <string name="br_returned_ai">已交还 AI 操作</string>
+    <string name="br_welcome_ready">欢迎页已就绪</string>
+    <string name="br_scanned">已分析页面，识别到 %1$d 个可操作元素</string>
+    <string name="br_opened">打开: %1$s</string>
+    <string name="br_no_elements">页面暂无可用元素</string>
+    <string name="br_candidate">候选%1$d/共%2$d: 「%3$s」, 坐标(%4$d,%5$d) %6$dx%7$d</string>
+    <string name="br_idx_oob">候选索引 %1$d 越界(共 %2$d 个)</string>
+    <string name="br_idle">AI 空闲</string>
+    <string name="br_collapse">✕ 收起</string>
+    <string name="br_copy">复制</string>
+    <string name="br_engine_mgr">引擎管理</string>
+    <string name="br_login_data">登录数据</string>
+    <string name="br_close_page">✕ 关页</string>
+    <string name="br_add_engine_btn">＋ 添加搜索引擎(名称 + {q} 模板)</string>
+    <string name="br_default_engine">默认引擎 → %1$s</string>
+    <string name="br_edit">改</string>
+    <string name="br_delete">删</string>
+    <string name="br_keep_one">至少保留一个引擎</string>
+    <string name="br_edit_engine">编辑引擎</string>
+    <string name="br_add_engine">添加引擎</string>
+    <string name="br_name_hint">名称，如：GitHub</string>
+    <string name="br_tmpl_hint">搜索模板(含 {q})，如 github.com/search?q={q}</string>
+    <string name="br_home_hint">首页(可空)，如 github.com</string>
+    <string name="br_cancel">取消</string>
+    <string name="br_save">保存</string>
+    <string name="br_name_tmpl_empty">名称与搜索模板不能为空</string>
+    <string name="br_tmpl_need_q">搜索模板必须包含 {q}</string>
+    <string name="br_saved">已保存</string>
+    <string name="br_data_intro">· 登录站点 = 浏览器登录一次后自动/手动保存的登录态(site_auth.json)，供 AI 静默抓取带登录态。\n· 逐站可单独清除；「清除全部」将清空全部登录态与浏览器缓存。</string>
+    <string name="br_no_sites">暂无已保存的登录站点</string>
+    <string name="br_recent_saved">最近保存: %1$s (登录态异常可重新登录覆盖)</string>
+    <string name="br_clear">清除</string>
+    <string name="br_site_cleared">已清除 %1$s 登录态</string>
+    <string name="br_clear_all">清除全部登录会话与缓存</string>
+    <string name="br_cleared_all">已清除全部登录会话与缓存</string>
+    <string name="br_nothing_copy">暂无可复制的地址</string>
+    <string name="br_copied">已复制: %1$s</string>
+    <string name="br_search_fmt">%1$s 搜索: %2$s</string>
+    <string name="br_home">主页</string>
+    <string name="br_visiting">AI 正在访问 %1$s</string>
+    <string name="br_dialog_body1">· 登录态: 存于应用私有目录(WebView Cookie/DOM Storage)，仅本机可见，卸载即清\n</string>
+    <string name="br_dialog_body2">· 可一键清除全部站点登录会话\n</string>
+    <string name="br_dialog_body3">· 当前默认引擎: %1$s\n</string>
+    <string name="br_dialog_body4">· 自定义引擎: 后续版本支持增删改</string>
+    <string name="br_none">无</string>
+    <string name="br_local_data">浏览器本地数据</string>
+    <string name="br_clear_all_sessions">一键清除全部登录会话</string>
+    <!-- 媒体预览 -->
+    <string name="mp_file_missing">附件文件已不存在</string>
+    <string name="mp_preview">预览</string>
+    <string name="mp_prev">‹ 上一页</string>
+    <string name="mp_next">下一页 ›</string>
+    <string name="mp_pdf_fail">PDF 解析失败: %1$s</string>
+    <string name="mp_tap_close">点击 ✕ 关闭</string>
+    <string name="mp_audio_fail">音频加载失败: %1$s</string>
+    <string name="mp_play">播放</string>
+    <string name="mp_close">关闭</string>
+    <string name="mp_pause">暂停</string>
+    <!-- 主界面 -->
+    <string name="ma_site_saved">已自动保存 %1$s 登录态(site_auth)</string>
+    <string name="ma_welcome">欢迎回来 · 一切就绪</string>
+    <string name="ma_me">我</string>
+    <string name="ma_release_send">松开 发送</string>
+    <string name="ma_voice_msg">[语音消息]</string>
+    <string name="think_expand">💭 已思考%1$d字，点按展开</string>
+    <string name="think_expanded">💭 %1$s</string>
+    <string name="tool_collapsed">🔧 工具：%1$s</string>
+    <string name="think_prefix">思考中: %1$s</string>
+    <string name="gen_loading">生成中…</string>
+    <!-- AI 悬浮终端 -->
+    <string name="at_terminal_title">DA AI 终端</string>
+    <string name="at_idle">待命中…</string>
+    <string name="at_channel_name">AI 悬浮终端</string>
+    <string name="at_channel_desc">显示 AI 实时执行状态的悬浮迷你终端</string>
+    <string name="at_content">实时显示 AI 执行状态</string>
+    <!-- 后台任务通知 -->
+    <string name="ts_channel_name">任务执行中</string>
+    <string name="ts_channel_desc">AI 处理任务期间的前台通知，防止进程被系统回收</string>
+    <string name="ts_running">任务执行中…</string>
+    <string name="ts_content">AI 正在后台处理任务，请勿强制停止</string>
+    <!-- 聊天背景 -->
+    <string name="cba_img_badge">图</string>
+    <string name="cba_def_badge">默</string>
+    <!-- 侧栏 -->
+    <string name="mui_new_chat">＋ 新会话</string>
+    <string name="mui_settings">⚙ 设置</string>
+    <string name="mui_role_user">我</string>
+    <string name="mui_role_ai">AI</string>
+    <!-- 附件打开/分享 -->
+    <string name="uk_open_fail">无法打开附件: %1$s</string>
+    <string name="uk_share_attach">分享附件</string>
+    <!-- 协议 -->
+    <string name="agr_got_it">我知道了</string>
+
+
+    <!-- 协议全文 -->
+    <string name="agr_disclaimer" formatted="false">本应用为个人开发者提供的安卓智能体工具，仅用于学习、研究、技术交流，不构成任何正式产品承诺。
+
+一、无担保声明
+本应用按&quot;现状&quot;提供，作者不作任何明示或默示担保，包括但不限于适销性、特定用途适用性、不侵犯第三方权利、运行稳定、数据完整无损。因使用本应用产生的任何直接或间接损失，作者不承担责任。
+
+二、数据与 API 披露（重要）
+1. 本应用不集成任何本地模型，所有对话均通过你自行配置的第三方 AI 服务商 API（如 OpenAI 兼容接口）实现。
+2. 你在对话中提交的内容、附带的上下文（如记忆检索结果、工具调用参数、文件内容片段）将通过网络请求发送至你所配置的模型服务商服务器处理，数据并不只停留在本地设备。
+3. 上述数据的处理、存储与合规遵循该服务商自身的服务条款与隐私政策，与作者无关；请在配置 API 前阅读并确认服务商相关协议。
+4. 涉及文件内容、SSH 远程信息、个人隐私、账号凭据等敏感数据，请在发送前充分知悉其必然经过你指定的模型通道，谨慎选择模型与配置。
+
+三、远程与系统操作风险
+本应用可能包含 SSH 远程连接、文件读写、系统调试（root/adb）等能力，此类操作可能对设备、远程服务器或其上数据造成不可预期的后果（包括但不限于数据丢失、服务中断、设备异常）。所有远程与系统级操作后果由操作者自行承担，请自行评估风险并做好备份。
+
+四、责任边界
+作者不对第三方服务商的可用性、安全性、合规性作任何担保，不对网络、模型输出内容、第三方服务故障引发的损失负责；用户违反法律法规、服务商条款或他人权利导致的后果，由用户自行承担。
+
+五、变更
+作者保留随时修改本声明的权利，修改后自更新之日起适用；继续使用本应用即视为接受最新版本。</string>
+    <string name="agr_privacy" formatted="false">本应用遵循&quot;最小收集&quot;原则：应用本身不收集、不存储、不分析、不共享任何与你个人身份直接相关的数据，你的使用记录默认仅保存在你自己设备上。
+
+一、数据收集
+1. 作者不收集任何个人信息，不采集设备标识、IMEI、位置、通讯录、电话、短信等。
+2. 不接入任何统计、广告、埋点 SDK。
+3. 应用内登录态、配置、记忆等内容均由你自行管理与操作。
+
+二、数据去向（重要）
+1. 你配置并启用的模型 API：对话内容、附带上下文（含记忆检索结果、工具调用参数、文件内容片段）会经网络发送至你所配置的第三方模型服务商处理，以该服务商自身的隐私政策为准。
+2. 除你主动配置的上述通道外，本应用不向任何第三方传输你的数据。
+
+三、本地存储内容
+以下内容仅保存在设备本地，用于保证连续对话与基本功能：
+1. 聊天记录、记忆库内容。
+2. 模型、SSH 等连接配置（含你自行填写的地址、令牌、密钥等）。
+3. 应用运行日志。
+请妥善保管含敏感信息的配置数据；卸载应用或清除应用数据即可删除上述本地内容。
+
+四、权限使用说明
+1. 网络权限：用于访问你配置的模型 API、SSH 等连接目标。
+2. 存储权限：用于读写你允许访问的文件。
+3. 系统调试相关：仅在启用远程调试、root 能力时按你的操作生效。
+权限均在功能需要时请求，你可随时在系统设置中关闭。
+
+五、未成年人
+本应用不面向未成年人提供服务；若未成年人在监护人指导下使用，请监护人知悉上述 API 数据通道内容。
+
+六、政策变更与联系
+我们可能更新本政策，更新后自公布之日起生效，重大变更将以显著方式提示。如有疑问可提交至仓库 Issue。</string>
+    <!-- 主题名 -->
+    <string name="theme_default">默认</string>
+    <string name="theme_flat">扁平</string>
+    <string name="theme_kawaii">卡哇伊</string>
+    <!-- 浏览器预设搜索引擎 -->
+    <string name="br_engine_baidu">百度</string>
+    <string name="br_engine_bing">必应</string>
+    <string name="br_engine_google">谷歌</string>
+    <string name="br_engine_sogou">搜狗</string>
+    <string name="br_engine_sm">神马</string>
+    <string name="br_engine_zhihu">知乎</string>
+    <string name="br_welcome_page">欢迎页</string>
+    <!-- 思考强度档位 -->
+    <string name="think_auto">自动</string>
+    <string name="think_off">关闭</string>
+    <string name="think_on">开启</string>
+    <string name="think_low">低</string>
+    <string name="think_medium">中</string>
+    <string name="think_high">高</string>
+    <!-- 模型能力 -->
+    <string name="cap_image">图片</string>
+    <string name="cap_video">视频</string>
+    <string name="cap_audio">音频</string>
+    <string name="cap_tool">工具调用</string>
+
 </resources>

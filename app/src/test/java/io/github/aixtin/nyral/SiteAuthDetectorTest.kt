@@ -1,6 +1,6 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
-import io.github.aixtin.droidagent.SiteAuthDetector
+import io.github.aixtin.nyral.SiteAuthDetector
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

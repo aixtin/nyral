@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -102,7 +102,7 @@ object DebugServer {
         app = activity.applicationContext
         val debuggable = (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (!debuggable) {
-            Log.i("DroidAgent", "DebugServer: release 构建, 不启动")
+            Log.i("Nyral", "DebugServer: release 构建, 不启动")
             return
         }
         if (!isEnabled(activity)) return
@@ -138,14 +138,14 @@ object DebugServer {
             val ss = if (bindAddr == null) ServerSocket(p) else ServerSocket(p, 50, bindAddr)
             serverSocket = ss
             running.set(true)
-            Log.i("DroidAgent", "DebugServer 启动: ${if (lan) "0.0.0.0" else "127.0.0.1"}:$p")
+            Log.i("Nyral", "DebugServer 启动: ${if (lan) "0.0.0.0" else "127.0.0.1"}:$p")
             val t = Thread {
                 while (running.get()) {
                     try {
                         val s = ss.accept()
                         pool.execute { handle(s, c.applicationContext) }
                     } catch (e: Exception) {
-                        if (running.get()) Log.w("DroidAgent", "DebugServer accept: ${e.message}")
+                        if (running.get()) Log.w("Nyral", "DebugServer accept: ${e.message}")
                     }
                 }
             }
@@ -153,7 +153,7 @@ object DebugServer {
             t.isDaemon = true
             t.start()
         } catch (e: Exception) {
-            Log.e("DroidAgent", "DebugServer 启动失败: ${e.message}")
+            Log.e("Nyral", "DebugServer 启动失败: ${e.message}")
             running.set(false)
             try { serverSocket?.close() } catch (e2: Exception) {}
             serverSocket = null
@@ -272,7 +272,7 @@ object DebugServer {
                 if (!reuse) keepAlive = false
             }
         } catch (e: Exception) {
-            Log.w("DroidAgent", "DebugServer handle: ${e.message}")
+            Log.w("Nyral", "DebugServer handle: ${e.message}")
         } finally {
             try { s.close() } catch (e: Exception) {}
         }
@@ -643,7 +643,19 @@ object DebugServer {
     // ================= /v1/chat (SSE) =================
     private fun chat(c: Context, out: OutputStream, body: String) {
         val message = try { JSONObject(body).optString("message", "") } catch (e: Exception) { "" }
-        if (message.isBlank()) {
+        val atts = try {
+            val arr = JSONObject(body).optJSONArray("attachments")
+            if (arr == null) emptyList() else (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                LocalEngine.Attachment(
+                    mime = o.optString("mime", "text/plain"),
+                    base64 = o.optString("base64", ""),
+                    name = o.optString("name", "attachment"),
+                    text = o.optString("text", "")
+                )
+            }
+        } catch (e: Exception) { emptyList() }
+        if (message.isBlank() && atts.isEmpty()) {
             writeJson(out, 400, JSONObject().put("error", "message required"))
             return
         }
@@ -679,7 +691,7 @@ object DebugServer {
         try {
             // 触发主链路(UI 线程), 完成后自行停止 TaskService
             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                val ok = act.submitDebugChat(message) {
+                val ok = act.submitDebugChat(message, atts) {
                     queue.offer("_sys_done" to "")
                 }
                 if (!ok) {
@@ -693,9 +705,10 @@ object DebugServer {
             while (!done) {
                 val ev = queue.poll(5, TimeUnit.SECONDS)
                 if (ev == null) {
-                    // 主链路未产生事件(理论不会), 防死循环: 连续 6 次空轮询(30s)视为异常
+                    // 主链路未产生事件(理论不会), 防死循环: 连续 36 次空轮询(180s)视为异常
+                    // 延长阈值: ask_user 澄清弹窗会阻塞主链路等待用户点选(最长120s), 30s 会误判超时
                     idle++
-                    if (idle >= 6) {
+                    if (idle >= 36) {
                         queue.offer("error" to "调试链路超时")
                         queue.offer("_sys_done" to "")
                     }
@@ -711,7 +724,7 @@ object DebugServer {
             }
             finished.set(true)
         } catch (e: Exception) {
-            Log.w("DroidAgent", "DebugServer chat SSE: ${e.message}")
+            Log.w("Nyral", "DebugServer chat SSE: ${e.message}")
         } finally {
             act.debugSseSink = oldSink
             // 若客户端中断/主链路未接受导致循环未正常结束, 请求取消当前输出

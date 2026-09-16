@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 /**
  * 附件格式嗅探器: 通过魔数识别文件真实根类型, 解决"扩展名≠真实格式"导致的解码失败。

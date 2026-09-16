@@ -1,6 +1,6 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
-import io.github.aixtin.droidagent.R
+import io.github.aixtin.nyral.R
 
 import android.app.Activity
 import android.content.Intent
@@ -42,7 +42,7 @@ class AboutActivity : Activity() {
             setPadding(0, dp(32), 0, dp(26))
         }
         brand.addView(TextView(this).apply {
-            text = "DroidAgent"
+            text = "Nyral"
             textSize = 28f
             setTextColor(Ui.TEXT)
             typeface = Typeface.DEFAULT_BOLD
@@ -91,13 +91,13 @@ class AboutActivity : Activity() {
         linkCard.addView(Ui.divider(this))
         linkCard.addView(infoRow(getString(R.string.about_22), getString(R.string.about_23)).apply {
             isClickable = true
-            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_22), Agreements.DISCLAIMER_TEXT) }
+            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_22), Agreements.disclaimerText(this@AboutActivity)) }
             Ui.press(this)
         })
         linkCard.addView(Ui.divider(this))
         linkCard.addView(infoRow(getString(R.string.about_24), getString(R.string.about_23)).apply {
             isClickable = true
-            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_24), Agreements.PRIVACY_TEXT) }
+            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_24), Agreements.privacyText(this@AboutActivity)) }
             Ui.press(this)
         })
         linkCard.addView(Ui.divider(this))

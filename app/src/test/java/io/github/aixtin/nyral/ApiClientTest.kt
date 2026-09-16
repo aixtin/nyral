@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

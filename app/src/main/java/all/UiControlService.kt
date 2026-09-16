@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
@@ -10,7 +10,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 /**
  * 无障碍控制服务(原型): AI 控制第三方 App 的免 root 通道。
- * 依赖系统无障碍授权(系统设置->无障碍->已安装的服务->DroidAgent)。
+ * 依赖系统无障碍授权(系统设置->无障碍->已安装的服务->Nyral)。
  * 开启后读取前台窗口节点树, 提供:
  *   - app_scan    扫描当前屏幕可操作元素清单(索引+文本+坐标)
  *   - app_click   点击第 N 个元素
@@ -30,7 +30,7 @@ class UiControlService : AccessibilityService() {
         val isRunning: Boolean get() = instance != null
 
         private const val NOT_READY =
-            "无障碍服务未开启: 请到 系统设置 -> 无障碍 -> 已安装的服务 里开启 DroidAgent"
+            "无障碍服务未开启: 请到 系统设置 -> 无障碍 -> 已安装的服务 里开启 Nyral"
 
         /** 扫描当前屏幕可操作元素清单(带 [索引] 文本/描述 坐标), 供 app_click/app_text 定位 */
         fun scan(): String = instance?.collectElements() ?: NOT_READY

@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -75,8 +75,8 @@ class TaskService : Service() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel(CHANNEL_ID, "任务执行中", NotificationManager.IMPORTANCE_LOW)
-            channel.description = "AI 处理任务期间的前台通知，防止进程被系统回收"
+            val channel = NotificationChannel(CHANNEL_ID, getString(R.string.ts_channel_name), NotificationManager.IMPORTANCE_LOW)
+            channel.description = getString(R.string.ts_channel_desc)
             nm.createNotificationChannel(channel)
         }
     }
@@ -90,8 +90,8 @@ class TaskService : Service() {
         )
         val builder = Notification.Builder(this)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("任务执行中…")
-            .setContentText("AI 正在后台处理任务，请勿强制停止")
+            .setContentTitle(getString(R.string.ts_running))
+            .setContentText(getString(R.string.ts_content))
             .setOngoing(true)
             .setContentIntent(contentIntent)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

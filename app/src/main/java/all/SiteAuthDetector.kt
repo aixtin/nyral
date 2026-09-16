@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 /**
  * 登录态判定纯函数(无 Android 依赖, 可 JVM 单测)。

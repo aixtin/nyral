@@ -1,6 +1,6 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
-import io.github.aixtin.droidagent.R
+import io.github.aixtin.nyral.R
 
 import android.app.Activity
 import android.content.ClipData
@@ -40,7 +40,7 @@ class MemorySummaryActivity : Activity() {
             // ---- 空态 ----
             content.addView(TextView(this).apply {
                 text = getString(R.string.msum_03)
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 textSize = 14f
                 gravity = Gravity.CENTER_HORIZONTAL
                 setLineSpacing(0f, 1.6f)

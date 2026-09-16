@@ -1,6 +1,6 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
-import io.github.aixtin.droidagent.R
+import io.github.aixtin.nyral.R
 
 import android.Manifest
 import android.app.Activity
@@ -71,21 +71,25 @@ class SettingsActivity : Activity() {
         // 分组1：连接
         content.addView(Ui.groupLabel(this, getString(R.string.settings_group_conn)))
         val cardConn = Ui.card(this)
-        cardConn.addView(settingsItem(getString(R.string.settings_ssh_config), getString(R.string.settings_ssh_config_sub), "🔐", 0, {
+        cardConn.addView(settingsItem(getString(R.string.settings_ssh_config), getString(R.string.settings_ssh_config_sub), R.drawable.ic_settings_ssh, 0, {
             startActivity(Intent(this@SettingsActivity, SshConfigActivity::class.java))
         }))
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem(getString(R.string.settings_mcp), mcpStatus(), "🧩", 0, {
+        cardConn.addView(settingsItem(getString(R.string.settings_mcp), mcpStatus(), R.drawable.ic_settings_mcp, 0, {
             startActivity(Intent(this@SettingsActivity, McpConfigActivity::class.java))
         }) { mcpSubtitleView = it })
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem(getString(R.string.settings_memory), getString(R.string.settings_memory_count, MemoryDb(this).count()), "🧠", 1, {
+        cardConn.addView(settingsItem(getString(R.string.settings_memory), getString(R.string.settings_memory_count, MemoryDb(this).count()), R.drawable.ic_settings_memory, 1, {
             startActivity(Intent(this@SettingsActivity, MemoryListActivity::class.java))
         }) { memorySubtitle = it })
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem(getString(R.string.settings_memory_index), summaryStatus(), "索", 2, {
+        cardConn.addView(settingsItem(getString(R.string.settings_memory_index), summaryStatus(), R.drawable.ic_settings_memory_index, 2, {
             startActivity(Intent(this@SettingsActivity, MemorySummaryActivity::class.java))
         }) { summarySubtitle = it })
+        cardConn.addView(Ui.divider(this))
+        cardConn.addView(settingsItem(getString(R.string.settings_files), getString(R.string.settings_files_sub), R.drawable.ic_settings_memory, 3, {
+            startActivity(Intent(this@SettingsActivity, FileListActivity::class.java))
+        }))
         content.addView(cardConn)
 
         // 分组2：模型 API
@@ -100,7 +104,7 @@ class SettingsActivity : Activity() {
                 startActivity(Intent(this@SettingsActivity, ModelConfigActivity::class.java))
             }
             Ui.press(this)
-            addView(Ui.iconBadge(this@SettingsActivity, "模", 2))
+            addView(Ui.iconBadgeRes(this@SettingsActivity, R.drawable.ic_settings_model, 2))
             addView(LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -113,41 +117,29 @@ class SettingsActivity : Activity() {
             addView(Ui.arrow(this@SettingsActivity))
         })
         cardModel.addView(Ui.divider(this))
-        cardModel.addView(settingsItem(getString(R.string.settings_mem_model), getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()), "辅", 6, {
+        cardModel.addView(settingsItem(getString(R.string.settings_mem_model), getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()), R.drawable.ic_settings_mem_model, 6, {
             startActivity(Intent(this@SettingsActivity, MemModelConfigActivity::class.java))
         }) { memModelSubtitle = it })
         content.addView(cardModel)
 
-        // 分组3：外观
-        content.addView(Ui.groupLabel(this, getString(R.string.settings_group_look)))
-        val cardLook = Ui.card(this)
-        cardLook.addView(settingsItem(getString(R.string.settings_look), getString(R.string.settings_look_sub), "🎨", 8, {
-            startActivity(Intent(this@SettingsActivity, AppearanceActivity::class.java))
-        }))
-        cardLook.addView(Ui.divider(this))
-        cardLook.addView(settingsItem(getString(R.string.settings_ai_persona), getString(R.string.settings_ai_persona_sub), "🧩", 18, {
-            startActivity(Intent(this@SettingsActivity, PersonalityActivity::class.java))
-        }))
-        content.addView(cardLook)
-
         // 分组4：其他
         content.addView(Ui.groupLabel(this, getString(R.string.settings_group_other)))
         val cardAbout = Ui.card(this)
-        cardAbout.addView(settingsItem(getString(R.string.settings_log), getString(R.string.settings_log_sub), "📋", 5, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_log), getString(R.string.settings_log_sub), R.drawable.ic_settings_log, 5, {
             startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
         }))
         cardAbout.addView(Ui.divider(this))
-        cardAbout.addView(settingsItem(getString(R.string.settings_upload_size), getString(R.string.settings_upload_size_sub, UploadConfig.maxMb()), "⬆", 14, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_upload_size), getString(R.string.settings_upload_size_sub, UploadConfig.maxMb()), R.drawable.ic_settings_upload, 14, {
             showUploadSizeEdit()
         }) { uploadSizeSub = it })
         cardAbout.addView(Ui.divider(this))
-        cardAbout.addView(settingsItem(getString(R.string.settings_token), getString(R.string.settings_token_sub), "∑", 7, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_token), getString(R.string.settings_token_sub), R.drawable.ic_settings_token, 7, {
             showTokenStats()
         }) { tokenSubtitle = it })
         cardAbout.addView(Ui.divider(this))
         debugBox = LinearLayout(this@SettingsActivity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(settingsItem(getString(R.string.settings_debug), DebugServer.statusText(this@SettingsActivity), "🔧", 11, {
+            addView(settingsItem(getString(R.string.settings_debug), DebugServer.statusText(this@SettingsActivity), R.drawable.ic_settings_debug, 11, {
                 showDebugDialog()
             }) { debugSubtitle = it })
             addView(Ui.divider(this@SettingsActivity))
@@ -157,10 +149,10 @@ class SettingsActivity : Activity() {
         cardAbout.addView(Ui.divider(this))
         // 权限管理: 查看/补开全部依赖权限(部分手机长时间不用会自动收回)
         cardAbout.addView(Ui.divider(this))
-        cardAbout.addView(settingsItem(getString(R.string.settings_perm), getString(R.string.settings_perm_sub), "🔏", 9, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_perm), getString(R.string.settings_perm_sub), R.drawable.ic_settings_perm, 9, {
             startActivity(Intent(this@SettingsActivity, PermissionsActivity::class.java))
         }) { permSubtitleView = it })
-        cardAbout.addView(settingsItem(getString(R.string.settings_about), getString(R.string.settings_about_sub), "ℹ", 3, {
+        cardAbout.addView(settingsItem(getString(R.string.settings_about), getString(R.string.settings_about_sub), R.drawable.ic_settings_about, 3, {
             startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
         }))
         content.addView(cardAbout)
@@ -540,7 +532,7 @@ class SettingsActivity : Activity() {
         return if (missing == 0) getString(R.string.settings_perm_all) else getString(R.string.settings_perm_missing, missing)
     }
 
-    private fun settingsItem(title: String, subtitle: String, icon: String, seed: Int, onClick: () -> Unit, subRef: ((TextView) -> Unit)? = null): LinearLayout {
+    private fun settingsItem(title: String, subtitle: String, iconRes: Int, seed: Int, onClick: () -> Unit, subRef: ((TextView) -> Unit)? = null): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -548,7 +540,7 @@ class SettingsActivity : Activity() {
             isClickable = true
             setOnClickListener { onClick() }
             Ui.press(this)
-            addView(Ui.iconBadge(this@SettingsActivity, icon, seed))
+            addView(Ui.iconBadgeRes(this@SettingsActivity, iconRes, seed))
             addView(LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -558,7 +550,7 @@ class SettingsActivity : Activity() {
                 addView(TextView(this@SettingsActivity).apply {
                     text = subtitle
                     textSize = 12f
-                    setTextColor(0xFF999999.toInt())
+                    setTextColor(Ui.SUB)
                     setPadding(0, dp(3), 0, 0)
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END

@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.app.Activity
 import android.app.Dialog
@@ -65,7 +65,7 @@ fun Activity.openAttachmentPreview(files: List<String>, startIndex: Int) {
     val file = files[idx]
     val f = AttachmentStore.fileOf(act, file)
     if (f == null) {
-        Toast.makeText(act, "附件文件已不存在", Toast.LENGTH_SHORT).show()
+        Toast.makeText(act, getString(R.string.mp_file_missing), Toast.LENGTH_SHORT).show()
         return
     }
     val mime = AttachmentStore.mimeOf(file)
@@ -237,9 +237,9 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
     topBar.addView(TextView(act).apply {
-        text = media.mapNotNull { AttachmentStore.fileOf(act, it)?.name }.getOrNull(startIndex) ?: "预览"
+        text = media.mapNotNull { AttachmentStore.fileOf(act, it)?.name }.getOrNull(startIndex) ?: getString(R.string.mp_preview)
         textSize = 15f
-        setTextColor(Color.parseColor("#1A1A1A"))
+        setTextColor(Ui.TEXT)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.MIDDLE
         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -247,14 +247,14 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
     topBar.addView(TextView(act).apply {
         text = "${startIndex + 1}/${media.size}"
         textSize = 14f
-        setTextColor(Color.parseColor("#0B93F6"))
+        setTextColor(Ui.PRIMARY)
         setTypeface(typeface, Typeface.BOLD)
         setPadding(dp(12), dp(4), dp(8), dp(4))
     }.also { indicator = it })
     topBar.addView(TextView(act).apply {
         text = "✕"
         textSize = 22f
-        setTextColor(Color.parseColor("#1A1A1A"))
+        setTextColor(Ui.TEXT)
         setPadding(dp(14), dp(2), dp(12), dp(2))
         setOnClickListener { d.dismiss() }
     })
@@ -315,7 +315,7 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
     }
     val root = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
-        background = rounded(dp(20), Color.parseColor("#F7F7F8"))
+        background = rounded(dp(20), Ui.BG)
     }
     val topBarBg = GradientDrawable().apply {
         setColor(Color.WHITE)
@@ -332,7 +332,7 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
         addView(TextView(act).apply {
             text = "📄 ${f.name}"
             textSize = 15f
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             setTypeface(typeface, Typeface.BOLD)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.MIDDLE
@@ -341,7 +341,7 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
         addView(TextView(act).apply {
             text = "✕"
             textSize = 22f
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             setPadding(dp(14), dp(2), dp(12), dp(2))
             setOnClickListener { d.dismiss() }
         })
@@ -377,17 +377,17 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
     val prevBtn = TextView(act).apply {
-        text = "‹ 上一页"
+        text = getString(R.string.mp_prev)
         textSize = 14f
-        setTextColor(Color.parseColor("#1A1A1A"))
+        setTextColor(Ui.TEXT)
         setBackgroundColor(Color.parseColor("#00000000"))
         setPadding(dp(12), dp(6), dp(12), dp(6))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
     val nextBtn = TextView(act).apply {
-        text = "下一页 ›"
+        text = getString(R.string.mp_next)
         textSize = 14f
-        setTextColor(Color.parseColor("#1A1A1A"))
+        setTextColor(Ui.TEXT)
         setBackgroundColor(Color.parseColor("#00000000"))
         setPadding(dp(12), dp(6), dp(12), dp(6))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -432,8 +432,8 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
                     pageNo.text = "${i + 1} / $total"
                     prevBtn.isEnabled = i > 0
                     nextBtn.isEnabled = i < total - 1
-                    prevBtn.setTextColor(if (i > 0) Color.parseColor("#1A1A1A") else Color.parseColor("#BBBBBB"))
-                    nextBtn.setTextColor(if (i < total - 1) Color.parseColor("#1A1A1A") else Color.parseColor("#BBBBBB"))
+                    prevBtn.setTextColor(if (i > 0) Ui.TEXT else Color.parseColor("#BBBBBB"))
+                    nextBtn.setTextColor(if (i < total - 1) Ui.TEXT else Color.parseColor("#BBBBBB"))
                 }
             } catch (e: Exception) {
                 // 渲染失败静默, 保持上一页画面
@@ -447,7 +447,7 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
         total = renderer!!.pageCount
         renderPage(0)
     } catch (e: Exception) {
-        Toast.makeText(act, "PDF 解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(act, getString(R.string.mp_pdf_fail, e.message), Toast.LENGTH_SHORT).show()
         d.dismiss()
     }
     prevBtn.setOnClickListener { if (cur > 0) { cur--; renderPage(cur) } }
@@ -489,7 +489,7 @@ private fun Activity.showTextPreviewDialog(fileName: String) {
     }
     val root = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
-        background = rounded(dp(20), Color.parseColor("#F7F7F8"))
+        background = rounded(dp(20), Ui.BG)
     }
     val content = try {
         f.readText()
@@ -511,7 +511,7 @@ private fun Activity.showTextPreviewDialog(fileName: String) {
         addView(TextView(act).apply {
             text = "📄 ${f.name}"
             textSize = 15f
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             setTypeface(typeface, Typeface.BOLD)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.MIDDLE
@@ -520,7 +520,7 @@ private fun Activity.showTextPreviewDialog(fileName: String) {
         addView(TextView(act).apply {
             text = "✕"
             textSize = 22f
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             setPadding(dp(14), dp(2), dp(12), dp(2))
             setOnClickListener { d.dismiss() }
         })
@@ -531,17 +531,17 @@ private fun Activity.showTextPreviewDialog(fileName: String) {
     scroll.addView(TextView(act).apply {
         text = content
         textSize = 15f
-        setTextColor(Color.parseColor("#1A1A1A"))
+        setTextColor(Ui.TEXT)
         setPadding(dp(16), dp(12), dp(16), dp(12))
         // 自由复制: 长按出现选择手柄, 可拖选任意片段复制(系统自带全选/复制菜单)
         setTextIsSelectable(true)
     })
     root.addView(scroll)
     root.addView(TextView(act).apply {
-        text = "点击 ✕ 关闭"
+        text = getString(R.string.mp_tap_close)
         textSize = 13f
         setTextColor(Color.parseColor("#8A8A8A"))
-        setBackgroundColor(Color.parseColor("#F7F7F8"))
+        setBackgroundColor(Ui.BG)
         setPadding(dp(16), dp(10), dp(16), dp(14))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
     })
@@ -568,7 +568,7 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
         player.setDataSource(f.absolutePath)
         player.prepare()
     } catch (e: Exception) {
-        Toast.makeText(act, "音频加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(act, getString(R.string.mp_audio_fail, e.message), Toast.LENGTH_SHORT).show()
         return
     }
     val root = LinearLayout(act).apply {
@@ -579,16 +579,16 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
     root.addView(TextView(act).apply {
         text = "🎵 ${f.name}"
         textSize = 16f
-        setTextColor(Color.parseColor("#1A1A1A"))
+        setTextColor(Ui.TEXT)
         setTypeface(typeface, Typeface.BOLD)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.MIDDLE
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(20) }
     })
     val playBtn = Button(act).apply {
-        text = "播放"
+        text = getString(R.string.mp_play)
         setTextColor(Color.WHITE)
-        setBackgroundColor(Color.parseColor("#0B93F6"))
+        setBackgroundColor(Ui.PRIMARY)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { bottomMargin = dp(16) }
     }
     val seek = SeekBar(act).apply {
@@ -603,8 +603,8 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
     }
     root.addView(playBtn); root.addView(seek); root.addView(timeTv)
     root.addView(Button(act).apply {
-        text = "关闭"
-        setTextColor(Color.parseColor("#1A1A1A"))
+        text = getString(R.string.mp_close)
+        setTextColor(Ui.TEXT)
         setBackgroundColor(Color.parseColor("#F1F2F4"))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
         setOnClickListener { d.dismiss() }
@@ -620,8 +620,8 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
         }
     }
     playBtn.setOnClickListener {
-        if (player.isPlaying) { player.pause(); playBtn.text = "播放" }
-        else { player.start(); playBtn.text = "暂停" }
+        if (player.isPlaying) { player.pause(); playBtn.text = getString(R.string.mp_play) }
+        else { player.start(); playBtn.text = getString(R.string.mp_pause) }
     }
     seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
         override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
@@ -630,7 +630,7 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
         override fun onStartTrackingTouch(sb: SeekBar) {}
         override fun onStopTrackingTouch(sb: SeekBar) {}
     })
-    player.setOnCompletionListener { mediaUi.launch { playBtn.text = "播放"; seek.progress = seek.max } }
+    player.setOnCompletionListener { mediaUi.launch { playBtn.text = getString(R.string.mp_play); seek.progress = seek.max } }
     d.setOnDismissListener { handler.removeCallbacks(ticker); try { player.release() } catch (_: Exception) {} }
     d.setContentView(root)
     d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))

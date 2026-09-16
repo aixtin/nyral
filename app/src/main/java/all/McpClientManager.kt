@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.content.Context
 import org.json.JSONArray
@@ -143,7 +143,7 @@ object McpClientManager {
                 put("protocolVersion", PROTOCOL_VERSION)
                 put("capabilities", JSONObject())
                 put("clientInfo", JSONObject().apply {
-                    put("name", "DroidAgent")
+                    put("name", "Nyral")
                     put("version", "1.0")
                 })
             })

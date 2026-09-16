@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ScriptableObject

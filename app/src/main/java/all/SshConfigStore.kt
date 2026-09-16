@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -34,7 +34,7 @@ object SshConfigStore {
     }
 
     private const val PREFS = "ssh_configs"
-    private const val KEY_ALIAS = "droid_agent_ssh_key"
+    private const val KEY_ALIAS = "nyral_ssh_key"
     private const val GCM_TAG_BITS = 128
 
     fun load(context: Context): List<SshConfig> {

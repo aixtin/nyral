@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.content.Context
 import android.content.Intent
@@ -469,6 +469,32 @@ private fun retrieveFrameRetry(mmr: MediaMetadataRetriever, f: File): Bitmap? {
     return null
 }
 
+/** 指定时间点取帧(video_frame 工具用): FileDescriptor 直连 + 多策略重试, 失败返回 null */
+fun videoFrameAt(f: File, timeMs: Long): Bitmap? {
+    return try {
+        val mmr = MediaMetadataRetriever()
+        try {
+            val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
+        } catch (t: Throwable) {
+            mmr.setDataSource(f.absolutePath)
+        }
+        val t = timeMs.coerceAtLeast(0L)
+        val attempts = arrayOf(
+            longArrayOf(t, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
+            longArrayOf(t, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
+            longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
+            longArrayOf(1_000L, MediaMetadataRetriever.OPTION_CLOSEST.toLong())
+        )
+        var frame: Bitmap? = null
+        for (a in attempts) {
+            try { frame = mmr.getFrameAtTime(a[0], a[1].toInt()); if (frame != null) break } catch (t: Throwable) {}
+        }
+        mmr.release()
+        frame
+    } catch (e: Exception) { null }
+}
+
 /** 无重编码 remux 到 cache: 部分解码栈拒绝原文件(视频/容器兼容性问题), 用 MediaExtractor+MediaMuxer 原样重写容器后可正常播放; 失败返回 null */
 fun remuxToCache(ctx: Context, src: File): File? {
     try {
@@ -551,10 +577,10 @@ fun modelIconBg(density: Float): Drawable = object : Drawable() {
     private fun dp(v: Int) = (v * density).toInt()
     private val bg = GradientDrawable().apply {
         cornerRadius = dp(16).toFloat()
-        setColor(Color.parseColor("#E8F3FE"))
+        setColor(Ui.PRIMARY_LIGHT)
     }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#0B93F6")
+        color = Ui.PRIMARY
         style = Paint.Style.STROKE
         strokeWidth = density * 1.6f
         strokeCap = Paint.Cap.ROUND
@@ -598,10 +624,10 @@ fun attachIconBg(density: Float): Drawable = object : Drawable() {
     private fun dp(v: Int) = (v * density).toInt()
     private val bg = GradientDrawable().apply {
         cornerRadius = dp(16).toFloat()
-        setColor(Color.parseColor("#E8F3FE"))
+        setColor(Ui.PRIMARY_LIGHT)
     }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#0B93F6")
+        color = Ui.PRIMARY
         style = Paint.Style.STROKE
         strokeWidth = density * 1.8f
         strokeCap = Paint.Cap.ROUND
@@ -630,7 +656,7 @@ fun attachIconBg(density: Float): Drawable = object : Drawable() {
 fun searchIconBg(density: Float): Drawable = object : Drawable() {
     private fun dp(v: Int) = (v * density).toInt()
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#999999")
+        color = Ui.SUB
         style = Paint.Style.STROKE
         strokeWidth = density * 1.8f
         strokeCap = Paint.Cap.ROUND
@@ -664,10 +690,10 @@ fun micIconBg(recording: Boolean, voiceMode: Boolean = false, density: Float): D
     private fun dp(v: Int) = (v * density).toInt()
     private val bg = GradientDrawable().apply {
         cornerRadius = dp(16).toFloat()
-        setColor(if (recording) Color.parseColor("#F0523D") else Color.parseColor("#E8F3FE"))
+        setColor(if (recording) Color.parseColor("#F0523D") else Ui.PRIMARY_LIGHT)
     }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = if (recording) Color.WHITE else Color.parseColor("#0B93F6")
+        color = if (recording) Color.WHITE else Ui.PRIMARY
         style = Paint.Style.STROKE
         strokeWidth = density * 1.7f
         strokeCap = Paint.Cap.ROUND
@@ -727,7 +753,7 @@ fun openAttachmentExternal(context: Context, fileName: String) {
     try {
         val f = AttachmentStore.fileOf(context, fileName)
         if (f == null) {
-            Toast.makeText(context, "附件文件已不存在", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.mp_file_missing), Toast.LENGTH_SHORT).show()
             return
         }
         val mime = AttachmentStore.mimeOf(fileName)
@@ -745,10 +771,10 @@ fun openAttachmentExternal(context: Context, fileName: String) {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(share, "分享附件"))
+            context.startActivity(Intent.createChooser(share, context.getString(R.string.uk_share_attach)))
         }
     } catch (e: Exception) {
-        Toast.makeText(context, "无法打开附件: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.uk_open_fail, e.message), Toast.LENGTH_SHORT).show()
     }
 }
 

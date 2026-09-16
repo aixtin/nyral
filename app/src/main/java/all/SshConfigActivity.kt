@@ -1,6 +1,6 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
-import io.github.aixtin.droidagent.R
+import io.github.aixtin.nyral.R
 
 import android.app.Activity
 import android.content.Intent
@@ -72,7 +72,7 @@ class SshConfigActivity : Activity() {
         content.addView(TextView(this).apply {
             text = getString(R.string.ssh_tip)
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
             setPadding(dp(4), dp(10), dp(4), dp(4))
         })
 
@@ -121,7 +121,7 @@ class SshConfigActivity : Activity() {
             configList.addView(TextView(this).apply {
                 text = getString(R.string.ssh_empty)
                 textSize = 13f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(32), 0, dp(32))
             })
@@ -222,7 +222,7 @@ class SshConfigActivity : Activity() {
             val toggleBtn = TextView(this).apply {
                 text = "﹀"
                 textSize = 16f
-                setTextColor(0xFF0B93F6.toInt())
+                setTextColor(Ui.PRIMARY)
                 setPadding(dp(10), 0, dp(6), 0)
                 gravity = Gravity.CENTER
                 minWidth = dp(22)
@@ -252,7 +252,7 @@ class SshConfigActivity : Activity() {
                 addView(TextView(this@SshConfigActivity).apply {
                     text = getString(R.string.ssh_import)
                     textSize = 13f
-                    setTextColor(0xFF0B93F6.toInt())
+                    setTextColor(Ui.PRIMARY)
                     setPadding(dp(8), 0, 0, 0)
                     setOnClickListener { onMore(et) }
                         Ui.press(this)

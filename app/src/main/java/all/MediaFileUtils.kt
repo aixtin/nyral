@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.content.ContentResolver
 import android.content.ContentUris
@@ -100,7 +100,7 @@ object MediaFileUtils {
             }
             if (vid < 0) null else ContentUris.withAppendedId(videoUri, vid)
         } catch (e: Exception) {
-            Log.w("DroidAgent", "motionVideoUriOf 查询失败", e)
+            Log.w("Nyral", "motionVideoUriOf 查询失败", e)
             null
         }
     }

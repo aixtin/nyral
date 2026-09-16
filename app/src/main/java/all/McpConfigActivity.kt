@@ -1,6 +1,6 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
-import io.github.aixtin.droidagent.R
+import io.github.aixtin.nyral.R
 
 import android.app.Activity
 import android.os.Bundle
@@ -56,7 +56,7 @@ class McpConfigActivity : Activity() {
                 "示例地址: 本机 http://127.0.0.1:8787/mcp · 局域网 http://192.168.x.x:8787/mcp\n" +
                 getString(R.string.mcp_04)
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
             setPadding(dp(4), dp(10), dp(4), dp(4))
         })
 
@@ -75,7 +75,7 @@ class McpConfigActivity : Activity() {
             configList.addView(TextView(this).apply {
                 text = getString(R.string.mcp_05)
                 textSize = 13f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(32), 0, dp(32))
             })

@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent;
+package io.github.aixtin.nyral;
 
 import android.graphics.Canvas;
 import android.graphics.Color;

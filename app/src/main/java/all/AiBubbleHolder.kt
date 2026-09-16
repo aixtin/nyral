@@ -1,24 +1,43 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
+import android.animation.ValueAnimator
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 
-/** 正文位置标记: 正文首次出现时记录其真实插入位置, 恢复时按原位渲染(不再固定末尾) */
-internal object ContentMarker
+// AI 气泡配色: 文件级变量, 随当前主题刷新(MainActivity 启动/切换时调用 applyBubbleTheme)
+internal var BUBBLE_AI: Int = DefaultTheme.bubbleAi
+internal var BUBBLE_AI_TEXT: Int = DefaultTheme.bubbleAiText
+internal var THINK_TEXT: Int = DefaultTheme.thinkText
+internal var THINK_BG: Int = DefaultTheme.thinkBg
 
-// AI 气泡配色: 提出为文件级常量, 与 MainActivity 共享(原为 MainActivity 私有成员)
-internal val BUBBLE_AI = Color.parseColor("#F1F2F4")
-internal val BUBBLE_AI_TEXT = Color.parseColor("#1A1A1A")
-internal val THINK_TEXT = Color.parseColor("#8A8A8A")
-internal val THINK_BG = Color.parseColor("#E7E8EA")
+// 浏览器悬浮模式: 打开浏览器时文字类气泡背景透明化(看清内容同时透出浏览器), 图片/视频气泡不参与(背景为 null 或打 NO_FLOAT_TAG 标记)
+internal var chatFloatMode = false
+internal const val FLOAT_BUBBLE_ALPHA = 140   // 悬浮模式气泡背景 alpha, 约55%不透明, 可调
+/** 视频气泡等要求始终不透明的 view 打此 tag, 悬浮动画收集背景时跳过 */
+internal const val NO_FLOAT_TAG = "nyral_no_float_alpha"
+
+/** 悬浮模式取色: 文字类气泡背景色带 alpha, 普通模式原色 */
+internal fun floatBubbleColor(base: Int): Int =
+    if (chatFloatMode) (base and 0x00FFFFFF) or (FLOAT_BUBBLE_ALPHA shl 24) else base
+
+/** 单段正文上限(字符): 流式累计超过立即封段另起气泡, 历史恢复按同阈值分片,
+ *  避免超长回复单行超大 TextView 一次性全量 markdown 渲染卡顿(阶段2 content 分片) */
+internal const val SPLIT_CONTENT_LEN = 4000
+
+internal fun applyBubbleTheme(t: AppTheme) {
+    BUBBLE_AI = t.bubbleAi
+    BUBBLE_AI_TEXT = t.bubbleAiText
+    THINK_TEXT = t.thinkText
+    THINK_BG = t.thinkBg
+}
 
 internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickable {
     private var bubbleBox: LinearLayout? = null
@@ -32,6 +51,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private val timelineEvents = ArrayList<Any>()
     private var done = false
     private var loadingRow: View? = null   // 思考完成等待正文时的加载指示行(chatMode 下为 chatWrap 外层行)
+    private var loadingAnim: ValueAnimator? = null   // 三点呼吸灯动画(阶段3: 对齐 Marvis isLoading 呼吸灯)
     private var maxW = 0
     // 正文多段化: 思考/工具穿插时正文拆成多个独立气泡, 每段独立打字机(v9)
     // 打字机(游标+帧驱动): text 只累积不删除, shownLen 控制显示进度
@@ -63,7 +83,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var collapsed = false   // 该段思考是否已完成(折叠)
         var expanded = false    // 用户是否点击展开全文
         val count: Int get() = text.codePointCount(0, text.length)
-        fun summary(): String = "💭 已思考${count}字，点按展开"
+        fun summary(): String = host.getString(R.string.think_expand, count)
     }
 
     /** 一次工具调用: 折叠态只显示工具名, 点击展开参数与结果 */
@@ -71,7 +91,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var result: String? = null
         var view: TextView? = null
         var expanded = false
-        fun collapsedText(): String = "🔧 工具：$name"
+        fun collapsedText(): String = host.getString(R.string.tool_collapsed, name)
         fun expandedText(): String = buildString {
             append("🔧 工具：$name")
             if (arg.isNotBlank()) append("\n参数：$arg")
@@ -93,8 +113,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val b = activeThinking ?: return
         val tv = b.view ?: return
         if (!b.collapsed) {
-            tv.text = "思考中: " + tailThinking(b)
-            host.scrollToBottom()
+            tv.text = host.getString(R.string.think_prefix, tailThinking(b))
+            host.scrollToBottom(true)
         }
     }
 
@@ -105,7 +125,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return if (idx >= 0) s.substring(idx + 2).trim() else s
     }
 
-    fun attach(parent: LinearLayout) {
+    fun createStreamingBox(): LinearLayout {
         maxW = host.chatMaxW()
         // 独立气泡容器: 不再包裹大气泡背景, 思考/工具/正文各自成为独立气泡, 按真实顺序竖向排列
         val box = LinearLayout(host).apply {
@@ -117,10 +137,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 // 每个子气泡自带背景, 宽度由 maxWidth(屏幕*0.78) 封顶
             }
         }
-        // 头像逐条内嵌: 每条子气泡(思考/工具/正文)在聊天模式下由 chatWrap 各自并排头像, Agent 模式不带
-        parent.addView(box)
+        // 不再直接挂父容器: 气泡盒由 ChatRow.Streaming 持有, 由 ChatAdapter.attachStreaming 挂到 item 容器
         bubbleBox = box
         host.enterBubble(box)
+        return box
     }
 
     /** 聊天模式下给气泡逐条并排 AI 头像(Agent 模式原样直插, 无头像) */
@@ -140,7 +160,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         statusView = addLine(s, THINK_TEXT, italic = true)
     }
 
-    /** 思考完成、正文未开始前显示加载指示, 避免误以为卡住 */
+    /** 思考完成、正文未开始前显示加载指示(阶段3: 三点呼吸灯, 对齐 Marvis isLoading ValueAnimator 循环动画), 避免误以为卡住 */
     private fun startLoading() {
         if (loadingRow != null || contentBlocks.isNotEmpty()) return
         val row = LinearLayout(host).apply {
@@ -150,24 +170,43 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
-        row.addView(ProgressBar(host, null, android.R.attr.progressBarStyleSmall).apply {
-            val lp = LinearLayout.LayoutParams(host.dp(14), host.dp(14))
-            lp.rightMargin = host.dp(6)
-            layoutParams = lp
-        })
-        row.addView(TextView(host).apply {
-            text = "生成中…"
-            textSize = 12f
-            setTextColor(THINK_TEXT)
-        })
+        val dots = ArrayList<View>(3)
+        repeat(3) { i ->
+            dots.add(View(host).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(THINK_TEXT)
+                }
+                val lp = LinearLayout.LayoutParams(host.dp(6), host.dp(6))
+                if (i > 0) lp.leftMargin = host.dp(5)
+                layoutParams = lp
+            }.also { row.addView(it) })
+        }
+        // 三点错相位呼吸: 单 Animator 循环驱动, 三个点相位各差 1/3 周期, 形成"呼吸灯"流动感
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 900L
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            addUpdateListener { va ->
+                val t = va.animatedValue as Float
+                dots.forEachIndexed { i, d ->
+                    val ph = (t + i / 3f) % 1f
+                    d.alpha = 0.25f + 0.75f * (1f - Math.abs(ph * 2f - 1f))
+                }
+            }
+        }
+        anim.start()
+        loadingAnim = anim
         loadingRow = addChatBubble(row)
-        host.scrollToBottom()   // 加载行可能加在屏幕外, 必须滚到底才可见
-        android.util.Log.i("DroidAgent", "startLoading blocks=" + contentBlocks.size)
+        host.scrollToBottom(true)   // 加载行可能加在屏幕外, 必须滚到底才可见
+        android.util.Log.i("Nyral", "startLoading blocks=" + contentBlocks.size)
     }
 
     private fun stopLoading() {
         loadingRow?.let { bubbleBox?.removeView(it) }
         loadingRow = null
+        loadingAnim?.cancel()
+        loadingAnim = null
     }
 
     /** 思考段开始: 若上一段已折叠则新建一块(多轮思考->工具->正文按真实顺序竖向排列), 否则沿用当前块 */
@@ -188,7 +227,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 textSize = 14f
                 setTextColor(THINK_TEXT)
                 setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
-                background = rounded(host.dp(10), THINK_BG)
+                background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
                 maxWidth = maxW
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -244,7 +283,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             textSize = 14f
             setTextColor(THINK_TEXT)
             setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
-            background = rounded(host.dp(10), THINK_BG)
+            background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
             maxWidth = maxW
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -296,7 +335,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 setTextColor(BUBBLE_AI_TEXT)
                 setLineSpacing(host.dp(3).toFloat(), 1f)
                 setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
-                background = rounded(host.dp(12), BUBBLE_AI)
+                background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
                 maxWidth = maxW
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -310,10 +349,19 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 if (ModeConfig.chatPlainText()) stripMarkdownForChat(rawB) else rawB
             } }
             addChatBubble(b.view)
-            // 记录每段正文真实插入位置, 恢复时按原位渲染(不固定末尾)
-            timelineEvents.add(ContentMarker)
+            // 记录每段正文真实插入位置, 恢复时按原位渲染(不固定末尾); 事件持有段对象,
+            // 持久化时输出该段正文, 恢复渲染逐段精确还原(阶段2 分片配套)
+            timelineEvents.add(b)
         }
         b.text.append(text)
+        // 阶段2 超长分片: 累计超过阈值立即封段另起气泡(已收内容立即排版可见, 渲染压力分散),
+        // 避免单段超大 TextView 收尾一次性全量 markdown 解析卡顿
+        if (b.text.length >= SPLIT_CONTENT_LEN) {
+            b.done = true
+            activeContent = null
+            b.shownLen = b.text.length   // 直接追平剩余字符: 该段内容已确定, 立即排版而非继续打字
+            finishTypeRender(b)
+        }
         // 跟踪模型吐字速率: 用本次 delta 的字符数/间隔 更新 EMA(字符/秒), 供 tickFrame 自适应打字速度
         val nowNs = System.nanoTime()
         if (lastDeltaNs != 0L) {
@@ -384,8 +432,9 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             b.lastAdvanceNs = frameNs
             b.view?.let { tv ->
                 // 打字期间只更新纯文本, 收尾一次性 markdown 排版(避免每帧全量解析抽搐)
-                tv.text = b.text.substring(0, b.shownLen)
-                host.scrollToBottom()
+                // 阶段3 pending 抑制: 打字期间隐藏文件/产品卡标记裸文本(占位/半截隐藏), 完成后由 markdown 渲染真实卡片
+                tv.text = suppressCards(b.text.substring(0, b.shownLen))
+                host.scrollToBottom(true)
             }
         }
         if (b.shownLen >= total && b.done) {
@@ -413,7 +462,30 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             if (ModeConfig.chatPlainText()) it.text = stripMarkdownForChat(b.text.toString()).trimEnd()
             else host.markwon.setMarkdown(it, ModeConfig.stripChatProtocolPrefix(b.text.toString()))
         }
-        host.scrollToBottom()
+        host.scrollToBottom(true)
+    }
+
+    /**
+     * 阶段3 pending 抑制文件/产品卡: AI 流式打字期间(消息未完成, isLoading 态)不展示卡片标记的裸文本,
+     * 避免用户看到 "[文件:xxx" 这类半截 markdown 或 "[文件:xxx](att://..)" 原文;
+     * 完成(onDone→finishTypeRender)后用完整原文 markdown 渲染真实卡片。
+     * 仅作用于打字显示(shownLen 前缀), 不改动累积原文 b.text, 完成后渲染不受影响。
+     */
+    private fun suppressCards(raw: String): String {
+        if (raw.isEmpty()) return raw
+        var s = raw
+        // 完整附件标记 -> 轻量占位(不打字机逐字显示 markdown 原文)
+        s = s.replace(Regex("""\[文件:[^\]]*\]\(att://[^)]*\)"""), "\uD83D\uDCCE 附件")
+        s = s.replace(Regex("""\[视频:[^\]]*\]\(att://[^)]*\)"""), "\uD83D\uDCCE 视频")
+        s = s.replace(Regex("""\[图片\]\(att://[^)]*\)"""), "\uD83D\uDDBC\uFE0F 图片")
+        s = s.replace(Regex("""\[音频\]\(att://[^)]*\)"""), "\uD83C\uDFA4 音频")
+        // 完整 markdown 图片/产品图 -> 占位(URL 尚在流式中或已完整均不展开)
+        s = s.replace(Regex("""!\[[^\]]*\]\([^)]*\)"""), "\uD83D\uDDBC\uFE0F 图片")
+        // 半截未闭合标记(如 "[文件:" / "[文件:xxx" / "![图片](url") -> 隐藏, 避免显示半成品
+        s = s.replace(Regex("""\[(?:文件|视频|图片|音频)[^\]\n]*$"""), "")
+        s = s.replace(Regex("""!\[[^\]\n]*$"""), "")
+        s = s.replace(Regex("""\[[^\]\n]*\(att://[^)]*$"""), "")
+        return s
     }
 
     /** 聊天模式兜底: 把模型手滑输出的 Markdown 标记剥成纯文本(软约束失效时的硬兜底)。
@@ -510,7 +582,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                     .append(",\"arg\":").append(jsonEscape(e.arg))
                     .append(",\"result\":").append(jsonEscape(e.result ?: ""))
                     .append('}')
-                ContentMarker -> sb.append("{\"type\":\"content\"}")
+                is ContentBlock -> sb.append('{')
+                    .append("\"type\":\"content\"")
+                    .append(",\"text\":").append(jsonEscape(e.text.toString()))
+                    .append('}')
             }
         }
         sb.append(']')

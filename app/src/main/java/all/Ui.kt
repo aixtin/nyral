@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.app.Activity
 import android.app.Dialog
@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.animation.OvershootInterpolator
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -26,15 +27,29 @@ import android.widget.TextView
  * - 输入框圆角浅灰底 #EFEFF1、主按钮圆角蓝底白字
  */
 object Ui {
-    val BG = Color.parseColor("#F7F7F8")
-    val PRIMARY = Color.parseColor("#0B93F6")
-    val PRIMARY_LIGHT = Color.parseColor("#E8F3FE")
-    val TEXT = Color.parseColor("#1A1A1A")
-    val SUB = Color.parseColor("#999999")
-    val DIVIDER = Color.parseColor("#F0F0F2")
-    val INPUT_BG = Color.parseColor("#EFEFF1")
-    val DANGER = Color.parseColor("#E5484D")
-    val DANGER_LIGHT = Color.parseColor("#FFE5E5")
+    // 语义色随当前主题动态刷新（启动/切换主题时由 Ui.applyTheme 统一赋值）
+    @Volatile var BG: Int = DefaultTheme.bg
+    @Volatile var PRIMARY: Int = DefaultTheme.primary
+    @Volatile var PRIMARY_LIGHT: Int = DefaultTheme.primaryLight
+    @Volatile var TEXT: Int = DefaultTheme.text
+    @Volatile var SUB: Int = DefaultTheme.sub
+    @Volatile var DIVIDER: Int = DefaultTheme.divider
+    @Volatile var INPUT_BG: Int = DefaultTheme.inputBg
+    @Volatile var DANGER: Int = DefaultTheme.danger
+    @Volatile var DANGER_LIGHT: Int = DefaultTheme.dangerLight
+
+    /** 应用主题：刷新全局语义色（MainActivity 启动/切换主题时调用一次） */
+    fun applyTheme(t: AppTheme) {
+        BG = t.bg
+        PRIMARY = t.primary
+        PRIMARY_LIGHT = t.primaryLight
+        TEXT = t.text
+        SUB = t.sub
+        DIVIDER = t.divider
+        INPUT_BG = t.inputBg
+        DANGER = t.danger
+        DANGER_LIGHT = t.dangerLight
+    }
 
     /**
      * 通用按压回弹：按下 scale 缩小约 0.9，松开 Overshoot 回弹 1.0。
@@ -158,6 +173,21 @@ object Ui {
             layoutParams = LinearLayout.LayoutParams(dp(a, sizeDp), dp(a, sizeDp))
         }
 
+
+    fun iconBadgeRes(a: Activity, iconRes: Int, seed: Int = 0, sizeDp: Int = 40): ImageView =
+        ImageView(a).apply {
+            setImageResource(iconRes)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val pad = dp(a, if (sizeDp <= 40) 9 else 11)
+            setPadding(pad, pad, pad, pad)
+            setColorFilter(Color.WHITE)
+            val base = if (seed == 0) Ui.PRIMARY else colorFromSeed(seed)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(lighten(base), base)
+            ).apply { cornerRadius = dp(a, 10).toFloat() }
+            layoutParams = LinearLayout.LayoutParams(dp(a, sizeDp), dp(a, sizeDp))
+        }
     /** 列表项标题文字 */
     fun itemTitle(a: Activity, text: String): TextView = TextView(a).apply {
         this.text = text
@@ -282,6 +312,8 @@ object Ui {
             setPadding(dp(a, 20), dp(a, 18), dp(a, 20), dp(a, 16))
             background = rounded(Color.WHITE, 18, a)
         }
+        // animTarget: 弹窗缩放动画目标。maxHeightRatio>0 时圆角白卡归属滚动视口 sv, 动画需作用于 sv
+        var animTarget: View = box
         box.addView(TextView(a).apply {
             text = title
             textSize = 16f
@@ -302,9 +334,14 @@ object Ui {
             val maxH = (a.resources.displayMetrics.heightPixels * maxHeightRatio).toInt()
             // 窗口高度不再固定为 maxH: 内容少时收缩到内容高度(避免下方大片空白),
             // 内容超长时由 ScrollView 封顶 maxH 内部滚动
+            // 圆角白卡背景固定在滚动视口 sv 上(高度=min(内容,maxH)), box 改透明内容容器:
+            // 避免内容超长滚动时 box 顶部/底部圆角被滚出视口截成直角(ask_user 多选项弹窗 bug)
             val sv = MaxHeightScrollView(a, maxH).apply {
-                setBackgroundColor(Color.TRANSPARENT)
+                background = rounded(Color.WHITE, 18, a)
+                clipToOutline = true
             }
+            box.background = null
+            animTarget = sv
             sv.addView(box, android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -319,8 +356,8 @@ object Ui {
             d.window?.setGravity(android.view.Gravity.CENTER)
         }
         d.setOnShowListener {
-            if (animate) jellyShow(box, overshoot = jellyOvershoot)
-            else box.post { box.scaleX = 1f; box.scaleY = 1f; box.alpha = 1f }
+            if (animate) jellyShow(animTarget, overshoot = jellyOvershoot)
+            else animTarget.post { animTarget.scaleX = 1f; animTarget.scaleY = 1f; animTarget.alpha = 1f }
         }
         return d to box
     }

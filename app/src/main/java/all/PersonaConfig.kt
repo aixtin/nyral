@@ -1,18 +1,18 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.content.Context
 import android.content.SharedPreferences
 
 /**
  * AI 人设与名字配置（设置页-外观）。
- * - AI 名字：system 提示词中的自称，默认 "DroidAgent"
+ * - AI 名字：system 提示词中的自称，默认 "Nyral"
  * - AI 人设：追加在 system 提示词开头的身份描述，留空用内置默认
  */
 object PersonaConfig {
     private const val PREF = "persona_config"
     private const val K_NAME = "ai_name"
     private const val K_PERSONA = "ai_persona"
-    const val DEFAULT_NAME = "DroidAgent"
+    const val DEFAULT_NAME = "Nyral"
     const val DEFAULT_PERSONA = ""
 
     @Volatile private var app: Context? = null

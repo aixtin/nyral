@@ -1,0 +1,727 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 会话与消息 Toast -->
+    <string name="toast_no_messages">No messages in this conversation</string>
+    <string name="toast_loaded_far_history">The message is in earlier history; full conversation loaded to locate it</string>
+    <!-- AI 输出状态 -->
+    <string name="toast_ai_typing">AI is typing, please wait</string>
+    <string name="toast_ai_busy">AI is still working, please try later</string>
+    <!-- 麦克风/录音 -->
+    <string name="toast_req_mic_perm">Please grant microphone permission first, then hold to talk again</string>
+    <string name="toast_mic_granted">Microphone granted, hold to talk again</string>
+    <string name="toast_voice_60s">Reached 60s limit, sending automatically</string>
+    <string name="toast_voice_too_short">Too short, please try again</string>
+    <string name="toast_rec_start_fail">Recording failed to start: %1$s</string>
+    <string name="toast_voice_send_fail">Voice send failed: %1$s</string>
+    <string name="toast_play_fail">Playback failed: %1$s</string>
+    <!-- 附件/文件上传 -->
+    <string name="toast_picker_fail">Cannot open picker: %1$s</string>
+    <string name="toast_att_max_trim">Max %1$d files at once; kept the first %2$d</string>
+    <string name="toast_att_max_drop">Max %1$d files at once; extra dropped</string>
+    <string name="toast_att_empty">File is empty or corrupted, not supported</string>
+    <string name="toast_att_unk_fmt">Cannot detect real file format, not supported</string>
+    <string name="toast_att_read_fail">Failed to read attachment: %1$s</string>
+    <string name="toast_att_fake_media">This file is actually text, not a real %1$s; rejected</string>
+    <string name="toast_att_pdf_large">PDF too large (&gt;%1$sMB), not supported</string>
+    <string name="toast_att_pdf_abnormal">PDF too large (&gt;%1$sMB) or malformed, not supported</string>
+    <string name="toast_att_file_large">File too large (&gt;%1$sMB), not supported</string>
+    <!-- 附件类型标签(video压缩/伪造类型提示的%1$s前置词) -->
+    <string name="att_label_video">Video</string>
+    <string name="att_label_live_video">Live Photo</string>
+    <string name="att_label_image">Image</string>
+    <string name="att_label_audio">Audio</string>
+    <!-- 视频压缩 -->
+    <string name="toast_video_compressing">%1$s exceeds 50MB, compressing locally...</string>
+    <string name="toast_video_compress_fail">%1$s compression failed: %2$s</string>
+    <string name="toast_video_comp_over">%1$s still over 50MB after compression, not supported</string>
+    <!-- 文档/PDF 解析 -->
+    <string name="toast_pdf_unparsable">Cannot parse this PDF (no text layer and rendering failed), not supported</string>
+    <string name="toast_doc_unparsable">Cannot extract text from this document, not supported</string>
+    <!-- 模型编辑页 -->
+    <string name="title_model_add">Add Model</string>
+    <string name="title_model_edit">Edit Model</string>
+    <string name="menu_save">Save</string>
+    <string name="menu_save_apply">Save &amp; Apply</string>
+    <string name="menu_add_only">Add Only</string>
+    <string name="menu_save_only">Save Only</string>
+    <string name="toast_saved_and_current">Saved and set as current</string>
+    <string name="toast_saved">Saved</string>
+    <string name="hint_no_submodel">No sub-model selected (main model only)</string>
+    <string name="cap_text">Text</string>
+    <string name="auth_header_custom">Custom Header</string>
+    <string name="hint_caps_per_model">Capabilities are configured per model: check them in the model list below (text only by default)</string>
+    <string name="dialog_pick_models">Select Models (multi-select, capabilities checkable)</string>
+    <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">Cancel</string>
+    <string name="ask_user_title">AI needs confirmation</string>
+    <string name="ask_user_pick">User chose: %1$s</string>
+    <string name="ask_user_typed">User input: %1$s</string>
+    <string name="ask_user_cancel">User cancelled (no selection)</string>
+    <string name="ask_user_custom_hint">Type something else…</string>
+    <string name="ask_user_submit">Submit</string>
+    <string name="ask_user_empty">Please enter something</string>
+    <string name="ask_user_trace">AI confirm: %1$s → %2$s</string>
+    <string name="toast_models_selected">%1$d models selected</string>
+    <string name="btn_delete_model">Delete this model</string>
+    <string name="toast_deleted">Deleted</string>
+    <string name="label_name">Name</string>
+    <string name="hint_name_example">e.g. My Model</string>
+    <string name="hint_preset_name_locked">Preset provider names cannot be changed</string>
+    <string name="label_auth_type">Auth Type</string>
+    <string name="hint_auth_header_example">e.g. X-API-Key / Authorization</string>
+    <string name="hint_auth_type_desc">Bearer = standard OpenAI-compatible; x-api-key = some providers; Custom Header = other auth headers</string>
+    <string name="label_model_name">Model Name</string>
+    <string name="hint_model_input">Fetch or type manually</string>
+    <string name="btn_fetch">Fetch</string>
+    <string name="toast_fill_model_name">Please enter a model name first</string>
+    <string name="toast_model_already_exists">This model is already in the list</string>
+    <string name="toast_model_added">Added %1$s</string>
+    <string name="hint_fetch_desc">Tap Fetch to load the provider model list online; select to auto-fill</string>
+    <string name="label_models">Models</string>
+    <string name="label_effort">Reasoning Effort</string>
+    <string name="hint_effort_desc">Auto = no parameter; unsupported levels are ignored automatically</string>
+    <string name="label_caps">Capabilities</string>
+    <string name="hint_caps_preset_locked">Preset capabilities are built-in, display only</string>
+    <string name="hint_caps_desc">Check the input/tool capabilities this model supports; text is enabled by default</string>
+    <string name="toast_fill_base_and_model">Fill in Base URL and pick a model from Fetch</string>
+    <string name="toast_testing">Testing connectivity...</string>
+    <string name="toast_test_fail">Connectivity test failed, not saved: %1$s</string>
+    <string name="toast_balance_insufficient">Config is correct but balance is insufficient; saved, usable after top-up</string>
+    <string name="toast_net_unverified">Network issue, connectivity unverified; saved (%1$s)</string>
+    <string name="net_error">Network error</string>
+    <string name="toast_fill_base_and_key">Please fill in Base URL and API Key first</string>
+    <string name="toast_fetching_models">Fetching model list...</string>
+    <string name="toast_fetch_fail">Fetch failed: network error or incompatible API</string>
+    <string name="toast_empty_models">API returned an empty list</string>
+    <!-- 设置页 -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_group_conn">Connections</string>
+    <string name="settings_ssh_config">SSH Config</string>
+    <string name="settings_ssh_config_sub">Targets / key management</string>
+    <string name="settings_mcp">MCP Services</string>
+    <string name="settings_memory">Long-term Memory</string>
+    <string name="settings_memory_count">%1$d memories stored</string>
+    <string name="settings_memory_index">Memory Index</string>
+    <string name="settings_group_model">Model API</string>
+    <string name="settings_model_config">Model Config</string>
+    <string name="settings_model_current">Current: %1$s · %2$s</string>
+    <string name="settings_mem_model">Memory Assist Model</string>
+    <string name="settings_mem_model_sub">Summary/index API · %1$s</string>
+    <string name="settings_group_look">Appearance</string>
+    <string name="settings_look">Appearance</string>
+    <string name="settings_look_sub">Home/sidebar title · note · chat mode &amp; background</string>
+    <string name="settings_ai_persona">AI Persona</string>
+    <string name="settings_ai_persona_sub">AI name · persona · avatars</string>
+    <string name="settings_group_other">Other</string>
+    <string name="settings_ask_user">Input Clarification</string>
+    <string name="settings_ask_user_sub">Ask before acting when requests are ambiguous</string>
+    <string name="settings_log">Run Logs</string>
+    <string name="settings_log_sub">Main log / assist AI log</string>
+    <string name="settings_upload_size">Upload Size Limit</string>
+    <string name="settings_upload_size_sub">Attachment limit · current %1$d MB</string>
+    <string name="settings_token">Token Stats</string>
+    <string name="settings_token_sub">Cumulative tokens / requests</string>
+    <string name="settings_debug">Debug Service</string>
+    <string name="settings_perm">Permissions</string>
+    <string name="settings_perm_sub">View and grant all permissions</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_sub">Nyral · local engine</string>
+    <string name="settings_about_motto">All the love running on this device comes from my partner</string>
+    <string name="settings_token_total">Main AI %1$d · Assist AI %2$d tokens</string>
+    <string name="settings_debug_enable">Enable Debug Service</string>
+    <string name="settings_debug_enable_hint">Local HTTP interface, requires Token auth</string>
+    <string name="settings_debug_release_hint">Debug builds only</string>
+    <string name="settings_debug_lan">Allow LAN access</string>
+    <string name="settings_debug_lan_hint">Local only by default (adb forward works)</string>
+    <string name="settings_debug_port">Port</string>
+    <string name="settings_debug_token">Access Token</string>
+    <string name="settings_debug_reset">Reset</string>
+    <string name="settings_toast_token_reset">Token reset</string>
+    <string name="settings_toast_debug_enabled">Enabled (takes effect after app restart)</string>
+    <string name="settings_debug_hide">Hide</string>
+    <string name="settings_toast_debug_hidden">Debug service hidden; tap version 7 times to re-enable</string>
+    <string name="settings_btn_close">Close</string>
+    <string name="settings_tab_main_ai">Main AI</string>
+    <string name="settings_tab_mem_ai">Assist AI</string>
+    <string name="settings_stats_input">Total input %1$d</string>
+    <string name="settings_stats_output">Total output %1$d</string>
+    <string name="settings_stats_total">Total %1$d</string>
+    <string name="settings_stats_count">Requests %1$d</string>
+    <string name="settings_stats_today_input">Today input %1$d</string>
+    <string name="settings_stats_today_output">Today output %1$d</string>
+    <string name="settings_stats_today_total">Today total %1$d tokens</string>
+    <string name="settings_btn_clear">Clear</string>
+    <string name="settings_dialog_clear_token">Clear token stats?</string>
+    <string name="settings_clear_token_hint">This cannot be undone; cumulative and today data for both AIs will reset to zero.</string>
+    <string name="settings_btn_confirm_clear">Confirm Clear</string>
+    <string name="settings_token_zero">Main AI 0 · Assist AI 0 tokens</string>
+    <string name="settings_dialog_upload_title">Change Upload Size Limit</string>
+    <string name="settings_upload_hint">Attachment upload limit in MB, 1~500, default 20</string>
+    <string name="settings_hint_upload_example">e.g. 50</string>
+    <string name="settings_btn_save">Save</string>
+    <string name="settings_toast_upload_invalid">Enter a positive integer (MB)</string>
+    <string name="settings_mcp_none">Dynamic tools · not configured</string>
+    <string name="settings_mcp_count">%1$d services · %2$s</string>
+    <string name="settings_summary_none">None · auto-generated after archival</string>
+    <string name="settings_summary_count">AI organized · %1$d items</string>
+    <string name="settings_perm_all">All granted · tap to view</string>
+    <string name="settings_perm_missing">%1$d missing · tap to grant</string>
+    <string name="comma_sep">、</string>
+    <!-- 记忆页 -->
+    <string name="memory_del_selected">Delete selected (%1$d)</string>
+    <string name="memory_multi">Multi-select</string>
+    <string name="memory_dialog_del_selected">Delete Selected</string>
+    <string name="memory_confirm_del_selected">Delete the %1$d selected memories? This cannot be undone.</string>
+    <string name="memory_btn_delete">Delete</string>
+    <string name="memory_toast_deleted_selected">Deleted %1$d memories</string>
+    <string name="memory_toast_select_first">Select memories to delete first</string>
+    <string name="memory_none">No memories yet</string>
+    <string name="memory_confirm_delete_all">Delete all %1$d memories? This cannot be undone.</string>
+    <string name="memory_toast_deleted_all">All memories deleted</string>
+    <string name="memory_count">%1$d memories</string>
+    <string name="memory_unnamed_session">Unnamed session</string>
+    <string name="memory_detail_title">Memory Detail</string>
+    <string name="memory_created">Created %1$s</string>
+    <string name="memory_edit">Edit</string>
+    <string name="memory_edit_title">Edit Memory</string>
+    <string name="memory_field_content">Content</string>
+    <string name="memory_hint_input">Enter memory content</string>
+    <string name="memory_hint_revector">Recomputing semantic vectors after save may affect search results</string>
+    <string name="memory_computing">Computing semantic vectors…</string>
+    <string name="memory_delete_title">Delete Memory</string>
+    <string name="memory_confirm_delete_one">Delete this memory? This cannot be undone.</string>
+    <string name="memory_delete_all">Delete All</string>
+    <!-- 个性化页 -->
+    <string name="persona_title">AI Persona</string>
+    <string name="persona_group_info">Identity</string>
+    <string name="persona_ai_name">AI Name</string>
+    <string name="persona_ai_persona">AI Persona</string>
+    <string name="persona_hint_avatar_set">Custom avatar set</string>
+    <string name="persona_hint_change">Change avatar</string>
+    <string name="persona_me">Me</string>
+    <string name="persona_hint_ai_name">Enter AI name (empty to restore default Nyral)</string>
+    <string name="persona_hint_ai_name_sub">Empty = default · max 20 chars · saved with persona</string>
+    <string name="persona_hint_ai_persona">Describe the AI identity and reply style…</string>
+    <string name="persona_hint_ai_persona_sub">Empty = built-in default persona · max 200 chars</string>
+    <string name="persona_toast_saved">AI persona and name saved</string>
+    <string name="persona_change_ai">Change AI Avatar</string>
+    <string name="persona_change_user">Change User Avatar</string>
+    <string name="persona_current_custom">Custom avatar in use</string>
+    <string name="persona_current_default">Default text avatar in use</string>
+    <string name="persona_pick_album">Pick from Album</string>
+    <string name="persona_err_album">Cannot open album: %1$s</string>
+    <string name="persona_restore_default">Restore Default</string>
+    <string name="persona_toast_restored">Default avatar restored</string>
+    <string name="persona_avatar_updated">Avatar updated</string>
+    <string name="persona_avatar_failed">Failed to set avatar</string>
+    <string name="persona_err_crop">Cannot open crop: %1$s</string>
+    <string name="persona_hint_edit">Enter %1$s (empty to restore default)</string>
+    <string name="persona_dialog_edit">Edit %1$s</string>
+    <!-- 聊天背景页 -->
+    <string name="cb_title">Chat Background</string>
+    <string name="cb_group_preset">Presets</string>
+    <string name="cb_group_custom">Custom Image</string>
+    <string name="cb_sub_auto_blur">Auto pre-blur after selection</string>
+    <string name="cb_group_blur">Blur Strength</string>
+    <string name="cb_blur_title">Blur Strength</string>
+    <string name="cb_blur_original">Blur: Original</string>
+    <string name="cb_blur_level">Blur: %1$d</string>
+    <string name="cb_blur_hint">Left = original, right = heaviest; applies when you release</string>
+    <string name="cb_group_reset">Reset Default</string>
+    <string name="cb_reset_title">Reset Background</string>
+    <string name="cb_reset_sub">Back to plain light background</string>
+    <string name="cb_toast_restored">Default background restored</string>
+    <string name="cb_toast_preset">Preset background applied</string>
+    <string name="cb_original">Original</string>
+    <string name="cb_err_read">Cannot read image</string>
+    <string name="cb_toast_custom">Custom background applied</string>
+    <string name="cb_err_fail">Processing failed: %1$s</string>
+    <!-- SSH 配置页 -->
+    <string name="ssh_title">SSH Connections</string>
+    <string name="ssh_add">Add Connection</string>
+    <string name="ssh_tip">Tip: tap an entry to edit; password/private key choose one, leave both empty for none.\nData is encrypted with Android Keystore.</string>
+    <string name="ssh_err_empty">File is empty</string>
+    <string name="ssh_key_file_label">Key File</string>
+    <string name="ssh_toast_key_imported">Key imported</string>
+    <string name="ssh_err_read">Read failed: %1$s</string>
+    <string name="ssh_empty">No SSH connections\nTap "Add Connection" below to create one</string>
+    <string name="ssh_desc_pwd"> [password]</string>
+    <string name="ssh_desc_key"> [key]</string>
+    <string name="ssh_desc_proxy"> [via:%1$s@%2$s]</string>
+    <string name="ssh_import">Import</string>
+    <string name="ssh_delete">Delete</string>
+    <string name="ssh_edit">Edit Connection</string>
+    <string name="ssh_label_name">Name (e.g. vps/dev188)</string>
+    <string name="ssh_label_host">Host IP</string>
+    <string name="ssh_label_port">Port</string>
+    <string name="ssh_label_user">Username</string>
+    <string name="ssh_label_pwd">Password (optional)</string>
+    <string name="ssh_label_key">Private key (paste PEM, optional)</string>
+    <string name="ssh_label_passphrase">Key passphrase</string>
+    <string name="ssh_proxy_section">━━ Jump Host (blank = direct) ━━</string>
+    <string name="ssh_label_proxy_host">Jump host IP</string>
+    <string name="ssh_label_proxy_port">Jump host port</string>
+    <string name="ssh_label_proxy_user">Jump host user</string>
+    <string name="ssh_label_proxy_pwd">Jump host password (optional)</string>
+    <string name="ssh_label_proxy_key">Jump host key (paste PEM)</string>
+    <string name="ssh_label_proxy_pass">Jump host passphrase</string>
+    <string name="ssh_toast_required">Name/host/user are required</string>
+    <!-- 头像裁剪页 -->
+    <string name="crop_title_ai">Crop AI Avatar</string>
+    <string name="crop_title">Crop Avatar</string>
+    <string name="crop_hint">Drag/zoom to adjust</string>
+    <string name="crop_done">Done</string>
+    <string name="crop_err_decode">Image decode failed: %1$s</string>
+    <string name="crop_err_fail">Crop failed</string>
+    <string name="crop_err_save">Save failed: %1$s</string>
+    <!-- 八 Activity 中文外置 (2026-09-05 2205) -->
+    <string name="appr_01">Appearance</string>
+    <string name="appr_02">Title Settings</string>
+    <string name="appr_03">Home Title</string>
+    <string name="appr_04">Enter home title (empty to restore default Nyral)</string>
+    <string name="appr_05">Home title · empty = default · max 20 chars</string>
+    <string name="appr_06">Sidebar Title</string>
+    <string name="appr_07">Enter sidebar title (empty to restore default Nyral)</string>
+    <string name="appr_08">Sidebar title · empty = default · max 20 chars</string>
+    <string name="appr_09">Sidebar Note</string>
+    <string name="appr_10">Enter note (empty to restore default)</string>
+    <string name="appr_11">Note · empty = default · max 18 chars</string>
+    <string name="appr_12">Save</string>
+    <string name="appr_13">Title and note saved</string>
+    <string name="appr_14">Chat</string>
+    <string name="appr_15">Chat Mode</string>
+    <string name="appr_16">Side-by-side avatars · Markdown rendering</string>
+    <string name="appr_17">Chat Background</string>
+    <string name="appr_18">Gradient presets / custom image</string>
+    <string name="appr_19">Floating Terminal</string>
+    <string name="appr_20">Shows AI status live · top-left · non-blocking</string>
+    <string name="appr_21">Requires overlay permission · translucent black on white text</string>
+    <string name="appr_22">Needs "Display over other apps" permission to enable</string>
+    <string name="appr_23">Floating terminal shown at top-left</string>
+    <string name="appr_24">Floating terminal closed</string>
+    <string name="appr_25">AI Floating Terminal</string>
+    <string name="appr_26">Show Markdown</string>
+    <string name="appr_27">Long answers formatted with lists/bold/tables · off = plain text</string>
+    <string name="perm_01">Permissions</string>
+    <string name="perm_02">Granted 0 / 0</string>
+    <string name="perm_03">Some devices auto-revoke rarely used permissions; tap any "missing" item to re-grant.</string>
+    <string name="perm_04">If the dialog was denied and stopped prompting, use "Grant" from system settings to re-enable</string>
+    <string name="perm_05">Notifications</string>
+    <string name="perm_06">Alerts like AI task completion</string>
+    <string name="perm_07">Microphone</string>
+    <string name="perm_08">Voice input</string>
+    <string name="perm_09">Overlay</string>
+    <string name="perm_10">AI floating terminal live display</string>
+    <string name="perm_11">All Files Access</string>
+    <string name="perm_12">Handle files on this device</string>
+    <string name="perm_13">Install Unknown Apps</string>
+    <string name="perm_14">In-app self-update installs</string>
+    <string name="perm_15">All permissions granted</string>
+    <string name="perm_16">Granted $granted / $total</string>
+    <string name="perm_17">Not needed</string>
+    <string name="perm_18">Granted</string>
+    <string name="perm_19">Missing</string>
+    <string name="perm_20">Missing · Grant</string>
+    <string name="perm_21">Cannot open overlay settings</string>
+    <string name="perm_22">Cannot open file access settings</string>
+    <string name="perm_23">Cannot open install source settings</string>
+    <string name="perm_24">Root Access</string>
+    <string name="perm_25">System-level privilege: run shell scripts in place, read system files, etc.</string>
+    <string name="perm_26">Checking…</string>
+    <string name="perm_27">Root not granted. Grant it in your root manager (e.g. KernelSU / Magisk); the app will not jump to a specific tool.</string>
+    <string name="mcp_01">MCP Services</string>
+    <string name="mcp_02">Add MCP Service</string>
+    <string name="mcp_03">MCP (Model Context Protocol) services dynamically attach external tools to the assistant.\n</string>
+    <string name="mcp_04">All tools of the service are fetched and integrated after configuration (retained).</string>
+    <string name="mcp_05">No MCP services\nTap "Add MCP Service" below to create one</string>
+    <string name="mcp_06"> [with Token]</string>
+    <string name="mcp_07">Name (e.g. mt-manager)</string>
+    <string name="mcp_08">Name</string>
+    <string name="mcp_09">Server URL</string>
+    <string name="mcp_10">Token (optional)</string>
+    <string name="mcp_11">Required when the server demands it</string>
+    <string name="mcp_12">Edit MCP Service</string>
+    <string name="mcp_13">Test</string>
+    <string name="mcp_14">Enter URL first</string>
+    <string name="mcp_15">Testing...</string>
+    <string name="mcp_16">Test failed: unknown error</string>
+    <string name="mcp_17">Save</string>
+    <string name="mcp_18">Name/URL required</string>
+    <string name="mcp_19">Saved; effective next conversation</string>
+    <string name="mcp_20">Cancel</string>
+    <string name="about_01">About</string>
+    <string name="about_02">Local AI Agent</string>
+    <string name="about_03">Likes spreading dog food</string>
+    <string name="about_04">Positioning</string>
+    <string name="about_05">Android Agent</string>
+    <string name="about_06">Version</string>
+    <string name="about_07">Data</string>
+    <string name="about_08">Self-hosted memory · chat via model API</string>
+    <string name="about_09">Permissions</string>
+    <string name="about_10">Normal app permissions</string>
+    <string name="about_11">Updates</string>
+    <string name="about_12">Tap to check for updates</string>
+    <string name="about_13">Personal Blog</string>
+    <string name="about_14">Nyral — your Android agent butler</string>
+    <string name="about_15">Debug service entry enabled</string>
+    <string name="about_16">Debug service entry enabled</string>
+    <string name="about_17">No usable browser found</string>
+    <string name="log_01">Run Logs</string>
+    <string name="log_02">Main Log</string>
+    <string name="log_03">Assist AI Log</string>
+    <string name="log_04">🔄 Refresh</string>
+    <string name="log_05">🗑 Clear Current</string>
+    <string name="log_06">(no logs)\n</string>
+    <string name="log_07">\n— total </string>
+    <string name="log_08"> entries —</string>
+    <string name="log_09">Clear Logs</string>
+    <string name="log_10">Clear all logs in the current view? This cannot be undone.</string>
+    <string name="log_11">Cancel</string>
+    <string name="log_12">Clear</string>
+    <string name="msum_01">Copy All</string>
+    <string name="msum_02">Memory Index</string>
+    <string name="msum_03">No organized memory\n\nAfter archiving, the assist model automatically turns conversations into topic indexes (summaries); they will show here</string>
+    <string name="msum_04">Memory index copied</string>
+    <string name="mcfg_01">Model Config</string>
+    <string name="mcfg_02">＋ Add</string>
+    <string name="mcfg_03">No model providers\nTap "＋ Add" in the top-right to create one</string>
+    <string name="mcfg_04">No model set</string>
+    <string name="mcfg_05">Current</string>
+    <string name="mcfg_06">Configured</string>
+    <string name="mcfg_07">Not configured</string>
+    <string name="mmcfg_31">Network issue, connectivity unverified; saved (%1$s)</string>
+    <string name="mmcfg_32">Network error</string>
+    <string name="mmcfg_01">Memory Assist Model</string>
+    <string name="mmcfg_02">Save</string>
+    <string name="mmcfg_03">Independent Config</string>
+    <string name="mmcfg_04">Use a separate assist model API</string>
+    <string name="mmcfg_05">When off, follows the main chat API (default fallback, behaves as before)</string>
+    <string name="mmcfg_06">Name (optional)</string>
+    <string name="mmcfg_07">e.g. Memory Index Model</string>
+    <string name="mmcfg_08">Model Name</string>
+    <string name="mmcfg_09">e.g. deepseek-chat</string>
+    <string name="mmcfg_10">Fetch</string>
+    <string name="mmcfg_11">Prefer a lightweight model (e.g. deepseek-chat / glm-4-flash) for faster indexing</string>
+    <string name="mmcfg_12">Note: the assist model only distills archived conversations into summary indexes; vectorization and retrieval of raw memories always run locally on BGE, unaffected by this config.</string>
+    <string name="mmcfg_13">Balance</string>
+    <string name="mmcfg_14">Insufficient</string>
+    <string name="mmcfg_15">Config is correct but balance is insufficient; saved, usable after top-up</string>
+    <string name="mmcfg_16">Independent config needs Base URL / API Key / Model name all filled</string>
+    <string name="mmcfg_17">Saved (follows main chat API)</string>
+    <string name="mmcfg_18">Testing connectivity...</string>
+    <string name="mmcfg_19">Independent assist model enabled</string>
+    <string name="mmcfg_20">Please fill in Base URL and API Key first</string>
+    <string name="mmcfg_21">Fetching model list...</string>
+    <string name="mmcfg_22">Fetch failed: network error or incompatible API</string>
+    <string name="mmcfg_23">API returned an empty list</string>
+    <string name="mmcfg_24">Select Model</string>
+    <string name="mmcfg_25">OK</string>
+    <string name="mmcfg_26">Cancel</string>
+    <string name="mcp_31">Test failed: %1$s</string>
+    <string name="about_21">%1$d more taps to enable debug service entry</string>
+    <string name="about_22">Disclaimer</string>
+    <string name="about_23">Tap to read</string>
+    <string name="about_24">Privacy Policy</string>
+    <string name="about_25">Feedback</string>
+    <string name="about_26">QQ Group 243464572</string>
+    <string name="about_27">https://qun.qq.com/universal-share/share?ac=1&amp;authKey=kyxRze78CB2vLS0MIbwVdwbO%2FPkV12GUqZoL8x%2FQsdVPkkselnkBnlctyVQkInEA&amp;busi_data=eyJncm91cENvZGUiOiIyNDM0NjQ1NzIiLCJ0b2tlbiI6IjF4cThsZWQxbklma3Znc0N6UU54eEd2R04wWGRLS0Z1ajFXK01VQTMvTFdMRzRMUHBuanhqZHRQWDVYa1dTT2MiLCJ1aW4iOiIyMTE3ODgwMjAifQ%3D%3D&amp;data=c42AopbvmmkUNOjzv9J3S7p4T3w8xeLakhSm9yHCC4OLPZ2EelGZhgLAQTIwcJBbGAWViVla_PFA2wGjoIvliw&amp;svctype=4&amp;tempid=h5_group_info</string>
+    <string name="mmcfg_27">Connectivity test failed, not saved: %1$s</string>
+    <string name="mmcfg_28">Independent assist model enabled. %1$s</string>
+    <string name="mmcfg_29">Independent assist model enabled</string>
+    <string name="mmcfg_30">%1$d models selected</string>
+    <string name="mui_hint_search">Search sessions</string>
+    <string name="mui_records">Session History</string>
+    <string name="mui_toast_no_session">No session containing "%1$s"</string>
+    <string name="mui_search_hits">"%1$s" · %2$d hits</string>
+    <string name="mui_field_time">Time</string>
+    <string name="mui_field_relevance">Relevance</string>
+    <string name="mui_sort_asc">Ascending</string>
+    <string name="mui_sort_desc">Descending</string>
+    <string name="mui_no_hits">No hits</string>
+    <string name="mui_unnamed_session">(unnamed session)</string>
+    <string name="mui_row_ctx_usage">Context used</string>
+    <string name="mui_row_cur_usage">This session</string>
+    <string name="mui_token_stat_hint">Full stats: Settings → Token Stats</string>
+    <string name="mui_dlg_session_ops">Session Actions</string>
+    <string name="mui_unpin">Unpin</string>
+    <string name="mui_pin">Pin</string>
+    <string name="mui_toast_unpinned">Unpinned</string>
+    <string name="mui_toast_pinned">Pinned</string>
+    <string name="mui_rename">Rename</string>
+    <string name="mui_delete_session">Delete Session</string>
+    <string name="mui_cancel">Cancel</string>
+    <string name="mui_dlg_rename">Rename Session</string>
+    <string name="mui_field_new_name">New Name</string>
+    <string name="mui_hint_input_name">Enter session name</string>
+    <string name="mui_save">Save</string>
+    <string name="mui_toast_name_empty">Name cannot be empty</string>
+    <string name="mui_toast_renamed">Renamed</string>
+    <string name="mui_dlg_confirm_delete">Delete "%1$s"? This cannot be undone.</string>
+    <string name="mui_delete">Delete</string>
+    <string name="mui_toast_deleted">Session deleted</string>
+    <string name="mui_cap_unsupported_suffix"> (not supported by current model)</string>
+    <string name="mui_toast_cap_unsupported">Current model does not support this type</string>
+    <string name="mui_attach_album">Album</string>
+    <string name="mui_attach_video">Video</string>
+    <string name="mui_attach_audio">Audio</string>
+    <string name="mui_attach_other">Other Files</string>
+    <string name="mui_think_intensity">Reasoning Effort</string>
+    <string name="mui_col_session">Session</string>
+    <string name="mui_col_ai_think">AI Think</string>
+    <string name="ma_hint_input">Type a message...</string>
+    <string name="ma_hold_to_speak">Hold to Talk</string>
+    <string name="ma_send">Send</string>
+    <string name="ma_stopping">Stopping...</string>
+    <string name="ma_sys_loaded_summary">Loaded conversation summary; you can continue the previous context.</string>
+    <string name="ma_sys_engine_started">Nyral local engine started. Add SSH targets in SSH Config first.</string>
+    <string name="welcome_intro_title">Welcome to Nyral</string>
+    <string name="welcome_intro_body">Local engine is running, just type a question to start.\n\nTry these capabilities:\n- **Web search**: find info, real-time data\n- **SSH terminal**: run remote commands (add targets in SSH Config first)\n- **Browser**: open pages and let AI browse for you\n- **Attachments / Voice**: send images, video, audio, PDF; hold the mic to talk\n\nAsk "what can you do" anytime to learn more.</string>
+    <string name="ma_sys_window_hint">This session is long; showing the latest %1$d messages. Older content stays in the session; use search to locate it.</string>
+    <string name="ma_unnamed_session">Unnamed session</string>
+    <string name="ma_no_sessions">No history yet\nNew conversations are saved here</string>
+    <string name="ma_pinned_prefix">Pinned · </string>
+    <string name="ma_stop">Stop</string>
+    <string name="ma_thinking">Thinking...</string>
+    <string name="ma_thinking_prefix">Thinking: </string>
+    <string name="ma_sys_no_reply">The model returned nothing, please send again</string>
+    <string name="ma_error_fmt">Error: %1$s</string>
+    <!-- 首启引导页 -->
+    <string name="guide_app_name">Nyral</string>
+    <string name="guide_slogan">AI assistant on your phone</string>
+    <string name="guide_f1_t">Smart Chat</string>
+    <string name="guide_f1_d">Connect mainstream LLMs, switch between models</string>
+    <string name="guide_f2_t">Tool Calling</string>
+    <string name="guide_f2_d">Web search, page fetching, file processing</string>
+    <string name="guide_f3_t">Local Files</string>
+    <string name="guide_f3_d">Read and analyze documents and images on device</string>
+    <string name="guide_f4_t">Remote Access</string>
+    <string name="guide_f4_d">SSH straight to your servers</string>
+    <string name="guide_perm_note">These features need notification, microphone, overlay, and file permissions; adjust anytime in Settings → Permissions.</string>
+    <string name="guide_start">Get Started</string>
+    <string name="guide_later">Later</string>
+    <string name="guide_agree_pre">I have read and agree to</string>
+    <string name="guide_disclaimer">Disclaimer</string>
+    <string name="guide_privacy">Privacy Policy</string>
+    <string name="guide_agree_hint">Please check "I have read and agree to the Disclaimer and Privacy Policy"</string>
+    <string name="guide_agree_unread">You have not read %s yet; please read and agree before checking</string>
+    <string name="guide_dlg_cancel">Not Now</string>
+    <string name="guide_dlg_read_go">Please scroll to the bottom</string>
+    <string name="guide_dlg_read">I have read and agree</string>
+    <!-- 首启模式选择弹窗 -->
+    <string name="guide_mode_title">Choose Usage Mode</string>
+    <string name="guide_mode_sub">Each mode offers a different experience</string>
+    <string name="guide_mode_recommend">★ Recommended</string>
+    <string name="guide_mode_agent_title">Agent Mode</string>
+    <string name="guide_mode_chat_title">Chat Mode</string>
+    <string name="guide_mode_tip">Switch anytime in Settings → Appearance</string>
+    <!-- 首启授权页(替代模式选择弹窗, 独立 Activity) -->
+    <string name="guide_perm_title">Finish Permissions &amp; Setup</string>
+    <string name="guide_perm_intro">Grant the following to let the agent work; granted items show "Done". Adjust anytime in Settings → Permissions.</string>
+    <string name="guide_perm_go">Grant</string>
+    <string name="guide_perm_done">Done</string>
+    <string name="guide_perm_enter">Enter App</string>
+    <string name="guide_perm_skip">Skip for now</string>
+    <string name="guide_mode_card_title">Usage Mode</string>
+    <!-- 无障碍控制服务 -->
+    <string name="accessibility_service_label">Nyral Accessibility Control</string>
+    <string name="accessibility_service_desc">Lets AI read screen elements and control third-party apps (prototype). Keep it on after enabling; used only within this app.</string>
+    <!-- 主题 -->
+    <string name="appr_28">Theme</string>
+    <string name="appr_29">Theme</string>
+    <string name="appr_30">Current: %1$s</string>
+    <string name="appr_31">Choose Theme</string>
+    <string name="appr_32">Quick Switches</string>
+    <string name="appr_33">On</string>
+    <string name="appr_34">Off</string>
+    <string name="appr_35">Needs permission</string>
+    <string name="appr_36">Default</string>
+    <string name="appr_37">Gradient Presets</string>
+    <string name="appr_38">Custom Image</string>
+    <!-- 浏览器接管/交互状态 -->
+    <string name="br_click_view_not_ready">Tap: view not ready</string>
+    <string name="br_tapped">Tapped (%1$d,%2$d)</string>
+    <string name="br_opening">Opening %1$s</string>
+    <string name="br_highlight_fmt">Highlight: %1$s</string>
+    <string name="br_element">element</string>
+    <string name="br_takeover">✋ Take Over</string>
+    <string name="br_ready">AI Ready</string>
+    <string name="br_think">Think▾</string>
+    <string name="br_no_think">(no thinking summary yet)</string>
+    <string name="br_return_ai">🤖 Return to AI</string>
+    <string name="br_returned_hint">Returned to you; after solving the CAPTCHA, return to AI</string>
+    <string name="br_taken_hint">You are in control, tap the page now (e.g. CAPTCHA)</string>
+    <string name="br_ai_resume">AI continues</string>
+    <string name="br_returned_ai">Returned to AI</string>
+    <string name="br_welcome_ready">Welcome page ready</string>
+    <string name="br_scanned">Page analyzed, %1$d actionable elements found</string>
+    <string name="br_opened">Opened: %1$s</string>
+    <string name="br_no_elements">No usable elements on this page</string>
+    <string name="br_candidate">Candidate %1$d/%2$d: "%3$s", at (%4$d,%5$d) %6$dx%7$d</string>
+    <string name="br_idx_oob">Candidate index %1$d out of range (total %2$d)</string>
+    <string name="br_idle">AI Idle</string>
+    <string name="br_collapse">✕ Collapse</string>
+    <string name="br_copy">Copy</string>
+    <string name="br_engine_mgr">Engine Manager</string>
+    <string name="br_login_data">Login Data</string>
+    <string name="br_close_page">✕ Close</string>
+    <string name="br_add_engine_btn">＋ Add Search Engine (name + {q} template)</string>
+    <string name="br_default_engine">Default engine → %1$s</string>
+    <string name="br_edit">Edit</string>
+    <string name="br_delete">Delete</string>
+    <string name="br_keep_one">Keep at least one engine</string>
+    <string name="br_edit_engine">Edit Engine</string>
+    <string name="br_add_engine">Add Engine</string>
+    <string name="br_name_hint">Name, e.g. GitHub</string>
+    <string name="br_tmpl_hint">Search template (with {q}), e.g. github.com/search?q={q}</string>
+    <string name="br_home_hint">Home page (optional), e.g. github.com</string>
+    <string name="br_cancel">Cancel</string>
+    <string name="br_save">Save</string>
+    <string name="br_name_tmpl_empty">Name and search template are required</string>
+    <string name="br_tmpl_need_q">Search template must contain {q}</string>
+    <string name="br_saved">Saved</string>
+    <string name="br_data_intro">· Login sites = auth state saved after logging in once in the browser (site_auth.json), lets AI fetch with login silently.\n· Each site can be cleared individually; "Clear All" wipes all auth state and browser cache.</string>
+    <string name="br_no_sites">No saved login sites yet</string>
+    <string name="br_recent_saved">Last saved: %1$s (re-login to overwrite if auth is invalid)</string>
+    <string name="br_clear">Clear</string>
+    <string name="br_site_cleared">Cleared %1$s auth state</string>
+    <string name="br_clear_all">Clear All Sessions &amp; Cache</string>
+    <string name="br_cleared_all">Cleared all sessions and cache</string>
+    <string name="br_nothing_copy">Nothing to copy</string>
+    <string name="br_copied">Copied: %1$s</string>
+    <string name="br_search_fmt">%1$s search: %2$s</string>
+    <string name="br_home">Home</string>
+    <string name="br_visiting">AI is visiting %1$s</string>
+    <string name="br_dialog_body1">· Auth state is stored in app-private storage (WebView Cookie/DOM Storage), visible only on this device, wiped on uninstall\n</string>
+    <string name="br_dialog_body2">· One-tap clear for all site sessions\n</string>
+    <string name="br_dialog_body3">· Current default engine: %1$s\n</string>
+    <string name="br_dialog_body4">· Custom engines: add/edit/delete in later versions</string>
+    <string name="br_none">None</string>
+    <string name="br_local_data">Browser Local Data</string>
+    <string name="br_clear_all_sessions">Clear All Login Sessions</string>
+    <!-- 媒体预览 -->
+    <string name="mp_file_missing">Attachment file no longer exists</string>
+    <string name="mp_preview">Preview</string>
+    <string name="mp_prev">‹ Prev</string>
+    <string name="mp_next">Next ›</string>
+    <string name="mp_pdf_fail">PDF parse failed: %1$s</string>
+    <string name="mp_tap_close">Tap ✕ to close</string>
+    <string name="mp_audio_fail">Audio load failed: %1$s</string>
+    <string name="mp_play">Play</string>
+    <string name="mp_close">Close</string>
+    <string name="mp_pause">Pause</string>
+    <!-- 主界面 -->
+    <string name="ma_site_saved">Auth state for %1$s saved</string>
+    <string name="ma_welcome">Welcome back · All ready</string>
+    <string name="ma_me">Me</string>
+    <string name="ma_release_send">Release to Send</string>
+    <string name="ma_voice_msg">[voice message]</string>
+    <string name="think_expand">💭 Thought %1$d chars, tap to expand</string>
+    <string name="think_expanded">💭 %1$s</string>
+    <string name="tool_collapsed">🔧 Tool: %1$s</string>
+    <string name="think_prefix">Thinking: %1$s</string>
+    <string name="gen_loading">Generating…</string>
+    <!-- AI 悬浮终端 -->
+    <string name="at_terminal_title">DA AI Terminal</string>
+    <string name="at_idle">Idle…</string>
+    <string name="at_channel_name">AI Floating Terminal</string>
+    <string name="at_channel_desc">Floating mini terminal showing AI status live</string>
+    <string name="at_content">Showing AI execution status live</string>
+    <!-- 后台任务通知 -->
+    <string name="ts_channel_name">Task Running</string>
+    <string name="ts_channel_desc">Foreground notification while AI processes tasks, prevents the process from being killed</string>
+    <string name="ts_running">Task running…</string>
+    <string name="ts_content">AI is processing a task in the background, please don\'t force-stop</string>
+    <!-- 聊天背景 -->
+    <string name="cba_img_badge">IMG</string>
+    <string name="cba_def_badge">DFT</string>
+    <!-- 侧栏 -->
+    <string name="mui_new_chat">＋ New Chat</string>
+    <string name="mui_settings">⚙ Settings</string>
+    <string name="mui_role_user">Me</string>
+    <string name="mui_role_ai">AI</string>
+    <!-- 附件打开/分享 -->
+    <string name="uk_open_fail">Cannot open attachment: %1$s</string>
+    <string name="uk_share_attach">Share Attachment</string>
+    <!-- 协议 -->
+    <string name="agr_got_it">Got It</string>
+
+    <!-- 协议全文 -->
+    <string name="agr_disclaimer" formatted="false">This app is a personal Android agent tool provided by an individual developer, for learning, research and technical exchange only, and does not constitute any formal product commitment.
+
+I. No-Warranty Statement
+This app is provided &quot;as is&quot; without any express or implied warranty of any kind, including but not limited to merchantability, fitness for a particular purpose, non-infringement of third-party rights, stable operation, or integrity of data. The developer shall not be liable for any direct or indirect loss arising from the use of this app.
+
+II. Data and API Disclosure (Important)
+1. This app does not bundle any local model. All conversations are served through third-party AI provider APIs (e.g. OpenAI-compatible endpoints) that you configure yourself.
+2. Content you submit in conversations, along with attached context (such as memory retrieval results, tool call parameters, file content snippets), will be sent over the network to the model provider you configured for processing; data is not stored only on your local device.
+3. The processing, storage and compliance of the above data follow the provider\x27s own terms of service and privacy policy and are unrelated to the developer. Please read and confirm the provider\x27s agreements before configuring the API.
+4. For sensitive data such as file contents, SSH remote information, personal privacy and account credentials, be fully aware before sending that they will necessarily pass through the model channel you specified; choose models and configurations carefully.
+
+III. Remote and System Operation Risks
+This app may include capabilities such as SSH remote connection, file read/write, and system debugging (root/adb). Such operations may cause unpredictable consequences to the device, remote servers or data on them (including but not limited to data loss, service interruption, or device malfunction). You are solely responsible for all remote and system-level operations; please assess the risks yourself and keep backups.
+
+IV. Liability Boundary
+The developer makes no warranty regarding the availability, security or compliance of third-party providers, and is not liable for losses caused by network, model output content, or third-party service failures. Consequences arising from your violation of laws, provider terms, or the rights of others are borne by you.
+
+V. Changes
+The developer reserves the right to modify this statement at any time. Changes take effect from the date of update; continued use of this app means acceptance of the latest version.</string>
+    <string name="agr_privacy" formatted="false">This app follows the &quot;minimal collection&quot; principle: the app itself does not collect, store, analyze or share any data directly related to your personal identity. Your usage records are stored only on your own device by default.
+
+I. Data Collection
+1. The developer does not collect any personal information, device identifiers, IMEI, location, contacts, calls, SMS, etc.
+2. No analytics, advertising or tracking SDKs are integrated.
+3. Login state, configuration and memory within the app are managed and operated by you.
+
+II. Data Flow (Important)
+1. Model APIs you configure and enable: conversation content and attached context (including memory retrieval results, tool call parameters, file content snippets) are sent over the network to the third-party model provider you configured, subject to that provider\x27s own privacy policy.
+2. Except for the channel you proactively configured above, this app does not transmit your data to any third party.
+
+III. Locally Stored Content
+The following content is stored only on the device to ensure continuous conversation and basic functionality:
+1. Chat history and memory database content.
+2. Connection configurations such as models and SSH (including addresses, tokens, keys you filled in yourself).
+3. App runtime logs.
+Please keep configurations containing sensitive information safe; uninstalling the app or clearing app data removes the above local content.
+
+IV. Permission Usage
+1. Network permission: used to access the model APIs and SSH targets you configured.
+2. Storage permission: used to read and write files you allow access to.
+3. System debugging related: only takes effect per your operation when remote debugging or root capability is enabled.
+Permissions are requested only when needed; you can turn them off anytime in system settings.
+
+V. Minors
+This app does not provide services to minors; if a minor uses it under guardian guidance, the guardian should be aware of the API data channel described above.
+
+VI. Policy Changes and Contact
+We may update this policy from time to time; changes take effect upon publication, and material changes will be notified prominently. For questions, please submit to the repository Issues.</string>
+    <!-- 主题名 -->
+    <string name="theme_default">Default</string>
+    <string name="theme_flat">Flat</string>
+    <string name="theme_kawaii">Kawaii</string>
+    <!-- 浏览器预设搜索引擎 -->
+    <string name="br_engine_baidu">Baidu</string>
+    <string name="br_engine_bing">Bing</string>
+    <string name="br_engine_google">Google</string>
+    <string name="br_engine_sogou">Sogou</string>
+    <string name="br_engine_sm">Shenma</string>
+    <string name="br_engine_zhihu">Zhihu</string>
+    <string name="br_welcome_page">Home</string>
+    <!-- 思考强度档位 -->
+    <string name="think_auto">Auto</string>
+    <string name="think_off">Off</string>
+    <string name="think_on">On</string>
+    <string name="think_low">Low</string>
+    <string name="think_medium">Medium</string>
+    <string name="think_high">High</string>
+    <!-- 模型能力 -->
+    <string name="cap_image">Image</string>
+    <string name="cap_video">Video</string>
+    <string name="cap_audio">Audio</string>
+    <string name="cap_tool">Tool Calling</string>
+    <!-- 引导页模式描述（补齐） -->
+    <string name="guide_mode_agent_desc">No avatars, Markdown rendering retained
+For full Agent capabilities and style fidelity</string>
+    <string name="guide_mode_chat_desc">Side-by-side avatars, clean plain text
+For everyday chat experience</string>
+
+</resources>

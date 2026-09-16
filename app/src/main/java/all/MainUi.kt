@@ -1,5 +1,5 @@
-package io.github.aixtin.droidagent
-import io.github.aixtin.droidagent.R
+package io.github.aixtin.nyral
+import io.github.aixtin.nyral.R
 
 import android.animation.ValueAnimator
 import android.app.Dialog
@@ -50,12 +50,12 @@ import android.widget.Toast
                     text = TitleConfig.drawerTitle()
                     textSize = 20f
                     setTypeface(typeface, Typeface.BOLD)
-                    setTextColor(Color.parseColor("#1A1A1A"))
+                    setTextColor(Ui.TEXT)
                 }.also { drawerTitleText = it })
                 addView(TextView(this@buildDrawer).apply {
                     text = TitleConfig.drawerNote()
                     textSize = 13f
-                    setTextColor(Color.parseColor("#999999"))
+                    setTextColor(Ui.SUB)
                     setPadding(0, dp(4), 0, 0)
                 }.also { drawerNoteText = it })
             })
@@ -69,7 +69,7 @@ import android.widget.Toast
                 hint = getString(R.string.mui_hint_search)
                 setHintTextColor(Color.parseColor("#BBBBBB"))
                 textSize = 13f
-                setTextColor(Color.parseColor("#1A1A1A"))
+                setTextColor(Ui.TEXT)
                 background = null
                 setPadding(0, 0, 0, 0)
                 setSingleLine(true)
@@ -94,7 +94,7 @@ import android.widget.Toast
             addView(searchWrap)
         })
         drawerPanel.addView(View(this).apply {
-            setBackgroundColor(Color.parseColor("#F0F0F2"))
+            setBackgroundColor(Ui.DIVIDER)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
         })
@@ -107,13 +107,13 @@ import android.widget.Toast
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             setPadding(dp(16), dp(12), dp(16), 0)
             addView(TextView(this@buildDrawer).apply {
-                text = "＋ 新会话"
+                text = getString(R.string.mui_new_chat)
                 textSize = 15f
                 setTypeface(typeface, Typeface.BOLD)
                 // 与主页模型切换按钮同款: 浅蓝底蓝字圆角
-                setTextColor(Color.parseColor("#0B93F6"))
+                setTextColor(Ui.PRIMARY)
                 gravity = Gravity.CENTER
-                background = rounded(dp(16), Color.parseColor("#E8F3FE"))
+                background = rounded(dp(16), Ui.PRIMARY_LIGHT)
                 setPadding(0, dp(12), 0, dp(12))
                 isClickable = true
                 setOnClickListener { startNewSession() }
@@ -121,7 +121,7 @@ import android.widget.Toast
             addView(TextView(this@buildDrawer).apply {
                 text = getString(R.string.mui_records)
                 textSize = 12f
-                setTextColor(Color.parseColor("#999999"))
+                setTextColor(Ui.SUB)
                 setPadding(dp(20), dp(12), dp(20), dp(4))
             })
             addView(ScrollView(this@buildDrawer).apply {
@@ -132,7 +132,7 @@ import android.widget.Toast
             })
         })
         drawerPanel.addView(View(this).apply {
-            setBackgroundColor(Color.parseColor("#F0F0F2"))
+            setBackgroundColor(Ui.DIVIDER)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
         })
@@ -141,7 +141,7 @@ import android.widget.Toast
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), dp(14), dp(20), dp(14))
-            setBackgroundColor(Color.parseColor("#F7F7F8"))
+            setBackgroundColor(Ui.BG)
             isClickable = true
             setOnClickListener {
                 closeDrawer()
@@ -149,9 +149,9 @@ import android.widget.Toast
             }
             Ui.press(this)
             addView(TextView(this@buildDrawer).apply {
-                text = "⚙ 设置"
+                text = getString(R.string.mui_settings)
                 textSize = 15f
-                setTextColor(Color.parseColor("#1A1A1A"))
+                setTextColor(Ui.TEXT)
             })
         })
     }
@@ -166,12 +166,12 @@ import android.widget.Toast
             addView(TextView(this@drawerItem).apply {
                 text = title
                 textSize = 16f
-                setTextColor(Color.parseColor("#1A1A1A"))
+                setTextColor(Ui.TEXT)
             })
             addView(TextView(this@drawerItem).apply {
                 text = subtitle
                 textSize = 12f
-                setTextColor(Color.parseColor("#999999"))
+                setTextColor(Ui.SUB)
                 setPadding(0, dp(3), 0, 0)
             })
         }
@@ -208,7 +208,7 @@ import android.widget.Toast
         searchExpanded = true
         searchEdit.visibility = View.VISIBLE
         // 展开态: 补回圆角浅灰背景(仅展开时), 宽度再缩短避免挤压左侧标题
-        searchWrap.background = rounded(dp(16), Color.parseColor("#EFEFF1"))
+        searchWrap.background = rounded(dp(16), Ui.INPUT_BG)
         searchWrap.setPadding(dp(10), 0, dp(6), 0)
         val targetW = dp(130)
         val anim = ValueAnimator.ofInt(searchCollapsedW, targetW).apply {
@@ -299,7 +299,7 @@ import android.widget.Toast
             c.addView(buildSearchColumn(getString(R.string.mui_col_session), kw, contentHits, d),
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
             c.addView(View(this).apply {
-                setBackgroundColor(Color.parseColor("#F0F0F2"))
+                setBackgroundColor(Ui.DIVIDER)
                 layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT).apply {
                     leftMargin = dp(10); rightMargin = dp(10)
                 }
@@ -322,12 +322,12 @@ import android.widget.Toast
             text = getString(R.string.mui_search_hits, kw, hits.size)
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         fun sortBtn(label: String): TextView = TextView(this).apply {
             text = label
             textSize = 12f
-            setTextColor(Color.parseColor("#0B93F6"))
+            setTextColor(Ui.PRIMARY)
             setPadding(dp(10), dp(4), dp(10), dp(4))
             background = Ui.rounded(Color.parseColor("#EAF4FE"), dp(10), this@showSearchResults)
             Ui.press(this)
@@ -350,7 +350,7 @@ import android.widget.Toast
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(6) })
         root.addView(titleRow)
         root.addView(View(this).apply {
-            setBackgroundColor(Color.parseColor("#F0F0F2"))
+            setBackgroundColor(Ui.DIVIDER)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
                 topMargin = dp(12)
@@ -385,7 +385,7 @@ import android.widget.Toast
         col.addView(TextView(this).apply {
             text = "$label (${hits.size})"
             textSize = 12f
-            setTextColor(Color.parseColor("#999999"))
+            setTextColor(Ui.SUB)
             setPadding(dp(2), 0, dp(2), dp(6))
         })
         if (hits.isEmpty()) {
@@ -403,12 +403,12 @@ import android.widget.Toast
         hits.forEach { hit ->
             val snippet = hit.matchedField.takeIf { it == 0 }?.let { hit.content } ?: hit.thinking
             val title = hit.title.ifBlank { getString(R.string.mui_unnamed_session) }
-            val roleTag = if (hit.role == "user") "我" else "AI"
+            val roleTag = if (hit.role == "user") getString(R.string.mui_role_user) else getString(R.string.mui_role_ai)
             val item = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(10), dp(8), dp(10), dp(8))
                 isClickable = true
-                background = rounded(dp(10), Color.parseColor("#F7F7F8"))
+                background = rounded(dp(10), Ui.BG)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = dp(6)
@@ -451,14 +451,14 @@ import android.widget.Toast
         fun row(title: String): TextView = TextView(this).apply {
             text = title
             textSize = 13f
-            setTextColor(Color.parseColor("#999999"))
+            setTextColor(Ui.SUB)
             setPadding(0, dp(2), 0, dp(2))
         }
         panel.addView(row(getString(R.string.mui_row_ctx_usage)))
         tokenPanelCtx = TextView(this).apply {
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             setPadding(0, 0, 0, dp(10))
         }
         panel.addView(tokenPanelCtx)
@@ -466,7 +466,7 @@ import android.widget.Toast
         tokenPanelSess = TextView(this).apply {
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
         }
         panel.addView(tokenPanelSess)
         panel.addView(TextView(this).apply {
@@ -746,14 +746,14 @@ import android.widget.Toast
             // 思考强度区（手动模型=全量 7 档；预设模型按能力动态出档；已保存档位不适用时回退"自动"）
             val curP = ApiConfig.providerById(curId)
             val manual = curP?.isPreset != true
-            val levels = if (manual) ApiConfig.THINK_LEVELS
+            val levels = if (manual) ApiConfig.THINK_LEVEL_KEYS
                 else ApiConfig.thinkingLevelsOf(curId, ApiConfig.currentModelOf(curId))
             val curEffort = ApiConfig.thinkingEffortOf(curId)
-            val eff = if (levels.any { it.first == curEffort }) curEffort else ApiConfig.THINK_AUTO
+            val eff = if (levels.any { it == curEffort }) curEffort else ApiConfig.THINK_AUTO
             list.addView(TextView(this).apply {
                 text = getString(R.string.mui_think_intensity)
                 textSize = 11f
-                setTextColor(Color.parseColor("#999999"))
+                setTextColor(Ui.SUB)
                 setPadding(dp(18), dp(8), dp(6), dp(2))
             })
             val effortRow = LinearLayout(this).apply {
@@ -761,15 +761,15 @@ import android.widget.Toast
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(14), dp(2), dp(14), dp(8))
             }
-            levels.forEach { (key, name) ->
+            levels.forEach { key ->
                 val sel = key == eff
                 effortRow.addView(TextView(this).apply {
-                    text = name
+                    text = ApiConfig.thinkLabel(context, key)
                     textSize = 12f
                     isAllCaps = false
                     setPadding(dp(10), dp(5), dp(10), dp(5))
-                    setTextColor(if (sel) Color.WHITE else Color.parseColor("#0B93F6"))
-                    background = rounded(dp(15), if (sel) Color.parseColor("#0B93F6") else Color.parseColor("#E8F3FE"))
+                    setTextColor(if (sel) Color.WHITE else Ui.PRIMARY)
+                    background = rounded(dp(15), if (sel) Ui.PRIMARY else Ui.PRIMARY_LIGHT)
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                         rightMargin = dp(6)
@@ -806,7 +806,7 @@ import android.widget.Toast
                     textSize = 14f
                     isAllCaps = false
                     setPadding(dp(18), dp(12), dp(6), dp(12))
-                    setTextColor(if (isCur) Color.parseColor("#0B93F6") else Color.parseColor("#333333"))
+                    setTextColor(if (isCur) Ui.PRIMARY else Color.parseColor("#333333"))
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 // 右侧: 当前子模型名 + 展开箭头
@@ -814,7 +814,7 @@ import android.widget.Toast
                     text = if (hasSub) curModel else ""
                     textSize = 11f
                     setPadding(dp(4), dp(12), dp(2), dp(12))
-                    setTextColor(Color.parseColor("#999999"))
+                    setTextColor(Ui.SUB)
                 })
                 row.addView(TextView(this).apply {
                     text = if (hasSub) (if (expanded) "▾" else "›") else ""
@@ -844,7 +844,7 @@ import android.widget.Toast
                             text = "· " + m + if (isCurModel) "  ✓" else ""
                             textSize = 13f
                             isAllCaps = false
-                            setTextColor(if (isCurModel) Color.parseColor("#0B93F6") else Color.parseColor("#666666"))
+                            setTextColor(if (isCurModel) Ui.PRIMARY else Color.parseColor("#666666"))
                             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                         })
                         list.addView(subRow)
@@ -853,10 +853,10 @@ import android.widget.Toast
                             orientation = LinearLayout.HORIZONTAL
                             setPadding(dp(40), dp(2), dp(18), dp(8))
                         }
-                        val allCaps = listOf(ApiConfig.CAP_TEXT) + ApiConfig.CAP_LABELS.keys.toList()
+                        val allCaps = listOf(ApiConfig.CAP_TEXT, ApiConfig.CAP_IMAGE, ApiConfig.CAP_VIDEO, ApiConfig.CAP_AUDIO, ApiConfig.CAP_TOOL)
                         allCaps.forEach { cap ->
                             if (cap in caps) {
-                                val label = if (cap == ApiConfig.CAP_TEXT) "文本" else ApiConfig.CAP_LABELS[cap] ?: cap
+                                val label = ApiConfig.capLabel(this, cap)
                                 capsRow.addView(TextView(this).apply {
                                     text = label
                                     textSize = 10f
@@ -997,6 +997,8 @@ internal class DrawerDragController(private val act: MainActivity) {
                 mode = when {
                     // Token 面板展开时不抢手势, 避免抽屉从面板下滑出
                     act.tokenMask.visibility == View.VISIBLE -> 0
+                    // 浏览器(全屏接管)打开时抽屉手势整体休眠, 保证左右互斥
+                    act.browserPage.open -> 0
                     act.drawerOpen -> 2
                     ev.rawX <= act.dp(EDGE_DP) -> 1
                     else -> 0

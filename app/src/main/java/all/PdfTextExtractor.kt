@@ -1,4 +1,4 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import java.io.ByteArrayOutputStream
 import java.util.zip.Inflater

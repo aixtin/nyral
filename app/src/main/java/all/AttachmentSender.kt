@@ -1,9 +1,10 @@
-package io.github.aixtin.droidagent
+package io.github.aixtin.nyral
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Base64
@@ -17,6 +18,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.max
@@ -34,6 +36,11 @@ internal class AttachmentSender(private val host: MainActivity) {
 
     private val MAX_IMAGE_SIDE = 2048
     private val MAX_VIDEO_BYTES = 37 * 1024 * 1024 // MiMo 视频 base64 ≤50MB(原始约 ≤37MB)
+    private val SMALL_VIDEO_BYTES = 10 * 1024 * 1024 // 阈值分流: 小视频≤10MB 直传(阶段E实测校准)
+    private val SMALL_VIDEO_SEC = 30 * 1000L          // 阈值分流: 小视频≤30秒 直传(阶段E实测校准)
+    private val MAX_VIDEO_SEC = 3 * 60 * 1000L // 方案A: 视频时长上限 3 分钟
+    private val MAX_VIDEO_MB = 50 * 1024 * 1024 // 方案A: 视频大小硬上限 50MB
+    private val MAX_AUDIO_SEC = 10 * 60 * 1000L // 方案A: 音频时长上限 10 分钟
     private val GIF_ANIM_MAX_BYTES = 20 * 1024 * 1024 // 动图转视频的源 GIF 上限(超出回退静态图), 防超大内存占用
 
     private fun dp(v: Int) = host.dp(v)
@@ -46,26 +53,79 @@ internal class AttachmentSender(private val host: MainActivity) {
         host.uiScope.launch { Toast.makeText(host, host.getString(resId, *args.map { it ?: "" }.toTypedArray()), Toast.LENGTH_SHORT).show() }
     }
 
+    /** 视频时长(ms), 失败返回 0(不阻断发送) */
+    private fun videoDurationMs(uri: Uri): Long {
+        return try {
+            val r = MediaMetadataRetriever()
+            try { r.setDataSource(host, uri) } catch (t: Throwable) { return 0L }
+            val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            r.release(); ms
+        } catch (e: Exception) { 0L }
+    }
+
+    /** 音频时长(ms), 失败返回 0(不阻断发送) */
+    private fun audioDurationMs(uri: Uri): Long {
+        return try {
+            val r = MediaMetadataRetriever()
+            try { r.setDataSource(host, uri) } catch (t: Throwable) { return 0L }
+            val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            r.release(); ms
+        } catch (e: Exception) { 0L }
+    }
+
+    /** 视频元信息 JSON(时长/分辨率/大小), 失败返回 null; 供直传写工作目录/落库写附件库复用 */
+    private fun videoMetaJson(uri: Uri, name: String, size: Long, mime: String, durMs: Long): JSONObject? {
+        return try {
+            val r = MediaMetadataRetriever()
+            try { r.setDataSource(host, uri) } catch (t: Throwable) { return null }
+            val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val fps = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE).orEmpty()
+            r.release()
+            JSONObject()
+                .put("name", name).put("mime", mime).put("size", size)
+                .put("durationMs", durMs).put("durationSec", (durMs + 500) / 1000)
+                .put("width", w).put("height", h).put("fps", fps)
+                .put("createdAt", System.currentTimeMillis())
+        } catch (e: Exception) { null }
+    }
+
+    /** 视频元信息 → 工作目录 .meta.json(供 AI 后续按需观看/抽帧; 失败不阻断发送) */
+    private fun writeVideoMeta(uri: Uri, name: String, size: Long) {
+        try {
+            val dur = videoDurationMs(uri)
+            val meta = videoMetaJson(uri, name, size, "video/mp4", dur) ?: return
+            WorkDir.write(host, name + ".meta.json", meta.toString().toByteArray())
+        } catch (e: Exception) { /* meta 失败不阻断发送 */ }
+    }
+
     private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHintRes: Int): LocalEngine.Attachment? {
+        // 方案A 双维度限制: 时长 >3min 直接拒(不转码防 token 爆炸); 大小 >50MB 直接拒
+        val durMs = videoDurationMs(uri)
+        if (durMs > MAX_VIDEO_SEC) {
+            toast(io.github.aixtin.nyral.R.string.toast_video_too_long, host.getString(failHintRes))
+            return null
+        }
         val raw = MediaFileUtils.readAll(host.contentResolver, uri)
-        if (raw.size <= MAX_VIDEO_BYTES) {
+        if (raw.size > MAX_VIDEO_MB) {
+            toast(io.github.aixtin.nyral.R.string.toast_video_too_big, host.getString(failHintRes))
+            return null
+        }
+        if (raw.size <= SMALL_VIDEO_BYTES && durMs <= SMALL_VIDEO_SEC) {
+            // 小视频直传时顺手生成 meta 存工作目录(供 AI 按需观看/抽帧参考)
+            writeVideoMeta(uri, name, raw.size.toLong())
             return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
         }
-        toast(io.github.aixtin.droidagent.R.string.toast_video_compressing, host.getString(failHintRes))
-        val out = File(host.cacheDir, "comp_${System.currentTimeMillis()}.mp4")
-        try {
-            VideoCompressor.compress(host, uri, out)
+        // 大视频(>10MB 或 >30秒, 阈值待阶段E实测校准): 落私有附件库(附件+meta 同生共死), 消息只放索引卡, 不传 base64
+        val meta = videoMetaJson(uri, name, raw.size.toLong(), mime, durMs)
+        val key = try {
+            AttachmentStore.save(host, name, mime, raw, meta?.toString())
         } catch (e: Exception) {
-            toast(io.github.aixtin.droidagent.R.string.toast_video_compress_fail, host.getString(failHintRes), e.message)
+            toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(failHintRes), e.message)
             return null
         }
-        val cb = out.readBytes()
-        out.delete()
-        if (cb.size > MAX_VIDEO_BYTES) {
-            toast(io.github.aixtin.droidagent.R.string.toast_video_comp_over, host.getString(failHintRes))
-            return null
-        }
-        return LocalEngine.Attachment("video/mp4", Base64.encodeToString(cb, Base64.NO_WRAP), name)
+        toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib)
+        return LocalEngine.Attachment(mime, "", key, stored = true)
     }
 
     /** 读取附件并加入预览条(补文字后由 onSend 一并发送, 不再直接发出)。 */
@@ -84,21 +144,21 @@ internal class AttachmentSender(private val host: MainActivity) {
                 val realType = real.substringBefore('/') // image/audio/video/text 或 empty/unknown
                 // 伪装/异常文件直接拒绝并提示真实情况
                 if (real == FormatSniffer.EMPTY) {
-                    toast(io.github.aixtin.droidagent.R.string.toast_att_empty)
+                    toast(io.github.aixtin.nyral.R.string.toast_att_empty)
                     return@execute
                 }
                 val fakeMedia = real == FormatSniffer.TEXT &&
                     (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))
                 if (fakeMedia) {
                     host.uiScope.launch {
-                        val fakeTypeRes = when { mime.startsWith("image/") -> io.github.aixtin.droidagent.R.string.att_label_image; mime.startsWith("video/") -> io.github.aixtin.droidagent.R.string.att_label_video; else -> io.github.aixtin.droidagent.R.string.att_label_audio }
-                        Toast.makeText(host, host.getString(io.github.aixtin.droidagent.R.string.toast_att_fake_media, host.getString(fakeTypeRes)), Toast.LENGTH_SHORT).show()
+                        val fakeTypeRes = when { mime.startsWith("image/") -> io.github.aixtin.nyral.R.string.att_label_image; mime.startsWith("video/") -> io.github.aixtin.nyral.R.string.att_label_video; else -> io.github.aixtin.nyral.R.string.att_label_audio }
+                        Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_fake_media, host.getString(fakeTypeRes)), Toast.LENGTH_SHORT).show()
                     }
                     return@execute
                 }
                 if (real == FormatSniffer.UNKNOWN &&
                     (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))) {
-                    toast(io.github.aixtin.droidagent.R.string.toast_att_unk_fmt)
+                    toast(io.github.aixtin.nyral.R.string.toast_att_unk_fmt)
                     return@execute
                 }
                 val atts: List<LocalEngine.Attachment> = when {
@@ -110,7 +170,7 @@ internal class AttachmentSender(private val host: MainActivity) {
                             if (mv != null) {
                                 val vAtt = buildVideoAttachment(mv, "video/mp4",
                                     name.replace(Regex("\\.heic$", RegexOption.IGNORE_CASE), ".mp4"),
-                                    io.github.aixtin.droidagent.R.string.att_label_live_video)
+                                    io.github.aixtin.nyral.R.string.att_label_live_video)
                                 if (vAtt != null) {
                                     listOf(vAtt)
                                 } else {
@@ -154,7 +214,7 @@ internal class AttachmentSender(private val host: MainActivity) {
                     }
                     isVideo || realType == "video" -> {
                         val vAtt = buildVideoAttachment(uri,
-                            if (realType == "video") real else mime, name, io.github.aixtin.droidagent.R.string.att_label_video)
+                            if (realType == "video") real else mime, name, io.github.aixtin.nyral.R.string.att_label_video)
                         if (vAtt == null) {
                             return@execute
                         }
@@ -164,14 +224,24 @@ internal class AttachmentSender(private val host: MainActivity) {
                         // 音频以魔数真实 mime 为准(扩展名可能说谎, 如 .aac 实为 MP3): 归一到模型认识的格式
                         val effMime = if (realType == "audio" && real != FormatSniffer.UNKNOWN) real else mime
                         val raw = MediaFileUtils.readAll(host.contentResolver, uri)
+                        // 方案A 音频双维度: 时长 >10min 拒(大小沿用 maxFileBytes 上限)
+                        if (effMime.startsWith("audio/") || realType == "audio") {
+                            val aDur = audioDurationMs(uri)
+                            if (aDur > MAX_AUDIO_SEC) {
+                                host.uiScope.launch {
+                                    Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_audio_too_long), Toast.LENGTH_SHORT).show()
+                                }
+                                return@execute
+                            }
+                        }
                         if (raw.size > host.maxFileBytes) {
                             host.uiScope.launch {
                                 val maxMb = UploadConfig.maxMb()
                                 val msg = when {
                                     isPdf && !name.lowercase().endsWith(".pdf") ->
-                                        host.getString(io.github.aixtin.droidagent.R.string.toast_att_pdf_abnormal, maxMb)
-                                    isPdf -> host.getString(io.github.aixtin.droidagent.R.string.toast_att_pdf_large, maxMb)
-                                    else -> host.getString(io.github.aixtin.droidagent.R.string.toast_att_file_large, maxMb)
+                                        host.getString(io.github.aixtin.nyral.R.string.toast_att_pdf_abnormal, maxMb)
+                                    isPdf -> host.getString(io.github.aixtin.nyral.R.string.toast_att_pdf_large, maxMb)
+                                    else -> host.getString(io.github.aixtin.nyral.R.string.toast_att_file_large, maxMb)
                                 }
                                 Toast.makeText(host, msg, Toast.LENGTH_SHORT).show()
                             }
@@ -195,7 +265,7 @@ internal class AttachmentSender(private val host: MainActivity) {
                             ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
                             val imgs = pdfToImageAttachments(uri, name)
                             if (imgs.isEmpty()) {
-                                toast(io.github.aixtin.droidagent.R.string.toast_pdf_unparsable)
+                                toast(io.github.aixtin.nyral.R.string.toast_pdf_unparsable)
                                 return@execute
                             }
                             // 页图标记 pdfSourceName: 显示层隐藏(不铺图片网格), 仅作为 image_url 发给模型看图;
@@ -204,7 +274,7 @@ internal class AttachmentSender(private val host: MainActivity) {
                                 LocalEngine.Attachment("application/pdf", Base64.encodeToString(finalRaw, Base64.NO_WRAP), name,
                                     text = "（PDF 扫描件，已渲染为图片供查看）"))
                         } else if (txt.isNullOrBlank()) {
-                            toast(io.github.aixtin.droidagent.R.string.toast_doc_unparsable)
+                            toast(io.github.aixtin.nyral.R.string.toast_doc_unparsable)
                             return@execute
                         } else {
                             listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name, text = txt))
@@ -214,13 +284,13 @@ internal class AttachmentSender(private val host: MainActivity) {
                 host.uiScope.launch {
                     // 预览条方案: 附件先进输入框上方预览, 补文字后由 onSend 一并发送, 不再直接发出
                     // 总量上限 6: 无论单次还是多次累积, 超出部分拒绝加入预览条(不占发送队列)
-                    val MAX_ATT = 6
+                    val MAX_ATT = 5
                     // PDF 扫描件页图(pdfSourceName 非空)是同一个 PDF 的内部展开, 不占用户文件计数
                     var userAtt = host.pendingAttachments.count { it.pdfSourceName == null }
                     for (att in atts) {
                         val isPageImg = att.pdfSourceName != null
                         if (!isPageImg && userAtt >= MAX_ATT) {
-                            Toast.makeText(host, host.getString(io.github.aixtin.droidagent.R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()
+                            Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()
                             break
                         }
                         host.pendingAttachments.add(att)
@@ -229,8 +299,8 @@ internal class AttachmentSender(private val host: MainActivity) {
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("DroidAgent", "读取附件失败", e)
-                toast(io.github.aixtin.droidagent.R.string.toast_att_read_fail, e.message)
+                android.util.Log.e("Nyral", "读取附件失败", e)
+                toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
             }
         }
     }
@@ -242,7 +312,7 @@ internal class AttachmentSender(private val host: MainActivity) {
         val thumb: View = if (att.mime.startsWith("image/")) {
             ImageView(host).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                background = rounded(dp(8), Color.parseColor("#EFEFF1"))
+                background = rounded(dp(8), Ui.INPUT_BG)
                 try {
                     val arr = Base64.decode(att.base64, Base64.NO_WRAP)
                     val raw = BitmapFactory.decodeByteArray(arr, 0, arr.size)
@@ -276,7 +346,7 @@ internal class AttachmentSender(private val host: MainActivity) {
             isAllCaps = false
             minHeight = 0
             minWidth = 0
-            background = rounded(dp(9), Color.parseColor("#E5484D"))
+            background = rounded(dp(9), Ui.DANGER)
             layoutParams = FrameLayout.LayoutParams(dp(18), dp(18), Gravity.TOP or Gravity.END)
             setOnClickListener {
                 host.attachPreviewRow.removeView(cell)
@@ -327,7 +397,7 @@ internal class AttachmentSender(private val host: MainActivity) {
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("DroidAgent", "PDF 渲染失败", e)
+            android.util.Log.e("Nyral", "PDF 渲染失败", e)
         } finally {
             try { renderer?.close() } catch (e: Exception) { }
             try { pfd.close() } catch (e: Exception) { }
