@@ -1,12 +1,20 @@
 package io.github.aixtin.nyral
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.Environment
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * 无障碍控制服务(原型): AI 控制第三方 App 的免 root 通道。
@@ -32,8 +40,15 @@ class UiControlService : AccessibilityService() {
         private const val NOT_READY =
             "无障碍服务未开启: 请到 系统设置 -> 无障碍 -> 已安装的服务 里开启 Nyral"
 
-        /** 扫描当前屏幕可操作元素清单(带 [索引] 文本/描述 坐标), 供 app_click/app_text 定位 */
+        /** 扫描当前屏幕可操作元素清单(带 [索引] 文本/描述 坐标), 供 app_click/app_text 定位;
+         *  空树时返回 EMPTY_TREE 前缀标记, 触发大脑切视觉兜底(app_screenshot+app_tap 闭环) */
         fun scan(): String = instance?.collectElements() ?: NOT_READY
+
+        /** 坐标注入点击(免节点树, 供视觉兜底: 空树/自绘页面直接按屏幕坐标点) */
+        fun tap(x: Int, y: Int): String = instance?.tapAt(x, y) ?: NOT_READY
+
+        /** 截图当前屏幕保存到工作目录(Download/Nyral_work), 返回文件路径; 供视觉模型识别页面元素 */
+        fun screenshot(): String = instance?.captureScreen() ?: NOT_READY
 
         /** 点击第 index 个可操作元素(索引来自 app_scan) */
         fun click(index: Int): String = instance?.clickAt(index) ?: NOT_READY
@@ -112,7 +127,7 @@ class UiControlService : AccessibilityService() {
         val found = ArrayList<El>()
         walk(root, found, 0)
         lastNodes = found.map { it.node }
-        if (found.isEmpty()) return "当前屏幕未识别到可操作元素(可能页面元素不支持无障碍访问)"
+        if (found.isEmpty()) return "EMPTY_TREE 当前屏幕未识别到可操作元素(可能页面元素不支持无障碍访问, 请改用 app_screenshot 截图+视觉识别+app_tap 坐标点击闭环)"
         val sb = StringBuilder()
         found.forEachIndexed { i, e ->
             val cx = e.rect.centerX()
@@ -158,6 +173,58 @@ class UiControlService : AccessibilityService() {
         val id = n.viewIdResourceName?.substringAfterLast('/') ?: ""
         if (id.isNotBlank()) return id
         return n.className?.toString()?.substringAfterLast('.') ?: "未知元素"
+    }
+
+    private fun tapAt(x: Int, y: Int): String {
+        val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 60))
+            .build()
+        val ok = try { dispatchGesture(gesture, null, null) } catch (e: Exception) { false }
+        return if (ok) "已坐标点击 ($x,$y)" else "坐标点击失败(无障碍手势不可用)"
+    }
+
+    private fun captureScreen(): String {
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            return "截图需要 Android 11+ (当前 SDK ${android.os.Build.VERSION.SDK_INT})"
+        }
+        val latch = CountDownLatch(1)
+        var shot: AccessibilityService.ScreenshotResult? = null
+        var fail: String? = null
+        try {
+            takeScreenshot(
+                android.view.Display.DEFAULT_DISPLAY,
+                java.util.concurrent.Executors.newSingleThreadExecutor(),
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                        shot = screenshot
+                        latch.countDown()
+                    }
+                    override fun onFailure(errorCode: Int) {
+                        fail = "截图失败 errorCode=$errorCode(可能页面受限或被遮挡)"
+                        latch.countDown()
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            return "截图异常: ${e.message}"
+        }
+        try { latch.await(3, TimeUnit.SECONDS) } catch (e: Exception) {}
+        val r = shot ?: return fail ?: "截图超时"
+        val bmp = Bitmap.wrapHardwareBuffer(r.hardwareBuffer, r.colorSpace)
+            ?: run { r.hardwareBuffer.close(); return "截图解码失败" }
+        try {
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Nyral_work")
+            dir.mkdirs()
+            val f = File(dir, "app_screenshot_${System.currentTimeMillis()}.png")
+            FileOutputStream(f).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
+            return "截图已保存: ${f.absolutePath}"
+        } catch (e: Exception) {
+            return "截图保存失败: ${e.message}"
+        } finally {
+            bmp.recycle()
+            r.hardwareBuffer.close()
+        }
     }
 
     private fun clickAt(index: Int): String {

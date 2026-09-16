@@ -1,4 +1,4 @@
-# agent · 开发者文档
+# Nyral · 开发者文档
 
 > 面向开源社区的开发者文档，与仓库根 README（面向用户）互补。本文档专注工程结构、构建发布、架构决策与模块实现说明。
 
@@ -47,7 +47,7 @@
 | `SshTools.kt` | JSch SSH/SFTP：跳板机（ProxyJump）、ED25519（BouncyCastle）、双认证 |
 | `SshConfigActivity.kt` / `SshConfigStore.kt` | SSH 配置管理（加密存储） |
 | `FileTools.kt` | 远程文件操作 |
-| `WorkDir.kt` / `WorkTools.kt` | 本地工作目录（Download/agent_work）：list/read/write/grep/head/stats |
+| `WorkDir.kt` / `WorkTools.kt` | 本地工作目录（Download/Nyral_work）：list/read/write/grep/head/stats |
 
 ### 联网工具 / 浏览器
 
@@ -101,8 +101,8 @@
 ### 构建命令
 
 ```bash
-git clone https://github.com/aixtin/droid-agent.git
-cd droid-agent/android-agent-app
+git clone https://github.com/aixtin/nyral.git
+cd nyral/android-agent-app
 gradle assembleDebug
 # 产物: app/build/outputs/apk/debug/app-debug.apk
 ```

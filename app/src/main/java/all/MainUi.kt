@@ -686,7 +686,7 @@ import android.widget.Toast
                 false
             }
         }
-        attachPopup!!.showAsDropDown(attachBtn, 0, -(popH + attachBtn.height + dp(6)))
+        attachPopup?.showAsDropDown(attachBtn, 0, -(popH + attachBtn.height + dp(6)))
         // 果冻展开: 弹窗向上弹出(锚定 attachBtn), 锚点=弹窗左下角, 向右上弹性弹出
         col.pivotX = 0f
         col.pivotY = col.height.toFloat()
@@ -909,7 +909,7 @@ import android.widget.Toast
                         false
                     }
                 }
-                modelPopup!!.showAsDropDown(modelBtn, 0, -(popH + modelBtn.height + dp(6)))
+                modelPopup?.showAsDropDown(modelBtn, 0, -(popH + modelBtn.height + dp(6)))
                 // 果冻展开: 弹窗向上弹出(锚定 modelBtn), 锚点=弹窗左下角, 向右上弹性弹出
                 wrap.pivotX = 0f
                 wrap.pivotY = wrap.height.toFloat()
@@ -927,7 +927,7 @@ import android.widget.Toast
                 }
             } else {
                 // 已显示且要更新内容: 先关闭再重建, 避免 update 坐标语义导致弹窗跑位
-                modelPopup!!.dismiss()
+                modelPopup?.dismiss()
                 modelPopup = null
                 rebuild()
                 return
