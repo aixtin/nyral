@@ -19,12 +19,16 @@ object AttachmentStore {
     private const val DIR = "attachments"
 
     /** 写入附件文件, 返回唯一 fileName(引用 key) */
-    fun save(context: Context, name: String, mime: String, bytes: ByteArray): String {
+    fun save(context: Context, name: String, mime: String, bytes: ByteArray, metaJson: String? = null): String {
         val dir = File(context.filesDir, DIR).apply { mkdirs() }
         val safeName = name.replace(Regex("[\\\\/:*?\"<>|() ]"), "_")
             .ifBlank { "attachment" }
         val fileName = "${System.currentTimeMillis()}_${UUID.randomUUID().toString().substring(0, 8)}_$safeName"
         File(dir, fileName).writeBytes(bytes)
+        // 方案A: metaJson 非空时同步写 <fileName>.meta.json
+        if (!metaJson.isNullOrBlank()) {
+            File(dir, "$fileName.meta.json").writeText(metaJson)
+        }
         return fileName
     }
 
@@ -33,6 +37,34 @@ object AttachmentStore {
         val base = File(context.filesDir, DIR)
         val f = File(base, File(fileName).name)
         return if (f.exists() && f.parentFile?.absolutePath == base.absolutePath) f else null
+    }
+
+    /**
+     * 分块读取附件文本(供 AI attach_read 工具按需读取, 避免超大附件全文进上下文)。
+     * 仅限 UTF-8 文本类(发送时超预算附件已落盘 *.txt); 二进制/非 UTF-8 返回 null。
+     */
+    fun readTextChunk(context: Context, fileName: String, offset: Int = 0, limit: Int = 4000): String? {
+        val f = fileOf(context, fileName) ?: return null
+        val bytes = try { f.readBytes() } catch (e: Exception) { return null }
+        val text = try { String(bytes, Charsets.UTF_8) } catch (e: Exception) { return null }
+        if (offset >= text.length) return null
+        val start = offset.coerceAtLeast(0)
+        val end = (start + limit.coerceIn(1, 50000)).coerceAtMost(text.length)
+        return text.substring(start, end)
+    }
+
+    /** 附件文本总字符数(供 attach_read 汇报剩余量) */
+    fun textLength(context: Context, fileName: String): Int {
+        val f = fileOf(context, fileName) ?: return -1
+        return try {
+            String(f.readBytes(), Charsets.UTF_8).length
+        } catch (e: Exception) { -1 }
+    }
+
+    /** 读取附件 meta(与附件同名的 *.meta.json), 不存在返回 null */
+    fun metaOf(context: Context, fileName: String): String? {
+        val f = fileOf(context, "$fileName.meta.json") ?: return null
+        return try { f.readText() } catch (e: Exception) { null }
     }
 
     /** 按文件名推断 mime */
@@ -50,6 +82,23 @@ object AttachmentStore {
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
             ?: "application/octet-stream"
     }
+
+    /** 附件清单(不含 .meta.json, 按名与附件配对): 按修改时间倒序 */
+    fun list(context: Context): List<File> {
+        val dir = File(context.filesDir, DIR)
+        return dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".meta.json") }
+            ?.sortedByDescending { it.lastModified() } ?: emptyList()
+    }
+
+    /** 删除附件及其配对 meta(同生共死), 返回是否成功 */
+    fun delete(context: Context, fileName: String): Boolean {
+        val f = fileOf(context, fileName) ?: return false
+        val ok = try { f.delete() } catch (e: Exception) { false }
+        if (ok) {
+            try { fileOf(context, "$fileName.meta.json")?.delete() } catch (e: Exception) { }
+        }
+        return ok
+    }
 }
 
 /**
@@ -65,6 +114,8 @@ class LocalFileProvider : ContentProvider() {
         // 工作目录文件(content://<pkg>.files/work/<文件名>): 供浏览器上传 file input 使用
         if (path.startsWith("/work/")) {
             val name = Uri.decode(path.removePrefix("/work/"))
+            // 防路径穿越: 仅允许纯文件名, 拒绝 ../、绝对路径与编码分隔符
+            if (name.isEmpty() || name.contains('/') || name == ".." || name.contains("../") || java.io.File(name).name != name) return null
             val msUri = WorkDir.publicUri(ctx, name)
             if (msUri != null) {
                 return runCatching { ctx.contentResolver.openFileDescriptor(msUri, "r") }.getOrNull()

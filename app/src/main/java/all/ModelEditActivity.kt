@@ -430,9 +430,9 @@ class ModelEditActivity : Activity() {
             } else {
                 ApiConfig.modelCapabilities(providerId ?: "", m)
             }
-            val allCaps = listOf(ApiConfig.CAP_TEXT) + ApiConfig.CAP_LABELS.keys.toList()
+            val allCaps = listOf(ApiConfig.CAP_TEXT, ApiConfig.CAP_IMAGE, ApiConfig.CAP_VIDEO, ApiConfig.CAP_AUDIO, ApiConfig.CAP_TOOL)
             allCaps.forEach { cap ->
-                val label = if (cap == ApiConfig.CAP_TEXT) getString(R.string.cap_text) else ApiConfig.CAP_LABELS[cap] ?: cap
+                val label = ApiConfig.capLabel(this, cap)
                 val selected = cap in modelCaps
                 val chip = TextView(this).apply {
                     text = label
@@ -466,13 +466,13 @@ class ModelEditActivity : Activity() {
         val p = providerId?.let { ApiConfig.providerById(it) }
         val manual = isNew || p?.isPreset != true
         // 手动模型：自动/关闭/开启/低/中/高/超高 全给，先不管实际有没有用
-        val levels = if (manual) ApiConfig.THINK_LEVELS else ApiConfig.thinkingLevelsOf(id, model)
+        val levels = if (manual) ApiConfig.THINK_LEVEL_KEYS else ApiConfig.thinkingLevelsOf(id, model)
         // 已保存档位不在当前可用列表时（如切换模型后）回退高亮"自动"，避免无选中
-        val eff = if (levels.any { it.first == selectedEffort }) selectedEffort else ApiConfig.THINK_AUTO
-        levels.forEach { (key, name) ->
+        val eff = if (levels.any { it == selectedEffort }) selectedEffort else ApiConfig.THINK_AUTO
+        levels.forEach { key ->
             val selected = key == eff
             val chip = TextView(this).apply {
-                text = name
+                text = ApiConfig.thinkLabel(context, key)
                 textSize = 12f
                 setTextColor(if (selected) 0xFFFFFFFF.toInt() else Ui.PRIMARY)
                 background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.INPUT_BG, 16, this@ModelEditActivity)
@@ -537,14 +537,14 @@ class ModelEditActivity : Activity() {
             capsContainer.addView(TextView(this).apply {
                 text = getString(R.string.hint_caps_per_model)
                 textSize = 12f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 setPadding(dp(2), dp(2), dp(2), dp(2))
             })
             return
         }
         val caps: List<String> = ApiConfig.modelCapabilities(providerId ?: "", modelInput.text.toString().trim()).toList()
         caps.forEach { cap ->
-            val label = if (cap == ApiConfig.CAP_TEXT) getString(R.string.cap_text) else ApiConfig.CAP_LABELS[cap] ?: cap
+            val label = ApiConfig.capLabel(this, cap)
             val selected = cap in selectedCaps
             val chip = TextView(this).apply {
                 text = label
@@ -657,10 +657,10 @@ class ModelEditActivity : Activity() {
             }
             fun renderPickCapsRow() {
                 capsRow.removeAllViews()
-                val allCaps = listOf(ApiConfig.CAP_TEXT) + ApiConfig.CAP_LABELS.keys.toList()
+                val allCaps = listOf(ApiConfig.CAP_TEXT, ApiConfig.CAP_IMAGE, ApiConfig.CAP_VIDEO, ApiConfig.CAP_AUDIO, ApiConfig.CAP_TOOL)
                 val caps = pickCaps.getOrPut(m) { mutableSetOf(ApiConfig.CAP_TEXT) }
                 allCaps.forEach { cap ->
-                    val label = if (cap == ApiConfig.CAP_TEXT) getString(R.string.cap_text) else ApiConfig.CAP_LABELS[cap] ?: cap
+                    val label = ApiConfig.capLabel(this, cap)
                     val selected = cap in caps
                     val chip = TextView(this@ModelEditActivity).apply {
                         text = label

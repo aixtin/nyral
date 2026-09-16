@@ -46,7 +46,7 @@ object MemoryGate {
         try {
             MemoryApiConfig.init(context.applicationContext)
         } catch (e: Exception) {
-            Log.w("agent", "MemoryGate: 辅助模型配置初始化失败，记忆判断将按未配置处理: ${e.message}")
+            Log.w("Nyral", "MemoryGate: 辅助模型配置初始化失败，记忆判断将按未配置处理: ${e.message}")
         }
         val messages = JSONArray()
         messages.put(JSONObject().put("role", "system").put("content",
@@ -79,7 +79,7 @@ object MemoryGate {
                 (if (usedCompletion > 0) usedCompletion else content.length / 3L).toInt().coerceAtLeast(0)
             )
         } catch (e: Exception) {
-            Log.w("agent", "MemoryGate: token 统计(辅助)记录失败: ${e.message}")
+            Log.w("Nyral", "MemoryGate: token 统计(辅助)记录失败: ${e.message}")
         }
         val lines = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val first = lines.firstOrNull()?.uppercase() ?: ""

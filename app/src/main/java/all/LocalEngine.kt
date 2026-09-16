@@ -1,6 +1,9 @@
 package io.github.aixtin.nyral
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -49,7 +52,7 @@ object LocalEngine {
     /** 发送附件: mime 类型 + Base64 内容 + 文件名; 图片走 image_url, 音频走 input_audio, 其余走 input_file;
      *  text 为附件本地解析出的纯文本(如 PDF 提取内容), 非空时随 history 一并注入给模型;
      *  isVoice 标记该音频来自本地录音(需展示微信式语音气泡), 上传的音频文件为 false(展示为文件卡片) */
-    data class Attachment(val mime: String, val base64: String, val name: String = "attachment", val text: String? = null, val isVoice: Boolean = false, val pdfSourceName: String? = null)
+    data class Attachment(val mime: String, val base64: String, val name: String = "attachment", val text: String? = null, val isVoice: Boolean = false, val pdfSourceName: String? = null, val stored: Boolean = false)
 
     /** 取消状态: requestCancel() 置 true, 引擎在流式读取/工具循环处检查并中断 */
     @Volatile
@@ -71,11 +74,17 @@ object LocalEngine {
 
     /** 浏览器页清缓存桥接: AI 调用 browser_clear_cache 时由 MainActivity 注册回调, 内部主线程执行并返回结果 */
     @Volatile
+    var onBrowserText: (() -> String)? = null
+    var onBrowserScroll: ((Int) -> String)? = null
     var onBrowserClear: ((Boolean) -> String)? = null
 
     /** 浏览器登录态 Cookie 回灌桥接: AI 调用 browser_save_cookies 时取浏览器当前登录 Cookie(主线程), site 非空按该域、为空取当前页域名 */
     @Volatile
     var onBrowserSaveCookies: ((site: String?) -> String)? = null
+
+    /** 澄清询问桥接: AI 调用 ask_user 时由 MainActivity 注册回调, 主线程弹原生选择框等待用户点选(阻塞 work 线程同步返回用户选择) */
+    @Volatile
+    var onAskUser: ((question: String, options: List<String>, allowCustom: Boolean) -> String)? = null
 
     /** 当前活跃连接, 取消时 disconnect 以打断阻塞读 */
     @Volatile
@@ -88,43 +97,25 @@ object LocalEngine {
     }
 
     private val toolRegistry = listOf(
-        ToolSpec("web_search", "后台静默联网搜索(Bing), 结果仅供AI参考阅读, 用户看不到页面; 若用户想看搜索结果页/网页请改用 open_browser", "JSON: {\"q\":\"搜索关键词\",\"max_results\":5}"),
-        ToolSpec("open_browser", "在用户手机上打开全屏浏览器页并加载网页; 若传入的是非URL文本则自动作为搜索词打开百度搜索。当用户要求搜索/查资料/看网页时优先用本工具, 直接在手机屏幕展示可看到的搜索页(用户可见)", "JSON: {\"url\":\"https://... 或 搜索词\"}"),
-        ToolSpec("browser_scan", "读取全屏浏览器页当前已识别的可操作元素清单(带 [索引+坐标]), 供后续 browser_click/browser_type 定位; 页面刚加载时若返回'暂无元素'可稍后再调一次(页面加载完成后自动扫描)", "无参数"),
-        ToolSpec("browser_click", "在全屏浏览器页点击第 N 个可操作元素(索引来自 browser_scan 结果, 0 起); 点击后如需确认页面变化可再调 browser_scan", "JSON: {\"index\":0}"),
-        ToolSpec("browser_type", "向全屏浏览器页第 N 个可操作元素(输入框/富文本)输入文本, 索引来自 browser_scan 结果, 0 起; 支持搜索框/登录表单等", "JSON: {\"index\":0,\"text\":\"要输入的文本\"}"),
-        ToolSpec("browser_upload", "向全屏浏览器页第 N 个文件选择框上传工作目录(Download/agent_work)里的文件/图片; index 来自 browser_scan(若扫描不到 file input 则按页面第 N 个 input[type=file] 定位, 默认0), local 为工作目录内文件名", "JSON: {\"index\":0,\"local\":\"文件名\"}"),
-        ToolSpec("browser_clear_cache", "清除全屏浏览器页的缓存并强制刷新当前页; full=true 时额外清除全部站点登录Cookie(会退出所有网站登录)。页面样式错乱/数据过期/正常刷新无效时使用。默认 false 只清普通缓存不动登录", "JSON: {\"full\":false}"),
-        ToolSpec("browser_save_cookies", "把全屏浏览器页当前登录态的 Cookie 存入 site_auth.json(供 web_fetch/web_download 静默抓取自动注入登录态); site 传目标域名, 不传则自动取浏览器当前页域名。用于\"浏览器登录一次→静默通道带登录态\": 先 open_browser 登录目标站点, 再调用本工具回灌", "JSON: {\"site\":\"可选域名\"}"),
+        ToolSpec("web_search", "后台静默联网搜索(Bing), 结果仅供AI参考阅读, 用户看不到页面; 若用户想看搜索结果页/网页请改用 browser(action=open)", "JSON: {\"q\":\"搜索关键词\",\"max_results\":5}"),
+        ToolSpec("browser", "全屏浏览器控制(在用户手机上打开可见浏览器页): action=open 打开URL/搜索词(用户要求搜索/查资料/看网页时优先用), scan 读可操作元素清单(带索引), text 读整页文字, scroll 滚动(delta 像素正下负上), click 点击第N元素(index), type 向输入框输入文本(index+text), upload 上传工作目录文件到文件选择框(index+local), clear_cache 清缓存刷新(full=true 连登录Cookie一起清), save_cookies 把当前登录Cookie存入site_auth(site 可选域名)。页面遇验证码/登录墙时提示用户点\"接管\"手动完成。", "JSON: {\"action\":\"open|scan|text|scroll|click|type|upload|clear_cache|save_cookies\",...}"),
+        ToolSpec("app", "第三方App控制(需先授权无障碍): action=scan 扫描当前屏幕可操作元素清单(带索引), click 点击第N元素(index), text 向输入框输入文本(index+text), back 模拟返回键, home 回桌面, launch 按包名启动App(pkg), installed 列出已安装第三方应用", "JSON: {\"action\":\"scan|click|text|back|home|launch|installed\",...}"),
+        ToolSpec("workdir", "手机工作目录(Download/Nyral_work)文件操作: action=list 列文件, read 读文本文件(name), write 写文件(name+content, 同名覆盖), grep 全文搜索(kw, 可选ext扩展名过滤/case大小写), head 读前N行或N字符(name+lines或chars), stats 统计概览", "JSON: {\"action\":\"list|read|write|grep|head|stats\",...}"),
+        ToolSpec("file", "远端文件操作(SSH连接): action=list 列目录(conn+path), read 读文件(conn+path+lines), info 查看文件详情(conn+path), write 写/追加文件(conn+path+content+append), upload SFTP上传(conn+local+remote), download SFTP下载(conn+remote+local可选), ls SFTP列目录(conn+path)", "JSON: {\"action\":\"list|read|info|write|upload|download|ls\",\"conn\":\"连接名\",...}"),
         ToolSpec("web_fetch", "抓取网页并提取正文文本; 若 site_auth.json 已配置该域名 Cookie 会自动注入, 无需重复传", "JSON: {\"url\":\"https://...\",\"max_chars\":3000}"),
         ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web_fetch/web_download 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}"),
         ToolSpec("get_time", "获取当前日期时间", "无参数"),
         ToolSpec("calc", "数学计算", "JSON: {\"expr\":\"表达式\"} 如 {\"expr\":\"17*23\"}"),
         ToolSpec("memory_search", "语义检索本地记忆", "JSON: {\"query\":\"查询内容\"}"),
         ToolSpec("ssh_run", "通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数", "JSON: {\"command\":\"连接名:命令\"} 如 {\"command\":\"vps:ls /\"}"),
-        ToolSpec("file_list", "列出远程目录文件", "JSON: {\"conn\":\"连接名\",\"path\":\"/目录\"}"),
-        ToolSpec("file_read", "读取远程文件内容", "JSON: {\"conn\":\"连接名\",\"path\":\"/文件\",\"lines\":200}"),
-        ToolSpec("file_info", "查看远程文件详情(类型/大小/权限/修改时间)", "JSON: {\"conn\":\"连接名\",\"path\":\"/文件\"}"),
-        ToolSpec("file_write", "写入或追加远程文件内容", "JSON: {\"conn\":\"连接名\",\"path\":\"/文件\",\"content\":\"内容\",\"append\":false}"),
-        ToolSpec("ssh_upload", "SFTP上传: 把手机工作目录文件传到远端", "JSON: {\"conn\":\"连接名\",\"local\":\"工作目录文件名\",\"remote\":\"/远端/绝对/路径\"}"),
-        ToolSpec("ssh_download", "SFTP下载: 把远端文件拉到手机工作目录", "JSON: {\"conn\":\"连接名\",\"remote\":\"/远端/绝对/路径\",\"local\":\"可选本地文件名(默认取远端文件名)\"}"),
-        ToolSpec("ssh_ls", "SFTP列远端目录(一级)", "JSON: {\"conn\":\"连接名\",\"path\":\"/目录\"}"),
-        ToolSpec("web_download", "下载网页/文件并保存到手机工作目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir_list 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}"),
-        ToolSpec("workdir_list", "列出手机工作目录(Download/agent_work)文件", "无参数"),
-        ToolSpec("workdir_read", "读取手机工作目录文本文件内容", "JSON: {\"name\":\"文件名\"}"),
-        ToolSpec("workdir_write", "写入手机工作目录文本文件(同名覆盖)", "JSON: {\"name\":\"文件名\",\"content\":\"内容\"}"),
-        ToolSpec("workdir_grep", "全文搜索工作目录文本文件(批量, 一次代替多次 workdir_read); 扫描项目/找关键词优先用它", "JSON: {\"kw\":\"关键词\",\"ext\":\"可选按扩展名过滤如 .kt\",\"case\":false}"),
-        ToolSpec("workdir_head", "读工作目录文件前 N 行/前 N 字符(批量查看, 代替全文读取防上下文爆炸)", "JSON: {\"name\":\"文件名\",\"lines\":50} 或 {\"name\":\"文件名\",\"chars\":3000}"),
-        ToolSpec("workdir_stats", "工作目录统计概览(文件数/总大小/按类型分布), 扫描前先看全貌", "无参数"),
-        ToolSpec("app_scan", "扫描当前屏幕(第三方App)可操作元素清单(带 [索引+坐标]), 供 app_click/app_text 定位; 控制第三方App前先调本工具", "无参数"),
-        ToolSpec("app_click", "点击当前屏幕第 N 个可操作元素(索引来自 app_scan, 0 起); 点击后如需确认页面变化可再 app_scan", "JSON: {\"index\":0}"),
-        ToolSpec("app_text", "向当前屏幕第 N 个输入框输入文本(索引来自 app_scan, 0 起)", "JSON: {\"index\":0,\"text\":\"要输入的文本\"}"),
-        ToolSpec("app_back", "模拟系统返回键(返回上一页)", "无参数"),
-        ToolSpec("app_home", "回到手机桌面", "无参数"),
-        ToolSpec("app_launch", "按包名启动第三方 App(控制目标 App 前先启动它); 包名未知时先用 app_installed 查", "JSON: {\"pkg\":\"应用包名\"}"),
-        ToolSpec("app_installed", "列出已安装的第三方应用(包名+应用名), 供 app_launch 定位包名", "无参数"),
+        ToolSpec("web_download", "下载网页/文件并保存到手机工作目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}"),
         ToolSpec("js_run", "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 无文件/网络权限, 断网可用不依赖服务器)", "JSON: {\"code\":\"要执行的JS脚本\",\"timeoutMs\":8000}"),
-        ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000}")
+        ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000}"),
+        ToolSpec("ask_user", "当用户指令模糊/多义/缺关键信息、无法可靠推断时, 向用户当面澄清: 在手机弹原生选择框, 列出候选选项让用户点选(可选自定义输入)。用户的选择会作为本工具结果返回, 据此继续。仅在确实拿不准时才调用, 不要滥用", "JSON: {\"question\":\"要确认的问题\",\"options\":[\"选项1\",\"选项2\"],\"allow_custom\":true}"),
+        ToolSpec("tool_detail", "查询未在回调列表中列出的工具的完整规格(描述+参数格式)并临时激活; 激活后该工具会加入本轮回调列表, 可直接 function calling 调用。当你想用 system 索引里看到但不在回调列表中的工具时, 先调本工具获取规格。", "JSON: {\"name\":\"工具名\"}"),
+        ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
+        ToolSpec("video_frame", "从已落盘附件视频抽指定时间点画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(默认0)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(超预算大视频)。", "JSON: {\"name\":\"att://xxx.mp4\",\"timeMs\":10000}"),
+        ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}")
     )
 
     /**
@@ -133,43 +124,32 @@ object LocalEngine {
      * 不占用对话 token; 文本协议降级模式才按需把完整 desc+params 追加进上下文。
      */
     private val toolIndex: Map<String, String> = mapOf(
-        "web_search" to "后台静默检索(Bing), 结果仅AI参考, 用户看不到页面; 用户想看搜索页时用 open_browser",
-        "open_browser" to "打开全屏浏览器页(用户可见): 用户要求搜索/查资料/看网页时优先用它, 传URL打开网页, 传搜索词直接打开百度搜索",
-        "browser_scan" to "读浏览器页可操作元素清单(带索引), 供 click/type 定位",
-        "browser_click" to "点击浏览器页第 N 个元素(...)",
-        "browser_type" to "向浏览器页输入框输入文本(...)",
-        "browser_upload" to "向网页文件选择框上传工作目录文件(配合 browser_scan 定位)",
-        "browser_clear_cache" to "清浏览器页缓存并刷新(full=true 连登录Cookie一起清)",
-        "browser_save_cookies" to "把浏览器当前登录 Cookie 存入 site_auth(供静默抓取带登录态); site 可选域名, 缺省取当前页域名",
+        "web_search" to "后台静默检索(Bing), 结果仅AI参考, 用户看不到页面; 用户想看搜索页时用 browser(action=open)",
+        "browser" to "全屏浏览器控制(用户可见): open 打开网页/搜索词, scan 扫元素, text 读文字, scroll 滚动, click 点击, type 输入, upload 上传文件, clear_cache 清缓存, save_cookies 存登录Cookie",
+        "app" to "第三方App控制: scan 扫屏幕元素, click 点击, text 输入, back 返回, home 桌面, launch 启动App, installed 查已装",
+        "workdir" to "手机工作目录文件: list 列文件, read 读, write 写, grep 搜索, head 读前N行, stats 统计",
+        "file" to "远端文件(SSH): list 列目录, read 读, info 详情, write 写, upload 上传, download 下载, ls 列目录",
         "web_fetch" to "抓取网页提取正文",
         "site_auth" to "管理站点登录 Cookie(site_auth.json)",
         "get_time" to "获取当前日期时间",
         "calc" to "数学计算",
         "memory_search" to "语义检索本地记忆",
         "ssh_run" to "SSH 远程执行命令",
-        "file_list" to "列远程目录文件",
-        "file_read" to "读远程文件内容",
-        "file_info" to "查看远程文件详情",
-        "file_write" to "写/追加远程文件",
-        "ssh_upload" to "SFTP 上传(手机工作目录→远端)",
-        "ssh_download" to "SFTP 下载(远端→手机工作目录)",
-        "ssh_ls" to "SFTP 列远端目录",
         "web_download" to "下载网页/文件到手机工作目录",
-        "workdir_list" to "列手机工作目录文件",
-        "workdir_read" to "读工作目录文本文件",
-        "workdir_write" to "写工作目录文本文件(覆盖)",
-        "workdir_grep" to "全文搜索工作目录(批量)",
-        "workdir_head" to "读文件前 N 行/字符(防上下文爆炸)",
-        "workdir_stats" to "工作目录统计概览",
-        "app_scan" to "扫描当前屏幕(第三方App)可操作元素清单(带索引), 供点击/输入定位",
-        "app_click" to "点击当前屏幕第 N 个元素(索引来自 app_scan)",
-        "app_text" to "向当前屏幕输入框输入文本(索引来自 app_scan)",
-        "app_back" to "模拟系统返回键",
-        "app_home" to "回到手机桌面",
-        "app_launch" to "按包名启动第三方 App",
-        "app_installed" to "列出已安装的第三方应用(查包名)",
         "js_run" to "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 断网可用)",
-        "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)"
+        "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)",
+        "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
+        "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)"
+    )
+
+    // ===== Top N 动态装载(2026-09-16): 白名单+热度常驻, 冷门工具经 tool_detail 按需激活 =====
+    private const val TOOL_DETAIL = "tool_detail"
+    private const val BUILTIN_TOP_N = 16   // 内置工具常驻数(含 tool_detail 本身); 第二刀合并后共16个全量常驻
+    private const val MCP_TOP_N = 4        // MCP 工具按热度常驻数
+    /** 跨场景核心工具白名单: 永远注入完整 schema, 防冷启动雪藏 */
+    private val TOOL_WHITELIST = setOf(
+        "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
+        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export"
     )
 
     interface Callback {
@@ -202,10 +182,60 @@ object LocalEngine {
         }
     }
 
-    /** 构建 OpenAI 兼容 tools 数组: 内置工具 + MCP 动态工具 */
-    private fun buildToolsArray(): JSONArray {
+    /**
+     * 工具自热度排序(2026-09-14): 按(调用次数 desc, 最近使用 desc)排序,
+     * 冷启动无数据保持注册默认顺序; 对末尾从未调用的冷门工具压缩描述为 toolIndex 瘦索引,
+     * 省 token 且仍可正常调用(不真删)。
+     */
+    private fun hotOrder(context: Context, specs: List<ToolSpec>): List<ToolSpec> {
+        val hot = ToolHotStore.load(context)
+        if (hot.isEmpty()) return specs  // 冷启动: 默认注册顺序
+        val ordered = specs.sortedWith(
+            compareByDescending<ToolSpec> { hot[it.name]?.count ?: 0 }
+                .thenByDescending { hot[it.name]?.lastTs ?: 0L }
+        )
+        // 压缩描述: 取末尾从未调用(热度0)的一批(不超过 1/3), 防雪藏过度
+        val zeroHotTail = ordered.takeLast(ordered.size / 3)
+            .filter { (hot[it.name]?.count ?: 0) == 0 }
+            .map { it.name }
+            .toSet()
+        if (zeroHotTail.isEmpty()) return ordered
+        return ordered.map { spec ->
+            if (spec.name in zeroHotTail) {
+                val short = toolIndex[spec.name]
+                if (short != null) ToolSpec(spec.name, short, spec.params) else spec
+            } else spec
+        }
+    }
+
+    /** toolIndex 瘦索引按热度排序(与 function calling 的 tools 排序保持一致) */
+    private fun hotToolIndex(context: Context): List<Pair<String, String>> {
+        val hot = ToolHotStore.load(context)
+        if (hot.isEmpty()) return toolIndex.entries.map { it.key to it.value }
+        return toolIndex.entries.sortedWith(
+            compareByDescending<Map.Entry<String, String>> { hot[it.key]?.count ?: 0 }
+                .thenByDescending { hot[it.key]?.lastTs ?: 0L }
+        ).map { it.key to it.value }
+    }
+
+    /**
+     * 构建 OpenAI 兼容 tools 数组(2026-09-16 动态装载):
+     * 内置 = 白名单 + tool_detail 常驻完整 schema, 其余按热度(冷启动按注册序)补位到 BUILTIN_TOP_N;
+     * hotLoaded(经 tool_detail 激活)的冷门工具额外注入, 用完当轮即失效;
+     * MCP = 按热度取 MCP_TOP_N + hotLoaded 激活项。
+     */
+    private fun buildToolsArray(context: Context, hotLoaded: Set<String>): JSONArray {
         val arr = JSONArray()
-        for (spec in toolRegistry) {
+        val hot = ToolHotStore.load(context)
+        val ordered = if (hot.isEmpty()) toolRegistry else toolRegistry.sortedWith(
+            compareByDescending<ToolSpec> { hot[it.name]?.count ?: 0 }
+                .thenByDescending { hot[it.name]?.lastTs ?: 0L }
+        )
+        val reserved = toolRegistry.filter { it.name in TOOL_WHITELIST || it.name == TOOL_DETAIL }
+        val activated = ordered.filter { it.name in hotLoaded }
+        val rest = ordered.filter { it.name !in TOOL_WHITELIST && it.name != TOOL_DETAIL && it.name !in hotLoaded }
+        val top = reserved + activated + rest.take((BUILTIN_TOP_N - reserved.size).coerceAtLeast(0))
+        for (spec in top) {
             arr.put(JSONObject()
                 .put("type", "function")
                 .put("function", JSONObject()
@@ -213,14 +243,20 @@ object LocalEngine {
                     .put("description", spec.desc)
                     .put("parameters", builtinSchema(spec.name))))
         }
-        // MCP 动态工具: schema 直接用 server 下发的 JSON Schema
-        for ((n, d, p) in McpClientManager.specEntries()) {
-            val params = try { JSONObject(p) } catch (e: Exception) { JSONObject() }
+        // MCP 动态工具: 按热度取前 MCP_TOP_N + hotLoaded 激活项; schema 直接用 server 下发的 JSON Schema
+        val mcpSpecs = McpClientManager.specEntries().map { (n, d, p) -> ToolSpec(n, d, p) }
+        val mcpOrdered = if (hot.isEmpty()) mcpSpecs else mcpSpecs.sortedWith(
+            compareByDescending<ToolSpec> { hot[it.name]?.count ?: 0 }
+                .thenByDescending { hot[it.name]?.lastTs ?: 0L }
+        )
+        val mcpTop = (mcpOrdered.take(MCP_TOP_N) + mcpOrdered.filter { it.name in hotLoaded }).distinctBy { it.name }
+        for (spec in mcpTop) {
+            val params = try { JSONObject(spec.params) } catch (e: Exception) { JSONObject() }
             arr.put(JSONObject()
                 .put("type", "function")
                 .put("function", JSONObject()
-                    .put("name", n)
-                    .put("description", d)
+                    .put("name", spec.name)
+                    .put("description", spec.desc)
                     .put("parameters", params)))
         }
         return arr
@@ -245,33 +281,33 @@ object LocalEngine {
             return s
         }
         fun bool(desc: String): JSONObject = JSONObject().put("type", "boolean").put("description", desc)
+        fun arr(desc: String, itemDesc: String, min: Int = 2, max: Int = 5): JSONObject =
+            JSONObject()
+                .put("type", "array")
+                .put("description", desc)
+                .put("items", JSONObject().put("type", "string").put("description", itemDesc))
+                .put("minItems", min)
+                .put("maxItems", max)
 
         return when (name) {
-            "open_browser" -> obj(listOf("url"), "url" to str("要打开的URL(以http开头)或直接填搜索关键词"))
-            "browser_scan" -> obj()
-            "browser_click" -> obj(listOf("index"),
-                "index" to int("要点击的元素索引(0 起, 来自 browser_scan)"))
-            "browser_type" -> obj(listOf("index", "text"),
-                "index" to int("要输入的元素索引(0 起, 来自 browser_scan)"),
-                "text" to str("要输入的文本"))
-            "browser_upload" -> obj(listOf("index", "local"),
-                "index" to int("文件选择框元素索引(0 起, 来自 browser_scan); 扫描不到 file input 时表示页面第 N 个 file input"),
-                "local" to str("要上传的工作目录文件名(Download/agent_work 下)"))
-            "browser_clear_cache" -> obj(listOf("full"),
-                "full" to bool("true=连登录Cookie一起清除(退出所有网站登录); false=仅清页面缓存(默认)"))
-            "browser_save_cookies" -> obj(listOf("site"),
-                "site" to str("目标域名, 不传则自动取浏览器当前页域名"))
-            "app_scan" -> obj()
-            "app_click" -> obj(listOf("index"),
-                "index" to int("要点击的元素索引(0 起, 来自 app_scan)"))
-            "app_text" -> obj(listOf("index", "text"),
-                "index" to int("要输入的元素索引(0 起, 来自 app_scan)"),
-                "text" to str("要输入的文本"))
-            "app_back" -> obj()
-            "app_home" -> obj()
-            "app_launch" -> obj(listOf("pkg"),
-                "pkg" to str("要启动的应用包名, 如 com.tencent.mm"))
-            "app_installed" -> obj()
+            "ask_user" -> obj(listOf("question", "options"),
+                "question" to str("要向用户确认的问题(把用户的模糊需求/你理解的候选方案写清楚, 让用户一看就懂)"),
+                "options" to arr("候选选项(2~5 个), 用户从中点选其一", "候选选项文本"),
+                "allow_custom" to bool("是否允许用户输入自定义答案(默认 true)"))
+            "browser" -> obj(listOf("action"),
+                "action" to str("操作", enums = listOf("open", "scan", "text", "scroll", "click", "type", "upload", "clear_cache", "save_cookies")),
+                "url" to str("open 时: 要打开的URL(以http开头)或搜索关键词", required = false),
+                "delta" to int("scroll 时: 滚动像素(正数向下, 负数向上)"),
+                "index" to int("click/type/upload 时: 元素索引(0 起, 来自 scan)"),
+                "text" to str("type 时: 要输入的文本", required = false),
+                "local" to str("upload 时: 工作目录文件名(Download/Nyral_work 下)", required = false),
+                "full" to bool("clear_cache 时: true=连登录Cookie一起清除(退出所有网站登录); false=仅清页面缓存(默认)"),
+                "site" to str("save_cookies 时: 目标域名, 不传则自动取浏览器当前页域名", required = false))
+            "app" -> obj(listOf("action"),
+                "action" to str("操作", enums = listOf("scan", "click", "text", "back", "home", "launch", "installed")),
+                "index" to int("click/text 时: 元素索引(0 起, 来自 scan)"),
+                "text" to str("text 时: 要输入的文本", required = false),
+                "pkg" to str("launch 时: 要启动的应用包名, 如 com.tencent.mm", required = false))
             "js_run" -> obj(listOf("code"),
                 "code" to str("要执行的 JS 脚本(应用内就地, 纯计算/逻辑/数据操作)"),
                 "timeoutMs" to int("超时毫秒, 默认 8000, 防死循环", 8000))
@@ -294,49 +330,34 @@ object LocalEngine {
             "memory_search" -> obj(listOf("query"), "query" to str("要检索的记忆查询内容"))
             "ssh_run" -> obj(listOf("command"),
                 "command" to str("连接名:命令, 连接名见可用SSH连接; 例如 vps:ls / 或 dev188:free -h"))
-            "file_list" -> obj(listOf("conn"),
+            "file" -> obj(listOf("action"),
+                "action" to str("操作", enums = listOf("list", "read", "info", "write", "upload", "download", "ls")),
                 "conn" to str("SSH 连接名"),
-                "path" to str("远程目录路径, 默认 ~", required = false))
-            "file_read" -> obj(listOf("conn"),
-                "conn" to str("SSH 连接名"),
-                "path" to str("远程文件绝对路径"),
-                "lines" to int("最多读取行数(默认200)", 200))
-            "file_info" -> obj(listOf("conn"),
-                "conn" to str("SSH 连接名"),
-                "path" to str("远程文件路径"))
-            "file_write" -> obj(listOf("conn"),
-                "conn" to str("SSH 连接名"),
-                "path" to str("远程文件绝对路径"),
-                "content" to str("要写入的文件内容"),
-                "append" to bool("true 追加, false 覆盖(默认false)"))
-            "ssh_upload" -> obj(listOf("conn", "local", "remote"),
-                "conn" to str("SSH 连接名"),
-                "local" to str("手机工作目录文件名"),
-                "remote" to str("远端绝对路径"))
-            "ssh_download" -> obj(listOf("conn", "remote"),
-                "conn" to str("SSH 连接名"),
-                "remote" to str("远端绝对路径"),
-                "local" to str("可选本地文件名, 默认取远端文件名", required = false))
-            "ssh_ls" -> obj(listOf("conn"),
-                "conn" to str("SSH 连接名"),
-                "path" to str("远端目录, 默认 ~", required = false))
+                "path" to str("list/info/read/ls 时: 远程路径(目录或文件), 目录默认 ~", required = false),
+                "lines" to int("read 时: 最多读取行数(默认200)", 200),
+                "content" to str("write 时: 要写入的文件内容", required = false),
+                "append" to bool("write 时: true 追加, false 覆盖(默认false)"),
+                "local" to str("upload/download 时: 手机工作目录文件名(本地端)", required = false),
+                "remote" to str("upload/download 时: 远端绝对路径", required = false))
             "web_download" -> obj(listOf("url"),
                 "url" to str("要下载的 URL"),
                 "name" to str("可选保存文件名(不含路径分隔符)", required = false))
-            "workdir_list" -> obj()
-            "workdir_read" -> obj(listOf("name"), "name" to str("工作目录下的文件名"))
-            "workdir_write" -> obj(listOf("name"),
-                "name" to str("文件名"),
-                "content" to str("文件内容"))
-            "workdir_grep" -> obj(listOf("kw"),
-                "kw" to str("要搜索的关键词"),
-                "ext" to str("可选扩展名过滤, 如 .kt", required = false),
-                "case" to bool("是否区分大小写(默认false)"))
-            "workdir_head" -> obj(listOf("name"),
-                "name" to str("文件名"),
-                "lines" to int("读取前 N 行", -1),
-                "chars" to int("读取前 N 字符", -1))
-            "workdir_stats" -> obj()
+            "attach_read" -> obj(listOf("name"),
+                "name" to str("附件文件名(可带 att:// 前缀)"),
+                "offset" to int("起始字符偏移, 默认0", 0),
+                "limit" to int("本次最多返回字符数, 默认4000, 最大50000", 4000))
+            "video_frame" -> obj(listOf("name", "timeMs"),
+                "name" to str("附件文件名(可带 att:// 前缀)"),
+                "timeMs" to int("目标时间点毫秒(默认0)", 0))
+            "workdir" -> obj(listOf("action"),
+                "action" to str("操作", enums = listOf("list", "read", "write", "grep", "head", "stats")),
+                "name" to str("read/write/head 时: 工作目录下的文件名", required = false),
+                "content" to str("write 时: 文件内容", required = false),
+                "kw" to str("grep 时: 要搜索的关键词", required = false),
+                "ext" to str("grep 时: 可选扩展名过滤, 如 .kt", required = false),
+                "case" to bool("grep 时: 是否区分大小写(默认false)"),
+                "lines" to int("head 时: 读取前 N 行", -1),
+                "chars" to int("head 时: 读取前 N 字符", -1))
             else -> obj()
         }
     }
@@ -376,6 +397,8 @@ object LocalEngine {
             var retriedEmpty = false
             // 文本协议降级模式下已注入完整 schema 的工具集
             val injectedTools = mutableSetOf<String>()
+            // Top N 动态装载(2026-09-16): 经 tool_detail 激活的冷门工具, 本轮内额外注入回调列表
+            val hotLoaded = mutableSetOf<String>()
             // provider 切换时重置 tools 能力探测(同一 provider 保持上次结果, 防止重复降级死循环)
             maybeResetToolsCapability()
             val full = StringBuilder()
@@ -385,7 +408,7 @@ object LocalEngine {
                     cb.onDone("")
                     return
                 }
-                val res = streamOnce(context, messages, cb, answerGate, injectedTools)
+                val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded)
                 val toolCalls = res.toolCalls
                 if (toolCalls.isNotEmpty()) {
                     if (toolCount >= MAX_TOOL_CALLS) {
@@ -399,7 +422,7 @@ object LocalEngine {
                         if (toolCount >= MAX_TOOL_CALLS) break
                         toolCount++
                         cb.onTool(name, arg)
-                        val result = executeTool(context, name, arg)
+                        val result = executeTool(context, name, arg, hotLoaded)
                         cb.onToolResult(name, result)
                         execResults.add(name to result)
                         // 上下文瘦身仅文本协议模式用; 原生模式的 schema 在 tools 字段, 此处仅兜底补全
@@ -416,9 +439,22 @@ object LocalEngine {
                     messages.put(buildAssistantToolMessage(res, toolCalls))
                     for ((name, result) in execResults) {
                         val toolCallId = res.idOf(name) ?: "call_${name}_$toolCount"
+                        // video_frame 帧图剥离: tool 消息只回填文本摘要, 帧图由下方 user 消息注入(防 capOut 截断)
+                        val clean = if (name == "video_frame") result.substringBefore(" FRAME:data:image/jpeg;base64,") else result
                         messages.put(JSONObject().put("role", "tool")
                             .put("tool_call_id", toolCallId)
-                            .put("content", capOut(result)))
+                            .put("content", capOut(clean)))
+                    }
+                    // video_frame 帧图注入: 抽帧 base64 作为 image_url 追加 user 消息, 让模型本轮看到画面
+                    for ((vName, vResult) in execResults) {
+                        if (vName == "video_frame" && vResult.contains(" FRAME:data:image/jpeg;base64,")) {
+                            val b64 = vResult.substringAfter(" FRAME:data:image/jpeg;base64,").trim()
+                            val imgArr = JSONArray()
+                                .put(JSONObject().put("type", "image_url")
+                                    .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$b64")))
+                                .put(JSONObject().put("type", "text").put("text", "（以上为 video_frame 抽取的视频帧图，请结合查看后继续）"))
+                            messages.put(JSONObject().put("role", "user").put("content", imgArr))
+                        }
                     }
                     // 若无有效输出且未达上限, 给模型一个继续指令
                     val schemaBlock = if (schemaBlocks.isEmpty()) "" else "本工具参数说明:\n$schemaBlocks"
@@ -450,27 +486,27 @@ object LocalEngine {
             }
         } catch (e: NoToolsException) {
             // 当前 provider 不支持 tools: 已置降级标志, 立即重跑请求(不计入网络重试额度), 文本协议兜底接管
-            android.util.Log.w("agent", "no-tools fallback retry (attempt=${attempt})")
+            android.util.Log.w("Nyral", "no-tools fallback retry (attempt=${attempt})")
             continue
         } catch (e: RetryableException) {
             // 请求级断线: 自动重连一次, 全程无输出, 无需用户手动"继续"
             attempt++
             if (attempt >= MAX_NET_RETRY) {
-                android.util.Log.e("agent", "chat network retry exhausted", e)
+                android.util.Log.e("Nyral", "chat network retry exhausted", e)
                 cb.onError(e.message ?: "模型连接中断(网络波动)，请重试")
                 return
             }
-            android.util.Log.w("agent", "chat network interrupted, auto-retry #$attempt: ${e.message}")
+            android.util.Log.w("Nyral", "chat network interrupted, auto-retry #$attempt: ${e.message}")
             cb.onDelta("\n\n[网络波动，已自动重连一次]")
             continue
         } catch (e: Exception) {
             if (cancelRequested) {
                 // 用户主动停止: 不视为错误
-                android.util.Log.i("agent", "chat cancelled by user")
+                android.util.Log.i("Nyral", "chat cancelled by user")
                 cb.onDone("")
                 return
             }
-            android.util.Log.e("agent", "chat error", e)
+            android.util.Log.e("Nyral", "chat error", e)
             cb.onError(e.message ?: "未知错误")
             return
         }
@@ -508,7 +544,8 @@ object LocalEngine {
         messages: JSONArray,
         cb: Callback,
         answerGate: () -> String?,
-        injectedTools: MutableSet<String>
+        injectedTools: MutableSet<String>,
+        hotLoaded: Set<String>
     ): StreamResult {
         val body = JSONObject()
         body.put("model", ApiConfig.model())
@@ -517,7 +554,7 @@ object LocalEngine {
         body.put("stream", true)
         // 原生 function calling: 请求携带 tools(模型支持时); probe 失败过则降级纯文本
         val useTools = !toolsUnsupported
-        if (useTools) body.put("tools", buildToolsArray())
+        if (useTools) body.put("tools", buildToolsArray(context, hotLoaded))
         // DeepSeek 支持流式返回真实 usage(最后一块); 其余厂商未知, 不加避免报错, 靠本地估算
         if (ApiConfig.providerId() == "deepseek") {
             body.put("stream_options", JSONObject().put("include_usage", true))
@@ -562,7 +599,7 @@ object LocalEngine {
             // 4xx 中疑似"不支持 tools/function calling"的报错 -> 降级纯文本模式重试一次
             if (code in 400..499 && useTools && looksLikeToolsUnsupported(err)) {
                 toolsUnsupported = true
-                android.util.Log.w("agent", "provider 不支持 tools, 降级文本协议: ${err.take(200)}")
+                android.util.Log.w("Nyral", "provider 不支持 tools, 降级文本协议: ${err.take(200)}")
                 throw NoToolsException("PROVIDER_NO_TOOLS")
             }
             throw RuntimeException("API $code: $err")
@@ -581,7 +618,7 @@ object LocalEngine {
         while (true) {
             if (cancelRequested) throw CancellationException("cancelled by user")
             val line = reader!!.readLine() ?: break
-            android.util.Log.v("agent", "SSE: $line")
+            android.util.Log.v("Nyral", "SSE: $line")
             if (!line.startsWith("data:")) continue
             val data = line.substring(5).trim()
             if (data == "[DONE]") break
@@ -692,10 +729,10 @@ object LocalEngine {
         }
         } catch (e: SocketException) {
             aborted = true
-            android.util.Log.w("agent", "SSE connection aborted: ${e.message}")
+            android.util.Log.w("Nyral", "SSE connection aborted: ${e.message}")
         } catch (e: IOException) {
             aborted = true
-            android.util.Log.w("agent", "SSE read error: ${e.message}")
+            android.util.Log.w("Nyral", "SSE read error: ${e.message}")
         }
         // 连接中断收尾
         if (aborted) {
@@ -707,7 +744,7 @@ object LocalEngine {
                 cb.onDelta("\n\n[连接中断，以上内容已保留]")
             }
         }
-        android.util.Log.i("agent", "EOF lineBuf=[$lineBuf] mode=$mode nativeCalls=${nativeCalls.size} toolCalls=${toolCalls.size} aborted=$aborted")
+        android.util.Log.i("Nyral", "EOF lineBuf=[$lineBuf] mode=$mode nativeCalls=${nativeCalls.size} toolCalls=${toolCalls.size} aborted=$aborted")
         // 末尾残余(无换行的最后一段)
         if (toolCalls.isEmpty() && nativeCalls.isEmpty() && lineBuf.isNotBlank()) {
             if (useTools) {
@@ -747,7 +784,7 @@ object LocalEngine {
             }
             nativeCalls.clear()
         }
-        android.util.Log.v("agent", "streamOnce done acc=[$accumulated] toolCalls=$toolCalls")
+        android.util.Log.v("Nyral", "streamOnce done acc=[$accumulated] toolCalls=$toolCalls")
         // 思考段自然结束
         if (toolCalls.isEmpty() && mode == MODE_THINKING) cb.onThinkingEnd()
         // token 统计
@@ -941,8 +978,9 @@ object LocalEngine {
         messages.put(JSONObject().put("role", "system").put("content",
             personaBlock +
             "根据用户需求选择工具。工具清单(名称+用途):\n" +
-            "搜索策略(重要·三级)：1) 一般搜索默认先用 web_search 后台静默快查(不打断用户界面)，拿到标题+摘要直接汇报，用户没要求看页面就不要开浏览器展示页；2) 仅当用户明确要\"看页面/看结果页/进某站\"，或 web_search 无有效结果、需要登录态、卡验证码/登录墙时，才升级调用 open_browser 打开全屏浏览器页(用户可见)；3) 浏览器页内遇到验证码/登录墙：不要硬点，停下提示用户点底部\"接管\"按钮手动完成(输验证码/登录)，用户再点\"交还 AI\"后你可继续 browser_* 操作；用户登录成功后调用 browser_save_cookies 把该站点登录 Cookie 存入 site_auth.json，此后 web_fetch/web_download 静默抓取自动带登录态，无需再开浏览器。\n" +
-            toolIndex.entries.joinToString("\n") { (n, d) -> "- $n: $d" } +
+            "搜索策略(重要·三级)：1) 一般搜索默认先用 web_search 后台静默快查(不打断用户界面)，拿到标题+摘要直接汇报，用户没要求看页面就不要开浏览器展示页；2) 仅当用户明确要\"看页面/看结果页/进某站\"，或 web_search 无有效结果、需要登录态、卡验证码/登录墙时，才升级调用 browser(action=open) 打开全屏浏览器页(用户可见)；3) 浏览器页内遇到验证码/登录墙：不要硬点，停下提示用户点底部\"接管\"按钮手动完成(输验证码/登录)，用户再点\"交还 AI\"后你可继续 browser 的 scan/click/type 等操作；用户登录成功后调用 browser(action=save_cookies) 把该站点登录 Cookie 存入 site_auth.json，此后 web_fetch/web_download 静默抓取自动带登录态，无需再开浏览器。\n" +
+            hotToolIndex(context).joinToString("\n") { (n, d) -> "- $n: $d" } +
+            "注: 回调列表仅常驻常用工具; 想用索引中未列出的工具时, 先调 tool_detail(name) 获取规格并激活, 激活后即可直接调用。\n" +
             buildMcpIndex() +
             "\n可用SSH连接:$sshHint\n" +
             "调用方式: 使用系统提供的 function calling 原生工具调用(工具名与 JSON 参数已由系统给出 schema), 一次(轮)可并行发起多个工具; 不要自己发明不存在的工具名。" +
@@ -973,13 +1011,25 @@ object LocalEngine {
                             .put("input_audio", JSONObject().put("data", "data:${norm.first};base64,${a.base64}").put("format", norm.second)))
                     }
                     a.mime.startsWith("video/") -> {
-                        // MiMo 视频理解: content 数组 type=video_url, url 用 data:{mime};base64 内联
-                        // 官方限制: base64 后 ≤50MB(原始约 ≤37MB), 支持 MP4/MOV/AVI/WMV
-                        val vurl = JSONObject().put("url", "data:${a.mime};base64,${a.base64}")
-                        parts.put(JSONObject().put("type", "video_url")
-                            .put("video_url", vurl)
-                            .put("fps", 2)
-                            .put("media_resolution", "default"))
+                        if (a.stored) {
+                            // 大视频落私有附件库(阶段C): 不发 base64, 只放索引卡, AI 按需 video_frame 抽帧 / file_export 导出
+                            val meta = try { AttachmentStore.metaOf(context, a.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
+                            val durS = meta?.optLong("durationSec", 0L) ?: 0L
+                            val sizeB = meta?.optLong("size", 0L) ?: 0L
+                            val sizeStr = if (sizeB >= 1024 * 1024) String.format("%.1fMB", sizeB / 1024.0 / 1024.0)
+                                else if (sizeB >= 1024) String.format("%.1fKB", sizeB / 1024.0)
+                                else "${sizeB}B"
+                            parts.put(JSONObject().put("type", "text")
+                                .put("text", "[大视频附件 ${a.name} | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 视频字节未发送, 需看画面时调 video_frame(name=\"att://${a.name}\", timeMs) 抽帧, 或调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
+                        } else {
+                            // MiMo 视频理解: content 数组 type=video_url, url 用 data:{mime};base64 内联
+                            // 官方限制: base64 后 ≤50MB(原始约 ≤37MB), 支持 MP4/MOV/AVI/WMV
+                            val vurl = JSONObject().put("url", "data:${a.mime};base64,${a.base64}")
+                            parts.put(JSONObject().put("type", "video_url")
+                                .put("video_url", vurl)
+                                .put("fps", 2)
+                                .put("media_resolution", "default"))
+                        }
                     }
                     else -> {
                         // 文档类附件(PDF/Office/txt 等): 本地已提取纯文本并随 history 注入时不再发二进制
@@ -1014,58 +1064,175 @@ object LocalEngine {
      * 执行工具。args 为 JSON 字符串(原生 function calling 的 arguments), 兼容旧裸字符串格式。
      * 特殊转发: calc/memory_search/ssh_run 需抽字段为裸字符串传给旧实现。
      */
-    private fun executeTool(context: Context, name: String, argRaw: String): String {
-        val arg = normalizeArgs(name, argRaw)
-        // 归一工具名(允许下划线变体)
-        val n = toolRegistry.firstOrNull { it.name == name }?.name ?: name.trim('_')
+    /** 第二刀工具合并(2026-09-16): 旧工具名 -> (新复合工具, action), 兼容文本协议/历史调用 */
+    private val LEGACY_TOOL_ACTION = mapOf(
+        "open_browser" to ("browser" to "open"),
+        "browser_scan" to ("browser" to "scan"),
+        "browser_text" to ("browser" to "text"),
+        "browser_scroll" to ("browser" to "scroll"),
+        "browser_click" to ("browser" to "click"),
+        "browser_type" to ("browser" to "type"),
+        "browser_upload" to ("browser" to "upload"),
+        "browser_clear_cache" to ("browser" to "clear_cache"),
+        "browser_save_cookies" to ("browser" to "save_cookies"),
+        "app_scan" to ("app" to "scan"),
+        "app_click" to ("app" to "click"),
+        "app_text" to ("app" to "text"),
+        "app_back" to ("app" to "back"),
+        "app_home" to ("app" to "home"),
+        "app_launch" to ("app" to "launch"),
+        "app_installed" to ("app" to "installed"),
+        "workdir_list" to ("workdir" to "list"),
+        "workdir_read" to ("workdir" to "read"),
+        "workdir_write" to ("workdir" to "write"),
+        "workdir_grep" to ("workdir" to "grep"),
+        "workdir_head" to ("workdir" to "head"),
+        "workdir_stats" to ("workdir" to "stats"),
+        "file_list" to ("file" to "list"),
+        "file_read" to ("file" to "read"),
+        "file_info" to ("file" to "info"),
+        "file_write" to ("file" to "write"),
+        "ssh_upload" to ("file" to "upload"),
+        "ssh_download" to ("file" to "download"),
+        "ssh_ls" to ("file" to "ls")
+    )
+
+    private fun executeTool(context: Context, name: String, argRaw: String, hotLoaded: MutableSet<String>): String {
+        val arg0 = normalizeArgs(name, argRaw)
+        // 旧工具名兼容: 映射到新复合工具并注入 action
+        val legacy = LEGACY_TOOL_ACTION[name.trim('_')]
+        val n = if (legacy != null) legacy.first
+                else toolRegistry.firstOrNull { it.name == name }?.name ?: name.trim('_')
+        val arg = if (legacy != null) {
+            try {
+                val jo = JSONObject(arg0.trim())
+                jo.put("action", legacy.second)
+                jo.toString()
+            } catch (e: Exception) {
+                // 裸字符串参数(文本协议): open 按 URL 处理, 其余仅带 action
+                if (legacy.second == "open" && arg0.isNotBlank()) "{\"action\":\"open\",\"url\":\"${arg0.trim()}\"}"
+                else "{\"action\":\"${legacy.second}\"}"
+            }
+        } else arg0
+        // 自热度统计(2026-09-14): 有效工具执行即 +1(含 MCP 动态工具), 纯本地不上云
+        if (toolRegistry.any { it.name == n } || McpClientManager.spec(n) != null) {
+            ToolHotStore.recordHit(context, n)
+        }
         return when (n) {
             "get_time" -> MemoryTools.getTime()
             "calc" -> MemoryTools.calc(arg)
             "memory_search" -> MemoryTools.search(context, arg)
             "ssh_run" -> SshTools.run(context, arg)
-            "file_list" -> FileTools.list(context, arg)
-            "file_read" -> FileTools.read(context, arg)
-            "file_info" -> FileTools.info(context, arg)
-            "file_write" -> FileTools.write(context, arg)
-            "ssh_upload" -> SshTools.upload(context, arg)
-            "ssh_download" -> SshTools.download(context, arg)
-            "ssh_ls" -> SshTools.ls(context, arg)
+            "file" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                when (jo?.optString("action")) {
+                    "list" -> FileTools.list(context, arg)
+                    "read" -> FileTools.read(context, arg)
+                    "info" -> FileTools.info(context, arg)
+                    "write" -> FileTools.write(context, arg)
+                    "upload" -> SshTools.upload(context, arg)
+                    "download" -> SshTools.download(context, arg)
+                    "ls" -> SshTools.ls(context, arg)
+                    else -> "file 需指定 action: list/read/info/write/upload/download/ls"
+                }
+            }
             "web_download" -> WebTools.save(context, arg)
-            "workdir_list" -> WorkTools.list(context, arg)
-            "workdir_read" -> WorkTools.read(context, arg)
-            "workdir_write" -> WorkTools.write(context, arg)
-            "workdir_grep" -> WorkTools.grep(context, arg)
-            "workdir_head" -> WorkTools.head(context, arg)
-            "workdir_stats" -> WorkTools.stats(context, arg)
-            "open_browser" -> openBrowser(arg)
-            "browser_scan" -> browserScan()
-            "browser_click" -> browserClick(arg)
-            "browser_type" -> browserType(arg)
-            "browser_upload" -> browserUpload(context, arg)
-            "browser_clear_cache" -> browserClearCache(arg)
-            "browser_save_cookies" -> browserSaveCookies(context, arg)
+            "attach_read" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val raw = jo?.optString("name") ?: ""
+                val name = raw.removePrefix("att://")
+                if (name.isBlank()) return@run "错误: 缺少 name(附件文件名)"
+                val offset = jo?.optInt("offset", 0) ?: 0
+                val limit = jo?.optInt("limit", 4000) ?: 4000
+                val total = AttachmentStore.textLength(context, name)
+                if (total < 0) return@run "错误: 附件不存在或非UTF-8文本: $name"
+                val chunk = AttachmentStore.readTextChunk(context, name, offset, limit)
+                    ?: return@run "错误: 读取失败或 offset 超出文件末尾(共 $total 字符)"
+                val next = (offset + chunk.length).coerceAtMost(total)
+                "[${name}] 第 ${offset + 1}..$next 字符 / 共 $total 字符(已读 ${((next.toFloat() / total) * 100).toInt()}%):\n$chunk"
+            }
+            "workdir" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                when (jo?.optString("action")) {
+                    "list" -> WorkTools.list(context, arg)
+                    "read" -> WorkTools.read(context, arg)
+                    "write" -> WorkTools.write(context, arg)
+                    "grep" -> WorkTools.grep(context, arg)
+                    "head" -> WorkTools.head(context, arg)
+                    "stats" -> WorkTools.stats(context, arg)
+                    else -> "workdir 需指定 action: list/read/write/grep/head/stats"
+                }
+            }
+            "video_frame" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val rawName = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
+                if (rawName.isBlank()) return@run "错误: 缺少 name(附件视频文件名)"
+                val timeMs = jo?.optLong("timeMs", 0L) ?: 0L
+                val f = AttachmentStore.fileOf(context, rawName) ?: return@run "错误: 附件未落盘(超预算大视频落库后才可抽帧): $rawName"
+                val frame = videoFrameAt(f, timeMs) ?: return@run "错误: 取帧失败(时间点超出范围或解码不支持): $rawName"
+                val w = frame.width; val h = frame.height
+                val maxSide = maxOf(w, h)
+                val scale = if (maxSide > 640) 640f / maxSide else 1f
+                val bmp = if (scale < 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame
+                if (bmp != frame) frame.recycle()
+                val out = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                bmp.recycle()
+                val sec = (timeMs + 500) / 1000
+                "[video_frame] $rawName @${sec}s 已抽帧(${w}x${h}), 帧图已注入本轮供查看 FRAME:data:image/jpeg;base64,$b64"
+            }
+            "file_export" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val raw = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
+                if (raw.isBlank()) return@run "错误: 缺少 name(附件文件名)"
+                val f = AttachmentStore.fileOf(context, raw) ?: return@run "错误: 附件不存在: $raw"
+                val bytes = try { f.readBytes() } catch (e: Exception) { return@run "错误: 读取失败: $raw" }
+                val ok = WorkDir.write(context, raw, bytes)
+                if (ok) "已导出到工作目录 ${WorkDir.displayPath}$raw (用户可见可改)" else "错误: 导出失败(工作目录不可写)"
+            }
+            "browser" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                when (jo?.optString("action")) {
+                    "open" -> openBrowser(arg)
+                    "scan" -> browserScan()
+                    "text" -> browserText()
+                    "scroll" -> browserScroll(arg)
+                    "click" -> browserClick(arg)
+                    "type" -> browserType(arg)
+                    "upload" -> browserUpload(context, arg)
+                    "clear_cache" -> browserClearCache(arg)
+                    "save_cookies" -> browserSaveCookies(context, arg)
+                    else -> "browser 需指定 action: open/scan/text/scroll/click/type/upload/clear_cache/save_cookies"
+                }
+            }
             "web_search" -> WebTools.search(arg)
             "web_fetch" -> WebTools.fetch(context, arg)
             "site_auth" -> WebTools.siteAuth(context, arg)
-            "app_scan" -> UiControlService.scan()
-            "app_click" -> run {
-                val idx = try { JSONObject(argRaw.trim()).optInt("index", -1) } catch (e: Exception) { -1 }
-                if (idx < 0) "请指定 index(来自 app_scan 结果)" else UiControlService.click(idx)
+            "app" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                when (jo?.optString("action")) {
+                    "scan" -> UiControlService.scan()
+                    "click" -> {
+                        val idx = jo.optInt("index", -1)
+                        if (idx < 0) "请指定 index(来自 app_scan 结果)" else UiControlService.click(idx)
+                    }
+                    "text" -> {
+                        val idx = jo.optInt("index", -1)
+                        val txt = jo.optString("text", "").orEmpty()
+                        if (idx < 0 || txt.isEmpty()) "请指定 index 与 text(来自 app_scan 结果)" else UiControlService.type(idx, txt)
+                    }
+                    "back" -> UiControlService.back()
+                    "home" -> UiControlService.home()
+                    "launch" -> {
+                        val pkg = jo.optString("pkg", "").orEmpty().trim()
+                        if (pkg.isEmpty()) "请指定要启动的应用包名 pkg" else UiControlService.launch(context, pkg)
+                    }
+                    "installed" -> UiControlService.installed(context)
+                    else -> "app 需指定 action: scan/click/text/back/home/launch/installed"
+                }
             }
-            "app_text" -> run {
-                val jo = try { JSONObject(argRaw.trim()) } catch (e: Exception) { null }
-                val idx = jo?.optInt("index", -1) ?: -1
-                val txt = jo?.optString("text", "").orEmpty()
-                if (idx < 0 || txt.isEmpty()) "请指定 index 与 text(来自 app_scan 结果)" else UiControlService.type(idx, txt)
-            }
-            "app_back" -> UiControlService.back()
-            "app_home" -> UiControlService.home()
-            "app_launch" -> run {
-                val jo = try { JSONObject(argRaw.trim()) } catch (e: Exception) { null }
-                val pkg = jo?.optString("pkg", "").orEmpty().trim()
-                if (pkg.isEmpty()) "请指定要启动的应用包名 pkg" else UiControlService.launch(context, pkg)
-            }
-            "app_installed" -> UiControlService.installed(context)
+            "ask_user" -> askUser(context, argRaw)
             "js_run" -> run {
                 val jo = try { JSONObject(argRaw.trim()) } catch (e: Exception) { null }
                 val code = jo?.optString("code", "").orEmpty()
@@ -1073,6 +1240,15 @@ object LocalEngine {
                 if (code.isBlank()) "请指定 code(要执行的 JS 脚本)" else ScriptEngine.runJs(code, timeout)
             }
             "sh_run" -> ScriptEngine.runSh(context, arg)
+            "tool_detail" -> {
+                val tName = try { JSONObject(arg.trim()).optString("name", "").trim() } catch (e: Exception) { "" }
+                if (tName.isEmpty()) return "请指定要查询的工具名 name(可参考 system 中的工具索引)"
+                val spec = toolRegistry.firstOrNull { it.name == tName }
+                    ?: McpClientManager.spec(tName)?.let { (n, d, p) -> ToolSpec(n, d, p) }
+                    ?: return "未找到工具: $tName"
+                hotLoaded.add(tName)
+                return "工具 [$tName] 已临时激活并加入本轮回调列表, 现在可直接 function calling 调用。\n描述: ${spec.desc}\n参数格式: ${spec.params}"
+            }
             else -> {
                 // MCP 动态工具: 已注册则分发到对应服务, 未注册报未知
                 if (McpClientManager.spec(name) != null) McpClientManager.callTool(context, name, arg)
@@ -1102,6 +1278,20 @@ object LocalEngine {
         if (cb == null) return "浏览器桥接未初始化"
         cb(url)
         return "已在全屏浏览器页打开: $url"
+    }
+
+    /** browser_text 工具: 读取整页可见文字 */
+    private fun browserText(): String {
+        val cb = onBrowserText ?: return "浏览器桥接未初始化"
+        return cb()
+    }
+
+    /** browser_scroll 工具: 滚动浏览器页 */
+    private fun browserScroll(argRaw: String): String {
+        val delta = try { JSONObject(argRaw.trim()).optInt("delta", 0) } catch (e: Exception) { 0 }
+        if (delta == 0) return "请指定非零 delta(像素, 正数向下/负数向上)"
+        val cb = onBrowserScroll ?: return "浏览器桥接未初始化"
+        return cb(delta)
     }
 
     /** browser_scan 工具: 触发重扫并同步返回当前元素清单 */
@@ -1163,6 +1353,30 @@ object LocalEngine {
             if (ck.isBlank()) return "浏览器当前页($d)无登录态 Cookie; 请先在浏览器页登录该站点"
             WebTools.siteAuth(context, "{\"action\":\"set\",\"site\":\"${esc(d)}\",\"cookie\":\"${esc(ck)}\"}")
         }
+    }
+
+    /** ask_user 工具: 解析 question/options/allow_custom, 经 onAskUser 桥接弹原生选择框, 返回用户选择(或降级说明) */
+    private fun askUser(context: Context, argRaw: String): String {
+        val j = try { JSONObject(argRaw.trim()) } catch (e: Exception) { return "参数格式错误(需 JSON: question/options/allow_custom)" }
+        val q = j.optString("question").trim()
+        if (q.isEmpty()) return "请指定 question(要向用户确认的问题)"
+        val opts = ArrayList<String>()
+        val arr = j.optJSONArray("options")
+        if (arr != null) for (i in 0 until arr.length()) {
+            val o = arr.optString(i).trim()
+            if (o.isNotEmpty()) opts.add(o)
+        }
+        if (opts.size < 2) return "请提供至少 2 个候选选项(options)"
+        val allowCustom = j.optBoolean("allow_custom", true)
+        // 总开关: 用户关闭澄清后, AI 不得再弹窗, 自行判断继续
+        if (!AskUserConfig.enabled(context)) {
+            return "[ask_user 已关闭] 用户开启了「无需澄清」模式, 请基于已有信息自行判断继续, 不要再次调用 ask_user"
+        }
+        val cb = onAskUser
+        if (cb == null) {
+            return "[ask_user] 需要向你确认: $q (当前无界面可弹窗, AI 请基于已有信息自行判断继续)"
+        }
+        return cb(q, opts, allowCustom)
     }
 
     private fun normalizeArgs(name: String, argRaw: String): String {

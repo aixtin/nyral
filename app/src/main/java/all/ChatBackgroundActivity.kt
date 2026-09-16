@@ -130,7 +130,7 @@ class ChatBackgroundActivity : Activity() {
                 startActivityForResult(intent, REQ_PICK)
             }
             Ui.press(this)
-            addView(Ui.iconBadge(this@ChatBackgroundActivity, "图", 4))
+            addView(Ui.iconBadge(this@ChatBackgroundActivity, getString(R.string.cba_img_badge), 4))
             addView(LinearLayout(this@ChatBackgroundActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -227,7 +227,7 @@ class ChatBackgroundActivity : Activity() {
                 refreshAll()
             }
             Ui.press(this)
-            addView(Ui.iconBadge(this@ChatBackgroundActivity, "默", 5))
+            addView(Ui.iconBadge(this@ChatBackgroundActivity, getString(R.string.cba_def_badge), 5))
             addView(LinearLayout(this@ChatBackgroundActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {

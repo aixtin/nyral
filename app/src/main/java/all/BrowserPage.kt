@@ -47,17 +47,18 @@ internal class BrowserPage(private val act: MainActivity) {
 
     internal lateinit var root: FrameLayout
     private lateinit var web: WebView
-    private lateinit var statusText: TextView
     private lateinit var thinkBody: TextView
     private lateinit var thinkWrap: LinearLayout
     private lateinit var highlight: BrowserHighlightView
     private lateinit var takeover: TextView
-    private var taken = false      // 用户是否接管中
+    internal var taken = false      // 用户是否接管中
     private var loaded = false     // 网页是否已加载(首个页面)
     private var lastUrl = ""       // 最近一次 open 指定的地址(WebView.getUrl 加载完成前为空, 用于调试状态回显)
 
     // 扫描到的高亮候选元素(doc 绝对坐标)
     private val elements = mutableListOf<Element>()
+    private var textResult: String = ""
+    private var textLatch: CountDownLatch? = null
     private var elemPos = -1       // 当前高亮的是第几个
 
     // JS 桥回传结果(click/type 的执行回执), 供调试/日志查看
@@ -68,15 +69,44 @@ internal class BrowserPage(private val act: MainActivity) {
 
     private data class Element(val x: Int, val y: Int, val w: Int, val h: Int, val label: String)
 
-    /** 搜索引擎: name 显示名, search 搜索模板(含 {q}), home 首页 */
-    private data class Engine(val name: String, val search: String, val home: String)
+    /** 搜索引擎: name 显示名, search 搜索模板(含 {q}), home 首页, key 预设标识(空=自定义) */
+    private data class Engine(val name: String, val search: String, val home: String, val key: String = "")
+
+    /** 旧数据中文名 -> 预设 key 迁移 */
+    private fun engineKeyOf(n: String): String = when (n) {
+        "百度", "baidu" -> "baidu"
+        "必应", "bing" -> "bing"
+        "谷歌", "google" -> "google"
+        "搜狗", "sogou" -> "sogou"
+        "神马", "sm" -> "sm"
+        "知乎", "zhihu" -> "zhihu"
+        else -> ""
+    }
+
+    /** 预设 key -> 当前 locale 显示名（自定义引擎原样返回） */
+    private fun engineLabelOf(n: String, k: String): String {
+        val key = if (k.isNotEmpty()) k else engineKeyOf(n)
+        val r = when (key) {
+            "baidu" -> R.string.br_engine_baidu
+            "bing" -> R.string.br_engine_bing
+            "google" -> R.string.br_engine_google
+            "sogou" -> R.string.br_engine_sogou
+            "sm" -> R.string.br_engine_sm
+            "zhihu" -> R.string.br_engine_zhihu
+            else -> 0
+        }
+        return if (r != 0) act.getString(r) else n
+    }
+
+    private fun engineLabel(e: Engine): String = engineLabelOf(e.name, e.key)
 
     /* ===== 底部抽屉(状态条+设置面板) / 引擎管理 ===== */
     private lateinit var urlView: TextView
-    private lateinit var collapsedBar: LinearLayout
     private lateinit var drawerStatus: TextView
     private lateinit var drawerEngineTag: TextView
-    private lateinit var sheet: LinearLayout
+    internal lateinit var hamburgerMask: View
+    internal lateinit var hamburgerPanel: LinearLayout
+    internal var hamburgerOpen = false
     private lateinit var tabEngine: TextView
     private lateinit var tabData: TextView
     private lateinit var engineScroll: ScrollView
@@ -87,7 +117,7 @@ internal class BrowserPage(private val act: MainActivity) {
     private var engineIdx = 0
     @Volatile private var lastKeyword = ""   // 最近一次搜索关键词, 供聚合引擎复用
     private val ENGINE_PREFS = "browser_engines"
-    private val blue = Color.parseColor("#0B93F6")
+    private val blue = Ui.PRIMARY
     private val gray = Color.parseColor("#9AA0A6")
 
     internal var open = false
@@ -119,13 +149,32 @@ internal class BrowserPage(private val act: MainActivity) {
         return elements.size
     }
 
+    /** 提取整页可见文本(截断 3000 字), 供 browser_text 工具: 元素扫不到时让 AI 至少能读到页面内容 */
+    internal fun fetchTextSync(timeoutMs: Long): String {
+        val latch = CountDownLatch(1)
+        act.runOnUiThread {
+            textLatch = latch
+            val u = runCatching { web.url }.getOrNull()
+            if (u.isNullOrBlank()) { latch.countDown(); return@runOnUiThread }
+            web.evaluateJavascript("(function(){var t=document.body?document.body.innerText:'';daBridge.onPageText((t||'').slice(0,3000));})();", null)
+        }
+        try { latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: InterruptedException) {}
+        return textResult.ifBlank { "页面暂无可见文本" }
+    }
+
+    /** 滚动浏览器页(正数向下, 负数向上), 供 browser_scroll 工具 */
+    internal fun scrollBySync(delta: Int): String {
+        act.runOnUiThread { web.evaluateJavascript("window.scrollBy(0,$delta);", null) }
+        return "已滚动: $delta"
+    }
+
     /** 当前已识别元素快照(doc 绝对坐标), 供调试接口返回 JSON */
     internal fun elementsSnapshot(): List<Map<String, Any>> =
         elements.mapIndexed { i, e -> mapOf("index" to i, "x" to e.x, "y" to e.y, "w" to e.w, "h" to e.h, "label" to e.label) }
 
     /** AI 可读元素清单: "共N个: [i]「label」(x,y wxh)", 供 browser_scan 工具返回 */
     internal fun snapshotText(): String {
-        if (elements.isEmpty()) return "页面暂无可用元素"
+        if (elements.isEmpty()) return "页面暂无识别到可操作元素(可能动态加载中)。建议: 1)稍等1秒再调 browser_scan 重扫; 2)用 browser_text 读取整页文字; 3)用 browser_scroll 滚动页面后再 browser_scan; 仍无则页面可能纯展示, 可考虑 web_search 补充"
         val sb = StringBuilder("页面共识别 ${elements.size} 个可操作元素:\n")
         for ((i, e) in elements.withIndex()) {
             sb.append("[$i]「${e.label}」 坐标(${e.x},${e.y}) 尺寸${e.w}x${e.h}\n")
@@ -145,7 +194,7 @@ internal class BrowserPage(private val act: MainActivity) {
     /** 物理注入一次触摸(DOWN+UP)到 WebView 视口内坐标; 入参为文档坐标, 若不可见先滚动再点 */
     private fun physicalTap(docX: Int, docY: Int) {
         val vw = web.width; val vh = web.height
-        if (vw <= 0 || vh <= 0) { paintStatus("点击: 视图未就绪"); return }
+        if (vw <= 0 || vh <= 0) { paintStatus(act.getString(R.string.br_click_view_not_ready)); return }
         val s = web.scale.toFloat()
         val vx = ((docX - web.scrollX) * s).roundToInt()
         val vy = ((docY - web.scrollY) * s).roundToInt()
@@ -158,7 +207,7 @@ internal class BrowserPage(private val act: MainActivity) {
             web.onTouchEvent(down)
             web.onTouchEvent(up)
             down.recycle(); up.recycle()
-            paintStatus("已物理点击($sx,$sy)")
+            paintStatus(act.getString(R.string.br_tapped, sx, sy))
         }
         if (vx in 0 until vw && vy in 0 until vh) { fire() }
         else {
@@ -175,7 +224,16 @@ internal class BrowserPage(private val act: MainActivity) {
         val safe = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
         web.evaluateJavascript(
             "(function(){var i=$i,x=$x,y=$y,s=\"$safe\";" +
-            "var el=document.querySelector('[data-scan=\"'+i+'\"]');" +
+            "function findScan(i,doc){" +
+            "  var el=doc.querySelector('[data-scan=\"'+i+'\"]');" +
+            "  if(el) return el;" +
+            "  var fs=doc.querySelectorAll('iframe');" +
+            "  for(var j=0;j<fs.length;j++){" +
+            "    try{var inner=findScan(i,fs[j].contentDocument); if(inner) return inner;}catch(e){}" +
+            "  }" +
+            "  return null;" +
+            "}" +
+            "var el=findScan(i,document);" +
             "if(!el){window.scrollTo(0,Math.max(0,y-Math.floor(window.innerHeight/3)));el=document.elementFromPoint(x-window.scrollX,y-window.scrollY);}" +
             "if(!el){daBridge.onActionResult('no-element');return;}" +
             "var isArea=el.tagName==='TEXTAREA';el.focus();" +
@@ -214,7 +272,7 @@ internal class BrowserPage(private val act: MainActivity) {
     /** 供 MainActivity/未来 AI 引擎调用的公开能力; url 为关键词时自动转百度搜索 */
     internal fun open(url: String? = null) {
         if (url != null) {
-            lastUrl = url; loaded = true; paintStatus("正在打开 $url")
+            lastUrl = url; loaded = true; paintStatus(act.getString(R.string.br_opening, url))
             loadDoneLatch = CountDownLatch(1)
             web.loadUrl(toLoadableUrl(url))
         } else ensureLoad()
@@ -253,6 +311,18 @@ internal class BrowserPage(private val act: MainActivity) {
 
     /** 自动落盘回调: 页面加载后检测到当前域 Cookie 变化时回调宿主写入 site_auth.json */
     var autoSaveCookie: ((host: String, cookie: String) -> Unit)? = null
+
+    /** 浏览器即将打开(窗口化收缩前回调): 宿主在此先锁定窗口尺寸, 避免动画期间"全屏->中间"跳变 */
+    var onPreOpen: (() -> Unit)? = null
+
+    /** 浏览器打开/关闭回调(悬浮聊天模式切换): true=已打开 slideIn, false=已关闭 slideOut */
+    var onOpenChange: ((Boolean) -> Unit)? = null
+
+    /** 接管状态变化回调: true=用户接管(taken), false=交还 AI */
+    var onTakeoverChange: ((Boolean) -> Unit)? = null
+
+    /** 汉堡面板展开/收起回调: true=展开(聊天层让位), false=收起 */
+    var onHamburgerChange: ((Boolean) -> Unit)? = null
     private val hostCookieCache = HashMap<String, String>()
 
     /** 登录态判定已抽至 SiteAuthDetector(纯函数可单测), 见 all/SiteAuthDetector.kt */
@@ -303,7 +373,7 @@ internal class BrowserPage(private val act: MainActivity) {
     }
     internal fun close() { slideOut() }
     /** 网页后退一步; 无历史可退时返回 false(由调用方决定是否收起浏览器页) */
-    /** browser_upload 工具: 把工作目录(Download/agent_work)文件注入页面第 N 个 file input;
+    /** browser_upload 工具: 把工作目录(Download/Nyral_work)文件注入页面第 N 个 file input;
      *  优先用 browser_scan 的元素索引定位(若该元素是 file input), 否则按页面第 N 个 input[type=file] 定位(默认0) */
     internal fun uploadIndex(i: Int, localName: String): String {
         val ctx: Context = act
@@ -341,7 +411,7 @@ internal class BrowserPage(private val act: MainActivity) {
         // 滚动到该元素附近, 验证滚动跟随
         val targetY = (y * web.scale - web.height / 3f).coerceAtLeast(0f).toInt()
         web.post { web.scrollTo(0, targetY) }
-        paintStatus("高亮: ${label.ifEmpty { "元素" }}")
+        paintStatus(act.getString(R.string.br_highlight_fmt, label.ifEmpty { act.getString(R.string.br_element) }))
     }
     internal fun destroy() { web.destroy() }
     internal fun hideHighlight() { highlight.clearTarget() }
@@ -352,6 +422,7 @@ internal class BrowserPage(private val act: MainActivity) {
             setBackgroundColor(Color.WHITE)
             // 未接管时网页内容不可点击/不可滚动(用户触摸全拦截), 接管后放行; AI 物理点击走 onTouchEvent 直通不受影响
             setOnTouchListener { _, _ -> if (!taken) true else false }
+            settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/UD1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.122 Mobile Safari/537.36"
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.useWideViewPort = true
@@ -374,7 +445,7 @@ internal class BrowserPage(private val act: MainActivity) {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     if (url?.startsWith("file:///android_asset/home.html") == true) {
-                        paintStatus("欢迎页")
+                        paintStatus(act.getString(R.string.br_welcome_page))
                         loadDoneLatch?.countDown(); loadDoneLatch = null
                         return
                     }
@@ -412,23 +483,21 @@ internal class BrowserPage(private val act: MainActivity) {
             setBackgroundColor(Color.WHITE)
             // 初始位于屏幕右外, 右缘左滑整页推入
             translationX = act.resources.displayMetrics.widthPixels.toFloat()
-            // 置顶: 盖过主界面 tokenPanel/drawerMask 等悬浮层, 保证右上 ✕ 与接管按钮可点击
-            elevation = act.dp(15).toFloat()
+            // 浏览器作为底层内容层(悬浮聊天模式): 不再置顶, 层级由 MainActivity addView 顺序决定(main 在其上)
+            elevation = 0f
             addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             addView(highlight, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-            // 顶部 AI 状态条（悬浮, 不遮挡页面操作）
-            addView(statusBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
             // 底部中央"接管"按钮: 交还用户直接点验证码
             takeover = TextView(act).apply {
-                text = "✋ 接管"
+                text = act.getString(R.string.br_takeover)
                 textSize = 13f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
                 setTypeface(typeface, Typeface.BOLD)
                 background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#0B93F6"))
+                    setColor(Ui.PRIMARY)
                     cornerRadius = act.dp(20).toFloat()
                 }
                 elevation = act.dp(4).toFloat()
@@ -440,53 +509,23 @@ internal class BrowserPage(private val act: MainActivity) {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = act.dp(66) })
 
-            // 底部抽屉: 收起=细状态条(AI正在访问/默认引擎), 点按展开= 输入行+设置页(引擎管理/登录数据)
-            addView(bottomBar(), FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM).apply { bottomMargin = act.dp(6) })
+            // 右侧汉堡面板: 收起=隐藏(初始右外), 右缘左滑展开= 设置页(引擎管理/登录数据/URL/关页)
+            hamburgerMask = View(act).apply {
+                setBackgroundColor(Color.parseColor("#66000000"))
+                visibility = View.GONE
+                setOnClickListener { collapseHamburger() }
+            }
+            addView(hamburgerMask, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            hamburgerPanel = buildHamburger()
+            addView(hamburgerPanel, FrameLayout.LayoutParams(
+                act.dp(300), ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.END))
+            // 初始右外(不可见): 显式设置 View 属性, 不依赖 LayoutParams.translationX(容器可能不应用)
+            hamburgerPanel.translationX = act.dp(300).toFloat()
         }
         loadEngines()
     }
-
-    /** 顶部 AI 状态条: [状态文案][思考▾][✕(关闭整页)] */
-    private fun statusBar(): LinearLayout =
-        LinearLayout(act).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(act.dp(12), act.dp(8), act.dp(12), act.dp(8))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#CC1A1A1A"))
-                cornerRadius = act.dp(20).toFloat()
-            }
-            elevation = act.dp(6).toFloat()
-            LinearLayout(act).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                statusText = TextView(act).apply {
-                    text = "AI 准备就绪"
-                    textSize = 13f
-                    setTextColor(Color.WHITE)
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                }
-                addView(statusText)
-                addView(TextView(act).apply {
-                    text = "思考▾"
-                    textSize = 12f
-                    setTextColor(Color.parseColor("#9AD0FF"))
-                    setPadding(act.dp(10), act.dp(4), act.dp(6), act.dp(4))
-                    setOnClickListener { toggleThink() }
-                })
-                addView(TextView(act).apply {
-                    text = "✕"
-                    textSize = 17f
-                    setTextColor(Color.WHITE)
-                    setPadding(act.dp(10), act.dp(2), act.dp(2), act.dp(2))
-                    setOnClickListener { slideOut() }
-                    Ui.press(this)
-                })
-            }.also { addView(it, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
-            addView(thinkCollapsed())
-        }
 
     /** 思考摘要折叠容器（默认隐藏） */
     private fun thinkCollapsed(): LinearLayout {
@@ -495,9 +534,9 @@ internal class BrowserPage(private val act: MainActivity) {
             visibility = View.GONE
             setPadding(act.dp(6), act.dp(6), act.dp(6), act.dp(2))
             thinkBody = TextView(act).apply {
-                text = "（还没有思考摘要）"
+                text = act.getString(R.string.br_no_think)
                 textSize = 12f
-                setTextColor(Color.LTGRAY)
+                setTextColor(Color.parseColor("#666666"))
                 maxHeight = act.dp(110)
             }
             addView(thinkBody)
@@ -509,23 +548,44 @@ internal class BrowserPage(private val act: MainActivity) {
         thinkWrap.visibility = if (thinkWrap.visibility == View.VISIBLE) View.GONE else View.VISIBLE
     }
 
-    private fun toggleTakeover() {
+    /** 窗口化模式: 浏览器窗口收缩到聊天内容区(titleBar 下 ~ inputBar 上), 接管/悬浮均保持该尺寸 */
+    internal fun setWindowRect(top: Int, height: Int) {
+        val lp = root.layoutParams as FrameLayout.LayoutParams
+        lp.topMargin = top
+        lp.height = height
+        root.layoutParams = lp
+    }
+
+    /** 恢复全屏铺底(浏览器关闭时复位) */
+    internal fun resetWindowRect() {
+        val lp = root.layoutParams as FrameLayout.LayoutParams
+        lp.topMargin = 0
+        lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+        root.layoutParams = lp
+    }
+
+    /** 悬浮聊天模式(输入框上方控制条接管)时隐藏浏览器页底部按钮, 接管全幅/汉堡时显示 */
+    internal fun setBottomTakeoverVisible(v: Boolean) {
+        takeover.visibility = if (v) View.VISIBLE else View.GONE
+    }
+
+    internal fun toggleTakeover() {
         taken = !taken
+        onTakeoverChange?.invoke(taken)
         if (taken) {
-            takeover.text = "🤖 交还 AI"
+            takeover.text = act.getString(R.string.br_return_ai)
             highlight.clearTarget()
-            paintStatus("已交还给你操作，点完验证码后再交还 AI")
-            Toast.makeText(act, "你已接管，现在可点击网页（如验证码）", Toast.LENGTH_SHORT).show()
+            paintStatus(act.getString(R.string.br_returned_hint))
+            Toast.makeText(act, act.getString(R.string.br_taken_hint), Toast.LENGTH_SHORT).show()
         } else {
-            takeover.text = "✋ 接管"
-            paintStatus("AI 继续操作")
-            Toast.makeText(act, "已交还 AI 操作", Toast.LENGTH_SHORT).show()
+            takeover.text = act.getString(R.string.br_takeover)
+            paintStatus(act.getString(R.string.br_ai_resume))
+            Toast.makeText(act, act.getString(R.string.br_returned_ai), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun paintStatus(s: String) {
         act.runOnUiThread {
-            statusText.text = s
             if (::drawerStatus.isInitialized) drawerStatus.text = s
         }
     }
@@ -534,7 +594,7 @@ internal class BrowserPage(private val act: MainActivity) {
     private fun ensureLoad() {
         if (!loaded) {
             loaded = true
-            paintStatus("欢迎页已就绪")
+            paintStatus(act.getString(R.string.br_welcome_ready))
             loadDoneLatch = CountDownLatch(1)
             web.loadUrl("file:///android_asset/home.html")
         }
@@ -543,55 +603,171 @@ internal class BrowserPage(private val act: MainActivity) {
     /** 打开/关闭 整页平移动画 */
     private fun slideIn() {
         open = true
-        root.animate().translationX(0f).setDuration(280).setInterpolator(DecelerateInterpolator(1.2f)).start()
-        root.animate().alpha(1f).setDuration(280).start()
+        // 动画开始前先让宿主收缩窗口(标题栏下~输入框上), 滑入的即中间尺寸, 避免先全屏再跳变
+        onPreOpen?.invoke()
+        root.post {
+            root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            root.animate().translationX(0f).setDuration(280).setInterpolator(DecelerateInterpolator(1.2f))
+                .withEndAction {
+                    root.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                    onOpenChange?.invoke(true)
+                }.start()
+            root.animate().alpha(1f).setDuration(280).start()
+        }
     }
     private fun slideOut() {
         open = false
+        if (hamburgerOpen) collapseHamburger()
         highlight.clearTarget()
+        root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
         root.animate().translationX(act.resources.displayMetrics.widthPixels.toFloat())
-            .setDuration(280).setInterpolator(DecelerateInterpolator(1.2f)).start()
+            .setDuration(280).setInterpolator(DecelerateInterpolator(1.2f))
+            .withEndAction {
+                root.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+            }.start()
+        onOpenChange?.invoke(false)
     }
 
     /** WebView 加载完成后注入扫描器: 收集可见可交互元素(doc 绝对坐标) */
     private fun injectScanner() {
         web.evaluateJavascript(
             """(function(){
-              var els=document.querySelectorAll('a,button,input,textarea,[role=button],[contenteditable],[tabindex],li');
               var out=[];
-              for(var i=0;i<els.length&&out.length<60;i++){
-                var el=els[i];
+              var MAX=150;
+              function cleanTxt(t){ t=(t||'').trim(); return t.length>40?t.slice(0,40):t; }
+              function push(el,ox,oy){
+                if(out.length>=MAX) return;
                 try{
                   var r=el.getBoundingClientRect();
-                  if(r.width<24||r.height<24) continue;
-                  var st=getComputedStyle(el);
-                  if(st.visibility==='hidden'||st.display==='none'||st.opacity==='0') continue;
+                  if(r.width<24||r.height<24) return;
+                  var st=el.ownerDocument.defaultView.getComputedStyle(el);
+                  if(st.visibility==='hidden'||st.display==='none'||st.opacity==='0') return;
                   var tag=el.tagName;
                   var txt='';
                   if(tag==='INPUT'||tag==='TEXTAREA'){
                     txt=((el.placeholder||'')+(el.name?('('+el.name+')'):'')+(el.value?('当前:'+el.value):''));
                     if(!txt) txt=tag;
                   } else {
-                    txt=(el.innerText||el.value||el.getAttribute('aria-label')||el.title||'').trim();
+                    txt=(el.innerText||el.value||el.getAttribute('aria-label')||el.title||el.alt||'').trim();
+                    if(!txt&&tag==='IMG') txt='[图片]';
+                    if(!txt&&(tag==='DIV'||tag==='SPAN'||tag==='LI')) {
+                      var c=el.querySelector('a,button,img,[role=button]');
+                      if(c) txt=(c.innerText||c.getAttribute('aria-label')||c.title||c.alt||'').trim();
+                    }
                   }
-                  if(txt.length>40) txt=txt.slice(0,40);
-                  if(!txt) continue;
+                  txt=cleanTxt(txt);
+                  if(!txt) return;
                   el.setAttribute('data-scan',String(out.length));
-                  out.push({x:Math.round(r.left+window.scrollX),y:Math.round(r.top+window.scrollY),
+                  out.push({x:Math.round(r.left+ox),y:Math.round(r.top+oy),
                             w:Math.round(r.width),h:Math.round(r.height),t:txt});
                 }catch(e){}
               }
-              daBridge.onElements(JSON.stringify(out));
+              function pushFrame(fr,ox,oy){
+                if(out.length>=MAX) return;
+                try{
+                  var r=fr.getBoundingClientRect();
+                  if(r.width<24||r.height<24) return;
+                  var src=fr.getAttribute('src')||'';
+                  var host='';
+                  try{ host=src.match(/^https?:\/\/([^\/?#]+)/)[1]||''; }catch(e){}
+                  var txt=host?(host+' 内嵌页面'):'内嵌页面';
+                  if(src) txt=txt+' ['+src.slice(0,70)+']';
+                  fr.setAttribute('data-scan',String(out.length));
+                  out.push({x:Math.round(r.left+ox),y:Math.round(r.top+oy),
+                            w:Math.round(r.width),h:Math.round(r.height),t:txt});
+                }catch(e){}
+              }
+              function scanDoc(doc,win,ox,oy){
+                if(!doc||out.length>=MAX) return;
+                var sel='a,button,input,textarea,[role=button],[role=link],[role=tab],[role=menuitem],[contenteditable],[tabindex],[onclick],[data-action],[data-testid],[data-clickable],li';
+                try{ doc.querySelectorAll(sel).forEach(function(el){push(el,ox,oy);}); }catch(e){}
+                if(out.length<MAX){
+                  try{
+                    doc.querySelectorAll('div,span').forEach(function(el){
+                      if(out.length>=MAX) return;
+                      if(el.children.length>3) return;
+                      var st=el.ownerDocument.defaultView.getComputedStyle(el);
+                      if(st.cursor!=='pointer') return;
+                      push(el,ox,oy);
+                    });
+                  }catch(e){}
+                }
+                // iframe 穿透
+                try{
+                  doc.querySelectorAll('iframe').forEach(function(fr){
+                    if(out.length>=MAX) return;
+                    var frr=fr.getBoundingClientRect();
+                    var fxo=ox+frr.left+(win?win.scrollX:0);
+                    var fyo=oy+frr.top+(win?win.scrollY:0);
+                    var inner=null;
+                    try{ inner=fr.contentDocument; }catch(e){ inner=null; }
+                    if(inner&&inner!==doc){
+                      pushFrame(fr,fxo,fyo);
+                      scanDoc(inner,fr.contentWindow,fxo,fyo);
+                    } else {
+                      pushFrame(fr,fxo,fyo);
+                    }
+                  });
+                }catch(e){}
+                // shadow DOM 穿透
+                try{
+                  doc.querySelectorAll('*').forEach(function(el){
+                    if(out.length>=MAX) return;
+                    if(el.shadowRoot){
+                      var sr=el.getBoundingClientRect();
+                      scanDoc(el.shadowRoot,win,ox+sr.left+(win?win.scrollX:0),oy+sr.top+(win?win.scrollY:0));
+                    }
+                  });
+                }catch(e){}
+              }
+              function doScan(){
+                out=[];
+                scanDoc(document,window,0,0);
+                window.scrollTo(0,0);
+                daBridge.onElements(JSON.stringify(out));
+              }
+              var steps=0;
+              function warm(){
+                steps++;
+                window.scrollTo(0, document.body.scrollHeight);
+                if(steps<3){ setTimeout(warm, 200); }
+                else { window.scrollTo(0,0); setTimeout(doScan, 200); }
+              }
+              setTimeout(warm, 150);
             })();""", null)
     }
 
     /** JS 桥: 收集页面元素 -> 高亮第一个候选并播报 */
     private inner class JsBridge {
+        /** 来源白名单: 仅允许 http/https 页面回调 daBridge, 阻断 data:/file:/javascript: 注入面
+         *  注意: JavascriptInterface 回调在后台线程, WebView.getUrl() 必须在主线程读取,
+         *  否则非主线程访问返回 null 导致所有回调被误丢弃(scan/text/eval 全空)。 */
+        private fun sourceOk(): Boolean {
+            val holder = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+            val latch = CountDownLatch(1)
+            act.runOnUiThread {
+                try {
+                    val u = web.url
+                    holder.set(u != null && (u.startsWith("http://") || u.startsWith("https://")))
+                } catch (e: Exception) { holder.set(false) }
+                latch.countDown()
+            }
+            try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (e: InterruptedException) {}
+            return holder.get() == true
+        }
+
         @android.webkit.JavascriptInterface
-        fun onActionResult(json: String) { actionResult = json; actionLatch?.countDown() }
+        fun onActionResult(json: String) { if (!sourceOk()) return; actionResult = json; actionLatch?.countDown() }
+
+        @android.webkit.JavascriptInterface
+        fun onPageText(t: String) {
+            if (!sourceOk()) return
+            act.runOnUiThread { textResult = t; textLatch?.countDown(); textLatch = null }
+        }
 
         @android.webkit.JavascriptInterface
         fun onElements(json: String) {
+            if (!sourceOk()) return
             act.runOnUiThread {
                 elements.clear(); elemPos = -1
                 try {
@@ -601,7 +777,7 @@ internal class BrowserPage(private val act: MainActivity) {
                         elements.add(Element(o.getInt("x"), o.getInt("y"), o.getInt("w"), o.getInt("h"), o.optString("t")))
                     }
                 } catch (e: Exception) {}
-                paintStatus("已分析页面，识别到 ${elements.size} 个可操作元素")
+                paintStatus(act.getString(R.string.br_scanned, elements.size))
                 nextElement()
                 scanLatch?.countDown()
                 scanLatch = null
@@ -610,33 +786,35 @@ internal class BrowserPage(private val act: MainActivity) {
 
         @android.webkit.JavascriptInterface
         fun homeSearch(q: String) {
+            if (!sourceOk()) return
             act.runOnUiThread { open(q) }
         }
 
         @android.webkit.JavascriptInterface
         fun homeOpen(url: String) {
-            act.runOnUiThread { web.loadUrl(url); paintStatus("打开: $url") }
+            if (!sourceOk()) return
+            act.runOnUiThread { web.loadUrl(url); paintStatus(act.getString(R.string.br_opened, url)) }
         }
     }
 
     /** 高亮下一个元素（模拟 AI 逐步操作, 后续对接真 Agent） */
     internal fun nextElement() {
-        if (elements.isEmpty()) { paintStatus("页面暂无可用元素"); return }
+        if (elements.isEmpty()) { paintStatus(act.getString(R.string.br_no_elements)); return }
         val i = (elemPos + 1) % elements.size
         elemPos = i
         val e = elements[i]
         highlightElement(e.x, e.y, e.w, e.h, e.label)
-        setThink("候选${i + 1}/共${elements.size}: 「${e.label}」, 坐标(${e.x},${e.y}) ${e.w}x${e.h}")
+        setThink(act.getString(R.string.br_candidate, i + 1, elements.size, e.label, e.x, e.y, e.w, e.h))
     }
 
     /** 高亮指定索引候选元素(0-based, 供调试接口按 index 定位); 越界/列表空则忽略 */
     internal fun highlightIndex(n: Int) {
-        if (elements.isEmpty()) { paintStatus("页面暂无可用元素"); return }
-        if (n < 0 || n >= elements.size) { paintStatus("候选索引 $n 越界(共 ${elements.size} 个)"); return }
+        if (elements.isEmpty()) { paintStatus(act.getString(R.string.br_no_elements)); return }
+        if (n < 0 || n >= elements.size) { paintStatus(act.getString(R.string.br_idx_oob, n, elements.size)); return }
         elemPos = n
         val e = elements[n]
         highlightElement(e.x, e.y, e.w, e.h, e.label)
-        setThink("候选${n + 1}/共${elements.size}: 「${e.label}」, 坐标(${e.x},${e.y}) ${e.w}x${e.h}")
+        setThink(act.getString(R.string.br_candidate, n + 1, elements.size, e.label, e.x, e.y, e.w, e.h))
     }
 
     /** 按坐标(doc 绝对)命中最近候选元素并高亮(供 /v1/browser/highlight/xy), 返回命中的元素描述 */
@@ -657,124 +835,149 @@ internal class BrowserPage(private val act: MainActivity) {
 
     /* ===================== 底部导航栏 / 引擎管理 / 本地数据 ===================== */
 
-    /** 底部抽屉: 收起=细状态条(当前访问站点+默认引擎), 点按展开= 输入行 + 设置页(引擎管理/登录数据) */
-    private fun bottomBar(): LinearLayout = LinearLayout(act).apply {
+    /** 右侧汉堡面板: 初始右外隐藏, 右缘左滑展开= URL + 设置页(引擎管理/登录数据) */
+    private fun buildHamburger(): LinearLayout = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
         background = GradientDrawable().apply {
             setColor(Color.WHITE); cornerRadius = act.dp(18).toFloat()
         }
         elevation = act.dp(8).toFloat()
 
-        // —— 收起状态条(默认可见) ——
-        collapsedBar = LinearLayout(act).apply {
+        // —— 头部: 状态 + 默认引擎 + 收起 ——
+        LinearLayout(act).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(act.dp(12), act.dp(9), act.dp(8), act.dp(9))
-            setOnClickListener { expandSheet() }
-            Ui.press(this)
             addView(TextView(act).apply {
                 text = "●"; textSize = 9f; setTextColor(Color.parseColor("#22C55E"))
                 setPadding(0, 0, act.dp(6), 0)
             })
             addView(TextView(act).apply {
-                text = "AI 空闲"; textSize = 12f; maxLines = 1
+                text = act.getString(R.string.br_idle); textSize = 12f; maxLines = 1
                 setTextColor(Color.parseColor("#333333"))
                 setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }.also { drawerStatus = it })
             addView(TextView(act).apply {
-                text = "百度 ▾"; textSize = 12f; setTextColor(blue)
+                text = (engines.getOrNull(engineIdx)?.let { engineLabel(it) } ?: "") + " ▾"; textSize = 12f; setTextColor(blue)
                 setPadding(act.dp(8), act.dp(3), act.dp(4), act.dp(3))
             }.also { drawerEngineTag = it })
-        }
-        addView(collapsedBar)
+            addView(TextView(act).apply {
+                text = act.getString(R.string.br_collapse); textSize = 12f; setTextColor(gray)
+                setPadding(act.dp(8), act.dp(4), act.dp(2), act.dp(4))
+                setOnClickListener { collapseHamburger() }
+                Ui.press(this)
+            })
+        }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
 
-        // —— 展开面板(默认收起) ——
-        sheet = LinearLayout(act).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(act.dp(10), act.dp(6), act.dp(10), act.dp(8))
+        // —— 当前访问地址(实时回显, 只读) + 一键复制 ——
+        LinearLayout(act).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(act).apply {
+                text = "—"
+                textSize = 12f; maxLines = 1
+                setTextColor(Ui.TEXT)
+                setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#F2F4F7")); cornerRadius = act.dp(12).toFloat()
+                }
+                setPadding(act.dp(10), act.dp(4), act.dp(10), act.dp(4))
+                layoutParams = LinearLayout.LayoutParams(0, act.dp(34), 1f)
+            }.also { urlView = it })
+            addView(TextView(act).apply {
+                text = act.getString(R.string.br_copy); textSize = 12f; setTextColor(blue)
+                setPadding(act.dp(6), act.dp(4), act.dp(2), act.dp(4))
+                setOnClickListener { copyCurrentUrl() }
+                Ui.press(this)
+            })
+        }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
 
-            // 当前访问地址(实时回显, 只读) + 一键复制
-            LinearLayout(act).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(act).apply {
-                    text = "—"
-                    textSize = 12f; maxLines = 1
-                    setTextColor(Color.parseColor("#1A1A1A"))
-                    setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
-                    background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#F2F4F7")); cornerRadius = act.dp(12).toFloat()
-                    }
-                    setPadding(act.dp(10), act.dp(4), act.dp(10), act.dp(4))
-                    layoutParams = LinearLayout.LayoutParams(0, act.dp(34), 1f)
-                }.also { urlView = it })
-                addView(TextView(act).apply {
-                    text = "复制"; textSize = 12f; setTextColor(blue)
-                    setPadding(act.dp(6), act.dp(4), act.dp(2), act.dp(4))
-                    setOnClickListener { copyCurrentUrl() }
-                    Ui.press(this)
-                })
-                addView(TextView(act).apply {
-                    text = "收起▾"; textSize = 12f; setTextColor(gray)
-                    setPadding(act.dp(8), act.dp(4), act.dp(2), act.dp(4))
-                    setOnClickListener { collapseSheet() }
-                    Ui.press(this)
-                })
-            }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
+        // 页签: 引擎管理 / 登录数据 / ✕ 关页
+        LinearLayout(act).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(act).apply {
+                text = act.getString(R.string.br_engine_mgr); textSize = 12f; setTextColor(blue)
+                setOnClickListener { showEngineTab() }
+                setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
+                Ui.press(this)
+            }.also { tabEngine = it })
+            addView(TextView(act).apply {
+                text = act.getString(R.string.br_login_data); textSize = 12f; setTextColor(gray)
+                setOnClickListener { showDataTab() }
+                setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
+                Ui.press(this)
+            }.also { tabData = it })
+            addView(TextView(act).apply {
+                text = act.getString(R.string.br_think); textSize = 12f; setTextColor(blue)
+                setOnClickListener { toggleThink() }
+                setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
+                Ui.press(this)
+            })
+            addView(TextView(act).apply {
+                layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+            })
+            addView(TextView(act).apply {
+                text = act.getString(R.string.br_close_page); textSize = 12f; setTextColor(Ui.DANGER)
+                setPadding(act.dp(6), act.dp(4), act.dp(2), act.dp(4))
+                setOnClickListener { slideOut() }
+                Ui.press(this)
+            })
+        }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
 
-            // 页签: 引擎管理 / 登录数据
-            LinearLayout(act).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(act).apply {
-                    text = "引擎管理"; textSize = 12f; setTextColor(blue)
-                    setOnClickListener { showEngineTab() }
-                    setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
-                    Ui.press(this)
-                }.also { tabEngine = it })
-                addView(TextView(act).apply {
-                    text = "登录数据"; textSize = 12f; setTextColor(gray)
-                    setOnClickListener { showDataTab() }
-                    setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
-                    Ui.press(this)
-                }.also { tabData = it })
-                addView(TextView(act).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
-                })
-                addView(TextView(act).apply {
-                    text = "✕ 关页"; textSize = 12f; setTextColor(Color.parseColor("#E5484D"))
-                    setPadding(act.dp(6), act.dp(4), act.dp(2), act.dp(4))
-                    setOnClickListener { slideOut() }
-                    Ui.press(this)
-                })
-            }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
+        // 思考摘要容器(默认隐藏, 点"思考▾"展开)
+        addView(thinkCollapsed())
 
-            // 引擎管理面板
-            engineScroll = ScrollView(act).apply { isFillViewport = false; isVerticalScrollBarEnabled = false }
-            engineList = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
-            engineScroll.addView(engineList)
-            addView(engineScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, act.dp(196)))
+        // 引擎管理面板
+        engineScroll = ScrollView(act).apply { isFillViewport = false; isVerticalScrollBarEnabled = false }
+        engineList = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
+        engineScroll.addView(engineList)
+        addView(engineScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, act.dp(196)))
 
-            // 登录数据面板(默认隐藏)
-            dataScroll = ScrollView(act).apply { isFillViewport = false; isVerticalScrollBarEnabled = false; visibility = View.GONE }
-            dataBox = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
-            dataScroll.addView(dataBox)
-            addView(dataScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, act.dp(196)))
-        }
-        addView(sheet)
+        // 登录数据面板(默认隐藏)
+        dataScroll = ScrollView(act).apply { isFillViewport = false; isVerticalScrollBarEnabled = false; visibility = View.GONE }
+        dataBox = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
+        dataScroll.addView(dataBox)
+        addView(dataScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, act.dp(196)))
         refreshEngineList()
         initDataView()
     }
 
-    private fun expandSheet() {
-        sheet.visibility = View.VISIBLE
-        collapsedBar.visibility = View.GONE
+
+    /** 右缘左滑展开汉堡面板: 显示遮罩+面板平移到 0 */
+    internal fun expandHamburger() {
+        if (hamburgerOpen) return
+        hamburgerOpen = true
+        hamburgerMask.alpha = 0f
+        hamburgerMask.visibility = View.VISIBLE
+        onHamburgerChange?.invoke(true)
+        hamburgerMask.animate().alpha(1f).setDuration(180).start()
+        hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        hamburgerPanel.animate().translationX(0f).setDuration(240)
+            .setInterpolator(DecelerateInterpolator(1.2f))
+            .withEndAction {
+                hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+            }.start()
+        refreshDataView()
     }
-    private fun collapseSheet() {
-        sheet.visibility = View.GONE
-        collapsedBar.visibility = View.VISIBLE
+
+    /** 收起汉堡面板: 隐藏遮罩+面板平移回右外 */
+    internal fun collapseHamburger() {
+        if (!hamburgerOpen) return
+        hamburgerOpen = false
+        onHamburgerChange?.invoke(false)
+        hamburgerMask.animate().alpha(0f).setDuration(160).withEndAction {
+            hamburgerMask.visibility = View.GONE
+        }.start()
+        hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        hamburgerPanel.animate().translationX(act.dp(300).toFloat()).setDuration(240)
+            .setInterpolator(DecelerateInterpolator(1.2f))
+            .withEndAction {
+                hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                root.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+            }.start()
     }
     private fun showEngineTab() {
         engineScroll.visibility = View.VISIBLE; dataScroll.visibility = View.GONE
@@ -793,7 +996,7 @@ internal class BrowserPage(private val act: MainActivity) {
         engineList.removeAllViews()
 
         engineList.addView(TextView(act).apply {
-            text = "＋ 添加搜索引擎(名称 + {q} 模板)"
+            text = act.getString(R.string.br_add_engine_btn)
             textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(act.dp(8), act.dp(8), act.dp(8), act.dp(8))
             background = GradientDrawable().apply { setColor(blue); cornerRadius = act.dp(10).toFloat() }
@@ -808,7 +1011,7 @@ internal class BrowserPage(private val act: MainActivity) {
                 setPadding(act.dp(2), act.dp(3), act.dp(2), act.dp(3))
             }
             row.addView(TextView(act).apply {
-                text = (if (i == engineIdx) "★ " else "  ") + e.name
+                text = (if (i == engineIdx) "★ " else "  ") + engineLabel(e)
                 textSize = 13f
                 setTextColor(if (i == engineIdx) blue else Color.parseColor("#333333"))
                 setTypeface(typeface, if (i == engineIdx) Typeface.BOLD else Typeface.NORMAL)
@@ -816,21 +1019,21 @@ internal class BrowserPage(private val act: MainActivity) {
                 setOnClickListener {
                     if (i != engineIdx) {
                         engineIdx = i; saveEngines(); refreshEngineLabel(); refreshEngineList()
-                        paintStatus("默认引擎 → ${e.name}")
+                        paintStatus(act.getString(R.string.br_default_engine, e.name))
                     }
                 }
             })
             row.addView(TextView(act).apply {
-                text = "改"; textSize = 12f; setTextColor(gray)
+                text = act.getString(R.string.br_edit); textSize = 12f; setTextColor(gray)
                 setPadding(act.dp(8), act.dp(2), act.dp(4), act.dp(2))
                 setOnClickListener { showEditEngineDialog(i) }
                 Ui.press(this)
             })
             row.addView(TextView(act).apply {
-                text = "删"; textSize = 12f; setTextColor(Color.parseColor("#E5484D"))
+                text = act.getString(R.string.br_delete); textSize = 12f; setTextColor(Ui.DANGER)
                 setPadding(act.dp(8), act.dp(2), act.dp(4), act.dp(2))
                 setOnClickListener {
-                    if (engines.size <= 1) { Toast.makeText(act, "至少保留一个引擎", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                    if (engines.size <= 1) { Toast.makeText(act, act.getString(R.string.br_keep_one), Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                     engines.removeAt(i)
                     if (engineIdx >= engines.size) engineIdx = engines.size - 1
                     saveEngines(); refreshEngineLabel(); refreshEngineList()
@@ -849,29 +1052,29 @@ internal class BrowserPage(private val act: MainActivity) {
         val isEdit = idx in engines.indices
         val src = if (isEdit) engines[idx] else null
         Dialog(act).apply {
-            setTitle(if (isEdit) "编辑引擎" else "添加引擎")
+            setTitle(act.getString(if (isEdit) R.string.br_edit_engine else R.string.br_add_engine))
             val box = LinearLayout(act).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(act.dp(18), act.dp(6), act.dp(18), act.dp(12))
             }
-            val nameIn = EditText(act).apply { hint = "名称，如：GitHub"; textSize = 14f }
-            val tmplIn = EditText(act).apply { hint = "搜索模板(含 {q})，如 github.com/search?q={q}"; textSize = 14f }
-            val homeIn = EditText(act).apply { hint = "首页(可空)，如 github.com"; textSize = 14f }
-            if (src != null) { nameIn.setText(src.name); tmplIn.setText(src.search); homeIn.setText(src.home) }
+            val nameIn = EditText(act).apply { hint = act.getString(R.string.br_name_hint); textSize = 14f }
+            val tmplIn = EditText(act).apply { hint = act.getString(R.string.br_tmpl_hint); textSize = 14f }
+            val homeIn = EditText(act).apply { hint = act.getString(R.string.br_home_hint); textSize = 14f }
+            if (src != null) { nameIn.setText(engineLabel(src)); tmplIn.setText(src.search); homeIn.setText(src.home) }
             box.addView(nameIn)
             box.addView(tmplIn)
             box.addView(homeIn)
             LinearLayout(act).apply {
                 orientation = LinearLayout.HORIZONTAL
                 addView(TextView(act).apply {
-                    text = "取消"; textSize = 14f; setTextColor(gray); gravity = Gravity.CENTER
+                    text = act.getString(R.string.br_cancel); textSize = 14f; setTextColor(gray); gravity = Gravity.CENTER
                     setPadding(act.dp(16), act.dp(12), act.dp(16), act.dp(12))
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                     setOnClickListener { dismiss() }
                     Ui.press(this)
                 })
                 addView(TextView(act).apply {
-                    text = "保存"; textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                    text = act.getString(R.string.br_save); textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
                     setPadding(act.dp(16), act.dp(12), act.dp(16), act.dp(12))
                     background = GradientDrawable().apply { setColor(blue); cornerRadius = act.dp(12).toFloat() }
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -879,14 +1082,14 @@ internal class BrowserPage(private val act: MainActivity) {
                         val n = nameIn.text.toString().trim()
                         var s = tmplIn.text.toString().trim()
                         val h0 = homeIn.text.toString().trim()
-                        if (n.isEmpty() || s.isEmpty()) { Toast.makeText(act, "名称与搜索模板不能为空", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-                        if (!s.contains("{q}")) { Toast.makeText(act, "搜索模板必须包含 {q}", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                        if (n.isEmpty() || s.isEmpty()) { Toast.makeText(act, act.getString(R.string.br_name_tmpl_empty), Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                        if (!s.contains("{q}")) { Toast.makeText(act, act.getString(R.string.br_tmpl_need_q), Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                         if (!s.startsWith("http://") && !s.startsWith("https://")) s = "https://" + s
                         val h = if (h0.isEmpty()) s.substringBefore("{q}").trimEnd('&', '?') else
                             if (h0.startsWith("http://") || h0.startsWith("https://")) h0 else "https://" + h0
-                        if (isEdit) engines[idx] = Engine(n, s, h) else { engines.add(Engine(n, s, h)); engineIdx = engines.size - 1 }
+                        if (isEdit) engines[idx] = Engine(n, s, h, src?.let { if (n == engineLabel(it)) it.key else "" } ?: "") else { engines.add(Engine(n, s, h, "")); engineIdx = engines.size - 1 }
                         saveEngines(); refreshEngineLabel(); refreshEngineList()
-                        Toast.makeText(act, "已保存", Toast.LENGTH_SHORT).show(); dismiss()
+                        Toast.makeText(act, act.getString(R.string.br_saved), Toast.LENGTH_SHORT).show(); dismiss()
                     }
                     Ui.press(this)
                 })
@@ -902,7 +1105,7 @@ internal class BrowserPage(private val act: MainActivity) {
         if (!::dataBox.isInitialized) return
         dataBox.removeAllViews()
         dataBox.addView(TextView(act).apply {
-            text = "· 登录站点 = 浏览器登录一次后自动/手动保存的登录态(site_auth.json)，供 AI 静默抓取带登录态。\n· 逐站可单独清除；「清除全部」将清空全部登录态与浏览器缓存。"
+            text = act.getString(R.string.br_data_intro)
             textSize = 12f; setTextColor(Color.parseColor("#555555"))
             setPadding(act.dp(10), act.dp(8), act.dp(10), act.dp(8))
             background = GradientDrawable().apply { setColor(Color.parseColor("#F2F4F7")); cornerRadius = act.dp(10).toFloat() }
@@ -910,7 +1113,7 @@ internal class BrowserPage(private val act: MainActivity) {
         val auth = parseSiteAuth()
         if (auth == null || auth.length() == 0) {
             dataBox.addView(TextView(act).apply {
-                text = "暂无已保存的登录站点"
+                text = act.getString(R.string.br_no_sites)
                 textSize = 13f; setTextColor(gray); gravity = Gravity.CENTER
                 setPadding(act.dp(10), act.dp(14), act.dp(10), act.dp(14))
             })
@@ -924,7 +1127,7 @@ internal class BrowserPage(private val act: MainActivity) {
                     java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(metaTs))
                 } catch (e: Exception) { metaTs.toString() }
                 dataBox.addView(TextView(act).apply {
-                    text = "最近保存: $ts (登录态异常可重新登录覆盖)"
+                    text = act.getString(R.string.br_recent_saved, ts)
                     textSize = 11f; setTextColor(gray)
                     setPadding(act.dp(10), act.dp(2), act.dp(10), act.dp(2))
                 })
@@ -938,7 +1141,7 @@ internal class BrowserPage(private val act: MainActivity) {
                 }
                 row.addView(TextView(act).apply {
                     text = site
-                    textSize = 13f; setTextColor(Color.parseColor("#1A1A1A"))
+                    textSize = 13f; setTextColor(Ui.TEXT)
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 row.addView(TextView(act).apply {
@@ -947,13 +1150,13 @@ internal class BrowserPage(private val act: MainActivity) {
                     setPadding(act.dp(4), act.dp(2), act.dp(4), act.dp(2))
                 })
                 row.addView(TextView(act).apply {
-                    text = "清除"; textSize = 12f; setTextColor(Color.parseColor("#E5484D"))
+                    text = act.getString(R.string.br_clear); textSize = 12f; setTextColor(Ui.DANGER)
                     setPadding(act.dp(8), act.dp(2), act.dp(4), act.dp(2))
                     setOnClickListener {
                         val r = WebTools.siteAuth(act, "{\"action\":\"del\",\"site\":\"$site\"}")
                         if (r.contains("已删除")) {
                             expiresDomainCookie(site)
-                            Toast.makeText(act, "已清除 $site 登录态", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(act, act.getString(R.string.br_site_cleared, site), Toast.LENGTH_SHORT).show()
                             refreshDataView()
                         } else Toast.makeText(act, r, Toast.LENGTH_SHORT).show()
                     }
@@ -967,15 +1170,15 @@ internal class BrowserPage(private val act: MainActivity) {
             }
         }
         dataBox.addView(TextView(act).apply {
-            text = "清除全部登录会话与缓存"
+            text = act.getString(R.string.br_clear_all)
             textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
             setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
-            background = GradientDrawable().apply { setColor(Color.parseColor("#E5484D")); cornerRadius = act.dp(12).toFloat() }
+            background = GradientDrawable().apply { setColor(Ui.DANGER); cornerRadius = act.dp(12).toFloat() }
             setOnClickListener {
                 runCatching { WorkDir.write(act, "site_auth.json", "{}".toByteArray(Charsets.UTF_8)) }
                 android.webkit.CookieManager.getInstance().removeAllCookies(null)
                 web.clearCache(true)
-                Toast.makeText(act, "已清除全部登录会话与缓存", Toast.LENGTH_SHORT).show()
+                Toast.makeText(act, act.getString(R.string.br_cleared_all), Toast.LENGTH_SHORT).show()
                 refreshDataView()
             }
             Ui.press(this)
@@ -1009,10 +1212,10 @@ internal class BrowserPage(private val act: MainActivity) {
     /** 复制当前访问地址到剪贴板 */
     private fun copyCurrentUrl() {
         val u = urlView.text.toString().trim()
-        if (u.isEmpty() || u == "—") { Toast.makeText(act, "暂无可复制的地址", Toast.LENGTH_SHORT).show(); return }
+        if (u.isEmpty() || u == "—") { Toast.makeText(act, act.getString(R.string.br_nothing_copy), Toast.LENGTH_SHORT).show(); return }
         val cm = act.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(android.content.ClipData.newPlainText("browser_url", u))
-        Toast.makeText(act, "已复制: $u", Toast.LENGTH_SHORT).show()
+        Toast.makeText(act, act.getString(R.string.br_copied, u), Toast.LENGTH_SHORT).show()
     }
 
     /** 底部状态条实时回显当前访问站点 */
@@ -1021,13 +1224,13 @@ internal class BrowserPage(private val act: MainActivity) {
         val host = runCatching { java.net.URI(s).host }.getOrNull()
         act.runOnUiThread {
             if (::drawerStatus.isInitialized)
-                drawerStatus.text = if (host != null) "AI 正在访问 $host" else s
+                drawerStatus.text = if (host != null) act.getString(R.string.br_visiting, host) else s
             if (::urlView.isInitialized) urlView.text = s
         }
     }
 
     private fun refreshEngineLabel() {
-        val e = engines.getOrNull(engineIdx)?.name ?: "──"
+        val e = engines.getOrNull(engineIdx)?.let { engineLabel(it) } ?: "──"
         if (::drawerEngineTag.isInitialized) drawerEngineTag.text = "$e ▾"
     }
 
@@ -1041,19 +1244,19 @@ internal class BrowserPage(private val act: MainActivity) {
         engineIdx = i
         if (kw.isNotEmpty()) lastKeyword = kw
         saveEngines(); refreshEngineLabel()
-        paintStatus("${e.name} 搜索: ${kw.ifEmpty { "主页" }}")
+        paintStatus(act.getString(R.string.br_search_fmt, e.name, kw.ifEmpty { act.getString(R.string.br_home) }))
     }
 
     /** 本地数据管理入口: v1 说明展示 + 一键清除 WebView 登录会话 */
     private fun showDataDialog() {
         val e = engines.getOrNull(engineIdx)
         val body = StringBuilder()
-        body.append("· 登录态: 存于应用私有目录(WebView Cookie/DOM Storage)，仅本机可见，卸载即清\n")
-        body.append("· 可一键清除全部站点登录会话\n")
-        body.append("· 当前默认引擎: ${e?.name ?: "无"}\n")
-        body.append("· 自定义引擎: 后续版本支持增删改")
+        body.append(act.getString(R.string.br_dialog_body1))
+        body.append(act.getString(R.string.br_dialog_body2))
+        body.append(act.getString(R.string.br_dialog_body3, e?.name ?: act.getString(R.string.br_none)))
+        body.append(act.getString(R.string.br_dialog_body4))
         Dialog(act).apply {
-            setTitle("浏览器本地数据")
+            setTitle(act.getString(R.string.br_local_data))
             val box = LinearLayout(act).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(act.dp(18), act.dp(10), act.dp(18), act.dp(14))
@@ -1069,19 +1272,19 @@ internal class BrowserPage(private val act: MainActivity) {
                 setPadding(act.dp(12), act.dp(12), act.dp(12), act.dp(12))
             })
             box.addView(TextView(act).apply {
-                text = "一键清除全部登录会话"
+                text = act.getString(R.string.br_clear_all_sessions)
                 textSize = 13f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
                 setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
                 background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#E5484D"))
+                    setColor(Ui.DANGER)
                     cornerRadius = act.dp(12).toFloat()
                 }
                 setOnClickListener {
                     android.webkit.CookieManager.getInstance().removeAllCookies(null)
                     web.clearCache(true)
-                    Toast.makeText(act, "已清除全部登录会话与缓存", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(act, act.getString(R.string.br_cleared_all), Toast.LENGTH_SHORT).show()
                     dismiss()
                 }
                 Ui.press(this)
@@ -1096,12 +1299,12 @@ internal class BrowserPage(private val act: MainActivity) {
     /** 内置预设引擎: 百度/必应/谷歌/搜狗/神马/知乎 */
     private fun presetEngines(): String =
         """[
-          {"n":"百度","s":"https://www.baidu.com/s?wd={q}","h":"https://www.baidu.com"},
-          {"n":"必应","s":"https://www.bing.com/search?q={q}","h":"https://www.bing.com"},
-          {"n":"谷歌","s":"https://www.google.com/search?q={q}","h":"https://www.google.com"},
-          {"n":"搜狗","s":"https://www.sogou.com/web?query={q}","h":"https://www.sogou.com"},
-          {"n":"神马","s":"https://m.sm.cn/s?q={q}","h":"https://m.sm.cn"},
-          {"n":"知乎","s":"https://www.zhihu.com/search?type=content&q={q}","h":"https://www.zhihu.com"}]"""
+          {"n":"百度","k":"baidu","s":"https://www.baidu.com/s?wd={q}","h":"https://www.baidu.com"},
+          {"n":"必应","k":"bing","s":"https://www.bing.com/search?q={q}","h":"https://www.bing.com"},
+          {"n":"谷歌","k":"google","s":"https://www.google.com/search?q={q}","h":"https://www.google.com"},
+          {"n":"搜狗","k":"sogou","s":"https://www.sogou.com/web?query={q}","h":"https://www.sogou.com"},
+          {"n":"神马","k":"sm","s":"https://m.sm.cn/s?q={q}","h":"https://m.sm.cn"},
+          {"n":"知乎","k":"zhihu","s":"https://www.zhihu.com/search?type=content&q={q}","h":"https://www.zhihu.com"}]"""
 
     private fun loadEngines() {
         val sp = act.getSharedPreferences(ENGINE_PREFS, Context.MODE_PRIVATE)
@@ -1112,11 +1315,13 @@ internal class BrowserPage(private val act: MainActivity) {
             val arr = org.json.JSONArray(saved)
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                engines.add(Engine(o.getString("n"), o.getString("s"), o.optString("h", o.getString("s"))))
+                val n = o.getString("n")
+                val k = o.optString("k", "")
+                engines.add(Engine(engineLabelOf(n, k), o.getString("s"), o.optString("h", o.getString("s")), if (k.isNotEmpty()) k else engineKeyOf(n)))
             }
         } catch (e: Exception) {
             engines.clear()
-            engines.add(Engine("百度", "https://www.baidu.com/s?wd={q}", "https://www.baidu.com"))
+            engines.add(Engine(act.getString(R.string.br_engine_baidu), "https://www.baidu.com/s?wd={q}", "https://www.baidu.com", "baidu"))
         }
         engineIdx = sp.getInt("idx", 0).coerceIn(0, (engines.size - 1).coerceAtLeast(0))
         refreshEngineLabel()
@@ -1125,7 +1330,7 @@ internal class BrowserPage(private val act: MainActivity) {
 
     private fun saveEngines() {
         val arr = org.json.JSONArray()
-        for (e in engines) arr.put(org.json.JSONObject().put("n", e.name).put("s", e.search).put("h", e.home))
+        for (e in engines) arr.put(org.json.JSONObject().put("n", e.name).put("k", e.key).put("s", e.search).put("h", e.home))
         act.getSharedPreferences(ENGINE_PREFS, Context.MODE_PRIVATE).edit()
             .putString("engines", arr.toString()).putInt("idx", engineIdx).apply()
     }
@@ -1203,7 +1408,7 @@ internal class BrowserSlideController(private val act: MainActivity) {
     }
     private val slop = android.view.ViewConfiguration.get(act).scaledTouchSlop
     private var tracker: android.view.VelocityTracker? = null
-    private var mode = 0               // 0=无 1=待开(关闭态右缘按下) 2=待关(打开态左缘按下)
+    private var mode = 0               // 0=无 1=待开(关闭态右缘按下) 2=待关(打开态左缘按下) 3=汉堡跟手(打开态右缘按下) 4=收汉堡(汉堡开且左缘按下)
     private var dragging = false
     private var downX = 0f
     private var downY = 0f
@@ -1223,24 +1428,40 @@ internal class BrowserSlideController(private val act: MainActivity) {
                 dragging = false
                 downX = ev.rawX
                 downY = ev.rawY
-                startTrans = panel().translationX
                 val openNow = act.browserPage.open
                 val sw = act.resources.displayMetrics.widthPixels
+                // 三分区触发: 左份=左1/3(收/关), 右份=右1/3(开/汉堡面板), 中间1/3公共区不拦截
+                val leftThird = sw / 3f
+                val rightThird = sw * 2f / 3f
                 mode = when {
                     act.tokenMask.visibility == View.VISIBLE -> 0
-                    openNow && ev.rawX <= act.dp(EDGE_DP) -> 2
-                    !openNow && ev.rawX >= sw - act.dp(EDGE_DP) -> 1
+                    // 主页汉堡页(抽屉)打开时浏览器手势让位: 右缘左滑归抽屉关闭, 避免误开浏览器
+                    act.drawerOpen -> 0
+                    act.browserPage.hamburgerOpen && ev.rawX <= leftThird -> 4
+                    act.browserPage.hamburgerOpen && ev.rawX >= rightThird -> 3
+                    openNow && ev.rawX <= leftThird -> 2
+                    openNow && ev.rawX >= rightThird -> 3
+                    !openNow && ev.rawX >= rightThird -> 1
                     else -> 0
                 }
+                startTrans = if (mode == 3 || mode == 4) act.browserPage.hamburgerPanel.translationX
+                              else panel().translationX
             }
             MotionEvent.ACTION_MOVE -> {
                 if (mode != 0 && !dragging) {
                     val dx = ev.rawX - downX
                     val dy = ev.rawY - downY
-                    val wantOpen = mode == 1
-                    val dirOk = if (wantOpen) dx < 0 else dx > 0
+                    val wantLeft = when (mode) {
+                        1 -> true
+                        2, 4 -> false
+                        3 -> !act.browserPage.hamburgerOpen
+                        else -> false
+                    }
+                    val dirOk = if (wantLeft) dx < 0 else dx > 0
                     if (abs(dx) > slop && abs(dx) > abs(dy) && dirOk) {
                         dragging = true
+                        // 跟手平移期间开硬件层: WebView 以纹理平移, 避免露白边闪白
+                        act.browserPage.root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                         tracker?.addMovement(ev)
                         return true
                     }
@@ -1254,32 +1475,62 @@ internal class BrowserSlideController(private val act: MainActivity) {
 
     fun onTouch(ev: MotionEvent): Boolean {
         if (!dragging) return false
+        val isBurger = mode == 3 || mode == 4
+        val burgerW = act.dp(300).toFloat()
         when (ev.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
                 tracker?.addMovement(ev)
-                // 关闭态: 从 +screenW 向左推进; 打开态: 从 0 向右推出
-                val sw = act.resources.displayMetrics.widthPixels
-                val trans = (startTrans + (ev.rawX - downX)).coerceIn(0f, sw.toFloat())
-                panel().translationX = trans
+                if (isBurger) {
+                    // 汉堡面板: 未开(300)左滑=向左展开; 已开(0)左滑=向右推回收起
+                    val dx = ev.rawX - downX
+                    val trans = (startTrans + dx).coerceIn(0f, burgerW)
+                    act.browserPage.hamburgerPanel.translationX = trans
+                } else {
+                    // 整页: 关闭态从 +screenW 向左推进; 打开态从 0 向右推出
+                    val sw = act.resources.displayMetrics.widthPixels
+                    val trans = (startTrans + (ev.rawX - downX)).coerceIn(0f, sw.toFloat())
+                    panel().translationX = trans
+                }
             }
             MotionEvent.ACTION_UP -> {
                 tracker?.addMovement(ev)
                 tracker?.computeCurrentVelocity(1000)
                 val vx = tracker?.xVelocity ?: 0f
-                val sw = act.resources.displayMetrics.widthPixels
-                val frac = (sw - panel().translationX) / sw   // 显现比例
-                val open = when {
-                    vx > FLING_VX -> false
-                    vx < -FLING_VX -> true
-                    frac > SNAP_FRAC -> true
-                    else -> false
+                if (isBurger) {
+                    val frac = (burgerW - act.browserPage.hamburgerPanel.translationX) / burgerW // 展开比例
+                    val open = when {
+                        vx > FLING_VX -> false
+                        vx < -FLING_VX -> !act.browserPage.hamburgerOpen  // 已开时左滑 fling=关闭
+                        frac > SNAP_FRAC -> true
+                        else -> false
+                    }
+                    snapBurger(open)
+                } else {
+                    val sw = act.resources.displayMetrics.widthPixels
+                    val frac = (sw - panel().translationX) / sw   // 显现比例
+                    val open = when {
+                        vx > FLING_VX -> false
+                        vx < -FLING_VX -> true
+                        frac > SNAP_FRAC -> true
+                        else -> false
+                    }
+                    snap(open)
                 }
-                snap(open)
                 reset()
             }
-            MotionEvent.ACTION_CANCEL -> { snap(act.browserPage.open); reset() }
+            MotionEvent.ACTION_CANCEL -> {
+                if (isBurger) snapBurger(act.browserPage.hamburgerOpen)
+                else snap(act.browserPage.open)
+                reset()
+            }
         }
         return true
+    }
+
+    /** 汉堡面板吸附: 展开动画到 0 / 收起动画回右外 */
+    private fun snapBurger(open: Boolean) {
+        if (open) act.browserPage.expandHamburger()
+        else act.browserPage.collapseHamburger()
     }
 
     /** 抬手吸附到开/关: 打开时走 browserPage.open()(加载默认页+整页动画), 关闭时走 browserPage.close() */
@@ -1295,8 +1546,12 @@ internal class BrowserSlideController(private val act: MainActivity) {
         val dur = (170 + 130 * (dist / sw)).toLong().coerceIn(150, 300)
         val dec = DecelerateInterpolator(1.3f)
         act.browserPage.open = false
+        act.browserPage.onOpenChange?.invoke(false)
         panel().animate().translationX(sw.toFloat()).setDuration(dur).setInterpolator(dec)
-            .withEndAction { act.browserPage.hideHighlight() }.start()
+            .withEndAction {
+                act.browserPage.root.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                act.browserPage.hideHighlight()
+            }.start()
     }
 
     /** 返回键/✕ 关闭: 走 BrowserPage.close() */

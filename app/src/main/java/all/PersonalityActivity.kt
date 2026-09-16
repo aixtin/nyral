@@ -153,7 +153,7 @@ class PersonalityActivity : Activity() {
             addView(TextView(this@PersonalityActivity).apply {
                 text = hint
                 textSize = 12f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 gravity = Gravity.CENTER_HORIZONTAL
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -238,7 +238,7 @@ class PersonalityActivity : Activity() {
         addView(TextView(this@PersonalityActivity).apply {
             text = getString(R.string.persona_hint_ai_name_sub)
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
         })
     }
 
@@ -284,7 +284,7 @@ class PersonalityActivity : Activity() {
         addView(TextView(this@PersonalityActivity).apply {
             text = getString(R.string.persona_hint_ai_persona_sub)
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         addView(TextView(this@PersonalityActivity).apply {
@@ -421,7 +421,7 @@ class PersonalityActivity : Activity() {
                 addView(TextView(this@PersonalityActivity).apply {
                     text = subtitle
                     textSize = 12f
-                    setTextColor(0xFF999999.toInt())
+                    setTextColor(Ui.SUB)
                     setPadding(0, dp(3), 0, 0)
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
@@ -448,7 +448,7 @@ class PersonalityActivity : Activity() {
         if (maxLength > 0) {
             counter = TextView(this).apply {
                 textSize = 11f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 gravity = Gravity.END
                 setPadding(0, dp(4), dp(2), 0)
             }

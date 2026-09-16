@@ -7,14 +7,14 @@ import android.content.SharedPreferences
  * 界面标题自定义配置（设置页-外观）。
  * - 主页标题：聊天主页标题栏文字
  * - 侧栏标题：汉堡页（左侧抽屉）头部文字
- * 两者独立存储，默认均为 "agent"；留空保存时回退默认值。
+ * 两者独立存储，默认均为 "Nyral"；留空保存时回退默认值。
  */
 object TitleConfig {
     private const val PREF = "title_config"
     private const val K_MAIN = "main_title"
     private const val K_DRAWER = "drawer_title"
     private const val K_DRAWER_NOTE = "drawer_note"
-    const val DEFAULT = "agent"
+    const val DEFAULT = "Nyral"
     const val DEFAULT_NOTE = "你有对象吗？"
 
     @Volatile private var app: Context? = null

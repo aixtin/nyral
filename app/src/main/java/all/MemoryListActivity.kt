@@ -267,7 +267,7 @@ class MemoryListActivity : Activity() {
             container.addView(TextView(this).apply {
                 text = getString(R.string.memory_none)
                 textSize = 14f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 setPadding(0, dp(40), 0, dp(40))
                 gravity = Gravity.CENTER
             })
@@ -276,7 +276,7 @@ class MemoryListActivity : Activity() {
         container.addView(TextView(this).apply {
             text = getString(R.string.memory_count, mems.size)
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
             setPadding(dp(4), 0, dp(4), dp(8))
         })
         // 卡片分组：最多 5 条一组
@@ -334,7 +334,7 @@ class MemoryListActivity : Activity() {
                 text = mem.sessionTitle?.takeIf { it.isNotBlank() } ?: getString(R.string.memory_unnamed_session)
                 textSize = 13f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(0xFF0B93F6.toInt())
+                setTextColor(Ui.PRIMARY)
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
@@ -350,7 +350,7 @@ class MemoryListActivity : Activity() {
             addView(TextView(this@MemoryListActivity).apply {
                 text = formatTs(mem.ts) + "    "
                 textSize = 12f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 setPadding(0, dp(6), 0, 0)
             })
         })
@@ -368,7 +368,7 @@ class MemoryListActivity : Activity() {
             text = mem.sessionTitle?.takeIf { it.isNotBlank() } ?: getString(R.string.memory_unnamed_session)
             textSize = 13f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setTextColor(0xFF0B93F6.toInt())
+            setTextColor(Ui.PRIMARY)
             setPadding(0, dp(12), 0, dp(2))
         })
 
@@ -382,7 +382,7 @@ class MemoryListActivity : Activity() {
         content.addView(TextView(this).apply {
             text = getString(R.string.memory_created, formatTs(mem.ts))
             textSize = 12f
-            setTextColor(0xFF999999.toInt())
+            setTextColor(Ui.SUB)
             setPadding(0, 0, 0, dp(12))
         })
 
@@ -422,7 +422,7 @@ class MemoryListActivity : Activity() {
         content.addView(Ui.fieldLabel(this, getString(R.string.memory_field_content)))
         val input = Ui.input(this, getString(R.string.memory_hint_input))
         input.setText(mem.content)
-        input.setTextColor(0xFF1A1A1A.toInt())
+        input.setTextColor(Ui.TEXT)
         content.addView(input)
         content.addView(Ui.hint(this, getString(R.string.memory_hint_revector)))
 

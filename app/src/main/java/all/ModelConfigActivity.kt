@@ -68,7 +68,7 @@ class ModelConfigActivity : Activity() {
             container.addView(TextView(this).apply {
                 text = getString(R.string.mcfg_03)
                 textSize = 13f
-                setTextColor(0xFF999999.toInt())
+                setTextColor(Ui.SUB)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(40), 0, dp(40))
             })

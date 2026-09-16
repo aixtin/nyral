@@ -4,7 +4,7 @@ import android.content.Context
 import org.json.JSONObject
 
 /**
- * WorkTools: 手机本地工作目录(Download/agent_work/)的文本读写工具。
+ * WorkTools: 手机本地工作目录(Download/Nyral_work/)的文本读写工具。
  * 用途: AI 从服务器拉文件 -> 本地查看/修改 -> 传回, 绕开 SSH 命令行嵌套转义。
  * 非文本文件请用 ssh_download / web_download 落盘, 不要用本工具读。
  */
@@ -22,6 +22,8 @@ object WorkTools {
     fun read(context: Context, arg: String): String {
         val name = parseName(arg)
         if (name.isEmpty()) return "错误: 缺少 name(文件名), 如 {\"name\":\"a.txt\"}"
+        if (WorkDir.isSensitiveName(name))
+            return "错误: 安全拦截 — 敏感凭据文件($name)禁止 AI 读取, 如需访问请由用户在手机端手动操作"
         val bytes = WorkDir.read(context, name)
             ?: return "错误: 工作目录不存在该文件: $name (可用 workdir_list 查看)"
         val text = try {
@@ -78,6 +80,7 @@ object WorkTools {
             if (scanned >= GREP_MAX_FILES) break
             if (ext.isNotEmpty() && !f.name.lowercase().endsWith(ext)) continue
             if (f.size > GREP_MAX_FILE_BYTES) continue
+            if (WorkDir.isSensitiveName(f.name)) continue
             scanned++
             val bytes = WorkDir.read(context, f.name) ?: continue
             val text = try { String(bytes, Charsets.UTF_8) } catch (e: Exception) { continue }
@@ -110,6 +113,8 @@ object WorkTools {
         val p = try { JSONObject(arg) } catch (e: Exception) { JSONObject() }
         val name = p.optString("name").trim()
         if (name.isEmpty()) return "错误: 缺少 name(文件名), 如 {\"name\":\"build.gradle\",\"lines\":50}"
+        if (WorkDir.isSensitiveName(name))
+            return "错误: 安全拦截 — 敏感凭据文件($name)禁止 AI 读取, 如需访问请由用户在手机端手动操作"
         val bytes = WorkDir.read(context, name)
             ?: return "错误: 工作目录不存在该文件: $name (可用 workdir_list 查看)"
         val text = try { String(bytes, Charsets.UTF_8) } catch (e: Exception) {

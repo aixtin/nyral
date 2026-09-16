@@ -29,15 +29,38 @@ class FirstRunSetupActivity : Activity() {
 
     private var listBox: LinearLayout? = null
     private var modeBox: LinearLayout? = null
+    /** root 授权状态: -1=检测中/未知, 0=未授权, 1=已授权(后台线程实时探测, 无进程级缓存) */
+    private var rootGranted = -1
+    /** 本次进程内是否已用 root 自动补齐过自身权限(仅一次, 幂等) */
+    @Volatile private var rootAutoGranted = false
 
     private class PermItem(
-        val icon: String,
+        val iconRes: Int,
         val name: String,
         val desc: String,
         val required: () -> Boolean,
         val granted: () -> Boolean,
-        val request: (FirstRunSetupActivity) -> Unit
+        val request: (FirstRunSetupActivity) -> Unit,
+        /** 是否为 Root 权限项(特殊三态渲染 + 后台探测, 不跳转任何授权软件) */
+        val isRoot: Boolean = false
     )
+
+    /** 后台实时探测 root 授权(不依赖进程级缓存, 用户去授权工具回来后能即时刷新);
+     *  首次探测到已授权时用 root 静默补齐自身权限(尽力而为, 失败保持手动入口) */
+    private fun probeRoot() {
+        Thread {
+            val g = RootCheck.isGranted()
+            if (g && !rootAutoGranted) {
+                rootAutoGranted = true
+                RootCheck.grantSelf(this)
+            }
+            val act = this@FirstRunSetupActivity
+            act.runOnUiThread {
+                rootGranted = if (g) 1 else 0
+                refreshPerms()
+            }
+        }.start()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -120,6 +143,8 @@ class FirstRunSetupActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshPerms()
+        // 实时探测 root 授权(每次进入/返回都探测, 用户去授权工具回来后即时刷新)
+        probeRoot()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -141,35 +166,43 @@ class FirstRunSetupActivity : Activity() {
     }
 
     private fun items(): List<PermItem> = listOf(
-        PermItem("🔔", getString(R.string.perm_05), getString(R.string.perm_06), {
+        PermItem(R.drawable.ic_perm_notification, getString(R.string.perm_05), getString(R.string.perm_06), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
         }, {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         }, { a ->
             a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_RUNTIME)
         }),
-        PermItem("🎙", getString(R.string.perm_07), getString(R.string.perm_08), {
+        PermItem(R.drawable.ic_perm_mic, getString(R.string.perm_07), getString(R.string.perm_08), {
             true
         }, {
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         }, { a ->
             a.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RUNTIME)
         }),
-        PermItem("🪟", getString(R.string.perm_09), getString(R.string.perm_10), {
+        PermItem(R.drawable.ic_perm_overlay, getString(R.string.perm_09), getString(R.string.perm_10), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
         }, {
             Settings.canDrawOverlays(this)
         }, { a -> a.openOverlay() }),
-        PermItem("📁", getString(R.string.perm_11), getString(R.string.perm_12), {
+        PermItem(R.drawable.ic_perm_folder, getString(R.string.perm_11), getString(R.string.perm_12), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
         }, {
             Environment.isExternalStorageManager()
         }, { a -> a.openAllFiles() }),
-        PermItem("📦", getString(R.string.perm_13), getString(R.string.perm_14), {
+        PermItem(R.drawable.ic_perm_package, getString(R.string.perm_13), getString(R.string.perm_14), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
         }, {
             packageManager.canRequestPackageInstalls()
-        }, { a -> a.openUnknownSources() })
+        }, { a -> a.openUnknownSources() }),
+        // Root 权限: 通用探测不依赖具体授权框架, 不跳转任何授权软件, 只展示是否已授权
+        PermItem(R.drawable.ic_perm_root, getString(R.string.perm_24), getString(R.string.perm_25), {
+            RootCheck.deviceRooted()
+        }, {
+            rootGranted == 1
+        }, { a ->
+            a.rootHint()
+        }, isRoot = true)
     )
 
     private fun refreshPerms() {
@@ -190,7 +223,7 @@ class FirstRunSetupActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(14), dp(12), dp(14))
-            addView(Ui.iconBadge(this@FirstRunSetupActivity, item.icon.take(1), item.name.hashCode(), 40))
+            addView(Ui.iconBadgeRes(this@FirstRunSetupActivity, item.iconRes, item.name.hashCode(), 40))
             addView(LinearLayout(this@FirstRunSetupActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -200,7 +233,7 @@ class FirstRunSetupActivity : Activity() {
                 addView(TextView(this@FirstRunSetupActivity).apply {
                     text = item.desc
                     textSize = 12f
-                    setTextColor(0xFF999999.toInt())
+                    setTextColor(Ui.SUB)
                     setPadding(0, dp(3), 0, 0)
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
@@ -209,10 +242,16 @@ class FirstRunSetupActivity : Activity() {
             // 右侧状态/按钮：不需要=灰字提示；已授权=绿色"已完成"；未授权=蓝色"去授权"按钮
             addView(TextView(this@FirstRunSetupActivity).apply {
                 textSize = 13f
+                val detecting = item.isRoot && rootGranted == -1
                 when {
                     !required -> {
                         text = getString(R.string.perm_17)
                         setTextColor(0xFFCCCCCC.toInt())
+                    }
+                    detecting -> {
+                        // root 检测中: 灰色提示不可点
+                        text = getString(R.string.perm_26)
+                        setTextColor(Ui.SUB)
                     }
                     granted -> {
                         text = getString(R.string.guide_perm_done)
@@ -225,7 +264,7 @@ class FirstRunSetupActivity : Activity() {
                         typeface = Typeface.DEFAULT_BOLD
                         background = android.graphics.drawable.GradientDrawable().apply {
                             cornerRadius = dp(14).toFloat()
-                            setColor(0xFF0B93F6.toInt())
+                            setColor(Ui.PRIMARY)
                         }
                         isClickable = true
                         setOnClickListener { item.request(this@FirstRunSetupActivity) }
@@ -233,6 +272,11 @@ class FirstRunSetupActivity : Activity() {
                 }
             })
         }
+    }
+
+    /** Root 未授权提示: 不内置各家授权框架包名, 不跳转, 引导用户去系统授权工具手动授权 */
+    private fun rootHint() {
+        Toast.makeText(this, getString(R.string.perm_27), Toast.LENGTH_LONG).show()
     }
 
     private fun renderMode() {

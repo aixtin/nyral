@@ -25,9 +25,9 @@ import java.util.Locale
 object UpdateChecker {
 
     // GitHub Releases 最新版接口
-    private const val UPDATE_URL = "https://api.github.com/repos/aixtin/droid-agent/releases/latest"
+    private const val UPDATE_URL = "https://api.github.com/repos/aixtin/nyral/releases/latest"
     // 跳转目标：仓库 Releases 页面
-    private const val RELEASE_URL = "https://github.com/aixtin/droid-agent/releases/latest"
+    private const val RELEASE_URL = "https://github.com/aixtin/nyral/releases/latest"
 
     private val main = Handler(Looper.getMainLooper())
 

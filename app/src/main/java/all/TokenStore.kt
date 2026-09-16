@@ -16,6 +16,7 @@ object TokenStore {
     private const val K_DAY_PROMPT = "day_prompt"
     private const val K_DAY_COMPLETION = "day_completion"
     private const val K_LAST_PROMPT = "last_prompt"
+    private const val K_ROUND_TRACE = "round_trace"  // 无限对话阶段0埋点: 轮次分布(轮次|prompt token|completion token)
     private const val K_SESSION_KEYS = "session_keys"
     private const val SESS_PREFIX = "sess_"
     private const val MAX_SESSIONS = 30
@@ -58,6 +59,18 @@ object TokenStore {
             val ck = SESS_PREFIX + sid + "_completion"
             e.putLong(pk, p.getLong(pk, 0) + prompt)
             e.putLong(ck, p.getLong(ck, 0) + completion)
+            // 无限对话阶段0埋点: 轮次分布, 每轮一条 "round|prompt|completion" 追加到 K_ROUND_TRACE(保留最近800条)
+            if (prompt > 0) {
+                val rtKey = SESS_PREFIX + sid + "_rounds"
+                val rounds = p.getInt(rtKey, 0)
+                e.putInt(rtKey, rounds + 1)
+                val trace = p.getString(K_ROUND_TRACE, "")
+                val entry = (rounds + 1).toString() + "|" + prompt.toString() + "|" + completion.toString()
+                val arr = if (trace.isNullOrBlank()) mutableListOf(entry) else trace.split("\n").toMutableList()
+                arr.add(entry)
+                if (arr.size > 800) arr.removeAt(0)
+                e.putString(K_ROUND_TRACE, arr.joinToString("\n"))
+            }
             val keys = HashSet(p.getStringSet(K_SESSION_KEYS, emptySet()) ?: emptySet())
             keys.add(sid.toString())
             if (keys.size > MAX_SESSIONS) {
@@ -77,6 +90,10 @@ object TokenStore {
 
     /** 最近一次请求的上下文消耗(prompt tokens) */
     fun lastPrompt(c: Context): Long = prefs(c).getLong(K_LAST_PROMPT, 0)
+
+    /** 轮次分布埋点: 每轮 "轮次|prompt|completion" 一行; 供装机后统计单轮均 token 与分布 */
+    fun roundTrace(c: Context): List<String> =
+        (prefs(c).getString(K_ROUND_TRACE, "") ?: "").split("\n").filter { it.isNotBlank() }
 
     // ============ 辅助 AI（记忆辅助模型）统计 ============
 

@@ -13,7 +13,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * WorkDir: 手机本地工作目录 (Download/agent_work/)。
+ * WorkDir: 手机本地工作目录 (Download/Nyral_work/)。
  *
  * 用途: AI 从服务器拉文件 -> 本地改(绕开 SSH 命令行嵌套转义/少字符坑) -> 改完传回。
  * 网页下载/ssh_download 落盘均在此目录, 对用户公共可见可改(系统文件管理器可直接访问)。
@@ -24,8 +24,8 @@ import java.util.concurrent.TimeUnit
 object WorkDir {
 
     /** MediaStore 相对路径(不带尾斜杠, 查询时用 LIKE 前缀匹配兼容带斜杠存储) */
-    const val RELATIVE = "Download/agent_work"
-    val displayPath: String get() = "/storage/emulated/0/Download/agent_work/"
+    const val RELATIVE = "Download/Nyral_work"
+    val displayPath: String get() = "/storage/emulated/0/Download/Nyral_work/"
 
     /**
      * 是否有"所有文件访问"授权。作用域存储下无此授权时:
@@ -52,7 +52,7 @@ object WorkDir {
         try {
             MediaScannerConnection.scanFile(
                 context,
-                arrayOf("/storage/emulated/0/Download/agent_work"),
+                arrayOf("/storage/emulated/0/Download/Nyral_work"),
                 null
             ) { _, uri -> if (uri != null) indexed.set(true); latch.countDown() }
             latch.await(timeoutMs, TimeUnit.MILLISECONDS)
@@ -284,6 +284,24 @@ object WorkDir {
         var uri = findUri(context, n)
         if (uri == null) { rescan(context); uri = findUri(context, n) }
         return uri
+    }
+
+    /**
+     * 敏感凭据文件识别(AI 工具安全护栏, 2026-09-15):
+     * 命中任一模式即禁止 AI 读取/外传, 防 prompt injection 诱导外泄。
+     * 模式: 常见密钥/证书/凭据文件(大小写不敏感)。
+     */
+    fun isSensitiveName(name: String): Boolean {
+        val n = name.trim()
+        if (n.isEmpty()) return false
+        val lower = n.lowercase()
+        val patterns = listOf(
+            "keys.txt", "key.txt", "secret", "credential", "passwd", "password",
+            ".pem", ".key", ".jks", ".keystore", ".p12", ".pfx", ".cer", ".crt",
+            "id_rsa", "id_ecdsa", "id_ed25519", ".ssh", "site_auth.json",
+            ".env", "token", "apikey", "api_key", "auth.json"
+        )
+        return patterns.any { lower.contains(it) }
     }
 
     /** 文件名清洗: 去路径分隔与非法字符 */

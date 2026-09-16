@@ -61,6 +61,8 @@ import android.view.ViewOutlineProvider
 import android.view.ViewGroup
 import android.view.Window
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.MediaController
@@ -83,13 +85,18 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.HorizontalScrollView
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import android.widget.ImageView
 import android.widget.TextView
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.lang.ref.WeakReference
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
@@ -108,8 +115,11 @@ import android.text.style.TypefaceSpan
 /** 帧驱动打字机回调接口与全局打字机中心已抽离至 Typewriter.kt */
 
 class MainActivity : Activity() {
+    companion object {
+        @Volatile var instance: MainActivity? = null
+    }
 
-    private val TAG = "agent"
+    private val TAG = "Nyral"
     internal val executor = Executors.newSingleThreadExecutor()
     internal val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // Markdown 本地渲染 (Markwon, 开源/无网络/不接第三方服务)
@@ -160,14 +170,23 @@ class MainActivity : Activity() {
     private var sessionBaseSeq = 0
     /** 上次检测的头像版本戳, 换头像返回时比对变化以刷新旧气泡 */
     private var lastAvatarStamp = 0L
-    private lateinit var chatBox: LinearLayout
-    private lateinit var scroll: ScrollView
+    private val chatRows = ArrayList<ChatRow>()
+    private lateinit var chatAdapter: ChatAdapter
+    private lateinit var chatRec: RecyclerView
+    private var streamingRow: ChatRow.Streaming? = null
+    /** 请求代际(阶段2 流式竞态治理): 每次发起新请求/取消当前请求(切会话)自增,
+     *  流式回调进入主线程后先校验代际一致才操作 holder/滚动, 天然拦截迟到回调 */
+    private var requestEpoch = 0L
     private var scrollUserScrolled = false   // 用户手动上翻后不再自动拉底(不打扰阅读)
     private lateinit var root: FrameLayout
     // 独立固定全屏背景层: 壁纸/渐变背景挂此层(不随键盘压缩上移), root 为透明壳
     private lateinit var bgLayer: FrameLayout
     private lateinit var bodyWrap: LinearLayout
     private lateinit var inputBar: LinearLayout
+    // 浏览器控制条(输入框上方): 悬浮聊天时显示欢迎文字+接管按钮
+    private lateinit var browserBar: LinearLayout
+    private lateinit var browserBarStatus: TextView
+    private lateinit var browserBarTakeover: TextView
     private lateinit var input: EditText
     internal lateinit var modelBtn: Button
     internal lateinit var attachBtn: Button
@@ -294,9 +313,10 @@ class MainActivity : Activity() {
     private val KEEP = 20
 
     // 气泡配色: AI 侧 4 色(BUBBLE_AI/BUBBLE_AI_TEXT/THINK_TEXT/THINK_BG)已随 AiBubbleHolder 提取至文件级共享
-    private val BUBBLE_USER = Color.parseColor("#0B93F6")   // 用户: 深蓝
-    private val BUBBLE_USER_TEXT = Color.WHITE
-    private val SYS_TEXT = Color.parseColor("#999999")
+    // 用户气泡配色: 随主题刷新(onCreate 时同步)
+    private var BUBBLE_USER: Int = DefaultTheme.bubbleUser
+    private var BUBBLE_USER_TEXT: Int = DefaultTheme.bubbleUserText
+    private val SYS_TEXT = Ui.SUB
 
     // 首启权限引导状态: 0=空闲 1=已弹运行时权限 2/3/4=等待从悬浮窗/所有文件/安装未知来源设置页返回
     private var firstRunGuideState = 0
@@ -361,6 +381,13 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 应用当前主题（默认=现有视觉零变化）：全局语义色 + 气泡色
+        val theme = ThemeManager.current(this)
+        Ui.applyTheme(theme)
+        applyBubbleTheme(theme)
+        BUBBLE_USER = theme.bubbleUser
+        BUBBLE_USER_TEXT = theme.bubbleUserText
+        instance = this
         // 2026-09-14 废弃启动强制权限引导: 权限全权交给 FirstRunSetupActivity 逐项授权页
         // (去授权/已完成 + 进入APP) + 功能按需请求, 不再在启动时把全部权限轰炸一遍。
         // window.decorView.post { runFirstRunPermissionGuide() }
@@ -405,11 +432,49 @@ class MainActivity : Activity() {
             if (browserPage.waitLoaded(10_000)) browserPage.scanSync(4000)
         }
         LocalEngine.onBrowserScan = { val c = browserPage.scanSync(4000); browserPage.elementsSnapshot().toString() }
+        LocalEngine.onBrowserText = { browserPage.fetchTextSync(4000) }
+        LocalEngine.onBrowserScroll = { d -> browserPage.scrollBySync(d) }
         LocalEngine.onBrowserClick = { i -> browserPage.clickIndex(i) }
         LocalEngine.onBrowserType = { i, t -> browserPage.typeIndex(i, t) }
         LocalEngine.onBrowserUpload = { i, local -> browserPage.uploadIndex(i, local) }
         LocalEngine.onBrowserClear = { full -> browserPage.clearCacheForAi(full) }
         LocalEngine.onBrowserSaveCookies = { site -> browserPage.cookieStringFor(site) }
+        // AI ask_user 澄清桥接: 主线程弹原生选择框等待用户点选, work 线程阻塞同步返回用户选择回注模型
+        LocalEngine.onAskUser = { question, options, allowCustom ->
+            val latch = CountDownLatch(1)
+            val answer = arrayOfNulls<String>(1)
+            val picked = java.util.concurrent.atomic.AtomicBoolean(false)
+            runOnUiThread {
+                try {
+                    showAskUserDialog(question, options, allowCustom) { sel ->
+                        if (picked.compareAndSet(false, true)) {
+                            answer[0] = sel
+                            latch.countDown()
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (picked.compareAndSet(false, true)) {
+                        answer[0] = "弹窗失败: ${e.message}"
+                        latch.countDown()
+                    }
+                }
+            }
+            // 阻塞等待用户点选(对话框取消/关闭即返回, 此超时仅为极端兜底)
+            latch.await(120, TimeUnit.SECONDS)
+            val sel = answer[0] ?: "用户未作答(超时/取消)"
+            // 交互留痕: 系统气泡 + 记入 session_msgs(主线程)
+            val finalSel = sel
+            runOnUiThread {
+                appendSys(getString(R.string.ask_user_trace, question, finalSel))
+                messages.add(MemoryDb.SessionMsg(
+                    "system",
+                    getString(R.string.ask_user_trace, question, finalSel),
+                    "", "", "", System.currentTimeMillis(), -1))
+                currentSaved = false
+                maybeSaveCurrent()
+            }
+            sel
+        }
         // 自动落盘: 页面加载后检测到当前域 Cookie 变化即写入 site_auth.json(浏览器登录一次, 静默通道自动带登录态)
         browserPage.autoSaveCookie = { host, cookie ->
             val ok = runCatching {
@@ -418,7 +483,7 @@ class MainActivity : Activity() {
                 WebTools.siteAuth(this, jo.toString())
             }.getOrNull()?.contains("已保存") == true
             if (ok && autoSavedHinted.add(host)) {
-                Toast.makeText(this, "已自动保存 $host 登录态(site_auth)", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.ma_site_saved, host), Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -492,7 +557,7 @@ class MainActivity : Activity() {
         titleBar.addView(TextView(this).apply {
             text = "☰"
             textSize = 24f
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setOnClickListener { openDrawer() }
             Ui.press(this)
@@ -501,40 +566,55 @@ class MainActivity : Activity() {
             text = TitleConfig.mainTitle()
             textSize = 17f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            // 点击主页标题进入外观设置（原设置页入口已移除）
+            setOnClickListener { startActivity(Intent(this@MainActivity, AppearanceActivity::class.java)) }
+            Ui.press(this)
         }.also { mainTitleText = it })
         titleBar.addView(TextView(this).apply {
             text = "∑"
             textSize = 22f
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Ui.TEXT)
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setOnClickListener { toggleTokenPanel() }
             Ui.press(this)
         })
         main.addView(titleBar)
 
-        // 消息区
-        chatBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        // 消息区: RecyclerView 可回收传送带——只保留屏幕内可见的气泡, 滚出屏幕即回收销毁,
+        // 滚回复用同一框架塞新内容, 不随聊天变长无限堆叠 View(解决 ScrollView+LinearLayout 长会话卡顿/内存增长)
+        chatAdapter = ChatAdapter(chatRows) { row -> buildRowView(row) }
+        chatRec = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = chatAdapter
             setPadding(dp(12), dp(10), dp(12), dp(10))
-        }
-        scroll = ScrollView(this).apply {
-            addView(chatBox)
-            isFillViewport = true
+            clipToPadding = false
+            overScrollMode = View.OVER_SCROLL_ALWAYS
             // 用户一旦手动滑动(上翻阅读), 标记后不再被自动滚动打断
             setOnTouchListener { _, ev ->
                 if (ev.actionMasked == MotionEvent.ACTION_DOWN) scrollUserScrolled = true
                 false
             }
+            // 用户滚回底部附近时恢复自动追底(上翻阅读仅在离开底部期间让位, 复活旧 ScrollView 版 scrollUserScrolled 语义)
+            addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                    if (!scrollUserScrolled) return
+                    val lm = rv.layoutManager as? LinearLayoutManager ?: return
+                    val last = lm.findLastVisibleItemPosition()
+                    val count = rv.adapter?.itemCount ?: return
+                    if (last >= count - 2) scrollUserScrolled = false
+                }
+            })
         }
+        chatAdapter.recyclerView = chatRec
         applyChatBackground()
-        // 内容容器: scroll+inputBar 整体, 键盘弹出时高度动画缩小 = 消息+输入框上移, 标题栏与背景不动(同微信)
+        // 内容容器: chatRec+inputBar 整体, 键盘弹出时高度动画缩小 = 消息+输入框上移, 标题栏与背景不动(同微信)
         bodyWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        bodyWrap.addView(scroll, LinearLayout.LayoutParams(
+        bodyWrap.addView(chatRec, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // 附件预览条: 选中附件出现在输入框上方, 可补文字后一并发送; 默认隐藏, 有附件才显示
@@ -557,8 +637,28 @@ class MainActivity : Activity() {
             setPadding(dp(8), dp(8), dp(8), dp(8))
             setBackgroundColor(Color.WHITE)
         }
-        input = EditText(this).apply {
-            var enterHandled = false
+        input = object : EditText(this) {
+            // 回车去重: DOWN 放行后系统默认 KeyListener 已插入 \n; 若 IME 再 commitText 纯 "\n" 则丢弃,
+            // 防微信输入法(sendKeyEvent + commitText 双路径)导致的一次回车双换行
+            var downPassed = false
+            override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+                val base = super.onCreateInputConnection(outAttrs) ?: return null
+                val self = this
+                return object : InputConnectionWrapper(base, true) {
+                    override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                        val t = text?.toString() ?: ""
+                        if ((t == "\n" || t == "\r\n") && self.downPassed) {
+                            self.downPassed = false
+                            android.util.Log.d("KBDDBG", "commitText NL dropped (down already inserted)")
+                            return true
+                        }
+                        return super.commitText(text, newCursorPosition)
+                    }
+                }
+            }
+        }.apply {
+            var lastEnterInsert = 0L
+            var nlCount = 0
             hint = getString(R.string.ma_hint_input)
             textSize = 15f
             // 显式声明多行文本类型: 未设 MULTI_LINE 时部分输入法会错误地把回车按两次插入
@@ -567,38 +667,30 @@ class MainActivity : Activity() {
             minLines = 1
             maxLines = 4
             setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = rounded(dp(22), Color.parseColor("#EFEFF1"))
-            setTextColor(Color.parseColor("#1A1A1A"))
+            background = rounded(dp(22), Ui.INPUT_BG)
+            setTextColor(Ui.TEXT)
             setHintTextColor(Color.parseColor("#B0B0B0"))
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_SEND) { onSend(); true } else false
             }
             imeOptions = EditorInfo.IME_ACTION_SEND
-            // 回车深度拦截: 吞掉 DOWN 防止系统默认 KeyListener 先插入一次; UP/MULTIPLE 以
-            // enterHandled 去重, 按下一个回车只插入单个 \n, 修正"回车换两行"
+            // 回车放行 DOWN(系统默认 KeyListener 插入 \n, 百度 sendKeyEvent 路径); 吞掉 UP/MULTIPLE 防重复。
+            // 微信输入法在 DOWN 系统插入后还会 commitText("\n"), 由 InputConnection 包装层去重丢弃, 避免双换行。
             setOnKeyListener { v, keyCode, e ->
                 if (keyCode != KeyEvent.KEYCODE_ENTER) return@setOnKeyListener false
-                val et = v as EditText
                 when (e.action) {
-                    KeyEvent.ACTION_DOWN -> { enterHandled = false; true }
+                    KeyEvent.ACTION_DOWN -> {
+                        downPassed = true
+                        android.util.Log.d("KBDDBG", "enter DOWN passThrough downPassed=true")
+                        false
+                    }
                     KeyEvent.ACTION_UP -> {
-                        if (!enterHandled) {
-                            val st = et.selectionStart.coerceAtLeast(0)
-                            val en = et.selectionEnd.coerceAtLeast(st)
-                            et.text.replace(st, en, "\n")
-                            et.setSelection((st + 1).coerceAtMost(et.text.length))
-                            enterHandled = true
-                        }
+                        val now = android.os.SystemClock.uptimeMillis()
+                        android.util.Log.d("KBDDBG", "enter UP consumed dt=${now - lastEnterInsert}")
                         true
                     }
                     KeyEvent.ACTION_MULTIPLE -> {
-                        if (!enterHandled) {
-                            val st = et.selectionStart.coerceAtLeast(0)
-                            val en = et.selectionEnd.coerceAtLeast(st)
-                            et.text.replace(st, en, "\n")
-                            et.setSelection((st + 1).coerceAtMost(et.text.length))
-                            enterHandled = true
-                        }
+                        android.util.Log.d("KBDDBG", "enter MULTIPLE consumed")
                         true
                     }
                     else -> false
@@ -617,7 +709,16 @@ class MainActivity : Activity() {
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 // 曾在此把 \n\n 归一为单个 \n 兜底"输入法双行"——但会吞掉用户刻意连续换行/空行分段，
                 // 导致回车只能换一行; 现 MULTI_LINE 输入类型 + Enter 深度拦截已防双行, 删除归一以支持自由多行
-                override fun afterTextChanged(s: Editable?) { updateInputMode() }
+                override fun afterTextChanged(s: Editable?) {
+                    val n = s?.count { it == '\n' } ?: 0
+                    if (n > nlCount) {
+                        val now = android.os.SystemClock.uptimeMillis()
+                        android.util.Log.d("KBDDBG", "NL inserted nl=$n dt=${now - lastEnterInsert}")
+                        lastEnterInsert = now
+                    }
+                    nlCount = n
+                    updateInputMode()
+                }
             })
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -735,7 +836,7 @@ class MainActivity : Activity() {
             minHeight = 0
             minWidth = 0
             setTextColor(Color.WHITE)
-            background = rounded(dp(16), Color.parseColor("#0B93F6"))
+            background = rounded(dp(16), Ui.PRIMARY)
             setPadding(dp(2), dp(5), dp(2), dp(5))
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 bottomMargin = dp(10)
@@ -753,7 +854,7 @@ class MainActivity : Activity() {
             minHeight = 0
             minWidth = 0
             setTextColor(Color.WHITE)
-            background = rounded(dp(18), Color.parseColor("#E5484D"))
+            background = rounded(dp(18), Ui.DANGER)
             setPadding(0, 0, 0, 0)
             visibility = View.GONE
             // 固定 36dp, 与附件/发送同槽位叠放
@@ -765,7 +866,7 @@ class MainActivity : Activity() {
                 stopBtn.isEnabled = false
                 stopBtn.text = "…"
                 stopSpinAnim?.cancel()
-                android.util.Log.i("agent", "stop clicked, cancelRequested=${LocalEngine.cancelRequested}")
+                android.util.Log.i("Nyral", "stop clicked, cancelRequested=${LocalEngine.cancelRequested}")
             }
             Ui.press(this)
         }
@@ -773,6 +874,39 @@ class MainActivity : Activity() {
         stopBtn.setCompoundDrawablesWithIntrinsicBounds(stopSpin, null, null, null)
         attachWrap.addView(stopBtn)
         inputBar.addView(attachWrap)
+        // 浏览器控制条: 悬浮聊天时位于输入框上方(欢迎文字 + 接管按钮), 浏览器关闭时隐藏
+        browserBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            setBackgroundColor(Color.WHITE)
+            visibility = View.GONE
+        }
+        browserBarStatus = TextView(this).apply {
+            text = getString(R.string.ma_welcome)
+            textSize = 12f
+            setTextColor(Color.parseColor("#6B7FA3"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        browserBar.addView(browserBarStatus)
+        browserBarTakeover = TextView(this).apply {
+            text = getString(R.string.br_takeover)
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(Ui.PRIMARY)
+                cornerRadius = dp(20).toFloat()
+            }
+            elevation = dp(4).toFloat()
+            setPadding(dp(16), dp(9), dp(16), dp(9))
+            setOnClickListener { browserPage.toggleTakeover() }
+            Ui.press(this)
+        }
+        browserBar.addView(browserBarTakeover)
+        bodyWrap.addView(browserBar, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         bodyWrap.addView(inputBar)
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -792,7 +926,167 @@ class MainActivity : Activity() {
         root.addView(drawerPanel, FrameLayout.LayoutParams(
             DRAWER_WIDTH, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START))
 
+        // 浏览器作底层内容层: 先于 main 挂载(同父容器后 addView 在上), 聊天层悬浮其上
+        root.addView(browserPage.root, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
         root.addView(main)
+        // 悬浮切换动画结束后: 把所有流式行 bubbleBox 内部文字类气泡背景统一到目标色(颜色通道带目标 alpha),
+        // 流式行是独立 View 常驻 bubbleBox, 不随 item 重绘, 需主动收尾(滚出滚回不再闪变)
+        // 关键: 只改颜色值, 不再碰 drawable.alpha——否则与颜色里的 alpha 叠加相乘, 会出现 30% 级过透(用户反馈"100→30→50")
+        // 注: Kotlin 局部函数不可前向引用, 必须先于 animateBubbleFloat 声明
+        fun applyFloatAlphaToStreaming(float: Boolean) {
+            val list = chatAdapter.currentList
+            for (i in list.indices) {
+                val row = list[i]
+                if (row !is ChatRow.Streaming) continue
+                row.bubbleBox?.let { box ->
+                    fun apply(v: View) {
+                        if (v.tag == NO_FLOAT_TAG) return
+                        (v.background as? android.graphics.drawable.GradientDrawable)?.let { d ->
+                            val cur = d.color?.defaultColor ?: 0
+                            if (cur != 0) {
+                                val rgb = cur and 0x00FFFFFF
+                                val g = d.mutate() as android.graphics.drawable.GradientDrawable
+                                g.setColor(
+                                    if (float) rgb or (FLOAT_BUBBLE_ALPHA shl 24)
+                                    else rgb or 0xFF000000.toInt()
+                                )
+                            }
+                        }
+                        if (v is ViewGroup) for (j in 0 until v.childCount) apply(v.getChildAt(j))
+                    }
+                    apply(box)
+                }
+            }
+        }
+
+        // 悬浮模式气泡背景渐变: 打开浏览器 原色→半透明色, 关闭还原; 全程只做颜色值渐变(ofArgb 思路),
+        // 与 floatBubbleColor 的"颜色里带 alpha"保持同一通道, 杜绝 drawable.alpha × 颜色 alpha 双重叠加;
+        // 图片/视频气泡(背景 null 或 NO_FLOAT_TAG)跳过; 普通消息滚出视野的行由 notifyDataSetChanged 重绘兜底,
+        // 流式行(bubbleBox 常驻)由 applyFloatAlphaToStreaming 统一到目标色(滚出滚回一致)
+        // 注: Kotlin 局部函数不可前向引用, 两个辅助函数必须先于 setChatFloatMode 声明
+        fun animateBubbleFloat(float: Boolean) {
+            // 关键: 先切全局取色状态, 动画结束后的 notifyDataSetChanged 重绘/新建气泡才能取到带 alpha 的目标色,
+            // 否则动画只改了可见行背景, 重绘瞬间又按普通模式原色弹回(表现为"闪一下恢复原样")
+            chatFloatMode = float
+            // 全量重绘前后保持当前阅读位置: 防全量重绑遇行高变化导致滚动位置漂移(打开/关闭浏览器后消息不在最新)
+            fun rebindKeepPosition() {
+                val lm = chatRec.layoutManager as? LinearLayoutManager
+                val pos = lm?.findFirstVisibleItemPosition() ?: 0
+                val off = (lm?.findViewByPosition(pos)?.top ?: 0).coerceAtLeast(0)
+                chatAdapter.notifyDataSetChanged()
+                if (chatAdapter.itemCount > 0) {
+                    chatRec.post { (chatRec.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(pos, off) }
+                }
+            }
+            val targets = ArrayList<android.graphics.drawable.GradientDrawable>()
+            val fromColors = ArrayList<Int>()
+            fun collect(v: View) {
+                if (v.tag == NO_FLOAT_TAG) return
+                (v.background as? android.graphics.drawable.GradientDrawable)?.let { g ->
+                    val cur = g.color?.defaultColor ?: 0
+                    if (cur != 0) {
+                        targets.add(g.mutate() as android.graphics.drawable.GradientDrawable)
+                        fromColors.add(cur)
+                    }
+                }
+                if (v is ViewGroup) for (i in 0 until v.childCount) collect(v.getChildAt(i))
+            }
+            for (i in 0 until chatRec.childCount) collect(chatRec.getChildAt(i))
+            if (targets.isEmpty()) {
+                // 无可见气泡: 直接走重绘+流式兜底, 保证状态一致
+                rebindKeepPosition()
+                applyFloatAlphaToStreaming(float)
+                return
+            }
+            android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 250
+                addUpdateListener { va ->
+                    val t = va.animatedValue as Float
+                    val evaluator = android.animation.ArgbEvaluator()
+                    for (idx in targets.indices) {
+                        val g = targets[idx]
+                        val rgb = fromColors[idx] and 0x00FFFFFF
+                        val to = if (float) rgb or (FLOAT_BUBBLE_ALPHA shl 24) else rgb or 0xFF000000.toInt()
+                        g.setColor(evaluator.evaluate(t, fromColors[idx], to) as Int)
+                    }
+                }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        // 兜底1: 非可见普通行重绘为新取色; 兜底2: 流式行背景统一目标色
+                        rebindKeepPosition()
+                        applyFloatAlphaToStreaming(float)
+                    }
+                })
+                start()
+            }
+        }
+
+        // 悬浮聊天模式: 浏览器打开时 main 底部让出接管按钮区并半透明化; 接管时聊天层沉底(GONE)
+        fun setChatFloatMode(float: Boolean) {
+            // 接管按钮/欢迎文字已上移到输入框上方控制条, main 不再让出底部空间(输入框贴底)
+            val lp = main.layoutParams as FrameLayout.LayoutParams
+            lp.bottomMargin = 0
+            main.layoutParams = lp
+            if (float) {
+                browserBar.visibility = View.VISIBLE
+                browserBar.alpha = 0f
+                browserBar.animate().alpha(1f).setDuration(180).start()
+            } else {
+                browserBar.animate().alpha(0f).setDuration(140).withEndAction {
+                    browserBar.visibility = View.GONE
+                }.start()
+            }
+            animateBubbleFloat(float)
+        }
+        // 浏览器窗口收缩到聊天内容区(titleBar 下 ~ browserBar/inputBar 上), 接管/悬浮均保持该尺寸
+        fun adjustBrowserWindow() {
+            if (!browserPage.root.isAttachedToWindow) return
+            val tLoc = IntArray(2)
+            titleBar.getLocationInWindow(tLoc)
+            val top = tLoc[1] + titleBar.height
+            // browserBar 打开时才 VISIBLE(布局未跑 height=0): 手动 measure 取真实高度, 避免取到未布局位置导致收缩错位
+            if (browserBar.height == 0) {
+                browserBar.measure(
+                    View.MeasureSpec.makeMeasureSpec(titleBar.width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            }
+            val iLoc = IntArray(2)
+            inputBar.getLocationInWindow(iLoc)
+            val bottom = iLoc[1] - browserBar.measuredHeight
+            val h = (bottom - top).coerceAtLeast(dp(120))
+            browserPage.setWindowRect(top, h)
+        }
+        // 动画开始前先收缩浏览器窗口到中间区域(标题栏下~输入框上), 消除"先全屏再跳变"闪一下
+        browserPage.onPreOpen = {
+            setChatFloatMode(true)
+            browserPage.setBottomTakeoverVisible(false)
+            adjustBrowserWindow()
+        }
+        browserPage.onOpenChange = { open ->
+            if (open) {
+                setChatFloatMode(true)
+                browserPage.setBottomTakeoverVisible(false)  // 悬浮模式: 底部按钮让位于控制条
+                adjustBrowserWindow()
+            } else {
+                setChatFloatMode(false)
+                main.visibility = View.VISIBLE
+                chatRec.visibility = View.VISIBLE
+                browserPage.setBottomTakeoverVisible(false)
+                // 窗口尺寸常驻: 不还原全屏, 下次打开/手势拖动直接是中间尺寸, 消除"先全屏再跳变"
+            }
+        }
+        browserPage.onTakeoverChange = { taken ->
+            // 窗口化交互: 接管仅隐藏消息区, 标题栏/输入框/控制条保留, 浏览器窗口尺寸不变
+            chatRec.visibility = if (taken) View.INVISIBLE else View.VISIBLE
+            browserBarTakeover.text = if (taken) "🤖 交还 AI" else "✋ 接管"
+            browserBarStatus.text = if (taken) "你已接管，可点击网页（如验证码）" else "欢迎回来 · 一切就绪"
+            browserPage.setBottomTakeoverVisible(false)
+        }
+        browserPage.onHamburgerChange = { open ->
+            // 汉堡面板已提升到 root 最顶层, 直接覆盖聊天层; 接管时消息区已隐藏, 无需再 GONE main
+            browserPage.setBottomTakeoverVisible(false)
+        }
         // Token 面板外点遮罩: 全屏透明, 面板展开时可见, 点击即收起; 置于面板之下、聊天内容之上
         tokenMask = View(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -806,9 +1100,14 @@ class MainActivity : Activity() {
             resources.displayMetrics.widthPixels / 2,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.END))
-        // 右侧整屏浏览器操作页: 挂 root 最上层(Gravity.END), 右缘左滑整页推入
-        root.addView(browserPage.root, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
+        // 汉堡面板提升到 root 最顶层(覆盖聊天层): 从 browserPage.root 移除并挂到 root 最上, 展开时聊天层不再 GONE(消除闪白)
+        browserPage.root.removeView(browserPage.hamburgerMask)
+        browserPage.root.removeView(browserPage.hamburgerPanel)
+        root.addView(browserPage.hamburgerMask, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(browserPage.hamburgerPanel, FrameLayout.LayoutParams(
+            dp(300), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
+        browserPage.hamburgerPanel.translationX = dp(300).toFloat()
         // 右缘也注册系统手势排除区: 避免手势导航把"右缘左滑"误判为系统返回, 与左缘抽屉同策略
         if (Build.VERSION.SDK_INT >= 29) {
             browserPage.root.addOnLayoutChangeListener { _, l, _, r, b, _, _, _, _ ->
@@ -828,7 +1127,11 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 29) {
             root.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
                 if (v.height > 0) {
-                    v.systemGestureExclusionRects = listOf(Rect(0, 0, DRAWER_WIDTH, v.height))
+                    // 左侧整块抽屉 + 右侧 1/3 触发区(浏览器/汉堡面板) 声明为系统手势排除区, 系统返回让位
+                    v.systemGestureExclusionRects = listOf(
+                        Rect(0, 0, DRAWER_WIDTH, v.height),
+                        Rect(v.width - v.width / 3, 0, v.width, v.height)
+                    )
                 }
             }
         }
@@ -844,6 +1147,15 @@ class MainActivity : Activity() {
                         lp.gravity = Gravity.TOP
                         bgLayer.layoutParams = lp
                     }
+                    root.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                }
+            }
+        })
+        // 首次布局完成即预锁定浏览器窗口尺寸(浏览器初始在屏幕外, 不可见): 打开/手势拖动时已是中间尺寸, 消灭"先全屏再跳变"
+        root.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (::browserPage.isInitialized && titleBar.height > 0 && inputBar.height > 0) {
+                    adjustBrowserWindow()
                     root.viewTreeObserver.removeOnGlobalLayoutListener(this)
                 }
             }
@@ -953,7 +1265,7 @@ class MainActivity : Activity() {
         }
         // 键盘弹起时点击输入区以外收起键盘: 在 root.dispatchTouchEvent 实现(见 root 定义处), 无其它点击监听
         summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
-        appendSys(getString(R.string.ma_sys_engine_started))
+        appendWelcomeIntro()
         // 恢复最近一次会话，避免杀后台后聊天记录与列表丢失
         val recent = db.listSessions(1, ModeConfig.modeValue())
         if (recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()) {
@@ -983,20 +1295,22 @@ class MainActivity : Activity() {
         if (::drawerNoteText.isInitialized) drawerNoteText.text = TitleConfig.drawerNote()
         // 聊天/Agent 模式切换: 重新加载当前模式最近会话
         if (lastModeValue != ModeConfig.modeValue()) {
+            val prevMode = lastModeValue
             lastModeValue = ModeConfig.modeValue()
-            maybeSaveCurrent()
+            maybeSaveCurrent(prevMode)
             messages.clear()
-            chatBox.removeAllViews()
+            chatRows.clear(); chatAdapter.notifyDataSetChanged()
             currentSaved = true
             currentSessionId = null
             currentSessionTitle = null
+            // 模式内续接: 切模式后按当前模式取最近会话续接, 不跨模式串
+            // (两种模式会话互不干扰, 仅长期记忆相通; 历史会话从抽屉按模式隔离列表进入)
+            appendWelcomeIntro()
             val recent = db.listSessions(1, ModeConfig.modeValue())
             if (recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()) {
                 openSession(recent[0].id)
-            } else {
-                appendSys(getString(R.string.ma_sys_engine_started))
-                refreshSessionList()
             }
+            refreshSessionList()
         }
         // 从设置页更换头像返回: 头像文件版本变化时重建当前会话气泡, 旧气泡无需重启即刷新
         refreshChatAvatars()
@@ -1029,7 +1343,7 @@ class MainActivity : Activity() {
                     } catch (e: Exception) { null }
                 } else null
             }
-            else -> android.graphics.drawable.ColorDrawable(Color.parseColor("#F7F7F8"))
+            else -> android.graphics.drawable.ColorDrawable(Ui.BG)
         }
     }
 
@@ -1061,25 +1375,39 @@ class MainActivity : Activity() {
 
     // ===================== 多会话 =====================
 
+    /** 取消当前 AI 请求(切会话/新会话调用): 代际自增使迟到回调全部失效, 立即恢复输入态,
+     *  不依赖迟到 onDone/onError 清理状态(阶段2 流式竞态治理) */
+    private fun cancelActiveRequest() {
+        if (!aiBusy) return
+        LocalEngine.requestCancel()
+        requestEpoch++
+        aiBusy = false
+        TaskService.stop(this@MainActivity)
+        updateInputMode()
+        stopBtn.visibility = View.GONE
+        stopSpinAnim?.cancel()
+        LogStore.i(LogStore.MAIN, "切会话取消进行中请求, 代际=${requestEpoch}")
+    }
+
     internal fun startNewSession() {
-        // AI 正在输出时切会话: 先取消引擎, 防止其把未完成的回复写进新会话历史
-        if (aiBusy) LocalEngine.requestCancel()
+        // AI 正在输出时切会话: 取消引擎 + 失效代际, 防止其把未完成的回复写进新会话历史
+        cancelActiveRequest()
         maybeSaveCurrent()
         messages.clear()
         sessionBaseSeq = 0
-        chatBox.removeAllViews()
+        chatRows.clear(); chatAdapter.notifyDataSetChanged()
         currentSaved = true
         currentSessionId = null
         currentSessionTitle = null
         summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
-        appendSys(getString(R.string.ma_sys_engine_started))
+        appendWelcomeIntro()
         refreshSessionList()
         closeDrawer()
     }
 
     internal fun openSession(id: Long, locateSeq: Int? = null) {
-        // AI 正在输出时切会话: 先取消引擎, 防止其把未完成的回复写进新会话历史
-        if (aiBusy) LocalEngine.requestCancel()
+        // AI 正在输出时切会话: 取消引擎 + 失效代际, 防止其把未完成的回复写进新会话历史
+        cancelActiveRequest()
         maybeSaveCurrent()
         // 超长会话内存瘦身: 消息数 > MEM_WINDOW 时仅载入最近窗口(更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担)
         val total = db.countSessionMessages(id)
@@ -1099,95 +1427,69 @@ class MainActivity : Activity() {
         currentSaved = true
         currentSessionId = id
         currentSessionTitle = db.sessionTitleOf(id)
-        chatBox.removeAllViews()
-        if (sessionBaseSeq > 0) {
-            appendSys(getString(R.string.ma_sys_window_hint, MEM_WINDOW))
-        }
-        msgs.forEachIndexed { i, m ->
-            val v = when {
-                m.role == "user" -> chatWrap(bubble(m.content, true), true)
-                m.thinking.isNotBlank() -> aiBubbleWithThinking(m.thinking, m.content, m.tools, m.timeline)
-                else -> chatWrap(bubble(m.content, false), false)
-            }
-            // 按 DB 全局 seq 打 tag(窗口化时 tag=baseSeq+i), 供搜索命中后精准定位滚动
-            v.tag = sessionBaseSeq + i
-            chatBox.addView(v)
-        }
-        if (locateSeq != null) {
-            // 定位到命中消息, 短暂高亮提示
-            scroll.post {
-                val target = chatBox.getChildAt(locateSeq - sessionBaseSeq)
-                if (target != null) {
-                    val top = target.top - scroll.height / 3
-                    scroll.smoothScrollTo(0, top.coerceAtLeast(0))
-                    val orig = target.alpha
-                    target.animate().alpha(0.25f).setDuration(180).withEndAction {
-                        target.animate().alpha(orig).setDuration(500).start()
-                    }.start()
-                } else if (locateSeq < sessionBaseSeq) {
-                    Toast.makeText(this, R.string.toast_loaded_far_history, Toast.LENGTH_LONG).show()
-                    // 窗口外命中: 临时全量加载该会话(仅本次, 定位后恢复窗口) —— 直接回退到旧行为一次
-                    chatBox.removeAllViews()
-                    sessionBaseSeq = 0
-                    val full = db.loadSessionMessages(id)
-                    messages.clear(); messages.addAll(full)
-                    full.forEachIndexed { i, m ->
-                        val v = when {
-                            m.role == "user" -> chatWrap(bubble(m.content, true), true)
-                            m.thinking.isNotBlank() -> aiBubbleWithThinking(m.thinking, m.content, m.tools, m.timeline)
-                            else -> chatWrap(bubble(m.content, false), false)
-                        }
-                        v.tag = i
-                        chatBox.addView(v)
-                    }
-                    val t2 = chatBox.getChildAt(locateSeq)
-                    if (t2 != null) {
-                        val top = t2.top - scroll.height / 3
-                        scroll.smoothScrollTo(0, top.coerceAtLeast(0))
-                        val orig = t2.alpha
-                        t2.animate().alpha(0.25f).setDuration(180).withEndAction {
-                            t2.animate().alpha(orig).setDuration(500).start()
-                        }.start()
+        // 滚动时机修复: ListAdapter.submitList 为异步 diff, 滚动必须等 diff 提交后执行,
+        // 否则 itemCount 仍是旧会话值→滚到错误位置/直接不滚(表现为"切会话后不在最新, 像自己滚动")
+        var scrolled = false
+        val scrollAfterCommit = scrollAfterCommit@{
+            if (scrolled) return@scrollAfterCommit
+            scrolled = true
+            if (locateSeq != null) {
+                // 定位到命中消息(搜索/跳转): RecyclerView 直接滚到该行 + 短暂高亮
+                chatRec.post {
+                    if (locateSeq < sessionBaseSeq) {
+                        Toast.makeText(this, R.string.toast_loaded_far_history, Toast.LENGTH_LONG).show()
+                        // 窗口外命中: 临时全量加载该会话(仅本次, 定位后恢复窗口)
+                        sessionBaseSeq = 0
+                        val full = db.loadSessionMessages(id)
+                        messages.clear(); messages.addAll(full)
+                        buildRowsFromMessages()
+                        val idx = locateSeq.coerceIn(0, chatRows.lastIndex)
+                        chatRec.scrollToPosition(idx)
+                        chatRec.post { chatAdapter.highlightRow(chatRows.getOrNull(idx)) }
+                    } else {
+                        val idx = (locateSeq - sessionBaseSeq).coerceIn(0, chatRows.lastIndex)
+                        chatRec.scrollToPosition(idx)
+                        chatRec.post { chatAdapter.highlightRow(chatRows.getOrNull(idx)) }
                     }
                 }
+            } else {
+                scrollToBottom()
             }
-        } else {
-            scrollToBottom()
+        }
+        buildRowsFromMessages {
+            if (sessionBaseSeq > 0) {
+                // 窗口化提示行插入到历史消息头部(与旧 ScrollView 行为一致: 提示在顶部), 其 diff 提交后再滚动
+                chatAdapter.insert(0, ChatRow.Sys(nextTempRowId(), getString(R.string.ma_sys_window_hint, MEM_WINDOW))) { scrollAfterCommit() }
+            } else {
+                scrollAfterCommit()
+            }
         }
         refreshSessionList()
         closeDrawer()
     }
 
-    /** 换头像后刷新当前会话旧气泡: 头像版本戳变化时按 messages 重建 chatBox, 保留滚动位置 */
+    /** 换头像后刷新当前会话旧气泡: 头像版本戳变化时按 messages 重建 chatRows(RecyclerView), 保留滚动位置 */
     private fun refreshChatAvatars() {
         val stamp = AvatarConfig.avatarStamp()
         if (stamp == lastAvatarStamp) return
         lastAvatarStamp = stamp
         // AI 正在输出时跳过, 避免打断流式渲染(其后的新气泡自然使用新头像)
-        if (aiBusy || messages.isEmpty() || !::chatBox.isInitialized) return
-        val y = scroll.scrollY
-        chatBox.removeAllViews()
-        messages.forEachIndexed { i, m ->
-            val v = when {
-                m.role == "user" -> chatWrap(bubble(m.content, true), true)
-                m.thinking.isNotBlank() -> aiBubbleWithThinking(m.thinking, m.content, m.tools, m.timeline)
-                else -> chatWrap(bubble(m.content, false), false)
-            }
-            v.tag = i
-            chatBox.addView(v)
-        }
-        scroll.post { scroll.scrollTo(0, y) }
+        if (aiBusy || messages.isEmpty() || !::chatAdapter.isInitialized) return
+        val lm = chatRec.layoutManager as? LinearLayoutManager
+        val pos = lm?.findFirstVisibleItemPosition() ?: 0
+        buildRowsFromMessages()
+        chatRec.post { lm?.scrollToPosition(pos) }
     }
 
-    private fun maybeSaveCurrent() {
+    private fun maybeSaveCurrent(mode: Int = ModeConfig.modeValue()) {
         if (!currentSaved && messages.isNotEmpty()) {
             val title = messages.firstOrNull { it.role == "user" }?.content
                 ?.replace("\n", " ")?.take(20) ?: getString(R.string.ma_unnamed_session)
             val sid = currentSessionId
             if (sid != null) {
-                db.updateSession(sid, title, messages, ModeConfig.modeValue(), sessionBaseSeq)
+                db.updateSession(sid, title, messages, mode, sessionBaseSeq)
             } else {
-                currentSessionId = db.saveSession(title, messages, ModeConfig.modeValue())
+                currentSessionId = db.saveSession(title, messages, mode)
             }
             currentSessionTitle = title
             currentSaved = true
@@ -1223,7 +1525,7 @@ class MainActivity : Activity() {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                     textSize = 14f
-                    setTextColor(Color.parseColor("#1A1A1A"))
+                    setTextColor(Ui.TEXT)
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = (if (s.pinned) getString(R.string.ma_pinned_prefix) else "") + fmtTime(s.updatedAt)
@@ -1233,7 +1535,7 @@ class MainActivity : Activity() {
                 })
             })
             sessionList.addView(View(this).apply {
-                setBackgroundColor(Color.parseColor("#F0F0F2"))
+                setBackgroundColor(Ui.DIVIDER)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
             })
@@ -1244,6 +1546,10 @@ class MainActivity : Activity() {
 
 
     override fun onBackPressed() {
+        if (browserPage.hamburgerOpen) {
+            browserPage.collapseHamburger()
+            return
+        }
         if (browserPage.open) {
             if (!browserPage.goBack()) browserPage.close()
             return
@@ -1311,7 +1617,7 @@ class MainActivity : Activity() {
 
     private fun doSend(attachments: List<LocalEngine.Attachment>) {
         val text = input.text.toString().trim()
-        android.util.Log.i("agent", "onSend text=[$text] aiBusy=$aiBusy attachments=${attachments.size}")
+        android.util.Log.i("Nyral", "onSend text=[$text] aiBusy=$aiBusy attachments=${attachments.size}")
         if (text.isEmpty() && attachments.isEmpty()) return
         if (aiBusy) {
             Toast.makeText(this, R.string.toast_ai_typing, Toast.LENGTH_SHORT).show()
@@ -1360,7 +1666,9 @@ class MainActivity : Activity() {
                 val showAtts = attachments.filter { it.pdfSourceName == null }
                 val marks = showAtts.map { a ->
                     val fileName = try {
-                        AttachmentStore.save(this@MainActivity, a.name, a.mime, Base64.decode(a.base64, Base64.NO_WRAP))
+                        // 已落库附件(stored): base64 为空, 直接以落库引用 key 做 att:// 链接, 不重复落盘
+                        if (a.stored) a.name
+                        else AttachmentStore.save(this@MainActivity, a.name, a.mime, Base64.decode(a.base64, Base64.NO_WRAP))
                     } catch (e: Exception) {
                         null
                     }
@@ -1404,28 +1712,43 @@ class MainActivity : Activity() {
         // 即时落库: 不依赖 onStop 兜底, 防止发送后进程被杀(force-stop/划掉后台)导致最后一条消息丢失
         maybeSaveCurrent()
 
-        // 文档类附件本地解析文本: 全部注入 history(而非仅第一个), 模型据此理解文档内容
-        // 防炸: 单附件截断到 MAX_ATTACH_TEXT, 全部附件累计截断到 MAX_DOC_TOTAL
+        // 文档类附件本地解析文本: 预算闸门(定稿六.1): 估算 token = 字符数/3, 单轮 ≤2000 直进, 超限走索引卡
+        // 直进路径保留原字符级兜底(MAX_ATTACH_TEXT / MAX_DOC_TOTAL); 超预算路径全文落盘, history 只放索引卡
+        val ATT_BUDGET = 2000
         val docParts = ArrayList<String>()
         var docTotal = 0
-        for (a in attachments) {
-            val t = a.text ?: ""
-            if (t.isBlank()) continue
-            val part = if (t.length > MAX_ATTACH_TEXT) {
-                "[附件 ${a.name} 本地解析文本(已截断, 原件${t.length}字符)]\n${t.take(MAX_ATTACH_TEXT)}"
-            } else {
-                "[附件 ${a.name} 本地解析文本]\n$t"
+        val docAtts = attachments.filter { !(it.text ?: "").isBlank() }
+        val estTokens = docAtts.sumOf { (it.text?.length ?: 0) / 3 }
+        if (estTokens <= ATT_BUDGET) {
+            for (a in docAtts) {
+                val t = a.text ?: ""
+                val part = if (t.length > MAX_ATTACH_TEXT) {
+                    "[附件 ${a.name} 本地解析文本(已截断, 原件${t.length}字符)]\n${t.take(MAX_ATTACH_TEXT)}"
+                } else {
+                    "[附件 ${a.name} 本地解析文本]\n$t"
+                }
+                if (docTotal + part.length > MAX_DOC_TOTAL) {
+                    docParts.add("[附件及其他] (已超总量上限, 其余内容跳过)")
+                    break
+                }
+                docTotal += part.length
+                docParts.add(part)
             }
-            if (docTotal + part.length > MAX_DOC_TOTAL) {
-                docParts.add("[附件及其他] (已超总量上限, 其余内容跳过)")
-                break
+        } else {
+            // 超预算: 全文落盘 attachments/*.txt, history 只放索引卡(约300字预览), 需细节时调 attach_read 分块读取
+            for (a in docAtts) {
+                val t = a.text ?: ""
+                val txtFile = try {
+                    AttachmentStore.save(this, a.name + ".txt", "text/plain", t.toByteArray(Charsets.UTF_8))
+                } catch (e: Exception) { null }
+                val loc = if (txtFile != null) "att://$txtFile" else "落盘失败"
+                docParts.add("[附件 ${a.name} | ${a.mime} | 解析文本${t.length}字符 | 全文已落盘, 需要细节时调 attach_read 按 offset/limit 分块读取 | 存储 $loc]\n[摘要预览]\n${t.take(300)}")
             }
-            docTotal += part.length
-            docParts.add(part)
         }
         val docTexts = docParts.joinToString("\n")
         val history = if (docTexts.isBlank()) buildHistory() else buildHistory() + "\n$docTexts\n"
         aiBusy = true
+        val epoch = ++requestEpoch   // 新请求代际: 上一轮迟到回调(若存在)全部失效
         replySessionId = currentSessionId  // 快照: 回调回来时若已切会话, 拒绝写入
         attachBtn2.visibility = View.GONE
         attachBtn.visibility = View.GONE
@@ -1436,51 +1759,58 @@ class MainActivity : Activity() {
         executor.execute {
             val holder = AiBubbleHolder(this@MainActivity)
             uiScope.launch {
-                holder.attach(chatBox)
+                // 流式行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器
+                val row = ChatRow.Streaming(nextTempRowId(), holder)
+                streamingRow = row
+                chatAdapter.add(row)
+                val box = holder.createStreamingBox()
+                row.bubbleBox = box
+                chatAdapter.attachStreaming(chatRows.size - 1)
                 holder.showStatus(getString(R.string.ma_thinking))
-                scrollToBottom()
+                scrollToBottom(true)
             }
             LocalEngine.chat(this@MainActivity, history, object : LocalEngine.Callback {
                 override fun onThinkingStart() {
                     LogStore.i(LogStore.MAIN, "开始思考")
                     AITerminal.push("thinking", "开始思考…")
                     debugSseSink?.invoke("thinking_start", "")
-                    uiScope.launch { holder.showThinking(getString(R.string.ma_thinking_prefix)) }
+                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.showThinking(getString(R.string.ma_thinking_prefix)) }
                 }
                 override fun onThinkingDelta(text: String) {
                     debugSseSink?.invoke("thinking", text)
-                    uiScope.launch { holder.appendThinking(text); scrollToBottom() }
+                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.appendThinking(text); scrollToBottom(true) }
                 }
                 override fun onThinkingEnd() {
                     AITerminal.push("thinking", "思考结束，进入作答")
                     debugSseSink?.invoke("thinking_end", "")
-                    uiScope.launch { holder.collapseThinking() }
+                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.collapseThinking() }
                 }
                 override fun onTool(name: String, arg: String) {
                     LogStore.i(LogStore.MAIN, "调用工具: $name")
                     AITerminal.push("tool", "$name $arg")
                     debugSseSink?.invoke("tool", "$name|$arg")
                     uiScope.launch {
+                        if (epoch != requestEpoch) return@launch
                         holder.showTool(name, arg)
                         // 进入工具调用即表示本段思考已结束: 折叠思考区, 避免一直停在"思考中"
                         holder.collapseThinking()
-                        scrollToBottom()
+                        scrollToBottom(true)
                     }
                 }
                 override fun onToolResult(name: String, result: String) {
                     LogStore.i(LogStore.MAIN, "工具结果: $name")
                     AITerminal.push("tool_result", "$name → ${result.trim()}")
                     debugSseSink?.invoke("tool_result", "$name|$result")
-                    uiScope.launch { holder.setToolResult(name, result) }
+                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.setToolResult(name, result) }
                 }
                 override fun onDelta(text: String) {
-                    android.util.Log.i("agent", "onDelta=[$text]")
+                    android.util.Log.i("Nyral", "onDelta=[$text]")
                     AITerminal.push("delta", text)
                     debugSseSink?.invoke("delta", text)
-                    uiScope.launch { holder.appendContent(text); scrollToBottom() }
+                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.appendContent(text); scrollToBottom(true) }
                 }
                 override fun onDone(reply: String) {
-                    android.util.Log.i("agent", "onDone len=${reply.length}")
+                    android.util.Log.i("Nyral", "onDone len=${reply.length}")
                     if (LocalEngine.cancelRequested) {
                         LogStore.w(LogStore.MAIN, "用户停止输出")
                         AITerminal.push("stop", "已停止")
@@ -1489,6 +1819,8 @@ class MainActivity : Activity() {
                         AITerminal.push("done", "回复完成 len=${reply.length}")
                     }
                     uiScope.launch {
+                        // 代际校验(阶段2): 切会话/新请求已接管, 迟到回调直接丢弃, 不碰 holder/不写库/不动状态
+                        if (epoch != requestEpoch) return@launch
                         if (LocalEngine.cancelRequested) {
                             // 用户主动停止: 不写入对话/记忆
                             holder.appendContent("\n(已停止)")
@@ -1512,7 +1844,7 @@ class MainActivity : Activity() {
                         updateInputMode()
                         stopBtn.visibility = View.GONE
                         stopSpinAnim?.cancel()
-                        scrollToBottom()
+                        scrollToBottom(true)
                     }
                     debugSseSink?.invoke("done", reply)
                     debugChatDone?.invoke()
@@ -1521,6 +1853,7 @@ class MainActivity : Activity() {
                     LogStore.e(LogStore.MAIN, "错误: $msg")
                     AITerminal.push("error", msg)
                     uiScope.launch {
+                        if (epoch != requestEpoch) return@launch
                         holder.showError(getString(R.string.ma_error_fmt, msg))
                         LocalEngine.cancelRequested = false
                         aiBusy = false
@@ -1528,7 +1861,7 @@ class MainActivity : Activity() {
                         updateInputMode()
                         stopBtn.visibility = View.GONE
                         stopSpinAnim?.cancel()
-                        scrollToBottom()
+                        scrollToBottom(true)
                     }
                     debugSseSink?.invoke("error", msg)
                     debugChatDone?.invoke()
@@ -1542,13 +1875,13 @@ class MainActivity : Activity() {
      * (渲染气泡 -> 落库 -> 构建历史 -> LocalEngine 工具循环 -> SSE 事件转发)。
      * 必须在主线程调用。返回 false 表示 AI 正忙, 请求被拒绝。
      */
-    internal fun submitDebugChat(text: String, onDone: () -> Unit): Boolean {
+    internal fun submitDebugChat(text: String, attachments: List<LocalEngine.Attachment> = emptyList(), onDone: () -> Unit): Boolean {
         if (aiBusy) return false
         debugChatDone = onDone
         TokenStore.currentSessionId = currentSessionId
         LocalEngine.cancelRequested = false
         aiBusy = true
-        continueSend(text, listOf(text), emptyList())
+        continueSend(text, listOf(text), attachments)
         return true
     }
 
@@ -1587,22 +1920,169 @@ class MainActivity : Activity() {
     }
 
     private fun appendUser(content: String) {
-        val v = chatWrap(bubble(content, isUser = true), true)
-        chatBox.addView(v)
-        enterBubble(v)
+        // 阶段4 时间标签: 首条消息或距上条消息 >=30 分钟时, 先插分组标签(appendUser 前 messages 已含本条)
+        val last = messages.getOrNull(messages.size - 2)
+        val ts = System.currentTimeMillis()
+        if (last == null || ts - last.ts >= TIME_TAG_GAP) {
+            chatAdapter.add(ChatRow.TimeTag(nextTempRowId(), formatTimeTag(ts)))
+        }
+        chatAdapter.add(ChatRow.User(nextTempRowId(), content))
         scrollToBottom()
     }
 
     private fun appendSys(content: String) {
-        val v = TextView(this).apply {
-            text = content
+        chatAdapter.add(ChatRow.Sys(nextTempRowId(), content))
+        scrollToBottom(true)
+    }
+
+    /** 新会话开场介绍卡片：首启/新建会话时展示（文案集中在 strings.xml 便于迭代，预留可进化接口） */
+    private fun appendWelcomeIntro() {
+        chatAdapter.add(ChatRow.Welcome(nextTempRowId()))
+        scrollToBottom()
+    }
+
+    /** RecyclerView 行渲染分发: 每条 ChatRow 对应一个气泡(复用既有 bubble/aiBubbleWithThinking 渲染, 不重造轮子) */
+    internal fun buildRowView(row: ChatRow): View = when (row) {
+        is ChatRow.User -> chatWrap(bubble(row.content, isUser = true), true)
+        is ChatRow.Ai -> chatWrap(bubble(row.content, isUser = false), false)
+        is ChatRow.AiRich -> aiBubbleWithThinking(row.thinking, row.content, row.tools, row.timeline)
+        is ChatRow.Sys -> TextView(this).apply {
+            text = row.text
             textSize = 12f
             setTextColor(SYS_TEXT)
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, dp(6))
         }
-        chatBox.addView(v)
-        enterBubble(v)
+        is ChatRow.Welcome -> welcomeCardView()
+        is ChatRow.TimeTag -> TextView(this).apply {
+            text = row.text
+            textSize = 11f
+            setTextColor(SYS_TEXT)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(6))
+        }
+        is ChatRow.Streaming -> row.bubbleBox ?: View(this)
+    }
+
+    /** 按当前 messages 重建 chatRows 并整体提交给 RecyclerView(会话打开/头像刷新/窗口外回退共用) */
+    private fun buildRowsFromMessages(onCommitted: (() -> Unit)? = null) {
+        chatRows.clear()
+        var lastTs = 0L
+        for (m in messages) {
+            // 阶段4 sanitizeMessages: 丢弃全空消息(防 DB 残留空白行污染界面)
+            if (m.content.isBlank() && m.thinking.isBlank() && m.tools.isBlank()) continue
+            // 阶段4 时间标签: 首条消息或距上条消息 >=30 分钟时插入分组标签(纯展示层, 不动数据)
+            if (lastTs == 0L || m.ts - lastTs >= TIME_TAG_GAP) {
+                chatRows.add(ChatRow.TimeTag(nextTempRowId(), formatTimeTag(m.ts)))
+            }
+            lastTs = m.ts
+            chatRows.add(
+                when {
+                    m.role == "user" -> ChatRow.User(sessionBaseSeq + chatRows.size.toLong(), m.content)
+                    m.thinking.isNotBlank() -> ChatRow.AiRich(sessionBaseSeq + chatRows.size.toLong(), m.thinking, m.content, m.tools, m.timeline)
+                    else -> ChatRow.Ai(sessionBaseSeq + chatRows.size.toLong(), m.content)
+                })
+        }
+        // 阶段2 兜底: 若仍有未落库的流式行(AI 输出中触发全量重建, 如窗口外回退), 追加到末尾不丢失气泡盒
+        streamingRow?.let { if (it !in chatRows) chatRows.add(it) }
+        chatAdapter.submit(chatRows.toList(), onCommitted)
+    }
+
+    /** 运行期新行临时 id: 负数递减, 与 DB 全局 seq(历史行 id=sessionBaseSeq+i)不冲突 */
+    private var tempRowSeq = 0L
+    private fun nextTempRowId(): Long { tempRowSeq--; return tempRowSeq }
+
+    /** 阶段4 时间标签分组阈值: 消息间隔 >=30 分钟视为新时间段, 插入时间标签 */
+    private val TIME_TAG_GAP = 30L * 60L * 1000L
+
+    /** 阶段4 时间标签文案: 当天只显 HH:mm, 跨天补日期 */
+    private fun formatTimeTag(ts: Long): String {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = ts }
+        val now = java.util.Calendar.getInstance()
+        val sameDay = c.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) && c.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)
+        val fmt = if (sameDay) java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        else java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+        return fmt.format(ts)
+    }
+
+    /** 新会话开场介绍卡片 View(欢迎卡片本体, 不含外侧气泡壳) */
+    private fun welcomeCardView(): View {
+        val maxW = chatMaxW()
+        val cardW = (maxW * 0.92f).toInt().coerceAtLeast(dp(260))
+        val inner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(dp(16), floatBubbleColor(BUBBLE_AI))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            addView(TextView(this@MainActivity).apply {
+                text = getString(R.string.welcome_intro_title)
+                textSize = 16f
+                setTextColor(Ui.PRIMARY)
+                typeface = Typeface.DEFAULT_BOLD
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            })
+            addView(TextView(this@MainActivity).apply {
+                textSize = 14f
+                setTextColor(BUBBLE_AI_TEXT)
+                setLineSpacing(dp(3).toFloat(), 1f)
+                movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                markwon.setMarkdown(this, getString(R.string.welcome_intro_body))
+            })
+        }
+        inner.layoutParams = LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT)
+        return chatWrap(inner, false)
+    }
+
+    /** AI ask_user 澄清对话框: 标题+问题正文+候选选项按钮(全宽浅色), 可选自定义输入; 点外部/返回视为取消 */
+    private fun showAskUserDialog(question: String, options: List<String>, allowCustom: Boolean, onPick: (String) -> Unit) {
+        val picked = AtomicBoolean(false)
+        val (dlg, box) = Ui.dialog(this, getString(R.string.ask_user_title), maxHeightRatio = 0.75)
+        dlg.setOnDismissListener {
+            if (!picked.get()) {
+                picked.set(true)
+                onPick(getString(R.string.ask_user_cancel))
+            }
+        }
+        box.addView(Ui.dialogText(this, question))
+        options.forEach { opt ->
+            box.addView(TextView(this).apply {
+                text = opt
+                textSize = 15f
+                gravity = Gravity.CENTER
+                isClickable = true
+                setTextColor(Ui.PRIMARY)
+                background = Ui.rounded(Ui.PRIMARY_LIGHT, 12, this@MainActivity)
+                setPadding(dp(12), dp(11), dp(12), dp(11))
+                Ui.press(this)
+                setOnClickListener {
+                    picked.set(true)
+                    dlg.dismiss()
+                    onPick(getString(R.string.ask_user_pick, opt))
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+            })
+        }
+        if (allowCustom) {
+            val edit = Ui.input(this, getString(R.string.ask_user_custom_hint))
+            box.addView(edit)
+            box.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(0, dp(10), 0, 0)
+                addView(Ui.dialogCancelBtn(this@MainActivity, getString(R.string.ask_user_submit), {
+                    val t = edit.text.toString().trim()
+                    if (t.isEmpty()) {
+                        Toast.makeText(this@MainActivity, getString(R.string.ask_user_empty), Toast.LENGTH_SHORT).show()
+                        return@dialogCancelBtn
+                    }
+                    picked.set(true)
+                    dlg.dismiss()
+                    onPick(getString(R.string.ask_user_typed, t))
+                }))
+            })
+        }
+        dlg.show()
     }
 
     /** 生成一条消息气泡 View (用户右深色 / AI 左浅色) */
@@ -1658,7 +2138,7 @@ class MainActivity : Activity() {
                 if (fname != null) setOnClickListener { togglePlayAudio(fname) }
             }
             // 纯图/纯视频气泡: 背景改透明, 气泡形态完全由图片圆角(dp14)体现, 彻底消除四角蓝色边线
-            background = if (edgeImage) null else rounded(dp(14), if (isUser) BUBBLE_USER else BUBBLE_AI)
+            background = if (edgeImage) null else rounded(dp(14), floatBubbleColor(if (isUser) BUBBLE_USER else BUBBLE_AI))
             maxWidth = if (isUser) userMaxW else maxW
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -1731,7 +2211,9 @@ class MainActivity : Activity() {
                 gravity = if (isUser) Gravity.END else Gravity.START
             }
             // 圆角气泡: 背景套圆角 + clipToOutline 裁剪内嵌播放画面, 与图片/缩略图气泡圆角体系一致
+            // 视频气泡悬浮模式始终不透明: 打 NO_FLOAT_TAG 让悬浮动画收集背景时跳过本帧
             background = rounded(dp(14), if (isUser) BUBBLE_USER else BUBBLE_AI)
+            tag = NO_FLOAT_TAG
             clipToOutline = true
             addView(pv)
             // 点击整块进全屏弹窗预览(弹窗内同样循环播放)
@@ -1770,7 +2252,7 @@ class MainActivity : Activity() {
                 // 视频: 取首帧缩略图+播放三角, 像图片一样内嵌气泡; 取帧失败回退文件卡片
                 val vtb = if (f != null && mime.startsWith("video/"))
                     decodeVideoThumbnail(f, resources.displayMetrics.density, this) else null
-                android.util.Log.i("agent", "renderAtt file=$file mime=$mime exists=${f != null} bmp=${bmp != null} vtb=${vtb != null}")
+                android.util.Log.i("Nyral", "renderAtt file=$file mime=$mime exists=${f != null} bmp=${bmp != null} vtb=${vtb != null}")
                 if (bmp != null) {
                     // 图片: 圆角化贴合气泡贴边, 替换为缩略图, 同时保留点击打开原图
                     val rb = roundedBitmap(bmp, dp(14))
@@ -1863,6 +2345,10 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(s, s).apply {
             bottomMargin = dp(4)
         }
+        // 点击 AI 头像进入 AI 个性化（原设置页入口已移除）
+        setOnClickListener {
+            startActivity(Intent(this@MainActivity, PersonalityActivity::class.java))
+        }
     }
 
     /** 用户头像: 圆形蓝底"我", 聊天模式用户消息右侧并排 */
@@ -1872,7 +2358,7 @@ class MainActivity : Activity() {
         if (custom != null) {
             background = custom
         } else {
-            text = "我"
+            text = getString(R.string.ma_me)
             textSize = 15f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -1892,7 +2378,8 @@ class MainActivity : Activity() {
             // 禁用 baseline 对齐: 气泡与头像均为 TextView, 默认会按文字基线对齐,
             // 导致无文本头像被下推, 短气泡时头像底部超出行边界被裁剪(下边缺角)
             isBaselineAligned = false
-            gravity = if (isUser) Gravity.END else Gravity.START
+            // 头像固定顶部(TOP): 单行气泡与头像等高近似居中; 两行/长文气泡从顶部向下延伸, 头像停在一行时的位置
+            gravity = if (isUser) (Gravity.END or Gravity.TOP) else (Gravity.START or Gravity.TOP)
             val lp = content.layoutParams as? LinearLayout.LayoutParams
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -1926,11 +2413,11 @@ class MainActivity : Activity() {
         fun thinkingRow(text: String): TextView = TextView(this@MainActivity).apply {
             var localExpanded = false
             val count = text.codePointCount(0, text.length)
-            this.text = "💭 已思考${count}字，点按展开"
+            this.text = getString(R.string.think_expand, count)
             textSize = 14f
             setTextColor(THINK_TEXT)
             setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = rounded(dp(10), THINK_BG)
+            background = rounded(dp(10), floatBubbleColor(THINK_BG))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(6)
@@ -1939,17 +2426,17 @@ class MainActivity : Activity() {
             maxWidth = maxW
             setOnClickListener {
                 localExpanded = !localExpanded
-                this.text = if (localExpanded) "💭 $text" else "💭 已思考${count}字，点按展开"
+                this.text = if (localExpanded) getString(R.string.think_expanded, text) else getString(R.string.think_expand, count)
             }
             // 交互行不启用 textIsSelectable, 保证首次点击即展开(否则被选择机制吞掉需点两次)
         }
         // 工具折叠气泡(一次工具调用独立一行, 点击展开参数与结果) —— 与流式 ToolBlock 一致
         fun toolRow(name: String, arg: String, result: String): TextView = TextView(this@MainActivity).apply {
-            this.text = "🔧 工具：$name"
+            this.text = getString(R.string.tool_collapsed, name)
             textSize = 14f
             setTextColor(THINK_TEXT)
             setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = rounded(dp(10), THINK_BG)
+            background = rounded(dp(10), floatBubbleColor(THINK_BG))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(6)
@@ -1970,10 +2457,10 @@ class MainActivity : Activity() {
             }
             // 交互行不启用 textIsSelectable, 保证首次点击即展开(否则被选择机制吞掉需点两次)
         }
-        // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致
-        fun contentRow(): TextView = TextView(this@MainActivity).apply {
+        // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
+        fun contentRow(seg: String): TextView = TextView(this@MainActivity).apply {
             textSize = 15f
-            val renderContent = ModeConfig.stripChatProtocolPrefix(content)
+            val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
             if (ModeConfig.chatPlainText()) {
                 text = renderContent.trimEnd()
             } else {
@@ -1983,15 +2470,16 @@ class MainActivity : Activity() {
             setLineSpacing(dp(3).toFloat(), 1f)
             setTextColor(BUBBLE_AI_TEXT)
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = rounded(dp(12), BUBBLE_AI)
+            background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(6)
                 bottomMargin = dp(4)
             }
             maxWidth = maxW
-            makeCopyable(this) { content }
+            makeCopyable(this) { seg }
         }
+        val contentSegs = splitLongContent(content)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             // Agent 模式不要头像(仅聊天模式并排头像); 聊天模式头像由 chatWrap 负责
@@ -2018,11 +2506,21 @@ class MainActivity : Activity() {
                     when (type) {
                         "think" -> addView(chatWrap(thinkingRow(thinkText), false))
                         "tool" -> addView(chatWrap(toolRow(name, arg, result), false))
-                        "content" -> if (content.isNotBlank()) { addView(chatWrap(contentRow(), false)); contentPlaced = true }
+                        "content" -> if (thinkText.isNotBlank()) {
+                            // 新格式(阶段2): content 事件携带该段正文, 逐段精确还原
+                            addView(chatWrap(contentRow(thinkText), false))
+                            contentPlaced = true
+                        } else if (content.isNotBlank()) {
+                            // 旧格式: content 事件无文本, 回退渲染全部分片一次
+                            contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
+                            contentPlaced = true
+                        }
                     }
                 }
                 // 兜底: timeline 无 content 事件但正文非空(旧数据), 追加末尾
-                if (!contentPlaced && content.isNotBlank()) addView(chatWrap(contentRow(), false))
+                if (!contentPlaced && content.isNotBlank()) {
+                    contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
+                }
             } else {
                 // 旧数据回退: 无 timeline 时按历史行为 思考折叠区 + 全部工具行 + 正文
                 if (thinking.isNotBlank()) {
@@ -2031,9 +2529,40 @@ class MainActivity : Activity() {
                 parseTools(toolsJson).forEach { (name, arg, result) ->
                     addView(chatWrap(toolRow(name, arg, result), false))
                 }
-                if (content.isNotBlank()) addView(chatWrap(contentRow(), false))
+                if (content.isNotBlank()) {
+                    contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
+                }
             }
         }
+    }
+
+    /** 长正文分片(阶段2 content 分片): 优先按段落边界切块, 每块不超过 SPLIT_CONTENT_LEN;
+     *  单段落超长(无空行长文/大段代码)按字符硬切, 与流式 appendContent 自动封段阈值一致 */
+    private fun splitLongContent(raw: String): List<String> {
+        if (raw.length <= SPLIT_CONTENT_LEN) return listOf(raw)
+        val out = ArrayList<String>()
+        val sb = StringBuilder()
+        for (para in raw.split("\n\n")) {
+            if (sb.length + para.length + 2 > SPLIT_CONTENT_LEN && sb.isNotEmpty()) {
+                out.add(sb.toString().trim())
+                sb.setLength(0)
+            }
+            if (para.length > SPLIT_CONTENT_LEN) {
+                // 单段落超长: 先清空缓冲, 再按字符硬切
+                if (sb.isNotEmpty()) { out.add(sb.toString().trim()); sb.setLength(0) }
+                var rest = para
+                while (rest.length > SPLIT_CONTENT_LEN) {
+                    out.add(rest.take(SPLIT_CONTENT_LEN))
+                    rest = rest.drop(SPLIT_CONTENT_LEN)
+                }
+                sb.append(rest)
+            } else {
+                if (sb.isNotEmpty()) sb.append("\n\n")
+                sb.append(para)
+            }
+        }
+        if (sb.isNotBlank()) out.add(sb.toString().trim())
+        return out
     }
 
     /** 解析持久化的工具序列 JSON -> (name, arg, result) 列表 */
@@ -2071,58 +2600,17 @@ class MainActivity : Activity() {
         } catch (e: Exception) { emptyList() }
     }
 
-    private var scrollPending = false
-    internal fun scrollToBottom() {
-        // 不能用 fullScroll(FOCUS_DOWN): 它会把焦点交给滚动方向上第一个可聚焦子 view(气泡 setTextIsSelectable 后可聚焦),
-        // 导致发送后焦点被气泡抢走、输入框失焦无法继续打字。改用 scrollTo 纯滚动不碰焦点。
-        // 时序修正: setText 后立即 post 滚动会读到旧高度, 布局完成高度变化后再滚到新位置, 来回交错造成"变长又缩回"抖动;
-        // 改为布局完成后(OnGlobalLayout)再滚动, 一次到位; 同帧多次调用合并, 避免 post 堆积。
-        // 兜底: 冷启动恢复会话时若 ScrollView 此刻无待布局事件, OnGlobalLayout 不触发(无 dirty),
-        // 气泡渲染完也不滚动 → 重启后停在历史顶部; 故延时后直接落底, 保证"重启后停在最新消息"。
-        if (scrollPending) return
-        scrollPending = true
-        val v = scroll
-        val h = android.os.Handler(Looper.getMainLooper())
-        var lastBottom = -1
-        // 瞬移落底(无动画): 仅在布局回调内/首帧绘制前执行, 用户看不到顶部, 无"蹦"的跳变
-        fun snap() {
-            val child = v.getChildAt(0) ?: return
-            lastBottom = child.bottom
-            val maxY = (child.bottom - v.height).coerceAtLeast(0)
-            if (maxY != v.scrollY) v.scrollTo(0, maxY)
-        }
-        // 平滑修正(有动画): 渲染分帧导致底部高度后移时温和滚过去, 避免硬跳;
-        // 高度无变化或用户已手动滑动则不再干预
-        fun ease() {
-            val child = v.getChildAt(0) ?: return
-            if (child.bottom == lastBottom) { if (scrollPending) scrollPending = false; return }
-            lastBottom = child.bottom
-            if (scrollUserScrolled) { if (scrollPending) scrollPending = false; return }
-            val maxY = (child.bottom - v.height).coerceAtLeast(0)
-            if (maxY != v.scrollY) v.smoothScrollTo(0, maxY)
-        }
-        v.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
-            override fun onGlobalLayout() {
-                v.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                if (scrollPending) { scrollPending = false; snap() }
-            }
-        })
-        // 首帧兜底 + 多档平滑兜底: 冷启动恢复会话若 OnGlobalLayout 未触发或无 dirty,
-        // 由 post/smooth 依次温和落底, 保证"重启后停在最新消息"且无瞬跳感
-        v.post { snap() }
-        h.postDelayed({ ease() }, 250)
-        h.postDelayed({ ease() }, 700)
-        h.postDelayed({ ease() }, 1500)
+    /** 滚到最新一条; auto=true 为流式自动追底——用户手动上翻阅读时让位不打断, 滚回底部附近自动恢复追底 */
+    internal fun scrollToBottom(auto: Boolean = false) {
+        if (auto && scrollUserScrolled) return
+        if (chatAdapter.itemCount == 0) return
+        chatRec.post { if (chatAdapter.itemCount > 0) chatRec.scrollToPosition(chatAdapter.itemCount - 1) }
     }
 
-    /** 展开/收起气泡时保持当前阅读位置: 记录某 view 顶部相对视口的偏移, 布局变化后恢复滚动, 避免 ScrollView 内容高度骤变被 clamp 回底部 */
+    /** 展开/收起气泡时保持当前阅读位置: RecyclerView 行内高度变化由 RV 自身测量处理, 这里仅确保该行仍在视口 */
     internal fun keepReadingPosition(view: View) {
-        val relTop = view.top - scroll.scrollY   // 展开前该气泡顶部相对视口顶部偏移
-        scroll.post {
-            val child = scroll.getChildAt(0) ?: return@post
-            val maxY = (child.bottom - scroll.height).coerceAtLeast(0)
-            scroll.scrollTo(0, (view.top - relTop).coerceIn(0, maxY))
-        }
+        val holder = chatRec.findContainingViewHolder(view) ?: return
+        chatRec.post { chatRec.scrollToPosition(holder.bindingAdapterPosition.coerceAtLeast(0)) }
     }
 
     /** 长按进入"原文本模式": 弹窗展示该条消息的原始文本, 在该模式下自由选择/复制全文或片段 */
@@ -2277,7 +2765,7 @@ class MainActivity : Activity() {
                     }
                 } catch (e: Exception) { /* 停止时 read 抛错: 忽略 */ }
             }.also { it.isDaemon = true; it.start() }
-            speakBar.text = "松开 发送"
+            speakBar.text = getString(R.string.ma_release_send)
             speakBar.background = rounded(dp(22), Color.parseColor("#07C160"))
             // 复用同一成员 Handler 入队: 复位时才能用 removeCallbacks 停表(target 匹配)
             recHandler = Handler(Looper.getMainLooper())
@@ -2344,7 +2832,7 @@ class MainActivity : Activity() {
             mime = "audio/wav",
             base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
             name = name,
-            text = "[语音消息]",
+            text = getString(R.string.ma_voice_msg),
             isVoice = true
         )
         try {
@@ -2457,6 +2945,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (instance == this) instance = null
         uiScope.cancel()
         if (::browserPage.isInitialized) browserPage.destroy()
         // 调试服务随 Activity 销毁关闭, 并清引用避免泄漏

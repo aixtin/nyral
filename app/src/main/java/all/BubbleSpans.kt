@@ -48,7 +48,7 @@ class BadgeSpan(private val label: String, private val density: Float) : Replace
         style = Paint.Style.FILL
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#0B93F6")
+        color = Ui.PRIMARY
         textSize = dp(11).toFloat()
         typeface = Typeface.DEFAULT_BOLD
         textAlign = Paint.Align.CENTER

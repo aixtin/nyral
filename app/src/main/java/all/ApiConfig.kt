@@ -26,11 +26,19 @@ object ApiConfig {
     const val THINK_MEDIUM = "medium"
     const val THINK_HIGH = "high"
     const val THINK_ULTRA = "ultra"
-    /** 全量档位字典, 顺序即展示顺序; 各厂商可见子集由 thinkingLevelsOf 决定 */
-    val THINK_LEVELS = listOf(
-        THINK_AUTO to "自动", THINK_OFF to "关闭", THINK_ON to "开启",
-        THINK_LOW to "低", THINK_MEDIUM to "中", THINK_HIGH to "高"
-    )
+    /** 全量档位 key 列表, 顺序即展示顺序; 各厂商可见子集由 thinkingLevelsOf 决定 */
+    val THINK_LEVEL_KEYS = listOf(THINK_AUTO, THINK_OFF, THINK_ON, THINK_LOW, THINK_MEDIUM, THINK_HIGH)
+
+    /** 档位 key -> 当前 locale 显示文案 */
+    fun thinkLabel(ctx: Context, key: String): String = when (key) {
+        THINK_AUTO -> ctx.getString(R.string.think_auto)
+        THINK_OFF -> ctx.getString(R.string.think_off)
+        THINK_ON -> ctx.getString(R.string.think_on)
+        THINK_LOW -> ctx.getString(R.string.think_low)
+        THINK_MEDIUM -> ctx.getString(R.string.think_medium)
+        THINK_HIGH -> ctx.getString(R.string.think_high)
+        else -> key
+    }
 
     // ============ 模型能力（输入模态 + 工具调用） ============
     const val CAP_TEXT = "text"     // 文本（所有模型必备）
@@ -39,9 +47,15 @@ object ApiConfig {
     const val CAP_AUDIO = "audio"   // 音频输入
     const val CAP_TOOL = "tool"     // 工具调用
 
-    val CAP_LABELS = mapOf(
-        CAP_IMAGE to "图片", CAP_VIDEO to "视频", CAP_AUDIO to "音频", CAP_TOOL to "工具调用"
-    )
+    /** 能力 key -> 当前 locale 显示文案 */
+    fun capLabel(ctx: Context, cap: String): String = when (cap) {
+        CAP_TEXT -> ctx.getString(R.string.cap_text)
+        CAP_IMAGE -> ctx.getString(R.string.cap_image)
+        CAP_VIDEO -> ctx.getString(R.string.cap_video)
+        CAP_AUDIO -> ctx.getString(R.string.cap_audio)
+        CAP_TOOL -> ctx.getString(R.string.cap_tool)
+        else -> cap
+    }
 
     /** 某供应商/模型支持的能力集合（文件上传选项/工具开关按此渲染）。
      *  优先级: 手动模型级勾选 modelCaps[model] → 预设内置表/启发式 → 供应商级勾选兜底 → 手动默认仅文本 */
@@ -138,8 +152,8 @@ object ApiConfig {
     // 这样清除数据后模型列表随持久化数据一起消失，不会由兜底预设"复活"
     private val PRESETS = listOf(
         Provider("deepseek", "DeepSeek", "https://api.deepseek.com/v1", "deepseek-chat"),
-        Provider("zhipu", "智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
-        Provider("mimo", "小米 MiMo", "https://api.xiaomimimo.com/v1", "mimo-v2.5"),
+        Provider("zhipu", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
+        Provider("mimo", "Xiaomi MiMo", "https://api.xiaomimimo.com/v1", "mimo-v2.5"),
     )
 
     // ============ Provider 列表持久化 ============
@@ -413,20 +427,20 @@ object ApiConfig {
     /** 某供应商/模型可见的思考强度档位（始终含"自动"；不支持的档位不展示）。
      *  规则：DeepSeek/Qwen 支持开关 -> 自动/关闭/开启；OpenAI o 系支持强度 -> 自动/低/中/高；
      *  其它未知厂商 -> 仅自动（不传参）。 */
-    fun thinkingLevelsOf(id: String, model: String): List<Pair<String, String>> {
+    fun thinkingLevelsOf(id: String, model: String): List<String> {
         val p = providerById(id)
         val label = (p?.label ?: "").lowercase()
         val m = model.lowercase()
-        val levels = mutableListOf(THINK_AUTO to "自动")
+        val levels = mutableListOf(THINK_AUTO)
         when {
             label.contains("deepseek") -> {
-                levels.add(THINK_OFF to "关闭"); levels.add(THINK_ON to "开启")
+                levels.add(THINK_OFF); levels.add(THINK_ON)
             }
             label.contains("openai") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") -> {
-                levels.add(THINK_LOW to "低"); levels.add(THINK_MEDIUM to "中"); levels.add(THINK_HIGH to "高")
+                levels.add(THINK_LOW); levels.add(THINK_MEDIUM); levels.add(THINK_HIGH)
             }
             m.contains("qwen3") || label.contains("qwen") -> {
-                levels.add(THINK_OFF to "关闭"); levels.add(THINK_ON to "开启")
+                levels.add(THINK_OFF); levels.add(THINK_ON)
             }
         }
         return levels

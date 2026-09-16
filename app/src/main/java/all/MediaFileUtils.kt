@@ -100,7 +100,7 @@ object MediaFileUtils {
             }
             if (vid < 0) null else ContentUris.withAppendedId(videoUri, vid)
         } catch (e: Exception) {
-            Log.w("agent", "motionVideoUriOf 查询失败", e)
+            Log.w("Nyral", "motionVideoUriOf 查询失败", e)
             null
         }
     }

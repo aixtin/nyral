@@ -143,7 +143,7 @@ object McpClientManager {
                 put("protocolVersion", PROTOCOL_VERSION)
                 put("capabilities", JSONObject())
                 put("clientInfo", JSONObject().apply {
-                    put("name", "agent")
+                    put("name", "Nyral")
                     put("version", "1.0")
                 })
             })

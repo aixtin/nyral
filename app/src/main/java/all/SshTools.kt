@@ -222,6 +222,8 @@ object SshTools {
             return "错误: 参数需含 conn(连接名)/local(工作目录文件名)/remote(远端路径), 如 {\"conn\":\"vps\",\"local\":\"a.txt\",\"remote\":\"/tmp/a.txt\"}"
         val cfg = pickConfig(SshConfigStore.load(context), conn + ":")
             ?: return "未找到连接: $conn"
+        if (WorkDir.isSensitiveName(local))
+            return "错误: 安全拦截 — 敏感凭据文件($local)禁止 AI 上传, 如需上传请由用户在手机端手动操作"
         val bytes = WorkDir.read(context, local)
             ?: return "错误: 工作目录不存在该文件: $local (可用 workdir_list 查看)"
         if (bytes.isEmpty()) return "错误: 文件内容为空: $local"

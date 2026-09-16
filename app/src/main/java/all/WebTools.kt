@@ -1,6 +1,8 @@
 package io.github.aixtin.nyral
 
 import android.content.Context
+import android.content.ContentUris
+import android.provider.MediaStore
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -14,8 +16,10 @@ import java.net.URLEncoder
  * 直接使用手机本地网络抓取网页, 提取正文文本, 限长返回。
  * 不依赖 SSH/远端, 手机有网即可用。
  *
- * 站点凭据: 工作目录 site_auth.json 按域名存 Cookie, 抓取/下载时自动注入,
+ * 站点凭据: app 私有目录 site_auth.json 按域名存 Cookie, 抓取/下载时自动注入,
  * 无需每次由 AI 传参; 过期后用 auth 工具或直接改该文件即可。
+ * 注: 2026-09-15 安全审计修复 — 由公共工作目录迁移至私有目录(filesDir),
+ * 旧数据首次读取时一次性迁移, 并清理公共区明文残留。
  */
 object WebTools {
 
@@ -300,16 +304,57 @@ object WebTools {
         return "抓取结果疑似登录失效页(该站点在 site_auth 中配置了登录态): 登录态可能已过期, 建议用 open_browser 打开重新登录后 browser_save_cookies 更新"
     }
 
-    /** 读取工作目录 site_auth.json; 不存在或解析失败返回 null */
+    /** 站点凭据私有文件(注: site_auth.json 属敏感登录态, 必须存 app 私有目录, 不可落公共区) */
+    private fun siteAuthFile(context: Context): java.io.File =
+        java.io.File(context.filesDir, SITE_AUTH_FILE)
+
+    /** 读取私有目录 site_auth.json; 不存在时尝试一次性从旧公共工作目录迁移; 解析失败返回 null */
     private fun loadSiteAuth(context: Context): JSONObject? {
-        val bytes = WorkDir.read(context, SITE_AUTH_FILE) ?: return null
+        val f = siteAuthFile(context)
+        var bytes: ByteArray? = null
+        if (f.isFile) bytes = runCatching { f.readBytes() }.getOrNull()
+        if (bytes == null) {
+            // 一次性迁移: 旧版本存公共目录 Download/Nyral_work/site_auth.json
+            bytes = WorkDir.read(context, SITE_AUTH_FILE)
+            if (bytes != null) {
+                runCatching { f.parentFile?.mkdirs(); f.writeBytes(bytes) }
+                deleteLegacySiteAuth(context)
+            }
+        }
+        if (bytes == null) return null
         return try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (e: Exception) { null }
     }
 
-    /** 写入 site_auth.json (保留原文件未覆盖的其它字段); 统一记录最近保存时间戳 */
+    /** 删除旧公共目录 site_auth.json (一次性迁移后清理, 避免明文 Cookie 继续滞留公共区) */
+    private fun deleteLegacySiteAuth(context: Context) {
+        runCatching {
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            context.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.RELATIVE_PATH} LIKE ? AND ${MediaStore.Downloads.DISPLAY_NAME}=?",
+                arrayOf("Download/Nyral_work%", SITE_AUTH_FILE), null
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    context.contentResolver.delete(
+                        ContentUris.withAppendedId(collection, id), null, null)
+                }
+            }
+        }
+        // File 直删兜底(已授权所有文件访问时)
+        runCatching { java.io.File(WorkDir.displayPath, SITE_AUTH_FILE).delete() }
+    }
+
+    /** 写入私有目录 site_auth.json (保留原文件未覆盖的其它字段); 统一记录最近保存时间戳 */
     private fun saveSiteAuth(context: Context, auth: JSONObject): Boolean {
         if (auth != null) auth.put(SITE_AUTH_META, System.currentTimeMillis())
-        return WorkDir.write(context, SITE_AUTH_FILE, auth.toString().toByteArray(Charsets.UTF_8))
+        val f = siteAuthFile(context)
+        return runCatching {
+            f.parentFile?.mkdirs()
+            f.writeBytes(auth.toString().toByteArray(Charsets.UTF_8))
+            true
+        }.getOrElse { false }
     }
 
     /** 合并 headers: 若调用方未显式带 Cookie 且命中 site_auth 域名, 自动注入 */
@@ -356,7 +401,7 @@ object WebTools {
     /**
      * 参数: {"url":"https://...","name":"可选保存文件名","headers":{"Cookie":"...","Referer":"..."}}
      * 返回: 下载结果, "下载成功"即已落盘, 无需再验证
-     * 下载 URL 内容并保存到手机工作目录 Download/agent_work/(二进制安全)。
+     * 下载 URL 内容并保存到手机工作目录 Download/Nyral_work/(二进制安全)。
      * 未指定 name 时从 URL 末尾或 Content-Disposition 推断文件名。
      */
     fun save(context: Context, arg: String): String {
@@ -365,6 +410,16 @@ object WebTools {
         val givenName = json?.optString("name").orEmpty().trim()
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             return "错误: URL必须以http://或https://开头"
+        }
+        // SSRF 防护: 拒绝回环/内网/云元数据地址, 防止被诱导访问本机或内网服务
+        val host = runCatching { java.net.URI(url).host }.getOrNull()
+        if (host == null || host.equals("localhost", true) || host == "0.0.0.0" ||
+            Regex("^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
+            Regex("^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
+            Regex("^192\\.168\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
+            Regex("^172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
+            Regex("^169\\.254\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host)) {
+            return "错误: 不允许下载内网/回环地址 ($host)"
         }
         if (givenName.isNotEmpty() && givenName.contains('/')) {
             return "错误: 保存文件名不能含路径分隔符, 只能填文件名"
@@ -377,7 +432,7 @@ object WebTools {
             if (r.success) return r.msg
             lastErr = r.msg
             if (r.retryable && attempt == 1) {
-                android.util.Log.w("agent", "web_download interrupted, retry #1")
+                android.util.Log.w("Nyral", "web_download interrupted, retry #1")
                 try { Thread.sleep(800) } catch (_: InterruptedException) {}
                 continue
             }

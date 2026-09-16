@@ -224,14 +224,14 @@ class AITerminalService : Service() {
         }
 
         val label = TextView(this).apply {
-            text = "DA AI 终端"
+            text = getString(R.string.at_terminal_title)
             textSize = 10f
             setTextColor(0xFF9A9A9A.toInt())
             typeface = Typeface.MONOSPACE
             setPadding(0, 0, 0, dp(4))
         }
         val body = TextView(this).apply {
-            text = "待命中…"
+            text = getString(R.string.at_idle)
             textSize = 12f
             setTextColor(0xFFFFFFFF.toInt())
             typeface = Typeface.MONOSPACE
@@ -313,8 +313,8 @@ class AITerminalService : Service() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val ch = NotificationChannel(CHANNEL_ID, "AI 悬浮终端", NotificationManager.IMPORTANCE_LOW)
-            ch.description = "显示 AI 实时执行状态的悬浮迷你终端"
+            val ch = NotificationChannel(CHANNEL_ID, getString(R.string.at_channel_name), NotificationManager.IMPORTANCE_LOW)
+            ch.description = getString(R.string.at_channel_desc)
             nm.createNotificationChannel(ch)
         }
     }
@@ -327,8 +327,8 @@ class AITerminalService : Service() {
         )
         val b = Notification.Builder(this)
             .setSmallIcon(android.R.drawable.ic_menu_edit)
-            .setContentTitle("AI 悬浮终端")
-            .setContentText("实时显示 AI 执行状态")
+            .setContentTitle(getString(R.string.at_channel_name))
+            .setContentText(getString(R.string.at_content))
             .setOngoing(true)
             .setContentIntent(contentIntent)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) b.setChannelId(CHANNEL_ID)
