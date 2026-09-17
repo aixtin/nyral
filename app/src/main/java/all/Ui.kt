@@ -37,6 +37,7 @@ object Ui {
     @Volatile var INPUT_BG: Int = DefaultTheme.inputBg
     @Volatile var DANGER: Int = DefaultTheme.danger
     @Volatile var DANGER_LIGHT: Int = DefaultTheme.dangerLight
+    @Volatile var SURFACE: Int = DefaultTheme.surface
 
     /** 应用主题：刷新全局语义色（MainActivity 启动/切换主题时调用一次） */
     fun applyTheme(t: AppTheme) {
@@ -49,6 +50,7 @@ object Ui {
         INPUT_BG = t.inputBg
         DANGER = t.danger
         DANGER_LIGHT = t.dangerLight
+        SURFACE = t.surface
     }
 
     /**
@@ -95,11 +97,12 @@ object Ui {
 
     fun dp(a: Activity, v: Int): Int = (v * a.resources.displayMetrics.density).toInt()
 
-    /** 白底深色图标状态栏（与主页一致） */
+    /** 状态栏：底色随主题 SURFACE，图标明暗随底亮度自适应（与主页一致） */
     fun statusBar(a: Activity) {
-        a.window.statusBarColor = Color.WHITE
+        a.window.statusBarColor = Ui.SURFACE
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            a.window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            val dark = (Color.red(Ui.SURFACE) + Color.green(Ui.SURFACE) + Color.blue(Ui.SURFACE)) / 3 < 128
+            a.window.decorView.systemUiVisibility = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
     }
 
@@ -119,7 +122,7 @@ object Ui {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(a, 4), dp(a, 8), dp(a, 12), dp(a, 8))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Ui.SURFACE)
             addView(TextView(a).apply {
                 text = "‹"
                 textSize = 26f
@@ -154,8 +157,8 @@ object Ui {
     /** 白色圆角卡片容器（默认 16dp 圆角，承载一组列表项） */
     fun card(a: Activity, radiusDp: Int = 16): LinearLayout = LinearLayout(a).apply {
         orientation = LinearLayout.VERTICAL
-        setBackgroundColor(Color.WHITE)
-        background = rounded(Color.WHITE, radiusDp, a)
+        setBackgroundColor(Ui.SURFACE)
+        background = rounded(Ui.SURFACE, radiusDp, a)
     }
 
     /** 列表项左侧圆形/圆角图标：首字 + 主色渐变底（与模型配置页图标一致） */
@@ -209,7 +212,7 @@ object Ui {
     fun arrow(a: Activity): TextView = TextView(a).apply {
         text = "›"
         textSize = 24f
-        setTextColor(0xFFCCCCCC.toInt())
+        setTextColor(Ui.SUB)
         setPadding(dp(a, 10), 0, 0, 0)
     }
 
@@ -220,7 +223,7 @@ object Ui {
         setPadding(dp(a, 12), dp(a, 10), dp(a, 12), dp(a, 10))
         background = rounded(INPUT_BG, 12, a)
         setTextColor(TEXT)
-        setHintTextColor(0xFFB0B0B0.toInt())
+        setHintTextColor(Ui.SUB)
     }
 
     /** 圆角主色按钮（白字） */
@@ -269,7 +272,7 @@ object Ui {
     fun fieldLabel(a: Activity, text: String): TextView = TextView(a).apply {
         this.text = text
         textSize = 13f
-        setTextColor(0xFF888888.toInt())
+        setTextColor(Ui.SUB)
         setPadding(dp(a, 2), dp(a, 10), 0, dp(a, 4))
     }
 
@@ -277,7 +280,7 @@ object Ui {
     fun hint(a: Activity, text: String): TextView = TextView(a).apply {
         this.text = text
         textSize = 11f
-        setTextColor(0xFFAAAAAA.toInt())
+        setTextColor(Ui.SUB)
         setPadding(dp(a, 2), dp(a, 3), 0, 0)
     }
 
@@ -310,7 +313,7 @@ object Ui {
         val box = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(a, 20), dp(a, 18), dp(a, 20), dp(a, 16))
-            background = rounded(Color.WHITE, 18, a)
+            background = rounded(Ui.SURFACE, 18, a)
         }
         // animTarget: 弹窗缩放动画目标。maxHeightRatio>0 时圆角白卡归属滚动视口 sv, 动画需作用于 sv
         var animTarget: View = box
@@ -337,7 +340,7 @@ object Ui {
             // 圆角白卡背景固定在滚动视口 sv 上(高度=min(内容,maxH)), box 改透明内容容器:
             // 避免内容超长滚动时 box 顶部/底部圆角被滚出视口截成直角(ask_user 多选项弹窗 bug)
             val sv = MaxHeightScrollView(a, maxH).apply {
-                background = rounded(Color.WHITE, 18, a)
+                background = rounded(Ui.SURFACE, 18, a)
                 clipToOutline = true
             }
             box.background = null
@@ -378,7 +381,7 @@ object Ui {
         val root = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(a, 20), dp(a, 18), dp(a, 20), dp(a, 16))
-            background = rounded(Color.WHITE, 18, a)
+            background = rounded(Ui.SURFACE, 18, a)
         }
         root.addView(TextView(a).apply {
             text = title

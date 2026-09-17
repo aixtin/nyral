@@ -76,7 +76,7 @@ class PersonalityActivity : Activity() {
         cardInfo.addView(TextView(this).apply {
             text = getString(R.string.persona_ai_name)
             textSize = 15f
-            setTextColor(0xFF222222.toInt())
+            setTextColor(Ui.TEXT)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setPadding(dp(12), dp(12), dp(12), 0)
         })
@@ -88,7 +88,7 @@ class PersonalityActivity : Activity() {
         cardInfo.addView(TextView(this).apply {
             text = getString(R.string.persona_ai_persona)
             textSize = 15f
-            setTextColor(0xFF222222.toInt())
+            setTextColor(Ui.TEXT)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             setPadding(dp(12), dp(12), dp(12), 0)
         })
@@ -105,7 +105,7 @@ class PersonalityActivity : Activity() {
     private fun personaCard(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(0, 0, 0, 0)
-        background = Ui.rounded(Color.WHITE, 16, this@PersonalityActivity)
+        background = Ui.rounded(Ui.SURFACE, 16, this@PersonalityActivity)
         // 左：AI 头像
         addView(avatarCell(
             avatar = avatarBig(true),
@@ -115,7 +115,7 @@ class PersonalityActivity : Activity() {
         ), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         // 中间竖分隔线
         addView(View(this@PersonalityActivity).apply {
-            setBackgroundColor(0xFFEDEDED.toInt())
+            setBackgroundColor(Ui.INPUT_BG)
             layoutParams = LinearLayout.LayoutParams(dp(1), dp(96))
         })
         // 右：用户头像
@@ -140,7 +140,7 @@ class PersonalityActivity : Activity() {
             addView(TextView(this@PersonalityActivity).apply {
                 text = name
                 textSize = 16f
-                setTextColor(0xFF222222.toInt())
+                setTextColor(Ui.TEXT)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER_HORIZONTAL
                 maxLines = 1
@@ -174,8 +174,7 @@ class PersonalityActivity : Activity() {
                 background = custom
             } else {
                 if (isAi) {
-                    val label = ApiConfig.providerLabel(ApiConfig.providerId())
-                    text = (label.take(1).ifBlank { "A" }).uppercase()
+                    text = "N"
                     textSize = 26f
                     setTextColor(Color.WHITE)
                     gravity = Gravity.CENTER
@@ -190,7 +189,7 @@ class PersonalityActivity : Activity() {
                     gravity = Gravity.CENTER
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(Color.parseColor("#4A90D9"))
+                        setColor(Ui.PRIMARY)
                     }
                 }
             }
@@ -205,7 +204,7 @@ class PersonalityActivity : Activity() {
             setText(if (current.isEmpty()) "" else current)
             setSelection(text.length)
             gravity = Gravity.CENTER_VERTICAL or Gravity.START
-            background = Ui.rounded(0xFFF4F5F7.toInt(), 12, this@PersonalityActivity)
+            background = Ui.rounded(Ui.INPUT_BG, 12, this@PersonalityActivity)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -251,7 +250,7 @@ class PersonalityActivity : Activity() {
             setSingleLine(false)
             minLines = 4
             gravity = Gravity.TOP or Gravity.START
-            background = Ui.rounded(0xFFF4F5F7.toInt(), 12, this@PersonalityActivity)
+            background = Ui.rounded(Ui.INPUT_BG, 12, this@PersonalityActivity)
             setPadding(dp(12), dp(12), dp(12), dp(12))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -280,7 +279,7 @@ class PersonalityActivity : Activity() {
     private fun personaHint(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(12), 0, dp(12), dp(14))
+        setPadding(dp(12), dp(10), dp(12), dp(14))
         addView(TextView(this@PersonalityActivity).apply {
             text = getString(R.string.persona_hint_ai_persona_sub)
             textSize = 12f
@@ -292,7 +291,7 @@ class PersonalityActivity : Activity() {
             textSize = 14f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            background = Ui.rounded(Color.parseColor("#4A90D9"), 18, this@PersonalityActivity)
+            background = Ui.rounded(Ui.PRIMARY, 18, this@PersonalityActivity)
             setPadding(dp(18), dp(7), dp(18), dp(7))
             isClickable = true
             Ui.press(this)

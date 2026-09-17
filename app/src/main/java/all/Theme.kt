@@ -233,3 +233,36 @@ object KiwiDarkTheme : BaseTheme(
     override fun btnCorner(density: Float): Float = 12 * density
     override fun inputCorner(density: Float): Float = 10 * density
 }
+
+/** 主题 4：图标（从 App 图标 ic_launcher 提取色板：米白底 #FBF7EA + 淡蓝 #9BC1DD + 浅蓝绿 #BAD9E2 + 米驼 #E2D5C7，柔和浅色系、圆润中圆角） */
+object IconTheme : BaseTheme(
+    id = 4,
+    nameRes = R.string.theme_icon,
+    bg = Color.parseColor("#FBF7EE"),
+    surface = Color.parseColor("#FFFFFF"),
+    primary = Color.parseColor("#7FA8CC"),
+    primaryLight = Color.parseColor("#E3EEF6"),
+    text = Color.parseColor("#33414E"),
+    sub = Color.parseColor("#8B98A3"),
+    divider = Color.parseColor("#ECE6D8"),
+    inputBg = Color.parseColor("#F2EEE3"),
+    danger = Color.parseColor("#E05B52"),
+    dangerLight = Color.parseColor("#FBE4E0"),
+    accent = Color.parseColor("#5FA8B8"),
+    bubbleAi = Color.parseColor("#EEF4F8"),
+    bubbleAiText = Color.parseColor("#33414E"),
+    bubbleUser = Color.parseColor("#7FA8CC"),
+    bubbleUserText = Color.WHITE,
+    thinkBg = Color.parseColor("#E8F0F5"),
+    thinkText = Color.parseColor("#5FA8B8"),
+    radius = RadiusTokens(18, 16, 18, 16, 8, 16),
+    spacing = SpacingTokens(16, 16, 12, 16),
+    typography = TypeTokens(17f, 16f, 12f, 11f),
+    shadow = ShadowTokens(2, 18)
+) {
+    // 图标圆润流线语言，覆盖风格钩子
+    override fun bubbleCorner(density: Float): Float = 18 * density
+    override fun cardCorner(density: Float): Float = 16 * density
+    override fun btnCorner(density: Float): Float = 999 * density
+    override fun inputCorner(density: Float): Float = 16 * density
+}

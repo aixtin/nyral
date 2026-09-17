@@ -52,7 +52,7 @@ class MemorySummaryActivity : Activity() {
                 addView(TextView(this@MemorySummaryActivity).apply {
                     text = summary
                     textSize = 14f
-                    setTextColor(0xFF3A3A3A.toInt())
+                    setTextColor(Ui.TEXT)
                     setLineSpacing(dp(6).toFloat(), 1.0f)
                     setTextIsSelectable(true)
                     setPadding(dp(4), dp(4), dp(4), dp(4))
@@ -65,7 +65,7 @@ class MemorySummaryActivity : Activity() {
                 gravity = Gravity.CENTER
                 textSize = 14f
                 setTextColor(Color.WHITE)
-                background = Ui.rounded(0xFF2B5DDA.toInt(), 12, this@MemorySummaryActivity)
+                background = Ui.rounded(Ui.PRIMARY, 12, this@MemorySummaryActivity)
                 setPadding(0, dp(11), 0, dp(11))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT

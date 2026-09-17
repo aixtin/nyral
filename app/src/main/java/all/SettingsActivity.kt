@@ -161,7 +161,7 @@ class SettingsActivity : Activity() {
         content.addView(TextView(this).apply {
             text = getString(R.string.settings_about_motto)
             textSize = 11f
-            setTextColor(0xFFAAAAAA.toInt())
+            setTextColor(Ui.SUB)
             gravity = Gravity.CENTER
             setPadding(0, dp(20), 0, 0)
         })
@@ -265,7 +265,7 @@ class SettingsActivity : Activity() {
         val tokenText = TextView(ctx).apply {
             text = DebugServer.token(ctx)
             textSize = 13f
-            setTextColor(0xFF555555.toInt())
+            setTextColor(Ui.TEXT)
             setPadding(dp(4), dp(3), dp(4), dp(3))
             gravity = Gravity.CENTER_VERTICAL
         }
@@ -390,7 +390,7 @@ class SettingsActivity : Activity() {
         // ---- 内容区: 随 tab 切换 ----
         val stats = TextView(this).apply {
             textSize = 13f
-            setTextColor(0xFF333333.toInt())
+            setTextColor(Ui.TEXT)
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, dp(10), 0, dp(2))
         }
@@ -470,8 +470,8 @@ class SettingsActivity : Activity() {
     /** Token 统计 tab 按钮样式: 选中蓝底白字, 未选中白底灰字(同运行日志) */
     private fun updateTokenTab(tv: TextView, selected: Boolean) {
         tv.setBackgroundResource(0)
-        tv.background = Ui.rounded(if (selected) 0xFF3B82F6.toInt() else Color.WHITE, 12, this)
-        tv.setTextColor(if (selected) Color.WHITE else 0xFF666666.toInt())
+        tv.background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.SURFACE, 12, this)
+        tv.setTextColor(if (selected) Color.WHITE else Ui.TEXT)
     }
 
     private fun showUploadSizeEdit() {
