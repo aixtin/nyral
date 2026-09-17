@@ -58,6 +58,19 @@ private val mediaUi = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
 private fun Context.dp(v: Int): Int = (resources.displayMetrics.density * v).toInt()
 
+/** 读取视频文件实际宽高(px); 转发/异常视频可能取不到, 返回 null 由调用方兜底 16:9 */
+private fun videoSizeOf(act: Activity, fn: String): Pair<Int, Int>? {
+    return try {
+        val f = AttachmentStore.fileOf(act, fn) ?: return null
+        val r = android.media.MediaMetadataRetriever()
+        r.setDataSource(f.absolutePath)
+        val w = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+        val h = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+        try { r.release() } catch (_: Exception) {}
+        if (w != null && h != null && w > 0 && h > 0) Pair(w, h) else null
+    } catch (e: Exception) { null }
+}
+
 /** 附件入口分发: 按 mime 选择媒体/PDF/文本/音频预览或系统外部打开 */
 fun Activity.openAttachmentPreview(files: List<String>, startIndex: Int) {
     val act: Activity = this
@@ -92,40 +105,58 @@ private fun Activity.showMediaPreviewDialog(media: List<String>, startIndex: Int
     if (media.isEmpty()) return
     val d = Dialog(act)
     d.requestWindowFeature(Window.FEATURE_NO_TITLE)
+    // 纯视频预览: 弹窗高度自适应(标题栏+16:9视频区+底部白栏), 上下夹住视频消灭黑边; 含图片保持原全屏逻辑
+    val isAllVideo = media.all { AttachmentStore.mimeOf(it).startsWith("video/") }
     // 外层留边距, 露出圆角: 整卡黑底圆角, 顶部标题栏白底仅顶部圆角
     val outer = FrameLayout(act).apply {
         setPadding(dp(10), dp(10), dp(10), dp(10))
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     }
-    outer.addView(createMediaPreviewContent(media, startIndex, d))
+    outer.addView(createMediaPreviewContent(media, startIndex, d, isAllVideo))
     d.setContentView(outer)
     d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-    d.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+    d.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+        if (isAllVideo) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
     d.show()
 }
 
-private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: Int, d: Dialog): View {
+private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: Int, d: Dialog, isAllVideo: Boolean = false): View {
     val act: Activity = this
     val screenW = resources.displayMetrics.widthPixels
     val screenH = resources.displayMetrics.heightPixels
     // 内容区宽度: 外层留边距后实际可用宽度
     val contentW = screenW - dp(20)
+    // 纯视频自适应: 视频区高度按各视频实际宽高比(横屏16:9/竖屏9:16各自贴合), 取所需最大高度统一容器防切页跳动;
+    // 封顶=屏高减(标题栏+底栏+四周边距)余量; 取尺寸失败兜底 16:9; 底部白栏兜底防圆角裁视频内容
+    val videoH = if (isAllVideo) {
+        val cap = (screenH - dp(130)).coerceAtLeast(dp(120))
+        val needMax = media.mapNotNull { fn ->
+            val sz = videoSizeOf(act, fn)
+            if (sz != null && sz.first > 0 && sz.second > 0) (contentW.toLong() * sz.second / sz.first).toInt() else 0
+        }.maxOrNull() ?: (contentW * 9 / 16)
+        needMax.coerceIn(dp(120), cap)
+    } else 0
     lateinit var indicator: TextView
     val root = FrameLayout(act).apply {
         background = rounded(dp(20), Color.BLACK)
         // 内容裁剪到圆角范围内, 视频/图片铺满底部时底角仍保持圆角
         outlineProvider = ViewOutlineProvider.BACKGROUND
         clipToOutline = true
+        // 纯视频: 整卡高度自适应内容(标题栏+视频+底栏); 含图片保持全屏
+        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            if (isAllVideo) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
     }
     // 垂直容器: 顶部标题栏占一行, 媒体内容在其下方填充剩余空间, 不被标题遮挡
     val vStack = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
-        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            if (isAllVideo) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
     }
     val hsv = HorizontalScrollView(act).apply {
         isHorizontalScrollBarEnabled = false
         isVerticalScrollBarEnabled = false
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        layoutParams = if (isAllVideo) LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, videoH)
+                       else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
     }
     val strip = LinearLayout(act).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -200,7 +231,7 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
             // 栈对特定转发视频(社交平台转存/含特殊字符/容器非标准)的拒绝(No content provider / instantiate extractor 失败)
             val pv = PlayerView(act).apply {
                 layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER).apply {
-                    bottomMargin = dp(8)   // 底部留白收窄, 播放控件悬浮于视频画面内, 不遮底部圆角
+                    bottomMargin = if (isAllVideo) 0 else dp(8)   // 纯视频有底部白栏兜底圆角; 全屏模式留白防播放控件遮底角
                 }
                 useController = true
             }
@@ -260,6 +291,22 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
     })
     vStack.addView(topBar)
     vStack.addView(hsv)
+    // 纯视频自适应: 底部白色底栏与顶部标题栏对称, 上下夹住视频; 圆角裁白栏而非视频内容
+    if (isAllVideo) {
+        val bottomBarBg = GradientDrawable().apply {
+            setColor(Color.WHITE)
+            cornerRadii = floatArrayOf(
+                0f, 0f, 0f, 0f,
+                dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat())
+        }
+        vStack.addView(LinearLayout(act).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = bottomBarBg
+            setPadding(dp(10), dp(8), dp(6), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
+        })
+    }
     root.addView(vStack)
 
     fun currentPage(): Int =
@@ -396,7 +443,7 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
     nav.addView(TextView(act).apply {
         text = "· · ·"
         textSize = 14f
-        setTextColor(Color.parseColor("#BBBBBB"))
+        setTextColor(Ui.SUB)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8); marginEnd = dp(8) }
     })
     nav.addView(nextBtn)
@@ -432,8 +479,8 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
                     pageNo.text = "${i + 1} / $total"
                     prevBtn.isEnabled = i > 0
                     nextBtn.isEnabled = i < total - 1
-                    prevBtn.setTextColor(if (i > 0) Ui.TEXT else Color.parseColor("#BBBBBB"))
-                    nextBtn.setTextColor(if (i < total - 1) Ui.TEXT else Color.parseColor("#BBBBBB"))
+                    prevBtn.setTextColor(if (i > 0) Ui.TEXT else Ui.SUB)
+                    nextBtn.setTextColor(if (i < total - 1) Ui.TEXT else Ui.SUB)
                 }
             } catch (e: Exception) {
                 // 渲染失败静默, 保持上一页画面
@@ -540,7 +587,7 @@ private fun Activity.showTextPreviewDialog(fileName: String) {
     root.addView(TextView(act).apply {
         text = getString(R.string.mp_tap_close)
         textSize = 13f
-        setTextColor(Color.parseColor("#8A8A8A"))
+        setTextColor(Ui.SUB)
         setBackgroundColor(Ui.BG)
         setPadding(dp(16), dp(10), dp(16), dp(14))
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -573,7 +620,7 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
     }
     val root = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
-        background = rounded(dp(20), Color.WHITE)
+        background = rounded(dp(20), Ui.SURFACE)
         setPadding(dp(24), dp(28), dp(24), dp(20))
     }
     root.addView(TextView(act).apply {
@@ -598,14 +645,14 @@ private fun Activity.showAudioPreviewDialog(fileName: String) {
     val timeTv = TextView(act).apply {
         text = "00:00 / ${fmtDuration(player.duration.toLong())}"
         textSize = 13f
-        setTextColor(Color.parseColor("#8A8A8A"))
+        setTextColor(Ui.SUB)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(20) }
     }
     root.addView(playBtn); root.addView(seek); root.addView(timeTv)
     root.addView(Button(act).apply {
         text = getString(R.string.mp_close)
         setTextColor(Ui.TEXT)
-        setBackgroundColor(Color.parseColor("#F1F2F4"))
+        setBackgroundColor(Ui.INPUT_BG)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
         setOnClickListener { d.dismiss() }
     })

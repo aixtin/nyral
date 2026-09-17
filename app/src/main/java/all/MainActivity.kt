@@ -128,8 +128,8 @@ class MainActivity : Activity() {
             .usePlugin(object : AbstractMarkwonPlugin() {
                 override fun configureTheme(builder: MarkwonTheme.Builder) {
                     // 代码块/行内代码统一浅灰底; CodeBlockSpan 由 markwon 默认 factory 按 theme 整块绘制
-                    builder.codeBackgroundColor(0xFFE8E8E8.toInt())
-                    builder.codeBlockBackgroundColor(0xFFE8E8E8.toInt())
+                    builder.codeBackgroundColor(Ui.INPUT_BG)
+                    builder.codeBlockBackgroundColor(Ui.INPUT_BG)
                     // 标题: 显式设置字号倍率+加粗, 避免默认倍率缺失导致标题不放大
                     builder.headingTextSizeMultipliers(floatArrayOf(1.5f, 1.35f, 1.2f, 1.1f, 1.05f, 1.0f))
                     builder.headingTypeface(android.graphics.Typeface.DEFAULT_BOLD)
@@ -149,9 +149,9 @@ class MainActivity : Activity() {
             .usePlugin(RoundedTablePlugin.create(TableTheme.buildWithDefaults(this)
                     .tableCellPadding((10 * resources.displayMetrics.density).toInt())
                     .tableBorderWidth((1 * resources.displayMetrics.density).toInt())
-                    .tableBorderColor(0xFF9CA3AF.toInt())
-                    .tableHeaderRowBackgroundColor(0xFFDEE3EA.toInt())
-                    .tableOddRowBackgroundColor(0xFFF3F4F6.toInt())
+                    .tableBorderColor(Ui.DIVIDER)
+                    .tableHeaderRowBackgroundColor(Ui.INPUT_BG)
+                    .tableOddRowBackgroundColor(Ui.INPUT_BG)
                     .build(), resources.displayMetrics.density))
             .build()
     }
@@ -182,6 +182,8 @@ class MainActivity : Activity() {
     // 独立固定全屏背景层: 壁纸/渐变背景挂此层(不随键盘压缩上移), root 为透明壳
     private lateinit var bgLayer: FrameLayout
     private lateinit var bodyWrap: LinearLayout
+    // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
+    private lateinit var chatArea: FrameLayout
     private lateinit var inputBar: LinearLayout
     // 浏览器控制条(输入框上方): 悬浮聊天时显示欢迎文字+接管按钮
     private lateinit var browserBar: LinearLayout
@@ -373,10 +375,11 @@ class MainActivity : Activity() {
         // 通过 WindowInsets.ime()(API30+) 精确取键盘高度, 手动驱动 bodyWrap 平移上移(同微信),
         // 标题栏与背景(挂 root.background)不动。adjustResize 下窗口被系统压缩, ime insets 会被吸收为0无法检测
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
-        window.statusBarColor = Color.WHITE
-        // 白底必须配深色状态栏图标, 否则时间/信号等白色图标在白底上不可见
+        window.statusBarColor = Ui.SURFACE
+        // 状态栏图标明暗随主题底亮度自适应: 浅底深图标, 深底浅图标
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            val dark = (Color.red(Ui.SURFACE) + Color.green(Ui.SURFACE) + Color.blue(Ui.SURFACE)) / 3 < 128
+            window.decorView.systemUiVisibility = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
         ApiConfig.init(this)
         MemoryApiConfig.init(this)   // 辅助模型配置: 冷启动必须先初始化, 否则归档读不到独立配置, 回退主对话
@@ -525,7 +528,7 @@ class MainActivity : Activity() {
         titleBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(6), dp(8), dp(8), dp(8))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Ui.SURFACE)
             gravity = Gravity.CENTER_VERTICAL
         }
         titleBar.addView(TextView(this).apply {
@@ -588,7 +591,11 @@ class MainActivity : Activity() {
         bodyWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        bodyWrap.addView(chatRec, LinearLayout.LayoutParams(
+        // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
+        chatArea = FrameLayout(this)
+        chatArea.addView(chatRec, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        bodyWrap.addView(chatArea, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // 附件预览条: 选中附件出现在输入框上方, 可补文字后一并发送; 默认隐藏, 有附件才显示
@@ -609,7 +616,7 @@ class MainActivity : Activity() {
         inputBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Ui.SURFACE)
         }
         input = object : EditText(this) {
             // 回车去重: DOWN 放行后系统默认 KeyListener 已插入 \n; 若 IME 再 commitText 纯 "\n" 则丢弃,
@@ -643,7 +650,7 @@ class MainActivity : Activity() {
             setPadding(dp(14), dp(10), dp(14), dp(10))
             background = rounded(dp(22), Ui.INPUT_BG)
             setTextColor(Ui.TEXT)
-            setHintTextColor(Color.parseColor("#B0B0B0"))
+            setHintTextColor(Ui.SUB)
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_SEND) { onSend(); true } else false
             }
@@ -853,13 +860,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(4), dp(12), dp(4))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Ui.SURFACE)
             visibility = View.GONE
         }
         browserBarStatus = TextView(this).apply {
             text = getString(R.string.ma_welcome)
             textSize = 12f
-            setTextColor(Color.parseColor("#6B7FA3"))
+            setTextColor(Ui.SUB)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         browserBar.addView(browserBarStatus)
@@ -879,8 +886,9 @@ class MainActivity : Activity() {
             Ui.press(this)
         }
         browserBar.addView(browserBarTakeover)
-        bodyWrap.addView(browserBar, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // 悬浮 overlay 挂聊天区底部(输入框上方), 不占位挤压 chatRec; bottomMargin 在 setChatFloatMode 中动态对齐 inputBar
+        chatArea.addView(browserBar, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
         bodyWrap.addView(inputBar)
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -943,16 +951,8 @@ class MainActivity : Activity() {
             // 关键: 先切全局取色状态, 动画结束后的 notifyDataSetChanged 重绘/新建气泡才能取到带 alpha 的目标色,
             // 否则动画只改了可见行背景, 重绘瞬间又按普通模式原色弹回(表现为"闪一下恢复原样")
             chatFloatMode = float
-            // 全量重绘前后保持当前阅读位置: 防全量重绑遇行高变化导致滚动位置漂移(打开/关闭浏览器后消息不在最新)
-            fun rebindKeepPosition() {
-                val lm = chatRec.layoutManager as? LinearLayoutManager
-                val pos = lm?.findFirstVisibleItemPosition() ?: 0
-                val off = (lm?.findViewByPosition(pos)?.top ?: 0).coerceAtLeast(0)
-                chatAdapter.notifyDataSetChanged()
-                if (chatAdapter.itemCount > 0) {
-                    chatRec.post { (chatRec.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(pos, off) }
-                }
-            }
+            // 注意: 不做 notifyDataSetChanged 全量重绑——重绑+scrollToPositionWithOffset 恢复位置会触发整表重绘两帧,
+            // 表现为气泡"闪/抖动"; 普通行滚回时 onBind 会按 chatFloatMode 取目标色, 流式行由 applyFloatAlphaToStreaming 兜底
             val targets = ArrayList<android.graphics.drawable.GradientDrawable>()
             val fromColors = ArrayList<Int>()
             fun collect(v: View) {
@@ -968,8 +968,7 @@ class MainActivity : Activity() {
             }
             for (i in 0 until chatRec.childCount) collect(chatRec.getChildAt(i))
             if (targets.isEmpty()) {
-                // 无可见气泡: 直接走重绘+流式兜底, 保证状态一致
-                rebindKeepPosition()
+                // 无可见气泡: 流式兜底保证状态一致(不重绑, 避免整表闪动)
                 applyFloatAlphaToStreaming(float)
                 return
             }
@@ -987,8 +986,7 @@ class MainActivity : Activity() {
                 }
                 addListener(object : android.animation.AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: android.animation.Animator) {
-                        // 兜底1: 非可见普通行重绘为新取色; 兜底2: 流式行背景统一目标色
-                        rebindKeepPosition()
+                        // 流式行背景统一目标色(普通行滚回 onBind 自动取新色, 不做全量重绑防闪动)
                         applyFloatAlphaToStreaming(float)
                     }
                 })
@@ -1003,9 +1001,21 @@ class MainActivity : Activity() {
             lp.bottomMargin = 0
             main.layoutParams = lp
             if (float) {
-                browserBar.visibility = View.VISIBLE
-                browserBar.alpha = 0f
-                browserBar.animate().alpha(1f).setDuration(180).start()
+                // 悬浮 overlay: 控制条底部精确对齐输入框顶部(实测坐标差), 消除渲染缝隙, 视觉贴合
+                val blp = browserBar.layoutParams as FrameLayout.LayoutParams
+                val cLoc = IntArray(2)
+                val iLoc = IntArray(2)
+                chatArea.getLocationInWindow(cLoc)
+                inputBar.getLocationInWindow(iLoc)
+                blp.bottomMargin = (cLoc[1] + chatArea.height - iLoc[1]).coerceAtLeast(0)
+                browserBar.layoutParams = blp
+                // 直接显示不淡入: onPreOpen 与 onOpenChange 会连续两次调用本函数, 每次 alpha 归零重做
+                // 淡入动画 = 打开浏览器控制条"闪一下"; 幂等保护: 已可见则跳过, 并取消可能残留的关闭动画
+                browserBar.animate().cancel()
+                if (browserBar.visibility != View.VISIBLE) {
+                    browserBar.alpha = 1f
+                    browserBar.visibility = View.VISIBLE
+                }
             } else {
                 browserBar.animate().alpha(0f).setDuration(140).withEndAction {
                     browserBar.visibility = View.GONE
@@ -1168,8 +1178,14 @@ class MainActivity : Activity() {
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
             var imeShown = false
+            var imeFloating = false  // QQ 式悬浮模式: 惯性滚动中弹键盘, bodyWrap 不压缩, 仅输入区悬浮到键盘顶
             var imeAnimator: android.animation.ValueAnimator? = null
             var bodyWrapFullH = 0
+            var lastImeH = 0
+            var prevCompressH = 0  // 压缩模式上一帧 bodyWrap 高度, 用于末条不可见时按压缩增量滚动
+            var inImeAnim = false  // 系统键盘 insets 动画进行中, 压缩高度由 WindowInsetsAnimation 逐帧驱动
+            var lastProgressImeH = 0  // onProgress 最后一帧键盘高度, onEnd 据此判断动画方向(收起方向需兜底恢复)
+            var imeFloatingListener: RecyclerView.OnScrollListener? = null
             root.setOnApplyWindowInsetsListener { v, insets ->
                 val sb = insets.getInsets(android.view.WindowInsets.Type.systemBars())
                 main.setPadding(0, sb.top, 0, sb.bottom)
@@ -1177,65 +1193,231 @@ class MainActivity : Activity() {
                 // 否则 setDecorFitsSystemWindows(false) 下顶部标题栏被状态栏遮挡、底部被导航栏顶低
                 if (::drawerPanel.isInitialized) drawerPanel.setPadding(0, sb.top, 0, sb.bottom)
                 val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                lastImeH = imeH
                 val lp = bodyWrap.layoutParams as LinearLayout.LayoutParams
                 android.util.Log.d("KBDDBG", "INSETS imeH=$imeH imeShown=$imeShown focused=${input.isFocused} bh=${bodyWrap.height}")
                 if (imeH > dp(80)) {
-                    // 键盘弹起改为"高度压缩"模式: bodyWrap 顶部固定贴标题栏底(整体不再上移, 不会盖住标题栏),
-                    // 高度压缩到键盘顶, 底边(inputBar)精确贴键盘顶无间隙
                     if (!imeShown) {
                         bodyWrapFullH = bodyWrap.height.coerceAtLeast(1)
-                        lp.weight = 0f; lp.height = bodyWrapFullH
-                        bodyWrap.layoutParams = lp
+                        // QQ 式双分支: 列表正在惯性滚动(DRAGGING/SETTLING) → 不压缩 bodyWrap、消息不抬起,
+                        // 仅输入区悬浮到键盘顶, 惯性滚动自然继续不被干扰; 列表静止(IDLE) → 压缩 bodyWrap, 消息原位顶起
+                        imeFloating = chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE
+                        if (imeFloating) {
+                            // 悬浮模式: 输入区平移量需补偿 main 底部导航栏 padding, 否则悬在键盘顶上方一段距离
+                            inputBar.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
+                            if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
+                        } else {
+                            lp.weight = 0f; lp.height = bodyWrapFullH
+                            bodyWrap.layoutParams = lp
+                            prevCompressH = bodyWrapFullH
+                        }
                     }
                     imeShown = true
-                    val tb = IntArray(2)
-                    titleBar.getLocationInWindow(tb)
-                    val titleBottom = tb[1] + titleBar.height
-                    val targetH = ((root.height - imeH) - titleBottom).coerceAtLeast(dp(60))
-                    if (imeAnimator?.isRunning == true) imeAnimator?.cancel()
-                    val from = bodyWrap.height
-                    imeAnimator = android.animation.ValueAnimator.ofInt(from, targetH).apply {
-                        duration = 180
-                        interpolator = android.view.animation.DecelerateInterpolator()
-                        addUpdateListener {
-                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                            lpp.height = it.animatedValue as Int
-                            bodyWrap.layoutParams = lpp
-                        }
-                        addListener(object : android.animation.AnimatorListenerAdapter() {
-                            override fun onAnimationEnd(a: android.animation.Animator) {
-                                // 键盘弹起收尾: 滚到最新一条, 让最新消息贴输入框上方(微信式跟随), 不会被顶出可视区
-                                scrollToBottom()
+                    if (imeFloating) {
+                        // 悬浮模式: 键盘高度继续变化时同步输入区位置(补偿导航栏 padding); bodyWrap 不压缩 → 消息不抬起、惯性滚动不受干扰
+                        inputBar.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
+                        if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
+                        // 惯性滚动停止后自动切回压缩模式, 让消息原位顶起(QQ 行为: 滚动中不顶, 滚停即顶)
+                        if (imeFloatingListener == null) {
+                            val listener = object : RecyclerView.OnScrollListener() {
+                                override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                                    if (imeFloating && imeShown && newState == RecyclerView.SCROLL_STATE_IDLE) {
+                                        imeFloating = false
+                                        rv.removeOnScrollListener(this)
+                                        if (imeFloatingListener === this) imeFloatingListener = null
+                                        val lp2 = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                                        lp2.weight = 0f
+                                        lp2.height = bodyWrapFullH
+                                        bodyWrap.layoutParams = lp2
+                                        inputBar.animate().translationY(0f).setDuration(150).start()
+                                        if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.animate().translationY(0f).setDuration(150).start()
+                                        val tb2 = IntArray(2)
+                                        titleBar.getLocationInWindow(tb2)
+                                        val titleBottom2 = tb2[1] + titleBar.height
+                                        val targetH2 = ((root.height - kotlin.math.max(lastImeH, sb.bottom)) - titleBottom2).coerceAtLeast(dp(60))
+                                        imeAnimator?.cancel()
+                                        val from2 = bodyWrapFullH
+                                        var prevH2 = from2
+                                        imeAnimator = android.animation.ValueAnimator.ofInt(from2, targetH2).apply {
+                                            duration = 100
+                                            interpolator = android.view.animation.DecelerateInterpolator()
+                                            addUpdateListener {
+                                                val lp3 = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                                                val newH3 = it.animatedValue as Int
+                                                val dh3 = prevH2 - newH3
+                                                lp3.height = newH3
+                                                bodyWrap.layoutParams = lp3
+                                                chatRec.post {
+                                                    val lm3 = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
+                                                    val lastPos3 = (chatRec.adapter?.itemCount ?: 0) - 1
+                                                    val lv3 = lm3.findViewByPosition(lastPos3)
+                                                    if (lv3 != null) {
+                                                        val gap3 = lv3.bottom - (chatRec.height - chatRec.paddingBottom)
+                                                        if (gap3 != 0) chatRec.scrollBy(0, gap3)
+                                                    } else if (dh3 != 0) {
+                                                        chatRec.scrollBy(0, dh3)
+                                                    }
+                                                }
+                                                prevH2 = newH3
+                                            }
+                                            addListener(object : android.animation.AnimatorListenerAdapter() {
+                                                override fun onAnimationEnd(a: android.animation.Animator) {
+                                                    prevCompressH = targetH2
+                                                }
+                                            })
+                                            start()
+                                        }
+                                    }
+                                }
                             }
-                        })
-                        start()
-                    }
-                } else if (imeShown) {
-                    imeShown = false
-                    if (imeAnimator?.isRunning == true) imeAnimator?.cancel()
-                    val from = bodyWrap.height
-                    imeAnimator = android.animation.ValueAnimator.ofInt(from, bodyWrapFullH).apply {
-                        duration = 180
-                        interpolator = android.view.animation.DecelerateInterpolator()
-                        addUpdateListener {
-                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                            lpp.height = it.animatedValue as Int
-                            bodyWrap.layoutParams = lpp
+                            imeFloatingListener = listener
+                            chatRec.addOnScrollListener(listener)
                         }
-                        addListener(object : android.animation.AnimatorListenerAdapter() {
-                            override fun onAnimationEnd(a: android.animation.Animator) {
-                                val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                                lpp.height = 0; lpp.weight = 1f
+                    } else {
+                        // 键盘 insets 动画期间高度由 WindowInsetsAnimation.Callback 逐帧驱动(与键盘弹起同帧);
+                        // 此处仅在无动画(键盘瞬时出现/动画结束后最终 insets 兜底)时设置最终高度, 避免提前跳变
+                        if (!inImeAnim) {
+                            val tb = IntArray(2)
+                            titleBar.getLocationInWindow(tb)
+                            val titleBottom = tb[1] + titleBar.height
+                            val targetH = ((root.height - kotlin.math.max(imeH, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
+                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                            val dh = prevCompressH - targetH
+                            prevCompressH = targetH
+                            if (lpp.height != targetH) {
+                                lpp.height = targetH
                                 bodyWrap.layoutParams = lpp
                             }
-                        })
-                        start()
+                            // 顶起: 布局稳定后锚定末条贴回视口内容底(保留 paddingBottom, 滚动量=压缩量, 单动作无闪烁);
+                            // 末条不可见(翻历史)才按压缩增量滚动, 把当前位置内容顶到键盘上方
+                            chatRec.post {
+                                val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
+                                val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
+                                val lv = lm.findViewByPosition(lastPos)
+                                if (lv != null) {
+                                    val gap = lv.bottom - (chatRec.height - chatRec.paddingBottom)
+                                    if (gap != 0) chatRec.scrollBy(0, gap)
+                                } else if (dh != 0) {
+                                    chatRec.scrollBy(0, dh)
+                                }
+                            }
+                        }
+                    }
+                } else if (imeShown) {
+                    // 键盘收起动画期间 insets 可能中途回调, 高度已由 WindowInsetsAnimation 逐帧恢复, 此处等动画结束后最终 insets 再收尾
+                    if (inImeAnim) return@setOnApplyWindowInsetsListener insets
+                    imeShown = false
+                    if (imeFloatingListener != null) {
+                        chatRec.removeOnScrollListener(imeFloatingListener!!)
+                        imeFloatingListener = null
+                    }
+                    if (imeFloating) {
+                        // 收起悬浮模式: 输入区落回原位, 列表视口从未变化无需恢复
+                        imeFloating = false
+                        inputBar.animate().translationY(0f).setDuration(180)
+                            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                        if (attachPreviewWrap.visibility == View.VISIBLE)
+                            attachPreviewWrap.animate().translationY(0f).setDuration(180)
+                                .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                    } else {
+                        // 收起同步: insets 动画期间每帧已随 imeH 递减同步恢复 bodyWrap 高度, 此处只需还原为权重撑满
+                        if (imeAnimator?.isRunning == true) imeAnimator?.cancel()
+                        val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                        lpp.height = 0; lpp.weight = 1f
+                        bodyWrap.layoutParams = lpp
+                        prevCompressH = bodyWrapFullH
                     }
                     // 键盘已收起: 输入框光标跟随关闭
                     if (input.isFocused) input.clearFocus()
                 }
                 insets
             }
+            // 键盘 insets 动画逐帧驱动(API30+): 与系统键盘动画精确同帧, 替代独立压缩动画(延迟)与直接跟随(跳变)
+            window.decorView.setWindowInsetsAnimationCallback(object : android.view.WindowInsetsAnimation.Callback(android.view.WindowInsetsAnimation.Callback.DISPATCH_MODE_STOP) {
+                override fun onPrepare(animation: android.view.WindowInsetsAnimation) {
+                    if ((animation.typeMask and android.view.WindowInsets.Type.ime()) == 0) return
+                    inImeAnim = true
+                    if (!imeShown) {
+                        // 键盘开始弹出: 记录全高并进入压缩/悬浮初始状态(滚动中→悬浮, 静止→压缩)
+                        imeShown = true
+                        bodyWrapFullH = bodyWrap.height.coerceAtLeast(1)
+                        imeFloating = chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE
+                        if (!imeFloating) {
+                            val lp0 = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                            lp0.weight = 0f; lp0.height = bodyWrapFullH
+                            bodyWrap.layoutParams = lp0
+                            prevCompressH = bodyWrapFullH
+                        }
+                    }
+                }
+                override fun onProgress(insets: android.view.WindowInsets, runningAnimations: MutableList<android.view.WindowInsetsAnimation>): android.view.WindowInsets {
+                    val imeAnim = runningAnimations.firstOrNull { (it.typeMask and android.view.WindowInsets.Type.ime()) != 0 } ?: return insets
+                    // 当前帧真实 ime 高度(动画中间值), 与键盘视觉逐帧同步
+                    val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                    val sb = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+                    lastProgressImeH = imeH  // 记录最后一帧键盘高度, onEnd 据此判断动画方向
+                    if (imeShown && !imeFloating) {
+                        // 压缩顶起/恢复: 高度随键盘动画进度逐帧同步, 锚定末条保留底部留白
+                        val tb = IntArray(2)
+                        titleBar.getLocationInWindow(tb)
+                        val titleBottom = tb[1] + titleBar.height
+                        val targetH = ((root.height - kotlin.math.max(imeH, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
+                        val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                        val dh = prevCompressH - targetH
+                        prevCompressH = targetH
+                        if (lpp.height != targetH) {
+                            lpp.height = targetH
+                            bodyWrap.layoutParams = lpp
+                        }
+                        chatRec.post {
+                            val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
+                            val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
+                            val lv = lm.findViewByPosition(lastPos)
+                            if (lv != null) {
+                                val gap = lv.bottom - (chatRec.height - chatRec.paddingBottom)
+                                if (gap != 0) chatRec.scrollBy(0, gap)
+                            } else if (dh != 0) {
+                                chatRec.scrollBy(0, dh)
+                            }
+                        }
+                    } else if (imeShown && imeFloating) {
+                        // 悬浮模式: 输入区随键盘动画进度同步平移(补偿导航栏 padding)
+                        inputBar.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
+                        if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
+                    }
+                    return insets
+                }
+                override fun onEnd(animation: android.view.WindowInsetsAnimation) {
+                    if ((animation.typeMask and android.view.WindowInsets.Type.ime()) == 0) return
+                    inImeAnim = false
+                    // 收起动画结束: 最终 insets 回调常被动画期间挡掉(imeShown 仍 true), bodyWrap 可能停在固定高度。
+                    // v8 曾按 lastProgressImeH<=80 判断方向, 但动画被中途打断(如点击视频弹窗抢焦点)时
+                    // lastProgressImeH 停在中间值判定不恢复 -> 输入框卡在压缩中间位悬浮半空。
+                    // 改为立即复查真实键盘状态: 键盘已收(insets≈0)或输入框已失焦(键盘必然在收/已收) => 强制恢复权重撑满。
+                    // 立即执行(下一帧)而非延迟, 避免 bodyWrap 在中间高度停 300ms 造成"两段式"掉底观感。
+                    root.post {
+                        if (!imeShown || inImeAnim) return@post
+                        val curImeH = try {
+                            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+                        } catch (e: Exception) { 0 }
+                        if (curImeH <= dp(80) || !input.isFocused) {
+                            if (imeFloating) {
+                                imeFloating = false
+                                inputBar.translationY = 0f
+                                if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = 0f
+                            }
+                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                            if (lpp.weight == 0f) {
+                                lpp.height = 0; lpp.weight = 1f
+                                bodyWrap.layoutParams = lpp
+                                prevCompressH = bodyWrapFullH
+                            }
+                            imeShown = false
+                            if (input.isFocused) input.clearFocus()
+                        }
+                    }
+                }
+            })
         }
         // 键盘弹起时点击输入区以外收起键盘: 在 root.dispatchTouchEvent 实现(见 root 定义处), 无其它点击监听
         summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
@@ -1338,6 +1520,9 @@ class MainActivity : Activity() {
     /** 取消当前 AI 请求(切会话/新会话调用): 代际自增使迟到回调全部失效, 立即恢复输入态,
      *  不依赖迟到 onDone/onError 清理状态(阶段2 流式竞态治理) */
     private fun cancelActiveRequest() {
+        // 丢弃流式行引用(无论 AI 是否还在输出): 防止全量重建(切模式/开会话/新会话)时
+        // buildRowsFromMessages 兜底把已收尾的 Streaming 行再次塞回 → 跨模式串写/AI回复重复
+        streamingRow = null
         if (!aiBusy) return
         LocalEngine.requestCancel()
         requestEpoch++
@@ -1463,7 +1648,7 @@ class MainActivity : Activity() {
             sessionList.addView(TextView(this).apply {
                 text = getString(R.string.ma_no_sessions)
                 textSize = 12f
-                setTextColor(Color.parseColor("#BBBBBB"))
+                setTextColor(Ui.SUB)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(24), 0, dp(24))
             })
@@ -1490,7 +1675,7 @@ class MainActivity : Activity() {
                 addView(TextView(this@MainActivity).apply {
                     text = (if (s.pinned) getString(R.string.ma_pinned_prefix) else "") + fmtTime(s.updatedAt)
                     textSize = 11f
-                    setTextColor(Color.parseColor("#AAAAAA"))
+                    setTextColor(Ui.SUB)
                     setPadding(0, dp(2), 0, 0)
                 })
             })
@@ -1798,6 +1983,15 @@ class MainActivity : Activity() {
                             }
                         }
                         holder.finishContent()
+                        // 流式行收尾: 已完成回复内容已落库至 messages, 移除 Streaming 行并重建为静态 AI 行;
+                        // 不清理的话, 切模式/开会话全量重建时该行会被 buildRowsFromMessages 兜底再次塞回,
+                        // 表现为"切 Agent 串消息 / 切回聊天 AI 回复变两条"(重启进程 streamingRow 归零即恢复)
+                        val doneRow = streamingRow
+                        streamingRow = null
+                        if (!LocalEngine.cancelRequested && doneRow != null) {
+                            chatAdapter.remove(doneRow)
+                            buildRowsFromMessages()
+                        }
                         aiBusy = false
                         TaskService.stop(this@MainActivity)
                         updateInputMode()
@@ -1814,6 +2008,11 @@ class MainActivity : Activity() {
                     uiScope.launch {
                         if (epoch != requestEpoch) return@launch
                         holder.showError(getString(R.string.ma_error_fmt, msg))
+                        // 错误行收尾: 移除流式行, 错误提示以系统行保留(避免重建时僵尸行重复渲染)
+                        val errRow = streamingRow
+                        streamingRow = null
+                        if (errRow != null) chatAdapter.remove(errRow)
+                        appendSys(getString(R.string.ma_error_fmt, msg))
                         LocalEngine.cancelRequested = false
                         aiBusy = false
                         TaskService.stop(this@MainActivity)
@@ -1942,8 +2141,11 @@ class MainActivity : Activity() {
                     else -> ChatRow.Ai(sessionBaseSeq + chatRows.size.toLong(), m.content)
                 })
         }
-        // 阶段2 兜底: 若仍有未落库的流式行(AI 输出中触发全量重建, 如窗口外回退), 追加到末尾不丢失气泡盒
-        streamingRow?.let { if (it !in chatRows) chatRows.add(it) }
+        // 阶段2 兜底: 仅 AI 输出中触发全量重建(如窗口外回退)时追加流式行到末尾不丢失气泡盒;
+        // 输出完成后(aiBusy=false)不再塞回, 防止已收尾的 Streaming 行变成僵尸行重复渲染
+        if (aiBusy) {
+            streamingRow?.let { if (it !in chatRows) chatRows.add(it) }
+        }
         chatAdapter.submit(chatRows.toList(), onCommitted)
     }
 
@@ -2142,17 +2344,15 @@ class MainActivity : Activity() {
         // 关键: 必须 allowGrab=false —— 本气泡已内嵌真实循环播放器, 不需要抓帧缩略图; 若临时取不到缩略图,
         // 绝不触发全屏 ExoPlayer 抓帧(系统取帧失败的转发视频/GIF 转码片走该兜底时, 会在真机全屏闪放视频、
         // 抢占合成层与硬件解码器, 把正在循环播放的气泡渲染顶掉, 表现为 Gif/视频气泡黑块或整体消失, 即本故障根因)
-        val tb = decodeVideoThumbnail(f, resources.displayMetrics.density, this, allowGrab = false)
-        val dims = if (tb != null) null else videoDimensionsFast(f)
-        var w = tb?.width ?: dims?.first ?: 0
-        var h = tb?.height ?: dims?.second ?: 0
-        if (w <= 0 || h <= 0) { w = dp(200); h = (w * 9 / 16).coerceAtLeast(dp(60)) }  // 兜底 16:9
+        // 统一横向卡片(用户确认): 宽度撑满可用宽(userMaxW), 高度按 16:9 封顶 maxH,
+        // PlayerView ZOOM 等比填满裁掉溢出 —— 横屏 16:9 零裁剪完整显示; 竖屏/方形只露中间段,
+        // 点击气泡进全屏弹窗看完整视频。此前切换会话后撑满屏是缩略图缓存返回已回收完整帧的
+        // 偶然副作用, 现已固化为有意设计, 切不切换会话观感相同。
         val maxH = dp(340)
-        if (w > maxW || h > maxH) {
-            val scale = minOf(maxW.toFloat() / w, maxH.toFloat() / h, 1f)
-            w = (w * scale).toInt().coerceAtLeast(dp(80))
-            h = (h * scale).toInt().coerceAtLeast(dp(60))
-        }
+        var w = maxW
+        var h = (w * 9 / 16).coerceAtMost(maxH)
+        w = w.coerceAtLeast(dp(80))
+        h = h.coerceAtLeast(dp(60))
         val exo = ExoPlayer.Builder(this@MainActivity).build()
         exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
         // 循环播放: 播放完一次自动重播(loop), 静音自动播放(与动图无声语义一致), 点击气泡进全屏弹窗
@@ -2177,13 +2377,15 @@ class MainActivity : Activity() {
             addView(pv)
             // 点击整块进全屏弹窗预览(弹窗内同样循环播放)
             setOnClickListener { this@MainActivity.openAttachmentPreview(listOf(file), 0) }
-            // 生命周期: 视图从窗口 detach(会话重建/滚动回收)即释放播放器, 防止内存/解码泄漏
+            // 生命周期: 视图从窗口 detach(会话重建/滚动回收/布局变化)时仅暂停不释放,
+            // attach 回来仍能自动续播, 避免播放器被 release 后黑屏(需点击才重建)。
+            // 真正销毁由 GC/进程回收兜底; 静音循环体积小, 会话级泄漏可接受
             addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {
                     try { exo.play() } catch (_: Exception) {}
                 }
                 override fun onViewDetachedFromWindow(v: View) {
-                    try { exo.release() } catch (_: Exception) {}
+                    try { exo.pause() } catch (_: Exception) {}
                 }
             })
         }
@@ -2284,15 +2486,14 @@ class MainActivity : Activity() {
     /** 将位图裁剪为圆角 (已抽离 UiKit.roundedBitmap) */
 
     /** 从会话历史恢复的 AI 回复: 思考/工具/正文各自独立气泡, 按 timeline 记录的真实顺序竖向排列 */
-    /** AI 头像: 圆形深灰蓝底 + 当前供应商首字符, 放气泡上方(与 MD 排版解耦) */
+    /** AI 头像: 圆形深灰蓝底 + 固定 N(Nyral), 放气泡上方(与 MD 排版解耦) */
     private fun aiAvatar(): TextView = TextView(this@MainActivity).apply {
         val s = dp(30)
         val custom = AvatarConfig.avatarDrawable(AvatarConfig.aiAvatarFile(), s)
         if (custom != null) {
             background = custom
         } else {
-            val label = ApiConfig.providerLabel(ApiConfig.providerId())
-            text = (label.take(1).ifBlank { "A" }).uppercase()
+            text = "N"
             textSize = 15f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -2586,7 +2787,7 @@ class MainActivity : Activity() {
         val tv = TextView(this).apply {
             this.text = text
             textSize = 14f
-            setTextColor(0xFF1F2328.toInt())
+            setTextColor(Ui.TEXT)
             setTextIsSelectable(true)
             setHighlightColor(0x6633B5E5)
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -2596,7 +2797,7 @@ class MainActivity : Activity() {
         }
         val bg = GradientDrawable().apply {
             cornerRadius = dp(16).toFloat()
-            setColor(0xFFFAFAFA.toInt())
+            setColor(Ui.INPUT_BG)
         }
         val scroll = ScrollView(this).apply {
             background = bg
