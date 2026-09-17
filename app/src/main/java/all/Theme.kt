@@ -200,3 +200,36 @@ object KawaiiTheme : BaseTheme(
     override fun cardCorner(density: Float): Float = 16 * density
     override fun btnCorner(density: Float): Float = 999 * density
 }
+
+/** 主题 3：Kiwi 暗（参考 Kiwi Browser nightmode 设计语言：蓝灰夜底 #14181C + Material 蓝强调 + 低饱和灰阶、小圆角） */
+object KiwiDarkTheme : BaseTheme(
+    id = 3,
+    nameRes = R.string.theme_kiwi,
+    bg = Color.parseColor("#14181C"),
+    surface = Color.parseColor("#161E21"),
+    primary = Color.parseColor("#1A73E8"),
+    primaryLight = Color.parseColor("#1B2735"),
+    text = Color.parseColor("#E8EAED"),
+    sub = Color.parseColor("#9AA0A6"),
+    divider = Color.parseColor("#262C31"),
+    inputBg = Color.parseColor("#1F262C"),
+    danger = Color.parseColor("#F28B82"),
+    dangerLight = Color.parseColor("#3A2625"),
+    accent = Color.parseColor("#8AB4F8"),
+    bubbleAi = Color.parseColor("#1F262C"),
+    bubbleAiText = Color.parseColor("#E8EAED"),
+    bubbleUser = Color.parseColor("#174EA6"),
+    bubbleUserText = Color.WHITE,
+    thinkBg = Color.parseColor("#1B2735"),
+    thinkText = Color.parseColor("#8AB4F8"),
+    radius = RadiusTokens(12, 10, 12, 10, 6, 14),
+    spacing = SpacingTokens(16, 14, 10, 16),
+    typography = TypeTokens(17f, 16f, 12f, 11f),
+    shadow = ShadowTokens(0, 0)
+) {
+    // Kiwi 设置项小圆角语言，覆盖风格钩子
+    override fun bubbleCorner(density: Float): Float = 10 * density
+    override fun cardCorner(density: Float): Float = 12 * density
+    override fun btnCorner(density: Float): Float = 12 * density
+    override fun inputCorner(density: Float): Float = 10 * density
+}
