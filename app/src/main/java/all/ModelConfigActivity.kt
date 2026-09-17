@@ -133,7 +133,7 @@ class ModelConfigActivity : Activity() {
                 background = roundedBg(when {
                     isCurrent -> Ui.PRIMARY
                     configured -> 0xFF34C759.toInt()
-                    else -> 0xFFCCCCCC.toInt()
+                    else -> Ui.SUB
                 })
             })
 

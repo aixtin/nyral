@@ -112,7 +112,7 @@ class AboutActivity : Activity() {
         content.addView(TextView(this).apply {
             text = getString(R.string.about_14)
             textSize = 11f
-            setTextColor(0xFFAAAAAA.toInt())
+            setTextColor(Ui.SUB)
             gravity = Gravity.CENTER
             setPadding(0, dp(20), 0, 0)
         })

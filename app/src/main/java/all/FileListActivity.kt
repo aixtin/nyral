@@ -114,7 +114,7 @@ class FileListActivity : Activity() {
                 addView(TextView(this@FileListActivity).apply {
                     text = disp
                     textSize = 15f
-                    setTextColor(0xFF1F2329.toInt())
+                    setTextColor(Ui.TEXT)
                     maxLines = 1
                     setPadding(dp(10), 0, 0, 0)
                 })
@@ -128,7 +128,7 @@ class FileListActivity : Activity() {
                     }
                 }
                 textSize = 12f
-                setTextColor(0xFF8A8F9C.toInt())
+                setTextColor(Ui.SUB)
                 setPadding(0, dp(4), 0, 0)
             })
             addView(Ui.divider(this@FileListActivity).apply { setPadding(0, dp(8), 0, dp(8)) })
@@ -156,7 +156,7 @@ class FileListActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(if (danger) Ui.DANGER else Ui.PRIMARY)
             background = Ui.rounded(
-                if (danger) Color.parseColor("#FDECEC") else Ui.PRIMARY_LIGHT, 8, this@FileListActivity)
+                if (danger) Ui.DANGER_LIGHT else Ui.PRIMARY_LIGHT, 8, this@FileListActivity)
             isClickable = true
             Ui.press(this)
             setOnClickListener { onClick() }
