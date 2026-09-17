@@ -118,7 +118,7 @@ internal class BrowserPage(private val act: MainActivity) {
     @Volatile private var lastKeyword = ""   // 最近一次搜索关键词, 供聚合引擎复用
     private val ENGINE_PREFS = "browser_engines"
     private val blue = Ui.PRIMARY
-    private val gray = Color.parseColor("#9AA0A6")
+    private val gray = Ui.SUB
 
     internal var open = false
 
@@ -536,7 +536,7 @@ internal class BrowserPage(private val act: MainActivity) {
             thinkBody = TextView(act).apply {
                 text = act.getString(R.string.br_no_think)
                 textSize = 12f
-                setTextColor(Color.parseColor("#666666"))
+                setTextColor(Ui.SUB)
                 maxHeight = act.dp(110)
             }
             addView(thinkBody)
@@ -839,7 +839,7 @@ internal class BrowserPage(private val act: MainActivity) {
     private fun buildHamburger(): LinearLayout = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
         background = GradientDrawable().apply {
-            setColor(Color.WHITE); cornerRadius = act.dp(18).toFloat()
+            setColor(Ui.SURFACE); cornerRadius = act.dp(18).toFloat()
         }
         elevation = act.dp(8).toFloat()
 
@@ -854,7 +854,7 @@ internal class BrowserPage(private val act: MainActivity) {
             })
             addView(TextView(act).apply {
                 text = act.getString(R.string.br_idle); textSize = 12f; maxLines = 1
-                setTextColor(Color.parseColor("#333333"))
+                setTextColor(Ui.TEXT)
                 setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }.also { drawerStatus = it })
@@ -880,7 +880,7 @@ internal class BrowserPage(private val act: MainActivity) {
                 setTextColor(Ui.TEXT)
                 setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
                 background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#F2F4F7")); cornerRadius = act.dp(12).toFloat()
+                    setColor(Ui.INPUT_BG); cornerRadius = act.dp(12).toFloat()
                 }
                 setPadding(act.dp(10), act.dp(4), act.dp(10), act.dp(4))
                 layoutParams = LinearLayout.LayoutParams(0, act.dp(34), 1f)
@@ -964,20 +964,25 @@ internal class BrowserPage(private val act: MainActivity) {
 
     /** 收起汉堡面板: 隐藏遮罩+面板平移回右外 */
     internal fun collapseHamburger() {
-        if (!hamburgerOpen) return
-        hamburgerOpen = false
-        onHamburgerChange?.invoke(false)
-        hamburgerMask.animate().alpha(0f).setDuration(160).withEndAction {
-            hamburgerMask.visibility = View.GONE
-        }.start()
-        hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-        root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-        hamburgerPanel.animate().translationX(act.dp(300).toFloat()).setDuration(240)
-            .setInterpolator(DecelerateInterpolator(1.2f))
-            .withEndAction {
-                hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
-                root.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+        val wasOpen = hamburgerOpen
+        if (wasOpen) {
+            hamburgerOpen = false
+            onHamburgerChange?.invoke(false)
+            hamburgerMask.animate().alpha(0f).setDuration(160).withEndAction {
+                hamburgerMask.visibility = View.GONE
             }.start()
+        }
+        // 无论是否已标记展开都复位面板: 修复未开态跟手展开不足阈值松手导致卡半开
+        if (hamburgerPanel.translationX != act.dp(300).toFloat()) {
+            hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            hamburgerPanel.animate().translationX(act.dp(300).toFloat()).setDuration(240)
+                .setInterpolator(DecelerateInterpolator(1.2f))
+                .withEndAction {
+                    hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                    root.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                }.start()
+        }
     }
     private fun showEngineTab() {
         engineScroll.visibility = View.VISIBLE; dataScroll.visibility = View.GONE
@@ -1013,7 +1018,7 @@ internal class BrowserPage(private val act: MainActivity) {
             row.addView(TextView(act).apply {
                 text = (if (i == engineIdx) "★ " else "  ") + engineLabel(e)
                 textSize = 13f
-                setTextColor(if (i == engineIdx) blue else Color.parseColor("#333333"))
+                setTextColor(if (i == engineIdx) blue else Ui.TEXT)
                 setTypeface(typeface, if (i == engineIdx) Typeface.BOLD else Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 setOnClickListener {
@@ -1042,7 +1047,7 @@ internal class BrowserPage(private val act: MainActivity) {
             })
             engineList.addView(row)
             engineList.addView(View(act).apply {
-                background = GradientDrawable().apply { setColor(Color.parseColor("#E8EAED")); setSize(1, 1) }
+                background = GradientDrawable().apply { setColor(Ui.DIVIDER); setSize(1, 1) }
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
             })
         }    }
@@ -1106,9 +1111,9 @@ internal class BrowserPage(private val act: MainActivity) {
         dataBox.removeAllViews()
         dataBox.addView(TextView(act).apply {
             text = act.getString(R.string.br_data_intro)
-            textSize = 12f; setTextColor(Color.parseColor("#555555"))
+            textSize = 12f; setTextColor(Ui.SUB)
             setPadding(act.dp(10), act.dp(8), act.dp(10), act.dp(8))
-            background = GradientDrawable().apply { setColor(Color.parseColor("#F2F4F7")); cornerRadius = act.dp(10).toFloat() }
+            background = GradientDrawable().apply { setColor(Ui.INPUT_BG); cornerRadius = act.dp(10).toFloat() }
         })
         val auth = parseSiteAuth()
         if (auth == null || auth.length() == 0) {
@@ -1164,7 +1169,7 @@ internal class BrowserPage(private val act: MainActivity) {
                 })
                 dataBox.addView(row)
                 dataBox.addView(View(act).apply {
-                    background = GradientDrawable().apply { setColor(Color.parseColor("#E8EAED")); setSize(1, 1) }
+                    background = GradientDrawable().apply { setColor(Ui.DIVIDER); setSize(1, 1) }
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
                 })
             }
@@ -1264,9 +1269,9 @@ internal class BrowserPage(private val act: MainActivity) {
             box.addView(TextView(act).apply {
                 text = body.toString()
                 textSize = 13f
-                setTextColor(Color.parseColor("#555555"))
+                setTextColor(Ui.TEXT)
                 background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#F2F4F7"))
+                    setColor(Ui.INPUT_BG)
                     cornerRadius = act.dp(10).toFloat()
                 }
                 setPadding(act.dp(12), act.dp(12), act.dp(12), act.dp(12))
