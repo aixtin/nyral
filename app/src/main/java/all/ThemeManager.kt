@@ -10,19 +10,20 @@ object ThemeManager {
     const val PREFS = "app_prefs"
     const val KEY_THEME_ID = "theme_id"
 
-    /** 全部可用主题（有序，顺序即设置页展示顺序） */
+    /** 全部可用主题（有序，顺序即设置页展示顺序；首位为默认主题） */
     val themes: List<AppTheme> = listOf(
+        IconTheme,
         DefaultTheme,
         FlatTheme,
         KawaiiTheme,
         KiwiDarkTheme
     )
 
-    /** 当前主题（无记录默认主题 0） */
+    /** 当前主题（无记录时默认使用图标主题） */
     fun current(ctx: Context): AppTheme {
         val id = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_THEME_ID, DefaultTheme.id)
-        return themes.firstOrNull { it.id == id } ?: DefaultTheme
+            .getInt(KEY_THEME_ID, IconTheme.id)
+        return themes.firstOrNull { it.id == id } ?: IconTheme
     }
 
     /** 切换并持久化主题 */

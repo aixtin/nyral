@@ -137,8 +137,8 @@ class LogActivity : Activity() {
 
     private fun updateTabStyle(tv: TextView, selected: Boolean) {
         tv.setBackgroundResource(0)
-        tv.background = Ui.rounded(if (selected) 0xFF3B82F6.toInt() else Color.WHITE, 12, this)
-        tv.setTextColor(if (selected) Color.WHITE else 0xFF666666.toInt())
+        tv.background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.SURFACE, 12, this)
+        tv.setTextColor(if (selected) Color.WHITE else Ui.TEXT)
     }
 
     private fun refreshTabs() {

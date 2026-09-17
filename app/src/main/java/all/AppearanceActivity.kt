@@ -160,7 +160,7 @@ class AppearanceActivity : Activity() {
     private fun sectionTitle(text: String): TextView = TextView(this).apply {
         this.text = text
         textSize = 15f
-        setTextColor(0xFF222222.toInt())
+        setTextColor(Ui.TEXT)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
         setPadding(dp(12), dp(12), dp(12), 0)
     }
@@ -177,7 +177,7 @@ class AppearanceActivity : Activity() {
             } else {
                 gravity = Gravity.CENTER_VERTICAL or Gravity.START
             }
-            background = Ui.rounded(0xFFF4F5F7.toInt(), 12, this@AppearanceActivity)
+            background = Ui.rounded(Ui.INPUT_BG, 12, this@AppearanceActivity)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -217,7 +217,7 @@ class AppearanceActivity : Activity() {
     private fun saveRow(hint: String, btnText: String, onSave: () -> Unit): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(12), 0, dp(12), dp(14))
+        setPadding(dp(12), dp(10), dp(12), dp(14))
         addView(TextView(this@AppearanceActivity).apply {
             text = hint
             textSize = 12f
@@ -229,7 +229,7 @@ class AppearanceActivity : Activity() {
             textSize = 14f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            background = Ui.rounded(Color.parseColor("#4A90D9"), 18, this@AppearanceActivity)
+            background = Ui.rounded(Ui.PRIMARY, 18, this@AppearanceActivity)
             setPadding(dp(18), dp(7), dp(18), dp(7))
             isClickable = true
             Ui.press(this)
@@ -243,7 +243,7 @@ class AppearanceActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             isClickable = true
-            background = Ui.rounded(0xFFF4F5F7.toInt(), 14, this@AppearanceActivity)
+            background = Ui.rounded(Ui.INPUT_BG, 14, this@AppearanceActivity)
             setPadding(dp(6), dp(12), dp(6), dp(12))
             val statusTv = TextView(this@AppearanceActivity).apply {
                 textSize = 11f
@@ -284,7 +284,7 @@ class AppearanceActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             isClickable = true
-            background = Ui.rounded(0xFFF4F5F7.toInt(), 14, this@AppearanceActivity)
+            background = Ui.rounded(Ui.INPUT_BG, 14, this@AppearanceActivity)
             setPadding(dp(6), dp(12), dp(6), dp(12))
             val statusTv = TextView(this@AppearanceActivity).apply {
                 textSize = 11f
@@ -381,7 +381,7 @@ class AppearanceActivity : Activity() {
                 addView(TextView(this@AppearanceActivity).apply {
                     text = if (selected) "●" else "○"
                     textSize = 18f
-                    setTextColor(if (selected) t.primary else 0xFFCCCCCC.toInt())
+                    setTextColor(if (selected) t.primary else Ui.SUB)
                 })
                 addView(TextView(this@AppearanceActivity).apply {
                     text = getString(t.nameRes)
