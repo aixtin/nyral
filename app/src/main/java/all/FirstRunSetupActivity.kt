@@ -246,7 +246,7 @@ class FirstRunSetupActivity : Activity() {
                 when {
                     !required -> {
                         text = getString(R.string.perm_17)
-                        setTextColor(0xFFCCCCCC.toInt())
+                        setTextColor(Ui.SUB)
                     }
                     detecting -> {
                         // root 检测中: 灰色提示不可点
@@ -303,7 +303,7 @@ class FirstRunSetupActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(14))
             isClickable = true
-            background = Ui.rounded(if (checked) 0xFFE8F4FF.toInt() else 0x00000000.toInt(), 0, this@FirstRunSetupActivity)
+            background = Ui.rounded(if (checked) Ui.PRIMARY_LIGHT else 0x00000000.toInt(), 0, this@FirstRunSetupActivity)
             setOnClickListener { onPick() }
             addView(LinearLayout(this@FirstRunSetupActivity).apply {
                 orientation = LinearLayout.VERTICAL

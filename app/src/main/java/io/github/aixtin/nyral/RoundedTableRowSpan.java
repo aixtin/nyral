@@ -97,6 +97,19 @@ public class RoundedTableRowSpan extends ReplacementSpan {
             @IntRange(from = 0) int end,
             @Nullable Paint.FontMetricsInt fm) {
 
+        // 修复: 首次测量(width 尚未经 draw 赋值)时, 用各 cell 内容宽度估算初始表格宽,
+        // 避免 getSize 返回 0 导致 TextView 首测被压成窄条、单元格逐字竖排(恢复渲染必现)
+        if (width <= 0) {
+            final int cellPadding = theme.tableCellPadding() * 2;
+            final int cellBorder = theme.tableBorderWidth(paint) * 2;
+            int contentWidth = 0;
+            for (int i = 0; i < cells.size(); i++) {
+                final CharSequence c = cells.get(i).text();
+                contentWidth += (int) paint.measureText(c, 0, c.length());
+            }
+            width = Math.max(1, contentWidth + cellPadding * cells.size() + cellBorder);
+        }
+
         if (layouts.size() > 0) {
 
             if (fm != null) {
@@ -137,7 +150,7 @@ public class RoundedTableRowSpan extends ReplacementSpan {
             @NonNull Paint p) {
 
         final int spanWidth = io.noties.markwon.utils.SpanUtils.width(canvas, text);
-        if (recreateLayouts(spanWidth)) {
+        if (layouts.isEmpty() || recreateLayouts(spanWidth)) {
             width = spanWidth;
             if (p instanceof TextPaint) {
                 textPaint.set((TextPaint) p);
@@ -155,7 +168,7 @@ public class RoundedTableRowSpan extends ReplacementSpan {
 
         final int w = cellWidth(size);
 
-        final int roundingDiff = w - (width / size);
+        final int roundingDiff = size > 0 ? w - (width / size) : 0;
 
         // 行是否处于文本选区范围 -> 淡化背景让系统选中高亮可见
         boolean selected = false;
@@ -409,6 +422,9 @@ public class RoundedTableRowSpan extends ReplacementSpan {
 
     // @since 4.6.0
     protected int cellWidth(int size) {
+        if (size <= 0) {
+            return width;
+        }
         return (int) (1F * width / size + 0.5F);
     }
 

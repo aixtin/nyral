@@ -320,14 +320,14 @@ class ModelEditActivity : Activity() {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(6), dp(4), dp(6), dp(4))
-            background = Ui.rounded(0xFFFFFFFF.toInt(), 14, this@ModelEditActivity)
+            background = Ui.rounded(Ui.SURFACE, 14, this@ModelEditActivity)
             elevation = dp(10).toFloat()
         }
         fun item(text: String, onClick: () -> Unit) {
             col.addView(TextView(this@ModelEditActivity).apply {
                 this.text = text
                 textSize = 15f
-                setTextColor(0xFF333333.toInt())
+                setTextColor(Ui.TEXT)
                 setPadding(dp(18), dp(12), dp(18), dp(12))
                 isClickable = true
                 setOnClickListener { dismissSaveMenu(); onClick() }
@@ -386,7 +386,7 @@ class ModelEditActivity : Activity() {
             modelsContainer.addView(TextView(this).apply {
                 text = getString(R.string.hint_no_submodel)
                 textSize = 12f
-                setTextColor(0xFFAAAAAA.toInt())
+                setTextColor(Ui.SUB)
                 setPadding(dp(2), dp(6), 0, dp(6))
             })
             return
@@ -403,7 +403,7 @@ class ModelEditActivity : Activity() {
             row.addView(TextView(this).apply {
                 text = m
                 textSize = 13f
-                setTextColor(0xFF333333.toInt())
+                setTextColor(Ui.TEXT)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             row.addView(TextView(this).apply {
@@ -551,7 +551,7 @@ class ModelEditActivity : Activity() {
                 textSize = 12f
                 setTextColor(
                     if (selected && !presetLocked) 0xFFFFFFFF.toInt()
-                    else if (selected) 0xFF666666.toInt()
+                    else if (selected) Ui.TEXT
                     else Ui.PRIMARY
                 )
                 background = Ui.rounded(if (selected && !presetLocked) Ui.PRIMARY else Ui.INPUT_BG, 16, this@ModelEditActivity)

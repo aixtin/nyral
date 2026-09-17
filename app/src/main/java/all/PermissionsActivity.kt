@@ -246,7 +246,7 @@ class PermissionsActivity : Activity() {
                 }
                 textSize = 13f
                 setTextColor(when {
-                    !required -> 0xFFCCCCCC.toInt()
+                    !required -> Ui.SUB
                     detecting -> Ui.SUB
                     granted -> 0xFF2E7D32.toInt()
                     else -> 0xFFD32F2F.toInt()

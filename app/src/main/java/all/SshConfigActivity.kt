@@ -184,12 +184,12 @@ class SshConfigActivity : Activity() {
                     addView(TextView(this@SshConfigActivity).apply {
                         text = label
                         textSize = 13f
-                        setTextColor(0xFF888888.toInt())
+                        setTextColor(Ui.SUB)
                     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                     addView(TextView(this@SshConfigActivity).apply {
                         text = "⋯"
                         textSize = 18f
-                        setTextColor(0xFF666666.toInt())
+                        setTextColor(Ui.TEXT)
                         setPadding(dp(8), 0, 0, 0)
                         setOnClickListener { onMore(et) }
                         Ui.press(this)
@@ -241,7 +241,7 @@ class SshConfigActivity : Activity() {
                 addView(TextView(this@SshConfigActivity).apply {
                     text = label
                     textSize = 13f
-                    setTextColor(0xFF888888.toInt())
+                    setTextColor(Ui.SUB)
                     // 长标签占剩余宽度并单行省略, 否则与"导入"按钮抢宽把按钮挤变形
                     // (主机标签比跳板机长, 正好溢出; 与 addField 的 onMore 行对齐用 weight=1)
                     maxLines = 1
@@ -311,7 +311,7 @@ class SshConfigActivity : Activity() {
         container.addView(TextView(this).apply {
             text = getString(R.string.ssh_proxy_section)
             textSize = 13f
-            setTextColor(0xFF666666.toInt())
+            setTextColor(Ui.TEXT)
             setPadding(0, dp(12), 0, dp(4))
         })
         addField(container, editTexts, getString(R.string.ssh_label_proxy_host), cfg.proxyHost ?: "")

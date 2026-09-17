@@ -91,7 +91,7 @@ class MemoryListActivity : Activity() {
         bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(16), dp(8), dp(16), dp(12))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Ui.SURFACE)
             visibility = View.GONE
         }
         delSelBtn = Ui.dangerBtn(this, getString(R.string.memory_del_selected, 0)) { confirmDeleteSelected() }
@@ -119,7 +119,7 @@ class MemoryListActivity : Activity() {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(6), dp(4), dp(6), dp(4))
-            background = Ui.rounded(Color.WHITE, 14, this@MemoryListActivity)
+            background = Ui.rounded(Ui.SURFACE, 14, this@MemoryListActivity)
             elevation = dp(10).toFloat()
         }
         fun item(label: String, onClick: () -> Unit) {
@@ -127,7 +127,7 @@ class MemoryListActivity : Activity() {
                 text = label
                 textSize = 14f
                 setPadding(dp(18), dp(12), dp(18), dp(12))
-                setTextColor(0xFF333333.toInt())
+                setTextColor(Ui.TEXT)
                 setOnClickListener {
                     dismissMorePopup()
                     onClick()
@@ -301,7 +301,7 @@ class MemoryListActivity : Activity() {
         fun applySelected() {
             val sel = mem.id in selectedIds
             row.background = if (sel) Ui.rounded(Ui.PRIMARY_LIGHT, 10, this@MemoryListActivity)
-                            else Ui.rounded(Color.WHITE, 10, this@MemoryListActivity)
+                            else Ui.rounded(Ui.SURFACE, 10, this@MemoryListActivity)
             checkView?.let {
                 it.text = if (sel) "✓" else ""
                 it.background = Ui.rounded(if (sel) Ui.PRIMARY else Ui.INPUT_BG, 6, this@MemoryListActivity)
@@ -342,7 +342,7 @@ class MemoryListActivity : Activity() {
             addView(TextView(this@MemoryListActivity).apply {
                 text = mem.content
                 textSize = 14f
-                setTextColor(0xFF333333.toInt())
+                setTextColor(Ui.TEXT)
                 maxLines = 3
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 setPadding(0, dp(4), 0, 0)
@@ -375,7 +375,7 @@ class MemoryListActivity : Activity() {
         content.addView(TextView(this@MemoryListActivity).apply {
             text = mem.content
             textSize = 14f
-            setTextColor(0xFF333333.toInt())
+            setTextColor(Ui.TEXT)
             setPadding(0, 0, 0, dp(10))
         })
 
@@ -453,8 +453,8 @@ class MemoryListActivity : Activity() {
         val info = TextView(this).apply {
             text = getString(R.string.memory_computing)
             textSize = 14f
-            setTextColor(0xFF333333.toInt())
-            background = Ui.rounded(Color.WHITE, 14, this@MemoryListActivity)
+            setTextColor(Ui.TEXT)
+            background = Ui.rounded(Ui.SURFACE, 14, this@MemoryListActivity)
             setPadding(dp(20), dp(16), dp(20), dp(16))
         }
         pending.setContentView(info)

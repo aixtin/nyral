@@ -35,7 +35,7 @@ object Agreements {
         fun dpf(v: Int) = (v * d).toInt()
         val panel = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            background = Ui.rounded(0xFFFFFFFF.toInt(), 16, activity)
+            background = Ui.rounded(Ui.SURFACE, 16, activity)
         }
         panel.addView(TextView(activity).apply {
             text = title
@@ -48,7 +48,7 @@ object Agreements {
         val sv = ScrollView(activity).apply { isFillViewport = true }
         sv.addView(TextView(activity).apply {
             textSize = 14f
-            setTextColor(0xFF333333.toInt())
+            setTextColor(Ui.TEXT)
             setLineSpacing(dpf(3).toFloat(), 1f)
             text = body
             setPadding(dpf(20), dpf(2), dpf(20), dpf(14))

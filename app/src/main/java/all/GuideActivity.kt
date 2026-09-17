@@ -33,6 +33,10 @@ class GuideActivity : Activity() {
             goMain(finishSelf = true)
             return
         }
+        // 冷启动直达引导页时全局 token 尚未应用, 先按当前主题刷新（与 MainActivity 一致）
+        val theme = ThemeManager.current(this)
+        Ui.applyTheme(theme)
+        applyBubbleTheme(theme)
         Ui.statusBar(this)
         val root = Ui.pageRoot(this)
         val content = LinearLayout(this).apply {
@@ -47,7 +51,7 @@ class GuideActivity : Activity() {
             addView(ImageView(this@GuideActivity).apply {
                 setImageResource(R.mipmap.ic_launcher)
                 // APP 图标作头像: 圆角裁剪成头像样式
-                background = Ui.rounded(0xFFFFFFFF.toInt(), 14, this@GuideActivity)
+                background = Ui.rounded(Ui.SURFACE, 14, this@GuideActivity)
                 clipToOutline = true
                 layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
             })
@@ -277,7 +281,7 @@ class GuideActivity : Activity() {
         fun dpf(v: Int) = (v * d).toInt()
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Ui.rounded(0xFFFFFFFF.toInt(), 16, this@GuideActivity)
+            background = Ui.rounded(Ui.SURFACE, 16, this@GuideActivity)
         }
         panel.addView(TextView(this).apply {
             text = title
@@ -290,7 +294,7 @@ class GuideActivity : Activity() {
         val sv = ScrollView(this).apply { isFillViewport = true }
         sv.addView(TextView(this).apply {
             textSize = 14f
-            setTextColor(0xFF333333.toInt())
+            setTextColor(Ui.TEXT)
             setLineSpacing(dpf(3).toFloat(), 1f)
             text = body
             setPadding(dpf(20), dpf(2), dpf(20), dpf(14))
@@ -306,8 +310,8 @@ class GuideActivity : Activity() {
             text = getString(R.string.guide_dlg_cancel)
             textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(0xFF888888.toInt())
-            background = Ui.rounded(0xFFF0F0F0.toInt(), 18, this@GuideActivity)
+            setTextColor(Ui.SUB)
+            background = Ui.rounded(Ui.INPUT_BG, 18, this@GuideActivity)
             setPadding(dpf(6), dpf(13), dpf(6), dpf(13))
             setOnClickListener { dlg.dismiss() }
         }
