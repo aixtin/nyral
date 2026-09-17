@@ -81,6 +81,14 @@ internal class ChatAdapter(
         submitList(rows.toList(), onCommitted)
     }
 
+    /** 移除单条(流式行收尾等): 同步维护外部列表 + submitList 增量 diff */
+    fun remove(row: ChatRow) {
+        val i = rows.indexOf(row)
+        if (i < 0) return
+        rows.removeAt(i)
+        submitList(rows.toList())
+    }
+
     /** 流式行气泡盒挂到指定 position 的 item 容器(submit 异步 diff 完成后布局就绪再挂) */
     fun attachStreaming(position: Int) {
         recyclerView?.post {

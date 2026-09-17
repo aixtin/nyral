@@ -247,7 +247,6 @@ fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boole
             }
         }
         val src = frame ?: return null
-        sThumbCache.put(f.name, src)
         // 从帧直接缩放而非采样: 帧是已解码的完整位图
         val w = src.width
         val h = src.height
@@ -276,6 +275,9 @@ fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boole
             close()
         }
         c.drawPath(path, tri)
+        // 缓存最终输出(缩放+播放三角后的活位图)而非完整帧: 完整帧随后被 recycle,
+        // 缓存命中返回已回收 Bitmap 会让恢复渲染拿到完整分辨率(触发视频气泡意外撑满屏)
+        sThumbCache.put(f.name, out)
         out
     } catch (e: Exception) { null }
 }
