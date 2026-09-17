@@ -14,7 +14,8 @@ object ThemeManager {
     val themes: List<AppTheme> = listOf(
         DefaultTheme,
         FlatTheme,
-        KawaiiTheme
+        KawaiiTheme,
+        KiwiDarkTheme
     )
 
     /** 当前主题（无记录默认主题 0） */

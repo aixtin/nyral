@@ -724,6 +724,7 @@
     <string name="theme_default">默认</string>
     <string name="theme_flat">扁平</string>
     <string name="theme_kawaii">卡哇伊</string>
+    <string name="theme_kiwi">Kiwi 暗</string>
     <!-- 浏览器预设搜索引擎 -->
     <string name="br_engine_baidu">百度</string>
     <string name="br_engine_bing">必应</string>
