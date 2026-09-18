@@ -100,9 +100,12 @@ object Ui {
     /** 状态栏：底色随主题 SURFACE，图标明暗随底亮度自适应（与主页一致） */
     fun statusBar(a: Activity) {
         a.window.statusBarColor = Ui.SURFACE
+        a.window.navigationBarColor = Ui.SURFACE
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val dark = (Color.red(Ui.SURFACE) + Color.green(Ui.SURFACE) + Color.blue(Ui.SURFACE)) / 3 < 128
-            a.window.decorView.systemUiVisibility = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            var vis = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            if (Build.VERSION.SDK_INT >= 26 && !dark) vis = vis or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            a.window.decorView.systemUiVisibility = vis
         }
     }
 

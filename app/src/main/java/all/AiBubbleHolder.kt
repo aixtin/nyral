@@ -1,5 +1,6 @@
 package io.github.aixtin.nyral
 
+import android.util.Log
 import android.animation.ValueAnimator
 import android.graphics.Color
 import android.graphics.Typeface
@@ -182,21 +183,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 layoutParams = lp
             }.also { row.addView(it) })
         }
-        // 三点错相位呼吸: 单 Animator 循环驱动, 三个点相位各差 1/3 周期, 形成"呼吸灯"流动感
-        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 900L
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            addUpdateListener { va ->
-                val t = va.animatedValue as Float
-                dots.forEachIndexed { i, d ->
-                    val ph = (t + i / 3f) % 1f
-                    d.alpha = 0.25f + 0.75f * (1f - Math.abs(ph * 2f - 1f))
-                }
-            }
-        }
-        anim.start()
-        loadingAnim = anim
+        // v8.7 呼吸闪烁降噪: 原三点错相位无限呼吸(900ms 循环 alpha 0.25~1.0)在聊天模式下
+        // 与头像气泡相邻, 视觉呈"头像跟气泡呼吸式闪烁"(用户反馈); 改为静态三点保持加载语义,
+        // 消息到达后由 stopLoading 移除, 不再循环明暗
+        loadingAnim = null
         loadingRow = addChatBubble(row)
         host.scrollToBottom(true)   // 加载行可能加在屏幕外, 必须滚到底才可见
         android.util.Log.i("Nyral", "startLoading blocks=" + contentBlocks.size)
@@ -254,6 +244,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     fun collapseThinking() {
         val b = activeThinking ?: return
         if (b.collapsed) return
+        Log.d("NyralSink", "collapseThinking")
         b.collapsed = true
         b.expanded = false
         b.view?.let { tv ->
@@ -265,6 +256,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     private fun toggleThinking(b: ThinkingBlock) {
         b.expanded = !b.expanded
+        Log.d("NyralSink", "toggleThinking expanded=${b.expanded}")
         val tv = b.view ?: return
         tv.text = if (b.expanded) "💭 " + b.text else b.summary()
         host.keepReadingPosition(tv)   // 展开/收起后保持阅读位置, 不跳回底部
@@ -272,6 +264,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     /** 工具调用开始: 独立气泡(深色背景), 折叠为一行"🔧 工具：名称", 点击展开参数与结果 */
     fun showTool(name: String, arg: String) {
+        Log.d("NyralSink", "showTool $name")
         sealCurrentContent()   // 工具调用同样先冻结当前正文段, 与恢复时间线一致
         removeStatus()
         stopLoading()
@@ -306,6 +299,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     private fun toggleTool(b: ToolBlock) {
         b.expanded = !b.expanded
+        Log.d("NyralSink", "toggleTool expanded=${b.expanded}")
         val tv = b.view ?: return
         tv.text = if (b.expanded) b.expandedText() else b.collapsedText()
         host.keepReadingPosition(tv)   // 展开/收起后保持阅读位置, 不再强制滚到底部

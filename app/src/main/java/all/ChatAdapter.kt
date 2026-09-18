@@ -13,16 +13,17 @@ import androidx.recyclerview.widget.RecyclerView
  * 历史行 id=DB 全局 seq(sessionBaseSeq+i); 运行期新行用递减临时 id; 阶段2再拆分 content 分片。
  */
 internal sealed class ChatRow(val id: Long) {
-    class User(id: Long, val content: String) : ChatRow(id)
-    class Ai(id: Long, val content: String) : ChatRow(id)
-    class AiRich(id: Long, val thinking: String, val content: String, val tools: String, val timeline: String) : ChatRow(id)
-    class Sys(id: Long, val text: String) : ChatRow(id)
+    // data class: areContentsTheSame 才能真正比较内容, 避免全量重建时所有行被误判 changed 触发整表重绘闪跳
+    data class User(val rowId: Long, val content: String) : ChatRow(rowId)
+    data class Ai(val rowId: Long, val content: String) : ChatRow(rowId)
+    data class AiRich(val rowId: Long, val thinking: String, val content: String, val tools: String, val timeline: String) : ChatRow(rowId)
+    data class Sys(val rowId: Long, val text: String) : ChatRow(rowId)
     /** 新会话开场介绍卡片行 */
-    class Welcome(id: Long) : ChatRow(id)
+    data class Welcome(val rowId: Long) : ChatRow(rowId)
     /** 阶段4 时间标签行: 首条消息或与上条消息间隔>=30分钟时插入(数据层保留 ts, 纯展示层分组) */
-    class TimeTag(id: Long, val text: String) : ChatRow(id)
+    data class TimeTag(val rowId: Long, val text: String) : ChatRow(rowId)
     /** 流式占位行: 持有 AiBubbleHolder, 气泡盒挂在 item 容器上; 内容变化由 holder 内部驱动, 不走 DiffUtil 重绘 */
-    class Streaming(id: Long, val holder: AiBubbleHolder) : ChatRow(id) {
+    class Streaming(val rowId: Long, val holder: AiBubbleHolder) : ChatRow(rowId) {
         var bubbleBox: View? = null
     }
 }
