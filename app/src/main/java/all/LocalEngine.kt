@@ -438,14 +438,27 @@ object LocalEngine {
                         if (schemaHint.isNotBlank()) schemaBlocks.append(schemaHint).append("\n")
                     }
                     // 回填 assistant tool_calls 消息(含原始 toolCalls) + 逐条 tool 结果消息
-                    messages.put(buildAssistantToolMessage(res, toolCalls))
-                    for ((name, result) in execResults) {
-                        val toolCallId = res.idOf(name) ?: "call_${name}_$toolCount"
-                        // video_frame 帧图剥离: tool 消息只回填文本摘要, 帧图由下方 user 消息注入(防 capOut 截断)
-                        val clean = if (name == "video_frame") result.substringBefore(" FRAME:data:image/jpeg;base64,") else result
-                        messages.put(JSONObject().put("role", "tool")
-                            .put("tool_call_id", toolCallId)
-                            .put("content", capOut(clean)))
+                    if (res.dsmlRaw != null) {
+                        // DSML 泄漏拦截来源: tool_call_id 为本地伪造, 走原生回填链可能被服务端配对校验拒绝;
+                        // 改纯文本链——assistant 简述(不回填 DSML 原文, 防模型模仿泄漏格式) + 工具结果以 user 消息回填
+                        messages.put(JSONObject().put("role", "assistant").put("content",
+                            "(已发起工具调用: " + toolCalls.joinToString(", ") { it.first } + ")"))
+                        for ((name, result) in execResults) {
+                            val clean = if (name == "video_frame") result.substringBefore(" FRAME:data:image/jpeg;base64,") else result
+                            messages.put(JSONObject().put("role", "user").put("content",
+                                "[工具 $name 执行结果]\n" + capOut(clean)))
+                        }
+                    } else {
+                        messages.put(buildAssistantToolMessage(res, toolCalls))
+                        for ((i, er) in execResults.withIndex()) {
+                            // 按 toolCalls 序号取对应 id: 并行同名工具各自独立, 防回填重复 tool_call_id
+                            val toolCallId = res.idAt(i) ?: "call_${er.first}_$toolCount"
+                            // video_frame 帧图剥离: tool 消息只回填文本摘要, 帧图由下方 user 消息注入(防 capOut 截断)
+                            val clean = if (er.first == "video_frame") er.second.substringBefore(" FRAME:data:image/jpeg;base64,") else er.second
+                            messages.put(JSONObject().put("role", "tool")
+                                .put("tool_call_id", toolCallId)
+                                .put("content", capOut(clean)))
+                        }
                     }
                     // video_frame 帧图注入: 抽帧 base64 作为 image_url 追加 user 消息, 让模型本轮看到画面
                     for ((vName, vResult) in execResults) {
@@ -522,7 +535,7 @@ object LocalEngine {
         var idx = 0
         for ((name, arg) in toolCalls) {
             tcArr.put(JSONObject()
-                .put("id", res.idOf(name) ?: "call_${name}_$idx")
+                .put("id", res.idAt(idx) ?: "call_${name}_$idx")
                 .put("type", "function")
                 .put("function", JSONObject()
                     .put("name", name)
@@ -588,8 +601,12 @@ object LocalEngine {
         activeConn = conn
         val accumulated = StringBuilder()
         val toolCalls = mutableListOf<Pair<String, String>>()
-        val toolCallIds = HashMap<String, String>()  // name -> tool_call_id (原生模式回填用)
+        // 与 toolCalls 按序一一对应的 tool_call_id(并行同名工具必须各自独立 id, 按 name 建映射会覆盖
+        // 导致回填重复 id -> 服务端 400 Duplicate tool_call_id -> 误降级文本协议 -> DSML 泄漏, 2026-09-18)
+        val toolCallIds = ArrayList<String>()
         val restartOut = ArrayList<String>()
+        // DSML 泄漏原文(解析成功时捕获, 供主循环判定走文本回填链; 需声明在 try 外, return 要用)
+        var dsmlRaw: String? = null
         var reader: BufferedReader? = null
         try {
         conn.outputStream.use { it.write(body.toString().toByteArray()) }
@@ -610,6 +627,9 @@ object LocalEngine {
         val lineBuf = StringBuilder()
         // XML 工具调用累积缓冲: 部分模型输出 <tool_call><tool_name>x</tool_name><param>...</param></tool_call> 跨行格式
         var xmlBuf: StringBuilder? = null
+        // DSML 泄漏拦截缓冲(2026-09-18): deepseek-flash 间歇性把工具调用以 DSML 文本写进 content 通道
+        // (而非 delta.tool_calls), 命中后进缓冲不显示, 块闭合后解析回工具调用; 单/双竖线变体均兼容
+        var dsmlBuf: StringBuilder? = null
         var mode = MODE_NONE
         var aborted = false
         // 原生 function calling 增量累积: index -> (id, name, arguments)
@@ -679,6 +699,25 @@ object LocalEngine {
                     if (nl < 0) break
                     val row = lineBuf.substring(0, nl).trimEnd()
                     lineBuf.delete(0, nl + 1)
+                    if (dsmlBuf != null || DSML_MARK_RE.containsMatchIn(row)) {
+                        dsmlBuf = (dsmlBuf ?: StringBuilder()).append(row).append('\n')
+                        if (DSML_CLOSE_RE.containsMatchIn(dsmlBuf!!)) {
+                            val parsed = parseDsmlToolCalls(dsmlBuf!!.toString())
+                            if (parsed.isNotEmpty()) {
+                                if (mode == MODE_THINKING) cb.onThinkingEnd()
+                                for (t in parsed) {
+                                    toolCalls.add(t)
+                                    toolCallIds.add("dsml_" + toolCalls.size)
+                                }
+                                dsmlRaw = dsmlBuf!!.toString()
+                                dsmlBuf = null
+                                android.util.Log.w("Nyral", "DSML 泄漏已拦截解析: " + parsed.size + " 个调用 [" + parsed.joinToString { it.first } + "]")
+                                break
+                            }
+                            dsmlBuf = null
+                        }
+                        continue
+                    }
                     // 文本协议兜底(仅无 tools 模式启用): 不再解析 XML/TOOL: 作为主要路径,
                     // 但保留兼容——若模型仍按旧协议输出可识别
                     if (!useTools) {
@@ -693,7 +732,7 @@ object LocalEngine {
                                     if (mode == MODE_THINKING) cb.onThinkingEnd()
                                     mode = MODE_NONE
                                     toolCalls.add(t)
-                                    toolCallIds[t.first] = "xml_${toolCalls.size}"
+                                    toolCallIds.add("xml_${toolCalls.size}")
                                     break
                                 }
                                 if (mode == MODE_CONTENT) { cb.onDelta(xml); accumulated.append(xml) }
@@ -709,7 +748,7 @@ object LocalEngine {
                             val t = stop
                             // 原生名称归一: 文本协议也可能输出带引号/引用的工具名
                             toolCalls.add(t)
-                            toolCallIds[t.first] = "txt_${toolCalls.size}"
+                            toolCallIds.add("txt_${toolCalls.size}")
                         }
                         if (restartOut.isNotEmpty() || toolCalls.isNotEmpty()) break
                     } else {
@@ -723,8 +762,9 @@ object LocalEngine {
                     }
                 }
                 if (restartOut.isNotEmpty()) break
-                // 原生模式: delta.tool_calls 出现即本轮应进入工具循环, 尽早打断剩余流(通常已无正文)
-                if (!useTools && toolCalls.isNotEmpty()) break
+                // 文本协议或 DSML 拦截: 已解析出工具调用即尽早打断剩余流
+                // (DSML 泄漏时 finish_reason=stop, 不能依赖 finishedByToolCalls 判定)
+                if (toolCalls.isNotEmpty()) break
             }
             if (!useTools && (toolCalls.isNotEmpty() || restartOut.isNotEmpty())) break
             if (useTools && finishedByToolCalls && nativeCalls.isNotEmpty()) break
@@ -749,7 +789,10 @@ object LocalEngine {
         android.util.Log.i("Nyral", "EOF lineBuf=[$lineBuf] mode=$mode nativeCalls=${nativeCalls.size} toolCalls=${toolCalls.size} aborted=$aborted")
         // 末尾残余(无换行的最后一段)
         if (toolCalls.isEmpty() && nativeCalls.isEmpty() && lineBuf.isNotBlank()) {
-            if (useTools) {
+            if (DSML_MARK_RE.containsMatchIn(lineBuf)) {
+                // 残余含 DSML 半截(流被服务端提前切断的现场场景): 并入缓冲交由下方 EOF 尽力解析, 不显示乱码
+                dsmlBuf = (dsmlBuf ?: StringBuilder()).append(lineBuf.toString().trimEnd()).append('\n')
+            } else if (useTools) {
                 // 原生模式: 残余即纯正文直接流式
                 if (mode != MODE_CONTENT) {
                     if (mode == MODE_THINKING) cb.onThinkingEnd()
@@ -761,7 +804,7 @@ object LocalEngine {
                 val stop = processRow(lineBuf.toString().trimEnd(), mode, accumulated, cb, { m -> mode = m }, answerGate, restartOut)
                 if (stop != null) {
                     toolCalls.add(stop)
-                    toolCallIds[stop.first] = "txt_${toolCalls.size}"
+                    toolCallIds.add("txt_${toolCalls.size}")
                 }
             }
         }
@@ -770,8 +813,24 @@ object LocalEngine {
             val t = parseXmlToolCall(xmlBuf!!.toString())
             if (t != null) {
                 toolCalls.add(t)
-                toolCallIds[t.first] = "xml_${toolCalls.size}"
+                toolCallIds.add("xml_${toolCalls.size}")
             }
+        }
+        // EOF 时 DSML 缓冲残留(未闭合半截/流被切断): 尽力解析, 解析出至少一个 invoke 即采纳为工具调用
+        if (toolCalls.isEmpty() && nativeCalls.isEmpty() && dsmlBuf != null) {
+            val parsed = parseDsmlToolCalls(dsmlBuf!!.toString())
+            if (parsed.isNotEmpty()) {
+                if (mode == MODE_THINKING) cb.onThinkingEnd()
+                for (t in parsed) {
+                    toolCalls.add(t)
+                    toolCallIds.add("dsml_${toolCalls.size}")
+                }
+                dsmlRaw = dsmlBuf!!.toString()
+                android.util.Log.w("Nyral", "DSML 半截 EOF 尽力解析: ${parsed.size} 个调用 [${parsed.joinToString { it.first }}]")
+            } else {
+                android.util.Log.w("Nyral", "DSML 残留解析失败已丢弃: ${dsmlBuf!!.toString().take(120)}")
+            }
+            dsmlBuf = null
         }
         // 原生 tool_calls: 流结束把累积结果转出(即使 finish_reason 未明确 tool_calls)
         if (useTools && nativeCalls.isNotEmpty()) {
@@ -782,7 +841,7 @@ object LocalEngine {
                 if (name.isEmpty()) continue
                 val args = acc.arguments.toString().trim()
                 toolCalls.add(name to (if (args.isEmpty()) "{}" else args))
-                toolCallIds[name] = acc.id.ifEmpty { "call_${name}_$idx" }
+                toolCallIds.add(acc.id.ifEmpty { "call_${name}_$idx" })
             }
             nativeCalls.clear()
         }
@@ -798,12 +857,15 @@ object LocalEngine {
             try { conn.disconnect() } catch (_: Throwable) {}
             activeConn = null
         }
-        return StreamResult(accumulated.toString(), toolCalls, restartOut.firstOrNull(), toolCallIds)
+        return StreamResult(accumulated.toString(), toolCalls, restartOut.firstOrNull(), toolCallIds, dsmlRaw)
     }
 
     /** 判断 4xx 响应是否疑似"不支持 tools" */
     private fun looksLikeToolsUnsupported(err: String): Boolean {
         val e = err.lowercase()
+        // 回填构造缺陷(如重复 tool_call_id)是请求组装 bug 而非 provider 能力问题, 降级重试也无法恢复,
+        // 且会切换文本协议放大 DSML 泄漏, 必须排除(2026-09-18 实测 DeepSeek 该报错含 "invalid"+400 曾被误判)
+        if (e.contains("tool_call_id")) return false
         return e.contains("tool") && (e.contains("not support") || e.contains("unsupported") ||
             e.contains("does not support") || e.contains("unknown parameter") || e.contains("extra parameter") ||
             e.contains("invalid") || e.contains("unknown field") || e.contains("additional properties") ||
@@ -934,6 +996,58 @@ object LocalEngine {
             ?: return null
         val arg = Regex("<param>([\\s\\S]*?)</param>").find(xml)?.groupValues?.get(1)?.trim() ?: ""
         return normalizeToolName(name) to arg
+    }
+
+    // ==== DSML 泄漏拦截(2026-09-18) ====
+    // deepseek-flash 间歇性把工具调用以 DSML 文本(内部协议标记泄漏到 content 通道, 而非 delta.tool_calls)
+    // 输出且流常被提前切断。实测格式(单/双竖线、全/半角变体均兼容):
+    //   <｜｜DSML｜｜ calls>
+    //     <｜｜DSML｜｜ invoke name="workdir">
+    //       <｜｜DSML｜｜ parameter name="action" string="true">list</｜｜DSML｜｜ parameter>
+    //     </｜｜DSML｜｜ invoke>
+    //   </｜｜DSML｜｜ calls>
+    /** DSML 块开标记(仅匹配 < 后紧跟竖线+DSML, 不会误配闭标签) */
+    private val DSML_MARK_RE = Regex("<[｜|]{1,2}DSML")
+    /** DSML 块闭标记 */
+    private val DSML_CLOSE_RE = Regex("</[｜|]{1,2}DSML[｜|]{1,2}\\s*calls>")
+
+    /** 解析 DSML 文本中的工具调用: 返回 (工具名, JSON 参数字符串) 列表; 无有效 invoke 返回空列表 */
+    fun parseDsmlToolCalls(text: String): List<Pair<String, String>> {
+        val calls = mutableListOf<Pair<String, String>>()
+        val invokeRe = Regex("<[｜|]{1,2}DSML[｜|]{1,2}\\s*invoke\\s+name=\"([^\"]+)\"[^>]*>([\\s\\S]*?)(?=<[｜|]{1,2}DSML[｜|]{1,2}\\s*invoke|</[｜|]{1,2}DSML|$)")
+        val paramRe = Regex("<[｜|]{1,2}DSML[｜|]{1,2}\\s*parameter\\s+name=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</[｜|]{1,2}DSML")
+        for (m in invokeRe.findAll(text)) {
+            val name = normalizeToolName(m.groupValues[1].trim())
+            if (name.isEmpty()) continue
+            val args = JSONObject()
+            for (p in paramRe.findAll(m.groupValues[2])) {
+                val key = p.groupValues[1].trim()
+                val v = p.groupValues[2].trim()
+                if (key.isEmpty()) continue
+                // 参数值智能定标: 合法 JSON 字面量(对象/数组/数字/布尔)按原类型入参, 其余按字符串
+                args.put(key, try {
+                    when (val parsed = org.json.JSONTokener(v).nextValue()) {
+                        is JSONObject, is JSONArray, is Int, is Long, is Double, is Boolean -> parsed
+                        else -> v
+                    }
+                } catch (e: Exception) { v })
+            }
+            calls.add(name to args.toString())
+        }
+        return calls
+    }
+
+    /** 剥除文本中的 DSML 泄漏块(含未闭合半截): 防止会话历史脏数据回流上下文引发模型模仿(恶性循环) */
+    fun stripDsml(s: String): String {
+        if (!s.contains("DSML")) return s
+        var text = s
+        while (true) {
+            val startM = DSML_MARK_RE.find(text) ?: break
+            val start = startM.range.first
+            val end = DSML_CLOSE_RE.find(text.substring(start))?.let { start + it.range.last + 1 } ?: text.length
+            text = text.removeRange(start, end)
+        }
+        return text.trim()
     }
 
     private fun buildRouteMessages(context: Context, history: String, attachments: List<Attachment> = emptyList(), memInject: String? = null): JSONArray {
@@ -1416,9 +1530,12 @@ object LocalEngine {
         val accumulated: String,
         val toolCalls: List<Pair<String, String>>,
         val restartWith: String? = null,
-        val toolCallIds: Map<String, String> = emptyMap()
+        /** 与 toolCalls 按序一一对应的 tool_call_id(并行同名工具各自独立) */
+        val toolCallIds: List<String> = emptyList(),
+        /** 非 null 表示本轮工具调用来自 DSML 泄漏拦截(content 通道文本解析), 回填需走文本链 */
+        val dsmlRaw: String? = null
     ) {
-        fun idOf(name: String): String? = toolCallIds[name]
+        fun idAt(idx: Int): String? = toolCallIds.getOrNull(idx)
     }
 
     data class ToolSpec(val name: String, val desc: String, val params: String)

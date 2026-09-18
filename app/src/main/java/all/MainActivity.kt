@@ -2128,7 +2128,14 @@ class MainActivity : Activity() {
         summary?.let { sb.append("[历史摘要]\n$it\n\n") }
         val recent = messages.takeLast(KEEP)
         sb.append(recent.joinToString("\n") { m ->
-            val c = if (m.content.length > MAX_MSG_HISTORY) m.content.take(MAX_MSG_HISTORY) + "\n…[该消息过长已截断]" else m.content
+            // DSML 净化(2026-09-18): 剥除历史消息中的 DSML 泄漏块(含半截脏数据),
+            // 防止其回流上下文引发模型模仿泄漏格式(恶性循环); 纯 DSML 消息以占位符保留角色时序
+            val stripped = LocalEngine.stripDsml(m.content)
+            val c = when {
+                stripped.isEmpty() -> "(历史工具调用记录)"
+                stripped.length > MAX_MSG_HISTORY -> stripped.take(MAX_MSG_HISTORY) + "\n…[该消息过长已截断]"
+                else -> stripped
+            }
             val t = MemoryDb.fmtTs(m.ts)
             if (t.isEmpty()) "${m.role}: $c" else "${m.role}[$t]: $c"
         })
