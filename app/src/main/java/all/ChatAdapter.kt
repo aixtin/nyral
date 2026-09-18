@@ -66,20 +66,20 @@ internal class ChatAdapter(
     /** 追加单条(用户/系统/流式行): 同步维护外部列表 + submitList 增量 diff; onCommitted 在 diff 提交后回调 */
     fun add(row: ChatRow, onCommitted: (() -> Unit)? = null) {
         rows.add(row)
-        submitList(rows.toList(), onCommitted)
+        submitList(rows.toList()) { onCommitted?.invoke() }
     }
 
     /** 头部插入(窗口化提示行等); onCommitted 在 diff 提交后回调 */
     fun insert(index: Int, row: ChatRow, onCommitted: (() -> Unit)? = null) {
         rows.add(index.coerceIn(0, rows.size), row)
-        submitList(rows.toList(), onCommitted)
+        submitList(rows.toList()) { onCommitted?.invoke() }
     }
 
     /** 全量替换(会话打开/头像刷新/窗口外回退共用); onCommitted 在 diff 提交后回调 */
     fun submit(list: List<ChatRow>, onCommitted: (() -> Unit)? = null) {
         rows.clear()
         rows.addAll(list)
-        submitList(rows.toList(), onCommitted)
+        submitList(rows.toList()) { onCommitted?.invoke() }
     }
 
     /** 移除单条(流式行收尾等): 同步维护外部列表 + submitList 增量 diff */
