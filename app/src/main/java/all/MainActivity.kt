@@ -33,6 +33,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
+import android.util.LruCache
 import android.animation.ValueAnimator
 import android.view.animation.OvershootInterpolator
 import android.graphics.drawable.BitmapDrawable
@@ -178,6 +179,44 @@ class MainActivity : Activity() {
      *  流式回调进入主线程后先校验代际一致才操作 holder/滚动, 天然拦截迟到回调 */
     private var requestEpoch = 0L
     private var scrollUserScrolled = false   // 用户手动上翻后不再自动拉底(不打扰阅读)
+    private var pendingAlign = 0             // scrollToBottom 的 preDraw 对齐待执行计数(防重复注册泄漏)
+    private var lastAutoScrollTs = 0L        // 流式追底去抖时间戳
+    /** 历史 markdown 气泡预编译缓存(2026-09-18 长气泡吸底跳跃修复):
+     *  根因: 上翻历史首次 bind 长气泡时 onBindViewHolder 里同步 markwon.setMarkdown(全文),
+     *  commonmark 全量解析+span 化在主线程耗 50-300ms = 掉帧跳变; 打开会话初始布局只覆盖底部(最新消息),
+     *  上翻才首次 bind 更旧消息 → "只上翻出现/每条只第一次/重启复发" 全部吻合。
+     *  修法: 会话打开后在后台线程预编译存此缓存, bind 时命中直接 set(主线程零解析);
+     *  未命中(预热未完成/新消息)回落同步渲染, 行为与旧版一致不劣化 */
+    private val mdCache = LruCache<String, Spanned>(256)
+
+    /** 历史气泡渲染统一入口: 命中预编译缓存直接 set(主线程零解析), 未命中同步渲染(旧路径)并回填缓存 */
+    internal fun setMarkdownCached(tv: TextView, md: String) {
+        // 命中路径必须走 setParsedMarkdown(内部跑 beforeSetText/afterSetText 全流程),
+        // 直接 tv.text=spanned 会绕过 Markwon 的 TextView 生命周期钩子, 列表等 span 测量异常 = 气泡右侧被截断
+        mdCache.get(md)?.let { markwon.setParsedMarkdown(tv, it); return }
+        markwon.setMarkdown(tv, md)
+        (tv.text as? Spanned)?.let { mdCache.put(md, it) }
+    }
+
+    /** 会话打开后后台预编译历史 AI 消息(含 AiRich 分片), 上翻浏览时 bind 直接命中缓存 */
+    private fun prewarmMdCache() {
+        val aiMsgs = messages.filter { it.role != "user" && it.content.isNotBlank() }
+        if (aiMsgs.isEmpty()) return
+        executor.execute {
+            for (m in aiMsgs) {
+                // AiRich 分片路径与 contentRow 渲染一致(超长分片阈值), 用户消息不走 markwon
+                val parts = if (m.content.length > SPLIT_CONTENT_LEN) splitLongContent(m.content) else listOf(m.content)
+                for (p in parts) {
+                    val md = ModeConfig.stripChatProtocolPrefix(p.trim())
+                    if (md.length < 600) continue   // 短文本同步渲染本就不卡, 只预热长文
+                    if (mdCache.get(md) != null) continue
+                    try {
+                        mdCache.put(md, markwon.toMarkdown(md))
+                    } catch (e: Exception) { /* 预热失败不阻塞, bind 时走同步兜底 */ }
+                }
+            }
+        }
+    }
     private lateinit var root: FrameLayout
     // 独立固定全屏背景层: 壁纸/渐变背景挂此层(不随键盘压缩上移), root 为透明壳
     private lateinit var bgLayer: FrameLayout
@@ -493,16 +532,18 @@ class MainActivity : Activity() {
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                 swipeDetector.onTouchEvent(ev)
                 // 键盘弹起时, 点击输入区以外(消息区/背景/标题栏)收起键盘并清光标; 未弹键盘或点击输入框/按钮时不影响
+                // 优化(2026-09-18 全面扫描): hideSoftInput 的 binder 同步调用会阻塞 UP 分发链, post 到下一帧执行
                 if (ev.action == MotionEvent.ACTION_UP && ::inputBar.isInitialized) {
                     val i3 = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
                     if (i3?.isActive == true) {
                         val loc = IntArray(2)
                         inputBar.getLocationInWindow(loc)
                         val inInputBar = ev.rawY.toInt() >= loc[1] - dp(8)
-                        android.util.Log.d("KBDDBG", "DISPATCH rawY=${ev.rawY.toInt()} loc1=${loc[1]} inIB=$inInputBar active=${i3.isActive}")
                         if (!inInputBar) {
-                            i3.hideSoftInputFromWindow(input.windowToken, 0)
-                            if (input.isFocused) input.clearFocus()
+                            post {
+                                i3.hideSoftInputFromWindow(input.windowToken, 0)
+                                if (input.isFocused) input.clearFocus()
+                            }
                         }
                     }
                 }
@@ -563,12 +604,15 @@ class MainActivity : Activity() {
         // 消息区: RecyclerView 可回收传送带——只保留屏幕内可见的气泡, 滚出屏幕即回收销毁,
         // 滚回复用同一框架塞新内容, 不随聊天变长无限堆叠 View(解决 ScrollView+LinearLayout 长会话卡顿/内存增长)
         chatAdapter = ChatAdapter(chatRows) { row -> buildRowView(row) }
-        chatRec = RecyclerView(this).apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
+        chatRec = NyralRecyclerView(this).apply {
+            layoutManager = NyralLayoutManager(this@MainActivity)
             adapter = chatAdapter
             setPadding(dp(12), dp(10), dp(12), dp(10))
             clipToPadding = false
             overScrollMode = View.OVER_SCROLL_ALWAYS
+            // 修复1: 关闭 item 变化动画(流式中气泡高度增长触发重排动画=跳动) + 加大离屏缓存
+            itemAnimator = null
+            setItemViewCacheSize(20)
             // 用户一旦手动滑动(上翻阅读), 标记后不再被自动滚动打断
             setOnTouchListener { _, ev ->
                 if (ev.actionMasked == MotionEvent.ACTION_DOWN) scrollUserScrolled = true
@@ -576,6 +620,21 @@ class MainActivity : Activity() {
             }
             // 用户滚回底部附近时恢复自动追底(上翻阅读仅在离开底部期间让位, 复活旧 ScrollView 版 scrollUserScrolled 语义)
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                // fix6: Telegram 式拖动列表时收起键盘(用户翻阅历史意图明确), 文字保留不清空
+                override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                        // 修复10: 包在 post 里——hideSoftInput 的 binder 同步调用会阻塞 touch 分发链,
+                        // 拖动起始帧被卡 = "停顿一瞬才继续滚动"; post 到下一帧执行避开关键帧
+                        rv.post {
+                            val act = context as? android.app.Activity
+                            val imm = context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                            act?.currentFocus?.let { f ->
+                                imm?.hideSoftInputFromWindow(f.windowToken, 0)
+                                f.clearFocus()
+                            }
+                        }
+                    }
+                }
                 override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
                     if (!scrollUserScrolled) return
                     val lm = rv.layoutManager as? LinearLayoutManager ?: return
@@ -630,7 +689,6 @@ class MainActivity : Activity() {
                         val t = text?.toString() ?: ""
                         if ((t == "\n" || t == "\r\n") && self.downPassed) {
                             self.downPassed = false
-                            android.util.Log.d("KBDDBG", "commitText NL dropped (down already inserted)")
                             return true
                         }
                         return super.commitText(text, newCursorPosition)
@@ -662,18 +720,10 @@ class MainActivity : Activity() {
                 when (e.action) {
                     KeyEvent.ACTION_DOWN -> {
                         downPassed = true
-                        android.util.Log.d("KBDDBG", "enter DOWN passThrough downPassed=true")
                         false
                     }
-                    KeyEvent.ACTION_UP -> {
-                        val now = android.os.SystemClock.uptimeMillis()
-                        android.util.Log.d("KBDDBG", "enter UP consumed dt=${now - lastEnterInsert}")
-                        true
-                    }
-                    KeyEvent.ACTION_MULTIPLE -> {
-                        android.util.Log.d("KBDDBG", "enter MULTIPLE consumed")
-                        true
-                    }
+                    KeyEvent.ACTION_UP -> true
+                    KeyEvent.ACTION_MULTIPLE -> true
                     else -> false
                 }
             }
@@ -692,11 +742,7 @@ class MainActivity : Activity() {
                 // 导致回车只能换一行; 现 MULTI_LINE 输入类型 + Enter 深度拦截已防双行, 删除归一以支持自由多行
                 override fun afterTextChanged(s: Editable?) {
                     val n = s?.count { it == '\n' } ?: 0
-                    if (n > nlCount) {
-                        val now = android.os.SystemClock.uptimeMillis()
-                        android.util.Log.d("KBDDBG", "NL inserted nl=$n dt=${now - lastEnterInsert}")
-                        lastEnterInsert = now
-                    }
+                    if (n > nlCount) lastEnterInsert = android.os.SystemClock.uptimeMillis()
                     nlCount = n
                     updateInputMode()
                 }
@@ -1195,111 +1241,46 @@ class MainActivity : Activity() {
                 val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                 lastImeH = imeH
                 val lp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                android.util.Log.d("KBDDBG", "INSETS imeH=$imeH imeShown=$imeShown focused=${input.isFocused} bh=${bodyWrap.height}")
                 if (imeH > dp(80)) {
                     if (!imeShown) {
                         bodyWrapFullH = bodyWrap.height.coerceAtLeast(1)
-                        // QQ 式双分支: 列表正在惯性滚动(DRAGGING/SETTLING) → 不压缩 bodyWrap、消息不抬起,
-                        // 仅输入区悬浮到键盘顶, 惯性滚动自然继续不被干扰; 列表静止(IDLE) → 压缩 bodyWrap, 消息原位顶起
-                        imeFloating = chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE
-                        if (imeFloating) {
-                            // 悬浮模式: 输入区平移量需补偿 main 底部导航栏 padding, 否则悬在键盘顶上方一段距离
-                            inputBar.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
-                            if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
-                        } else {
-                            lp.weight = 0f; lp.height = bodyWrapFullH
-                            bodyWrap.layoutParams = lp
-                            prevCompressH = bodyWrapFullH
+                        // fix8/9: 键盘弹出瞬间若列表还在滚动(惯性 SETTLING), 直接打断滚动走压缩分支(QQ 式"滚停即顶"):
+                        // 悬浮分支有"输入框一帧顶到最终位与键盘动画分家 + 惯性停止后切压缩掉落重合"两段瞬态,
+                        // 用户意图本就是点输入框打字, 惯性打断符合预期; 消息顶起由 onProgress 逐帧跟随, 无跳变
+                        if (chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+                            chatRec.stopScroll()
                         }
+                        imeFloating = false   // fix8: 悬浮分支彻底禁用(硬编码), 统一走压缩分支
+                        lp.weight = 0f; lp.height = bodyWrapFullH
+                        bodyWrap.layoutParams = lp
+                        prevCompressH = bodyWrapFullH
                     }
                     imeShown = true
-                    if (imeFloating) {
-                        // 悬浮模式: 键盘高度继续变化时同步输入区位置(补偿导航栏 padding); bodyWrap 不压缩 → 消息不抬起、惯性滚动不受干扰
-                        inputBar.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
-                        if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
-                        // 惯性滚动停止后自动切回压缩模式, 让消息原位顶起(QQ 行为: 滚动中不顶, 滚停即顶)
-                        if (imeFloatingListener == null) {
-                            val listener = object : RecyclerView.OnScrollListener() {
-                                override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
-                                    if (imeFloating && imeShown && newState == RecyclerView.SCROLL_STATE_IDLE) {
-                                        imeFloating = false
-                                        rv.removeOnScrollListener(this)
-                                        if (imeFloatingListener === this) imeFloatingListener = null
-                                        val lp2 = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                                        lp2.weight = 0f
-                                        lp2.height = bodyWrapFullH
-                                        bodyWrap.layoutParams = lp2
-                                        inputBar.animate().translationY(0f).setDuration(150).start()
-                                        if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.animate().translationY(0f).setDuration(150).start()
-                                        val tb2 = IntArray(2)
-                                        titleBar.getLocationInWindow(tb2)
-                                        val titleBottom2 = tb2[1] + titleBar.height
-                                        val targetH2 = ((root.height - kotlin.math.max(lastImeH, sb.bottom)) - titleBottom2).coerceAtLeast(dp(60))
-                                        imeAnimator?.cancel()
-                                        val from2 = bodyWrapFullH
-                                        var prevH2 = from2
-                                        imeAnimator = android.animation.ValueAnimator.ofInt(from2, targetH2).apply {
-                                            duration = 100
-                                            interpolator = android.view.animation.DecelerateInterpolator()
-                                            addUpdateListener {
-                                                val lp3 = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                                                val newH3 = it.animatedValue as Int
-                                                val dh3 = prevH2 - newH3
-                                                lp3.height = newH3
-                                                bodyWrap.layoutParams = lp3
-                                                chatRec.post {
-                                                    val lm3 = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
-                                                    val lastPos3 = (chatRec.adapter?.itemCount ?: 0) - 1
-                                                    val lv3 = lm3.findViewByPosition(lastPos3)
-                                                    if (lv3 != null) {
-                                                        val gap3 = lv3.bottom - (chatRec.height - chatRec.paddingBottom)
-                                                        if (gap3 != 0) chatRec.scrollBy(0, gap3)
-                                                    } else if (dh3 != 0) {
-                                                        chatRec.scrollBy(0, dh3)
-                                                    }
-                                                }
-                                                prevH2 = newH3
-                                            }
-                                            addListener(object : android.animation.AnimatorListenerAdapter() {
-                                                override fun onAnimationEnd(a: android.animation.Animator) {
-                                                    prevCompressH = targetH2
-                                                }
-                                            })
-                                            start()
-                                        }
-                                    }
-                                }
-                            }
-                            imeFloatingListener = listener
-                            chatRec.addOnScrollListener(listener)
+                    // 键盘 insets 动画期间高度由 WindowInsetsAnimation.Callback 逐帧驱动(与键盘弹起同帧);
+                    // 此处仅在无动画(键盘瞬时出现/动画结束后最终 insets 兜底)时设置最终高度, 避免提前跳变
+                    if (!inImeAnim) {
+                        val tb = IntArray(2)
+                        titleBar.getLocationInWindow(tb)
+                        val titleBottom = tb[1] + titleBar.height
+                        val targetH = ((root.height - kotlin.math.max(imeH, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
+                        val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                        val dh = prevCompressH - targetH
+                        prevCompressH = targetH
+                        if (lpp.height != targetH) {
+                            lpp.height = targetH
+                            bodyWrap.layoutParams = lpp
                         }
-                    } else {
-                        // 键盘 insets 动画期间高度由 WindowInsetsAnimation.Callback 逐帧驱动(与键盘弹起同帧);
-                        // 此处仅在无动画(键盘瞬时出现/动画结束后最终 insets 兜底)时设置最终高度, 避免提前跳变
-                        if (!inImeAnim) {
-                            val tb = IntArray(2)
-                            titleBar.getLocationInWindow(tb)
-                            val titleBottom = tb[1] + titleBar.height
-                            val targetH = ((root.height - kotlin.math.max(imeH, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
-                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                            val dh = prevCompressH - targetH
-                            prevCompressH = targetH
-                            if (lpp.height != targetH) {
-                                lpp.height = targetH
-                                bodyWrap.layoutParams = lpp
-                            }
-                            // 顶起: 布局稳定后锚定末条贴回视口内容底(保留 paddingBottom, 滚动量=压缩量, 单动作无闪烁);
-                            // 末条不可见(翻历史)才按压缩增量滚动, 把当前位置内容顶到键盘上方
-                            chatRec.post {
-                                val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
-                                val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
-                                val lv = lm.findViewByPosition(lastPos)
-                                if (lv != null) {
-                                    val gap = lv.bottom - (chatRec.height - chatRec.paddingBottom)
-                                    if (gap != 0) chatRec.scrollBy(0, gap)
-                                } else if (dh != 0) {
-                                    chatRec.scrollBy(0, dh)
-                                }
+                        // 顶起: 布局稳定后锚定末条贴回视口内容底(保留 paddingBottom, 滚动量=压缩量, 单动作无闪烁);
+                        // 末条不可见(翻历史)才按压缩增量滚动, 把当前位置内容顶到键盘上方
+                        chatRec.post {
+                            val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
+                            val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
+                            val lv = lm.findViewByPosition(lastPos)
+                            if (lv != null) {
+                                val gap = lv.bottom - (chatRec.height - chatRec.paddingBottom)
+                                if (gap != 0) chatRec.scrollBy(0, gap)
+                            } else if (dh != 0) {
+                                chatRec.scrollBy(0, dh)
                             }
                         }
                     }
@@ -1338,16 +1319,20 @@ class MainActivity : Activity() {
                     if ((animation.typeMask and android.view.WindowInsets.Type.ime()) == 0) return
                     inImeAnim = true
                     if (!imeShown) {
-                        // 键盘开始弹出: 记录全高并进入压缩/悬浮初始状态(滚动中→悬浮, 静止→压缩)
+                        // 键盘开始弹出: 记录全高并进入压缩初始状态
+                        // fix9: onPrepare 先于 onApplyWindowInsets 执行, 只改 insets 侧会被这里绕过
+                        // (悬浮挂起 bh 不压缩、惯性停后输入框才被拉起又掉下 = 用户"分家"现场);
+                        // 此处同样 stopScroll + 禁用悬浮, 与 insets 侧两处同步拦截
+                        if (chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+                            chatRec.stopScroll()
+                        }
                         imeShown = true
                         bodyWrapFullH = bodyWrap.height.coerceAtLeast(1)
-                        imeFloating = chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE
-                        if (!imeFloating) {
-                            val lp0 = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                            lp0.weight = 0f; lp0.height = bodyWrapFullH
-                            bodyWrap.layoutParams = lp0
-                            prevCompressH = bodyWrapFullH
-                        }
+                        imeFloating = false
+                        val lp0 = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                        lp0.weight = 0f; lp0.height = bodyWrapFullH
+                        bodyWrap.layoutParams = lp0
+                        prevCompressH = bodyWrapFullH
                     }
                 }
                 override fun onProgress(insets: android.view.WindowInsets, runningAnimations: MutableList<android.view.WindowInsetsAnimation>): android.view.WindowInsets {
@@ -1356,7 +1341,7 @@ class MainActivity : Activity() {
                     val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                     val sb = insets.getInsets(android.view.WindowInsets.Type.systemBars())
                     lastProgressImeH = imeH  // 记录最后一帧键盘高度, onEnd 据此判断动画方向
-                    if (imeShown && !imeFloating) {
+                    if (imeShown) {
                         // 压缩顶起/恢复: 高度随键盘动画进度逐帧同步, 锚定末条保留底部留白
                         val tb = IntArray(2)
                         titleBar.getLocationInWindow(tb)
@@ -1373,6 +1358,9 @@ class MainActivity : Activity() {
                             val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
                             val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
                             val lv = lm.findViewByPosition(lastPos)
+                            // 修复10: 键盘收回动画期间用户可能正在拖动/惯性滚动(拖动收键盘触发的收回),
+                            // 此时叠加 scrollBy 会与手指速度场打架 = "卡一下"; 用户控制中不干预, 停手后自然停在手指位置
+                            if (chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE) return@post
                             if (lv != null) {
                                 val gap = lv.bottom - (chatRec.height - chatRec.paddingBottom)
                                 if (gap != 0) chatRec.scrollBy(0, gap)
@@ -1380,10 +1368,6 @@ class MainActivity : Activity() {
                                 chatRec.scrollBy(0, dh)
                             }
                         }
-                    } else if (imeShown && imeFloating) {
-                        // 悬浮模式: 输入区随键盘动画进度同步平移(补偿导航栏 padding)
-                        inputBar.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
-                        if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = -(imeH - sb.bottom).coerceAtLeast(0).toFloat()
                     }
                     return insets
                 }
@@ -1609,6 +1593,8 @@ class MainActivity : Activity() {
                 scrollAfterCommit()
             }
         }
+        // 长气泡吸底跳跃修复: 后台预编译本会话历史 AI 消息的 markdown, 上翻浏览时 bind 直接命中缓存零解析
+        prewarmMdCache()
         refreshSessionList()
         closeDrawer()
     }
@@ -1778,13 +1764,14 @@ class MainActivity : Activity() {
         pendingAttachments.clear()
         attachPreviewRow.removeAllViews()
         attachPreviewWrap.visibility = View.GONE
-        // 发送后焦点/键盘恢复: 必须在下一帧(点击事件分发结束后)执行, 否则 requestFocus 未生效、showSoftInput 被忽略
+        // fix6: 发送后自动收起键盘(用户提议): 流式追底期间键盘高度全程稳定, 消除收回竞态
+        // fix7: 原这里有"发送后主动弹回键盘"逻辑, 与收键盘意图相反造成"缩一下又弹出像重启", 已删
+        // 收起时必须 clearFocus, 否则焦点残留时 IME 会在 layout 变化后自动弹回
         if (!voiceMode) {
             input.post {
-                input.showSoftInputOnFocus = true
-                input.requestFocus()
                 val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
-                imm?.showSoftInput(input, 0)
+                imm?.hideSoftInputFromWindow(input.windowToken, 0)
+                if (input.isFocused) input.clearFocus()
             }
         }
         // 前台服务+通知保活: 尽早启动(主线程此刻最空闲), 避免后续附件落盘/历史构建等重活
@@ -1905,12 +1892,11 @@ class MainActivity : Activity() {
                 // 流式行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器
                 val row = ChatRow.Streaming(nextTempRowId(), holder)
                 streamingRow = row
-                chatAdapter.add(row)
+                chatAdapter.add(row) { scrollToBottom(true) }
                 val box = holder.createStreamingBox()
                 row.bubbleBox = box
                 chatAdapter.attachStreaming(chatRows.size - 1)
                 holder.showStatus(getString(R.string.ma_thinking))
-                scrollToBottom(true)
             }
             LocalEngine.chat(this@MainActivity, history, object : LocalEngine.Callback {
                 override fun onThinkingStart() {
@@ -2065,16 +2051,9 @@ class MainActivity : Activity() {
 
     // ===================== 气泡渲染 =====================
 
-    /** 新消息气泡入场动画: 上移 + 淡入(全局动画 A 范围: 气泡入场) */
+    /** 流式行气泡盒入场: v8.7 去掉"上移+淡入"蹦出动画(用户反馈消息是'蹦'出来的), 直接显示 */
     internal fun enterBubble(v: View) {
-        v.post {
-            v.alpha = 0f
-            v.translationY = dp(14).toFloat()
-            v.animate().alpha(1f).translationY(0f)
-                .setDuration(300)
-                .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
-                .start()
-        }
+        v.post { v.alpha = 1f; v.translationY = 0f }
     }
 
     private fun appendUser(content: String) {
@@ -2082,21 +2061,21 @@ class MainActivity : Activity() {
         val last = messages.getOrNull(messages.size - 2)
         val ts = System.currentTimeMillis()
         if (last == null || ts - last.ts >= TIME_TAG_GAP) {
-            chatAdapter.add(ChatRow.TimeTag(nextTempRowId(), formatTimeTag(ts)))
+            // 稳定 id: 用消息时间戳 ms 作 rowId, 与重建公式一致, 全量重建后 DiffUtil 视为同一行不再"删+增"闪跳
+            chatAdapter.add(ChatRow.TimeTag(ts, formatTimeTag(ts)))
         }
-        chatAdapter.add(ChatRow.User(nextTempRowId(), content))
-        scrollToBottom()
+        // 稳定 id: 本条在 messages 中的索引(messages.add 在 appendUser 之后), 与重建公式一致;
+        // fix4: 追底挂到 diff 提交后(onCommitted), itemCount 已是新值, 否则 skip 判断用旧值误跳过拉底
+        chatAdapter.add(ChatRow.User(sessionBaseSeq + messages.size.toLong(), content)) { scrollToBottom() }
     }
 
     private fun appendSys(content: String) {
-        chatAdapter.add(ChatRow.Sys(nextTempRowId(), content))
-        scrollToBottom(true)
+        chatAdapter.add(ChatRow.Sys(nextTempRowId(), content)) { scrollToBottom(true) }
     }
 
     /** 新会话开场介绍卡片：首启/新建会话时展示（文案集中在 strings.xml 便于迭代，预留可进化接口） */
     private fun appendWelcomeIntro() {
-        chatAdapter.add(ChatRow.Welcome(nextTempRowId()))
-        scrollToBottom()
+        chatAdapter.add(ChatRow.Welcome(nextTempRowId())) { scrollToBottom() }
     }
 
     /** RecyclerView 行渲染分发: 每条 ChatRow 对应一个气泡(复用既有 bubble/aiBubbleWithThinking 渲染, 不重造轮子) */
@@ -2126,20 +2105,25 @@ class MainActivity : Activity() {
     private fun buildRowsFromMessages(onCommitted: (() -> Unit)? = null) {
         chatRows.clear()
         var lastTs = 0L
+        var msgIdx = 0
         for (m in messages) {
             // 阶段4 sanitizeMessages: 丢弃全空消息(防 DB 残留空白行污染界面)
-            if (m.content.isBlank() && m.thinking.isBlank() && m.tools.isBlank()) continue
-            // 阶段4 时间标签: 首条消息或距上条消息 >=30 分钟时插入分组标签(纯展示层, 不动数据)
+            if (m.content.isBlank() && m.thinking.isBlank() && m.tools.isBlank()) { msgIdx++; continue }
+            // 阶段4 时间标签: 首条消息或距上条消息 >=30 分钟时插入分组标签(纯展示层, 不动数据);
+            // rowId 用消息时间戳 ms, 与运行期 appendUser 公式一致, 重建后 DiffUtil 视为同一行不闪跳
             if (lastTs == 0L || m.ts - lastTs >= TIME_TAG_GAP) {
-                chatRows.add(ChatRow.TimeTag(nextTempRowId(), formatTimeTag(m.ts)))
+                chatRows.add(ChatRow.TimeTag(m.ts, formatTimeTag(m.ts)))
             }
             lastTs = m.ts
+            // 稳定 id: 与运行期 appendUser 的 sessionBaseSeq+messages.size 公式一致,
+            // 重建后 DiffUtil 视为同一行(仅内容变化), 不再"删除+新增"导致滚动闪跳
             chatRows.add(
                 when {
-                    m.role == "user" -> ChatRow.User(sessionBaseSeq + chatRows.size.toLong(), m.content)
-                    m.thinking.isNotBlank() -> ChatRow.AiRich(sessionBaseSeq + chatRows.size.toLong(), m.thinking, m.content, m.tools, m.timeline)
-                    else -> ChatRow.Ai(sessionBaseSeq + chatRows.size.toLong(), m.content)
+                    m.role == "user" -> ChatRow.User(sessionBaseSeq + msgIdx.toLong(), m.content)
+                    m.thinking.isNotBlank() -> ChatRow.AiRich(sessionBaseSeq + msgIdx.toLong(), m.thinking, m.content, m.tools, m.timeline)
+                    else -> ChatRow.Ai(sessionBaseSeq + msgIdx.toLong(), m.content)
                 })
+            msgIdx++
         }
         // 阶段2 兜底: 仅 AI 输出中触发全量重建(如窗口外回退)时追加流式行到末尾不丢失气泡盒;
         // 输出完成后(aiBusy=false)不再塞回, 防止已收尾的 Streaming 行变成僵尸行重复渲染
@@ -2280,7 +2264,7 @@ class MainActivity : Activity() {
                     }
                 }
             } else if (ModeConfig.chatPlainText()) text = ModeConfig.stripChatProtocolPrefix(content.trim())
-            else markwon.setMarkdown(this, ModeConfig.stripChatProtocolPrefix(content.trim()))
+            else setMarkdownCached(this, ModeConfig.stripChatProtocolPrefix(content.trim()))
             textSize = 15f
             val edgeImage = pureImage || pureVideo
             setLineSpacing(if (edgeImage) 0f else dp(3).toFloat(), 1f)
@@ -2618,15 +2602,15 @@ class MainActivity : Activity() {
             // 交互行不启用 textIsSelectable, 保证首次点击即展开(否则被选择机制吞掉需点两次)
         }
         // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
-        fun contentRow(seg: String): TextView = TextView(this@MainActivity).apply {
-            textSize = 15f
-            val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
-            if (ModeConfig.chatPlainText()) {
-                text = renderContent.trimEnd()
-            } else {
-                // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                markwon.setMarkdown(this, renderContent)
-            }
+            fun contentRow(seg: String): TextView = TextView(this@MainActivity).apply {
+                textSize = 15f
+                val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
+                if (ModeConfig.chatPlainText()) {
+                    text = renderContent.trimEnd()
+                } else {
+                    // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
+                    setMarkdownCached(this, renderContent)
+                }
             setLineSpacing(dp(3).toFloat(), 1f)
             setTextColor(BUBBLE_AI_TEXT)
             setPadding(dp(12), dp(10), dp(12), dp(10))
@@ -2762,9 +2746,67 @@ class MainActivity : Activity() {
 
     /** 滚到最新一条; auto=true 为流式自动追底——用户手动上翻阅读时让位不打断, 滚回底部附近自动恢复追底 */
     internal fun scrollToBottom(auto: Boolean = false) {
-        if (auto && scrollUserScrolled) return
+        if (auto && scrollUserScrolled) {
+            return
+        }
         if (chatAdapter.itemCount == 0) return
-        chatRec.post { if (chatAdapter.itemCount > 0) chatRec.scrollToPosition(chatAdapter.itemCount - 1) }
+        // 流式追底去抖: 高频 delta 合并, 避免滚动请求堆积与反复重定位
+        if (auto) {
+            val now = System.currentTimeMillis()
+            if (now - lastAutoScrollTs < 25) return
+            lastAutoScrollTs = now
+        }
+        // 同步设 pending 位置(抢在会话打开首个数据布局帧之前生效, 消除"先顶后底"闪跳);
+        // 先杀惯性: 滑动途中切会话时 fling 会持续覆盖新锚点导致"停在中间"
+        val lmX = chatRec.layoutManager as? LinearLayoutManager
+        val lastVisX = lmX?.findLastVisibleItemPosition() ?: -1
+        chatRec.stopScroll()
+        // 用 != 精确匹配: 切会话时 lastVis 是旧列表布局残留(如旧 72 行的 65), 若用 < 比较会误判
+        // "已在新末条"而跳过重定位, RV 锚点错乱先渲染中间位置再被 align 拉底 = 打开长消息会话闪一次
+        if (lastVisX != chatAdapter.itemCount - 1) {
+            chatRec.scrollToPosition(chatAdapter.itemCount - 1)
+        }
+        // 修复(2026-09-18): 原先整段包在 chatRec.post{} 里, scrollToPosition 的
+        // 顶锚布局帧会先渲染一帧, preDraw 注册晚一帧才补拉底 = 长气泡两帧位置天差地别(顶锚→底部
+        // 大跳); 短气泡 gap≈0 无感, 这正是"特定长度才触发"的原因。现在同步注册 preDraw:
+        // 本帧 layout(顶锚)完成后、绘制前同帧执行 align 拉底, 单帧直达底部无中间态上屏
+        if (chatAdapter.itemCount == 0) return
+        val n = chatAdapter.itemCount
+        // 绝对底部对齐: 末条长文高度>视口时 scrollToPosition 只能让其可见无法贴底,
+        // 布局完成后按差值一次拉齐; 用末条子 View 真实像素差而非 range 估算
+        // (变高消息下 computeVerticalScrollRange 基于平均行高, 估算严重失真会拉错位置)
+        val align = Runnable {
+            if (auto && scrollUserScrolled) return@Runnable
+            if (chatAdapter.itemCount != n) return@Runnable
+            pendingAlign--
+            val lmA = chatRec.layoutManager as? LinearLayoutManager
+            val lastChild = lmA?.findViewByPosition(n - 1)
+                ?: lmA?.getChildAt((lmA?.childCount ?: 1) - 1)
+            val gap = if (lastChild != null) {
+                lastChild.bottom - (chatRec.height - chatRec.paddingBottom)
+            } else {
+                val target = chatRec.computeVerticalScrollRange() - chatRec.computeVerticalScrollExtent()
+                target - chatRec.computeVerticalScrollOffset()
+            }
+            if (gap != 0) {
+                chatRec.scrollBy(0, gap)
+            }
+        }
+        pendingAlign++
+        val vto = chatRec.viewTreeObserver
+        val preDraw = object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                chatRec.viewTreeObserver.removeOnPreDrawListener(this)
+                if (pendingAlign > 0) align.run()
+                return true
+            }
+        }
+        vto.addOnPreDrawListener(preDraw)
+        // 兜底: preDraw 未触发时 200ms 后对齐一次(并清掉监听)
+        chatRec.postDelayed({
+            chatRec.viewTreeObserver.removeOnPreDrawListener(preDraw)
+            if (pendingAlign > 0) align.run()
+        }, 200)
     }
 
     /** 展开/收起气泡时保持当前阅读位置: RecyclerView 行内高度变化由 RV 自身测量处理, 这里仅确保该行仍在视口 */
@@ -2834,6 +2876,8 @@ class MainActivity : Activity() {
         super.onDestroy()
         if (instance == this) instance = null
         uiScope.cancel()
+        // 优化(2026-09-18 全面扫描): 单线程 executor 是 Activity 成员, 销毁后任务继续跑会持有 Activity 引用; 立即关停
+        executor.shutdownNow()
         if (::browserPage.isInitialized) browserPage.destroy()
         // 调试服务随 Activity 销毁关闭, 并清引用避免泄漏
         DebugServer.stop()

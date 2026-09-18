@@ -726,6 +726,7 @@
     <string name="theme_kawaii">卡哇伊</string>
     <string name="theme_kiwi">Kiwi 暗</string>
     <string name="theme_icon">图标</string>
+    <string name="theme_oled">OLED 暗</string>
     <!-- 浏览器预设搜索引擎 -->
     <string name="br_engine_baidu">百度</string>
     <string name="br_engine_bing">必应</string>

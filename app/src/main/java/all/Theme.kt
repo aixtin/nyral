@@ -266,3 +266,36 @@ object IconTheme : BaseTheme(
     override fun btnCorner(density: Float): Float = 999 * density
     override fun inputCorner(density: Float): Float = 16 * density
 }
+
+/** 主题 5：OLED 暗（AMOLED 纯黑省电：黑底像素熄灭 + 高对比文字 + 柔和亮蓝主色） */
+object OledTheme : BaseTheme(
+    id = 5,
+    nameRes = R.string.theme_oled,
+    bg = Color.parseColor("#000000"),
+    surface = Color.parseColor("#0A0A0A"),
+    primary = Color.parseColor("#4DA3FF"),
+    primaryLight = Color.parseColor("#122036"),
+    text = Color.parseColor("#E8EAED"),
+    sub = Color.parseColor("#8A9099"),
+    divider = Color.parseColor("#1A1A1A"),
+    inputBg = Color.parseColor("#111317"),
+    danger = Color.parseColor("#F28B82"),
+    dangerLight = Color.parseColor("#2A1F1F"),
+    accent = Color.parseColor("#8AB4F8"),
+    bubbleAi = Color.parseColor("#14171A"),
+    bubbleAiText = Color.parseColor("#E8EAED"),
+    bubbleUser = Color.parseColor("#0B3A75"),
+    bubbleUserText = Color.WHITE,
+    thinkBg = Color.parseColor("#10151C"),
+    thinkText = Color.parseColor("#8AB4F8"),
+    radius = RadiusTokens(12, 10, 12, 10, 6, 14),
+    spacing = SpacingTokens(16, 14, 10, 16),
+    typography = TypeTokens(17f, 16f, 12f, 11f),
+    shadow = ShadowTokens(0, 0)
+) {
+    // OLED 沿用紧凑小圆角（同 Kiwi 暗）
+    override fun bubbleCorner(density: Float): Float = 10 * density
+    override fun cardCorner(density: Float): Float = 12 * density
+    override fun btnCorner(density: Float): Float = 12 * density
+    override fun inputCorner(density: Float): Float = 10 * density
+}

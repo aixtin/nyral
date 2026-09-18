@@ -16,7 +16,8 @@ object ThemeManager {
         DefaultTheme,
         FlatTheme,
         KawaiiTheme,
-        KiwiDarkTheme
+        KiwiDarkTheme,
+        OledTheme
     )
 
     /** 当前主题（无记录时默认使用图标主题） */
