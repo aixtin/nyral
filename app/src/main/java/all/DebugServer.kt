@@ -740,8 +740,9 @@ object DebugServer {
             Log.w("Nyral", "DebugServer chat SSE: ${e.message}")
         } finally {
             act.debugSseSink = oldSink
-            // 若客户端中断/主链路未接受导致循环未正常结束, 请求取消当前输出
-            if (!finished.get() || !accepted.get()) {
+            // 仅"主链路未接受"时取消; 调试客户端断开(如 curl 超时)不取消——App 是独立主体,
+            // 生成应继续跑完并入库, 否则中断整轮工具循环且 onDone 走取消分支不写库, UI 气泡全部丢失(2026-09-18)
+            if (!accepted.get()) {
                 try { LocalEngine.requestCancel() } catch (e: Exception) {}
             }
             try { out.flush() } catch (e: Exception) {}
