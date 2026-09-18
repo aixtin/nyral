@@ -194,8 +194,25 @@ class MainActivity : Activity() {
         // 命中路径必须走 setParsedMarkdown(内部跑 beforeSetText/afterSetText 全流程),
         // 直接 tv.text=spanned 会绕过 Markwon 的 TextView 生命周期钩子, 列表等 span 测量异常 = 气泡右侧被截断
         mdCache.get(md)?.let { markwon.setParsedMarkdown(tv, it); return }
-        markwon.setMarkdown(tv, md)
-        (tv.text as? Spanned)?.let { mdCache.put(md, it) }
+        if (md.length < 600) {   // 短文本同步渲染本就不卡, 直接走旧路径并回填缓存
+            markwon.setMarkdown(tv, md)
+            (tv.text as? Spanned)?.let { mdCache.put(md, it) }
+            return
+        }
+        // 长文本未命中(预热未跑到: 切会话/冷启动后立刻上翻):
+        // 同步渲染在主线程耗 50-300ms 掉帧跳变(老bug路径), 改异步——先纯文本占位(无解析成本, 高度接近),
+        // 后台编译完成后回主线程替换并回填缓存
+        tv.text = md
+        executor.execute {
+            val spanned = try {
+                if (mdCache.get(md) == null) mdCache.put(md, markwon.toMarkdown(md))
+                mdCache.get(md)
+            } catch (e: Exception) { null }
+            if (spanned != null) runOnUiThread {
+                // holder 可能已被 RV 回收复用: 校验 tv 仍挂着本条占位文本才替换, 否则丢弃(幂等安全)
+                if (tv.text?.toString() == md) markwon.setParsedMarkdown(tv, spanned)
+            }
+        }
     }
 
     /** 会话打开后后台预编译历史 AI 消息(含 AiRich 分片), 上翻浏览时 bind 直接命中缓存 */
@@ -203,7 +220,8 @@ class MainActivity : Activity() {
         val aiMsgs = messages.filter { it.role != "user" && it.content.isNotBlank() }
         if (aiMsgs.isEmpty()) return
         executor.execute {
-            for (m in aiMsgs) {
+            // 倒序预热(最新→最旧): 用户上翻从新往旧, 先编译最可能先被翻到的
+            for (m in aiMsgs.asReversed()) {
                 // AiRich 分片路径与 contentRow 渲染一致(超长分片阈值), 用户消息不走 markwon
                 val parts = if (m.content.length > SPLIT_CONTENT_LEN) splitLongContent(m.content) else listOf(m.content)
                 for (p in parts) {
@@ -212,7 +230,7 @@ class MainActivity : Activity() {
                     if (mdCache.get(md) != null) continue
                     try {
                         mdCache.put(md, markwon.toMarkdown(md))
-                    } catch (e: Exception) { /* 预热失败不阻塞, bind 时走同步兜底 */ }
+                    } catch (e: Exception) { /* 预热失败不阻塞, bind 时走异步兜底 */ }
                 }
             }
         }
