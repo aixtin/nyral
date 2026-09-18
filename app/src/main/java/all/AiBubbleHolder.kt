@@ -244,7 +244,6 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     fun collapseThinking() {
         val b = activeThinking ?: return
         if (b.collapsed) return
-        Log.d("NyralSink", "collapseThinking")
         b.collapsed = true
         b.expanded = false
         b.view?.let { tv ->
@@ -256,7 +255,6 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     private fun toggleThinking(b: ThinkingBlock) {
         b.expanded = !b.expanded
-        Log.d("NyralSink", "toggleThinking expanded=${b.expanded}")
         val tv = b.view ?: return
         tv.text = if (b.expanded) "💭 " + b.text else b.summary()
         host.keepReadingPosition(tv)   // 展开/收起后保持阅读位置, 不跳回底部
@@ -264,7 +262,6 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     /** 工具调用开始: 独立气泡(深色背景), 折叠为一行"🔧 工具：名称", 点击展开参数与结果 */
     fun showTool(name: String, arg: String) {
-        Log.d("NyralSink", "showTool $name")
         sealCurrentContent()   // 工具调用同样先冻结当前正文段, 与恢复时间线一致
         removeStatus()
         stopLoading()
@@ -299,7 +296,6 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     private fun toggleTool(b: ToolBlock) {
         b.expanded = !b.expanded
-        Log.d("NyralSink", "toggleTool expanded=${b.expanded}")
         val tv = b.view ?: return
         tv.text = if (b.expanded) b.expandedText() else b.collapsedText()
         host.keepReadingPosition(tv)   // 展开/收起后保持阅读位置, 不再强制滚到底部

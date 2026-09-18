@@ -415,10 +415,13 @@ class MainActivity : Activity() {
         // 标题栏与背景(挂 root.background)不动。adjustResize 下窗口被系统压缩, ime insets 会被吸收为0无法检测
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         window.statusBarColor = Ui.SURFACE
-        // 状态栏图标明暗随主题底亮度自适应: 浅底深图标, 深底浅图标
+        window.navigationBarColor = Ui.SURFACE
+        // 状态栏/导航栏图标明暗随主题底亮度自适应: 浅底深图标, 深底浅图标
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val dark = (Color.red(Ui.SURFACE) + Color.green(Ui.SURFACE) + Color.blue(Ui.SURFACE)) / 3 < 128
-            window.decorView.systemUiVisibility = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            var vis = if (dark) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            if (Build.VERSION.SDK_INT >= 26 && !dark) vis = vis or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            window.decorView.systemUiVisibility = vis
         }
         ApiConfig.init(this)
         MemoryApiConfig.init(this)   // 辅助模型配置: 冷启动必须先初始化, 否则归档读不到独立配置, 回退主对话
