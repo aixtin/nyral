@@ -122,6 +122,10 @@ class MainActivity : Activity() {
 
     private val TAG = "Nyral"
     internal val executor = Executors.newSingleThreadExecutor()
+    // Markdown 专用并行编译池(2026-09-18 吸底跳变复发根治): 旧版 bind miss 的兜底编译任务在单线程
+    // executor 里排在 prewarm 整条长循环之后(FIFO), 占位可持续数秒, 替换落在用户惯性滚动中 → 高度突变挤动;
+    // 并行化后: prewarm 拆单消息粒度 3 线程消化(全量提速3倍), bind miss 编译立即获得空闲线程不排队
+    internal val mdExecutor = Executors.newFixedThreadPool(3)
     internal val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     // Markdown 本地渲染 (Markwon, 开源/无网络/不接第三方服务)
     internal val markwon by lazy {
@@ -188,9 +192,15 @@ class MainActivity : Activity() {
      *  修法: 会话打开后在后台线程预编译存此缓存, bind 时命中直接 set(主线程零解析);
      *  未命中(预热未完成/新消息)回落同步渲染, 行为与旧版一致不劣化 */
     private val mdCache = LruCache<String, Spanned>(256)
+    // 预热代数(openSession 主线程自增): 切走会话后旧预热任务检测代数不符即自杀, 不空耗CPU不占编译线程
+    @Volatile private var mdPrewarmGen = 0L
 
-    /** 历史气泡渲染统一入口: 命中预编译缓存直接 set(主线程零解析), 未命中同步渲染(旧路径)并回填缓存 */
+    /** 历史气泡渲染统一入口: 命中预编译缓存直接 set(主线程零解析), 未命中同步渲染(旧路径)并回填缓存;
+     *  所有路径挂高度漂移补偿, 抵御 Markwon 表格 span 布局后二次测量 */
     internal fun setMarkdownCached(tv: TextView, md: String) {
+        // 高度漂移补偿: 表格/复杂 span 的二次测量发生在首次布局之后(post 同文本再 setText),
+        // 高度突增推挤视口内容 = 上翻"突然加速"; watcher 每帧 draw 前反向补偿钉住阅读位置
+        watchHeightDrift(tv)
         // 命中路径必须走 setParsedMarkdown(内部跑 beforeSetText/afterSetText 全流程),
         // 直接 tv.text=spanned 会绕过 Markwon 的 TextView 生命周期钩子, 列表等 span 测量异常 = 气泡右侧被截断
         mdCache.get(md)?.let { markwon.setParsedMarkdown(tv, it); return }
@@ -200,10 +210,10 @@ class MainActivity : Activity() {
             return
         }
         // 长文本未命中(预热未跑到: 切会话/冷启动后立刻上翻):
-        // 同步渲染在主线程耗 50-300ms 掉帧跳变(老bug路径), 改异步——先纯文本占位(无解析成本, 高度接近),
-        // 后台编译完成后回主线程替换并回填缓存
+        // 先纯文本占位投并行编译池立即开始, 完成后回主线程替换并回填缓存;
+        // 替换引起的高度突变同样由 drift watcher 统一补偿(见 watchHeightDrift)
         tv.text = md
-        executor.execute {
+        mdExecutor.execute {
             val spanned = try {
                 if (mdCache.get(md) == null) mdCache.put(md, markwon.toMarkdown(md))
                 mdCache.get(md)
@@ -215,13 +225,54 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 高度漂移补偿(2026-09-18 幽灵跳变终版): Markwon 表格 span 官方调度(RoundedTablePlugin
+     *  afterSetText→post 同文本 setText)在首次布局后触发二次测量, 高度突变推挤视口内下方内容
+     *  = 滚动方向上的一次额外加速("正常→加速→正常"), 预编译缓存命中也无法避免(二次测量是
+     *  每次 TextView 挂载的行为, 不是编译期), 故前几轮修复全部打空。
+     *  本 watcher 每帧 preDraw 比对 tv 高度: tv.parent 相对 bottom 不随 RV 滚动变化, 增量即纯生长量;
+     *  视口重叠的漂移在 draw 前反向 scrollBy 钉住——气泡底边不动、向上生长, 阅读位置纹丝不动。
+     *  对表格二次测量/占位→渲染替换/任何未来高度突变源统一生效。
+     *  生命周期: tv 离屏(detach)摘除, 重挂(缓存行复用)重置基线重新观察, 每帧成本一次整数比较 */
+    private fun watchHeightDrift(tv: TextView) {
+        var lastBottom = Int.MIN_VALUE
+        val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (tv.height <= 0) return true
+                val b = tv.bottom
+                if (lastBottom != Int.MIN_VALUE && b != lastBottom) {
+                    val delta = b - lastBottom
+                    var row: android.view.View = tv
+                    while (row.parent is android.view.View && row.parent !== chatRec) row = row.parent as android.view.View
+                    if (row.parent === chatRec && row.top < chatRec.height && row.bottom > 0) {
+                        chatRec.scrollBy(0, delta)
+                    }
+                }
+                lastBottom = b
+                return true
+            }
+        }
+        chatRec.viewTreeObserver.addOnPreDrawListener(listener)
+        tv.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                lastBottom = Int.MIN_VALUE   // 重置基线: 重挂后(如缓存行复用)表格会再调度二次测量
+                chatRec.viewTreeObserver.addOnPreDrawListener(listener)
+            }
+            override fun onViewDetachedFromWindow(v: View) {
+                chatRec.viewTreeObserver.removeOnPreDrawListener(listener)
+            }
+        })
+    }
+
     /** 会话打开后后台预编译历史 AI 消息(含 AiRich 分片), 上翻浏览时 bind 直接命中缓存 */
     private fun prewarmMdCache() {
         val aiMsgs = messages.filter { it.role != "user" && it.content.isNotBlank() }
         if (aiMsgs.isEmpty()) return
-        executor.execute {
-            // 倒序预热(最新→最旧): 用户上翻从新往旧, 先编译最可能先被翻到的
-            for (m in aiMsgs.asReversed()) {
+        val gen = ++mdPrewarmGen
+        // 倒序拆成单消息粒度任务投并行池(最新→最旧): 3线程同时消化全量时间/3;
+        // bind miss 的兜底任务与剩余预热并行执行, 不再排在整条预热循环之后数秒等待
+        for (m in aiMsgs.asReversed()) {
+            mdExecutor.execute {
+                if (gen != mdPrewarmGen) return@execute   // 已切走会话: 任务自杀
                 // AiRich 分片路径与 contentRow 渲染一致(超长分片阈值), 用户消息不走 markwon
                 val parts = if (m.content.length > SPLIT_CONTENT_LEN) splitLongContent(m.content) else listOf(m.content)
                 for (p in parts) {
@@ -658,10 +709,22 @@ class MainActivity : Activity() {
                 }
                 override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
                     if (!scrollUserScrolled) return
-                    val lm = rv.layoutManager as? LinearLayoutManager ?: return
-                    val last = lm.findLastVisibleItemPosition()
-                    val count = rv.adapter?.itemCount ?: return
-                    if (last >= count - 2) scrollUserScrolled = false
+                    // 吸底修复: 原判据 findLastVisibleItemPosition >= count-2 在长气泡场景恒真
+                    // (末条比视口高时上翻中视口底端始终"看得见"末条) → 误翻 false → 程序拉底畅通;
+                    // 改用 canScrollVertically(1): 真的无法再向下滚才算贴底
+                    // 吸底复发修复(2026-09-18 录屏13s形态): 占位→渲染替换使列表高度瞬时变化,
+                    // RV clamp 滚动位置会出现单帧"伪贴底"(canScrollVertically(1) 瞬时 false),
+                    // 旧逻辑一帧即解除 scrollUserScrolled 守卫, 随后流式/迟到拉底畅通无阻
+                    // = 上翻历史被瞬间抽到最新消息(快速吸底);
+                    // 改为 postOnAnimation 下一动画帧(当帧布局完成后)二次确认, 布局挤动的
+                    // 单帧误判被滤除, 只有真稳定贴底才恢复自动追底
+                    if (!rv.canScrollVertically(1)) {
+                        rv.postOnAnimation {
+                            if (!rv.canScrollVertically(1)) {
+                                scrollUserScrolled = false
+                            }
+                        }
+                    }
                 }
             })
         }
@@ -1577,6 +1640,8 @@ class MainActivity : Activity() {
         currentSaved = true
         currentSessionId = id
         currentSessionTitle = db.sessionTitleOf(id)
+        // 吸底修复: 切会话重置用户滚动标记(旧会话的"正在阅读"不应带入新会话), 新会话默认追底
+        scrollUserScrolled = false
         // 滚动时机修复: ListAdapter.submitList 为异步 diff, 滚动必须等 diff 提交后执行,
         // 否则 itemCount 仍是旧会话值→滚到错误位置/直接不滚(表现为"切会话后不在最新, 像自己滚动")
         var scrolled = false
@@ -1603,7 +1668,9 @@ class MainActivity : Activity() {
                     }
                 }
             } else {
-                scrollToBottom()
+                // 吸底修复: AsyncListDiffer 的 onCommitted 可能迟到(用户切会话后已开始上翻),
+                // 用户已触摸列表就让位, 不再拉底打断阅读(不触摸则正常定位底部)
+                if (!scrollUserScrolled) scrollToBottom()
             }
         }
         buildRowsFromMessages {
