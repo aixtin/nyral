@@ -369,6 +369,8 @@ object LocalEngine {
     /** 流式入口: 主线程调用, 回调全部发生在调用线程(工作线程), UI 需自行 post */
     fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList()) {
         var attempt = 0
+        // 跨轮累计正文: 声明在 try 外, 取消/重试 catch 分支也能带回已输出内容
+        val full = StringBuilder()
         while (true) {
         try {
             McpClientManager.ensureLoaded(context)
@@ -403,7 +405,6 @@ object LocalEngine {
             val hotLoaded = mutableSetOf<String>()
             // provider 切换时重置 tools 能力探测(同一 provider 保持上次结果, 防止重复降级死循环)
             maybeResetToolsCapability()
-            val full = StringBuilder()
 
             while (true) {
                 if (cancelRequested) {
@@ -504,6 +505,12 @@ object LocalEngine {
             android.util.Log.w("Nyral", "no-tools fallback retry (attempt=${attempt})")
             continue
         } catch (e: RetryableException) {
+            // 取消优先于自动重试: 取消引发的断线若被吞成重试, 会先污染 UI("[网络波动]")再空 onDone 丢整轮内容
+            if (cancelRequested) {
+                android.util.Log.i("Nyral", "chat cancelled during net-retry (skip retry)")
+                cb.onDone(full.toString())
+                return
+            }
             // 请求级断线: 自动重连一次, 全程无输出, 无需用户手动"继续"
             attempt++
             if (attempt >= MAX_NET_RETRY) {
