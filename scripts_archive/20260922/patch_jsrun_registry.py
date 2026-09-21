@@ -3,7 +3,7 @@
 # 补打 LocalEngine.kt registry 一处(锚点带 "无参数")
 import io, os, sys
 
-P = "/home/ymz/droid-agent/android-agent-app/app/src/main/java/all/LocalEngine.kt"
+P = "/home/ymz/Nyral/android-agent-app/app/src/main/java/all/LocalEngine.kt"
 s = io.open(P, "r", encoding="utf-8").read()
 
 old = r'''        ToolSpec("app_installed", "列出已安装的第三方应用(包名+应用名), 供 app_launch 定位包名", "无参数")

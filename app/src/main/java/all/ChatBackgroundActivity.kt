@@ -260,7 +260,7 @@ class ChatBackgroundActivity : Activity() {
     private fun presetCell(idx: Int): TextView {
         val tv = TextView(this).apply {
             gravity = Gravity.CENTER
-            textSize = 18f
+            textSize = 9f
             setTextColor(Color.WHITE)
             isClickable = true
             setOnClickListener {
@@ -290,7 +290,7 @@ class ChatBackgroundActivity : Activity() {
         refreshBlurText(currentBlur)
         for (i in presetCells.indices) {
             val checked = currentType == "preset" && currentPreset == i
-            presetCells[i].text = if (checked) "✓" else ""
+            presetCells[i].text = if (checked) "●" else ""
             // 选中项加深边框提示
             val gd = GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 intArrayOf(presets[i][0], presets[i][1]))

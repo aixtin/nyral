@@ -86,7 +86,6 @@ object McpClientManager {
                     toolsByName[finalName] = t.copy(name = finalName, serverName = s.name)
                     added++
                 }
-                lastError = lastError ?: null
             } catch (e: Exception) {
                 lastError = (lastError?.let { "$it; " } ?: "") + "「${s.name}」${e.message}"
             }

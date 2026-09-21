@@ -25,22 +25,19 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 附件发送链路（从 MainActivity 抽离，持有 host 访问其内部成员）：
- * - 图片: 压缩后 Base64
- * - 视频: 限 50MB, 超限本地转码压缩后再发, 压缩后仍超限拒绝
- * - 其余(含 PDF/txt/md/Word/Excel/PPT/压缩包): 本地解析提取文本
- *   (text 随 history 注入模型; 支持 PDF/MD/TXT/DOCX/XLSX/PPTX/ZIP/TAR/TGZ 等,
- *   提取不到或纯二进制文件则退回直发普通文件)
+ * 附件发送链路（从 MainActivity 抽离，持有 host 访问其内部成员）。
+ * 分流原则: 不因类型/大小拒绝用户(仅 0 字节空文件拒绝);
+ * 模型能直接识别的媒体(图片/小视频/小音频/小文本)直发,
+ * 其余(大视频/大音频/文档/压缩包/未知格式/伪装文件)流式落私有附件库(att://)并发索引卡,
+ * 由 AI 按需 attach_read / video_frame / file_export 处理。
  */
 internal class AttachmentSender(private val host: MainActivity) {
 
     private val MAX_IMAGE_SIDE = 2048
-    private val MAX_VIDEO_BYTES = 37 * 1024 * 1024 // MiMo 视频 base64 ≤50MB(原始约 ≤37MB)
+    private val MAX_VIDEO_BYTES = 37 * 1024 * 1024 // MiMo 视频 base64 ≤50MB(原始约 ≤37MB); 用于 GIF 转 MP4 产物校验
     private val SMALL_VIDEO_BYTES = 10 * 1024 * 1024 // 阈值分流: 小视频≤10MB 直传(阶段E实测校准)
     private val SMALL_VIDEO_SEC = 30 * 1000L          // 阈值分流: 小视频≤30秒 直传(阶段E实测校准)
-    private val MAX_VIDEO_SEC = 3 * 60 * 1000L // 方案A: 视频时长上限 3 分钟
-    private val MAX_VIDEO_MB = 50 * 1024 * 1024 // 方案A: 视频大小硬上限 50MB
-    private val MAX_AUDIO_SEC = 10 * 60 * 1000L // 方案A: 音频时长上限 10 分钟
+    private val MAX_AUDIO_SEC = 10 * 60 * 1000L // 音频直发时长阈值: >10min 不再直发, 改落库交 AI
     private val GIF_ANIM_MAX_BYTES = 20 * 1024 * 1024 // 动图转视频的源 GIF 上限(超出回退静态图), 防超大内存占用
 
     private fun dp(v: Int) = host.dp(v)
@@ -99,33 +96,218 @@ internal class AttachmentSender(private val host: MainActivity) {
         } catch (e: Exception) { /* meta 失败不阻断发送 */ }
     }
 
+    /** 当前模型是否支持视频输入(CAP_VIDEO): 不支持时小视频也走落库分流, 避免直传报错 */
+    private fun videoSupported(): Boolean =
+        ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_VIDEO)
+
     private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHintRes: Int): LocalEngine.Attachment? {
-        // 方案A 双维度限制: 时长 >3min 直接拒(不转码防 token 爆炸); 大小 >50MB 直接拒
+        // 不因时长/大小拒绝: 小视频直发, 其余流式落库(附件+meta 同生共死)发索引卡
         val durMs = videoDurationMs(uri)
-        if (durMs > MAX_VIDEO_SEC) {
-            toast(io.github.aixtin.nyral.R.string.toast_video_too_long, host.getString(failHintRes))
-            return null
-        }
-        val raw = MediaFileUtils.readAll(host.contentResolver, uri)
-        if (raw.size > MAX_VIDEO_MB) {
-            toast(io.github.aixtin.nyral.R.string.toast_video_too_big, host.getString(failHintRes))
-            return null
-        }
-        if (raw.size <= SMALL_VIDEO_BYTES && durMs <= SMALL_VIDEO_SEC) {
+        // 先取大小(不整文件进内存, 修复大视频 OOM 闪退): openAssetFileDescriptor 拿 length 即可
+        val size = try {
+            host.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        } catch (e: Exception) { -1L }
+        if (size in 1..SMALL_VIDEO_BYTES && durMs <= SMALL_VIDEO_SEC && videoSupported()) {
+            // 小视频直传: 整文件读入内存可控(≤10MB), base64 后随消息内联
+            val raw = MediaFileUtils.readAll(host.contentResolver, uri)
             // 小视频直传时顺手生成 meta 存工作目录(供 AI 按需观看/抽帧参考)
             writeVideoMeta(uri, name, raw.size.toLong())
             return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
         }
-        // 大视频(>10MB 或 >30秒, 阈值待阶段E实测校准): 落私有附件库(附件+meta 同生共死), 消息只放索引卡, 不传 base64
-        val meta = videoMetaJson(uri, name, raw.size.toLong(), mime, durMs)
+        // 大视频(>10MB 或 >30秒) 或不支持视频的模型(小视频也走此): 流式落私有附件库(附件+meta 同生共死), 消息只放索引卡, 不传 base64
+        val meta = videoMetaJson(uri, name, size, mime, durMs)
         val key = try {
-            AttachmentStore.save(host, name, mime, raw, meta?.toString())
+            host.contentResolver.openInputStream(uri)?.use { ins ->
+                AttachmentStore.saveStream(host, name, mime, ins, meta?.toString())
+            } ?: run {
+                toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(failHintRes))
+                return null
+            }
         } catch (e: Exception) {
             toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(failHintRes), e.message)
             return null
         }
-        toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib)
+        toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(failHintRes))
         return LocalEngine.Attachment(mime, "", key, stored = true)
+    }
+
+    /** 图片(真实类型)处理: HEIC 实况图关联 motion 视频则转视频; GIF 动画转 MP4; 其余压缩 JPEG 直发 */
+    private fun imageAttachments(uri: Uri, name: String, real: String): List<LocalEngine.Attachment> {
+        // 实况图(LIVE photo): HEIC 查 MediaStore 关联 motion 视频, 命中即以视频发送(保留动态);
+        // 未命中回退静态压缩; 压缩失败回退静态 JPEG, 绝不阻断发送
+        if (real == FormatSniffer.IMAGE_HEIC) {
+            val mv = MediaFileUtils.motionVideoUriOf(host.contentResolver, uri)
+            if (mv != null) {
+                val vAtt = buildVideoAttachment(mv, "video/mp4",
+                    name.replace(Regex("\\.heic$", RegexOption.IGNORE_CASE), ".mp4"),
+                    io.github.aixtin.nyral.R.string.att_label_live_video)
+                if (vAtt != null) return listOf(vAtt)
+            }
+            val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
+            return listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+        }
+        if (real == FormatSniffer.IMAGE_GIF) {
+            val mp4Att = try {
+                val gifBytes = MediaFileUtils.readAll(host.contentResolver, uri)
+                if (gifBytes.size in 6..GIF_ANIM_MAX_BYTES && GifToMp4.isAnimated(gifBytes)) {
+                    val f = File(host.cacheDir, "anim_${System.currentTimeMillis()}.mp4")
+                    try {
+                        val frames = GifToMp4.convert(gifBytes, f)
+                        if (frames > 0 && f.length() in 1..MAX_VIDEO_BYTES.toLong()) {
+                            val mp4 = f.readBytes()
+                            f.delete()
+                            listOf(LocalEngine.Attachment(
+                                "video/mp4", Base64.encodeToString(mp4, Base64.NO_WRAP),
+                                name.replace(Regex("\\.gif$", RegexOption.IGNORE_CASE), ".mp4")))
+                        } else { f.delete(); null }
+                    } catch (e: Exception) {
+                        try { f.delete() } catch (_: Exception) {}
+                        null
+                    }
+                } else null
+            } catch (e: Exception) { null }
+            if (mp4Att != null) return mp4Att
+        }
+        val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
+        // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
+        return listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+    }
+
+    /** 音频: 预算内直发(魔数真实 mime + m4a brand 修正), 超时长/超大流式落库发索引卡 */
+    private fun audioOrStore(uri: Uri, name: String, realMime: String, claimedMime: String): List<LocalEngine.Attachment> {
+        // 音频以魔数真实 mime 为准(扩展名可能说谎, 如 .aac 实为 MP3): 归一到模型认识的格式
+        val effMime = if (realMime != FormatSniffer.UNKNOWN) realMime else claimedMime
+        val size = try {
+            host.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        } catch (e: Exception) { -1L }
+        val dur = audioDurationMs(uri)
+        if (size in 1..host.maxFileBytes && dur <= MAX_AUDIO_SEC) {
+            // 小音频直发: 整文件读入内存可控(≤maxFileBytes)
+            val raw = MediaFileUtils.readAll(host.contentResolver, uri)
+            // m4a: 部分设备/APP 生成 isom/mp42 容器, MiMo 仅接受 ftyp M4A; 修正 major_brand 避免 400
+            val finalRaw = if ((effMime.startsWith("audio/") || name.lowercase().endsWith(".m4a")) &&
+                raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
+                raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
+                val brand = String(raw, 8, 4)
+                if (brand != "M4A " && brand != "M4A\u0000") {
+                    val out = raw.clone()
+                    out[8] = 'M'.code.toByte(); out[9] = '4'.code.toByte()
+                    out[10] = 'A'.code.toByte(); out[11] = ' '.code.toByte()
+                    out
+                } else raw
+            } else raw
+            return listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name))
+        }
+        // 大音频/超时长: 流式落库(不整文件进内存) + meta(时长/大小), 消息只放索引卡
+        val meta = videoMetaJson(uri, name, size, effMime, dur)
+        val key = try {
+            host.contentResolver.openInputStream(uri)?.use { ins ->
+                AttachmentStore.saveStream(host, name, effMime, ins, meta?.toString())
+            } ?: run {
+                toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(io.github.aixtin.nyral.R.string.att_label_audio))
+                return listOf()
+            }
+        } catch (e: Exception) {
+            toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(io.github.aixtin.nyral.R.string.att_label_audio), e.message)
+            return listOf()
+        }
+        toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_audio))
+        return listOf(LocalEngine.Attachment(effMime, "", key, stored = true))
+    }
+
+    /** 文件兜底(文档/文本/未知/伪装媒体): 预算内小文件提取文本直发注入; 无法解析或超大流式落库发索引卡 */
+    private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List<LocalEngine.Attachment> {
+        val size = try {
+            host.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        } catch (e: Exception) { -1L }
+        // 预算内小文件: 尝试提取文本直发(模型可直接读)
+        if (size in 1..host.maxFileBytes) {
+            val raw = MediaFileUtils.readAll(host.contentResolver, uri)
+            val txt = DocTextExtractor.extract(name, raw)
+            if (!txt.isNullOrBlank()) {
+                return listOf(LocalEngine.Attachment(claimedMime, Base64.encodeToString(raw, Base64.NO_WRAP), name, text = txt))
+            }
+            // 无文本层 PDF(扫描件)且模型支持图像: 渲染为图片走 image_url, 避免 MiMo 对 input_file 500
+            if (isPdf && ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
+                val imgs = pdfToImageAttachments(uri, name)
+                if (imgs.isNotEmpty()) {
+                    // 页图标记 pdfSourceName: 显示层隐藏(不铺图片网格), 仅作为 image_url 发给模型看图;
+                    // 追加 PDF 卡片附件: 气泡以文件卡片展示(点击进 PDF 全屏预览)
+                    return imgs.map { it.copy(pdfSourceName = name) } + listOf(
+                        LocalEngine.Attachment("application/pdf", Base64.encodeToString(raw, Base64.NO_WRAP), name,
+                            text = "（PDF 扫描件，已渲染为图片供查看）"))
+                }
+            }
+        }
+        // 大文件或无法解析: 流式落库 + meta(真实类型/大小), 由 AI 按需读取/导出处理
+        val meta = JSONObject()
+            .put("name", name).put("mime", claimedMime).put("size", size)
+            .put("realType", real).put("createdAt", System.currentTimeMillis())
+        val key = try {
+            host.contentResolver.openInputStream(uri)?.use { ins ->
+                AttachmentStore.saveStream(host, name, claimedMime, ins, meta.toString())
+            } ?: run {
+                toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, "open failed")
+                return listOf()
+            }
+        } catch (e: Exception) {
+            toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
+            return listOf()
+        }
+        toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_file))
+        return listOf(LocalEngine.Attachment(claimedMime, "", key, stored = true))
+    }
+
+    /** 表情库项直接发送: 读库内文件 bytes 作图片附件直接发出(不经预览条); 调用方需保证输入框/预览条为空 */
+    fun sendEmojiLibItemNow(file: File, name: String) {
+        host.executor.execute {
+            try {
+                val bytes = file.readBytes()
+                if (bytes.isEmpty()) {
+                    toast(io.github.aixtin.nyral.R.string.toast_att_empty)
+                    return@execute
+                }
+                // 表情库项含动图(落库前已转无声循环MP4): 按真实类型打 mime, 渲染端表情气泡小图循环播放
+                val mime = if (file.name.lowercase().endsWith(".mp4")) "video/mp4" else "image/jpeg"
+                val att = LocalEngine.Attachment(
+                    mime, Base64.encodeToString(bytes, Base64.NO_WRAP), name, isEmoji = true)
+                host.uiScope.launch { host.doSend(listOf(att)) }
+            } catch (e: Exception) {
+                android.util.Log.e("Nyral", "发送表情失败", e)
+                toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
+            }
+        }
+    }
+
+    /** 表情库项直接发送: 读库内文件 bytes 作图片附件加入预览条(名字即消息名, AI 可语义索引) */
+    fun sendEmojiLibItem(file: File, name: String) {
+        host.executor.execute {
+            try {
+                val bytes = file.readBytes()
+                if (bytes.isEmpty()) {
+                    toast(io.github.aixtin.nyral.R.string.toast_att_empty)
+                    return@execute
+                }
+                // 表情库项含动图(落库前已转无声循环MP4): 按真实类型打 mime, 渲染端表情气泡小图循环播放
+                val mime = if (file.name.lowercase().endsWith(".mp4")) "video/mp4" else "image/jpeg"
+                val att = LocalEngine.Attachment(
+                    mime, Base64.encodeToString(bytes, Base64.NO_WRAP), name, isEmoji = true)
+                host.uiScope.launch {
+                    val MAX_ATT = 5
+                    var userAtt = host.pendingAttachments.count { it.pdfSourceName == null }
+                    if (userAtt >= MAX_ATT) {
+                        Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    host.pendingAttachments.add(att)
+                    userAtt += 1
+                    addAttachPreview(att)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Nyral", "发送表情失败", e)
+                toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
+            }
+        }
     }
 
     /** 读取附件并加入预览条(补文字后由 onSend 一并发送, 不再直接发出)。 */
@@ -137,153 +319,28 @@ internal class AttachmentSender(private val host: MainActivity) {
                 val name = MediaFileUtils.queryDisplayName(host.contentResolver, uri) ?: "attachment"
                 val lowName = name.lowercase()
                 val isPdf = mime == "application/pdf" || lowName.endsWith(".pdf")
-                val isVideo = mime.startsWith("video/")
                 // 魔数嗅探真实格式(解决"扩展名≠真实格式"): 仅读头部, 不动文件本体
                 val head = MediaFileUtils.readHead(host.contentResolver, uri, 64)
                 val real = FormatSniffer.sniff(head, lowName)
                 val realType = real.substringBefore('/') // image/audio/video/text 或 empty/unknown
-                // 伪装/异常文件直接拒绝并提示真实情况
+                // 仅 0 字节空文件拒绝; 其余一律按真实类型分流, 伪装/未知不再拦截(落库交 AI 判断)
                 if (real == FormatSniffer.EMPTY) {
                     toast(io.github.aixtin.nyral.R.string.toast_att_empty)
                     return@execute
                 }
-                val fakeMedia = real == FormatSniffer.TEXT &&
-                    (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))
-                if (fakeMedia) {
-                    host.uiScope.launch {
-                        val fakeTypeRes = when { mime.startsWith("image/") -> io.github.aixtin.nyral.R.string.att_label_image; mime.startsWith("video/") -> io.github.aixtin.nyral.R.string.att_label_video; else -> io.github.aixtin.nyral.R.string.att_label_audio }
-                        Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_fake_media, host.getString(fakeTypeRes)), Toast.LENGTH_SHORT).show()
-                    }
-                    return@execute
-                }
-                if (real == FormatSniffer.UNKNOWN &&
-                    (mime.startsWith("image/") || mime.startsWith("audio/") || mime.startsWith("video/"))) {
-                    toast(io.github.aixtin.nyral.R.string.toast_att_unk_fmt)
-                    return@execute
-                }
-                val atts: List<LocalEngine.Attachment> = when {
-                    mime.startsWith("image/") || realType == "image" -> {
-                        // 实况图(LIVE photo): HEIC 查 MediaStore 关联 motion 视频, 命中即以视频发送(保留动态);
-                        // 未命中回退静态压缩; 压缩失败回退静态 JPEG, 绝不阻断发送
-                        if (real == FormatSniffer.IMAGE_HEIC) {
-                            val mv = MediaFileUtils.motionVideoUriOf(host.contentResolver, uri)
-                            if (mv != null) {
-                                val vAtt = buildVideoAttachment(mv, "video/mp4",
-                                    name.replace(Regex("\\.heic$", RegexOption.IGNORE_CASE), ".mp4"),
-                                    io.github.aixtin.nyral.R.string.att_label_live_video)
-                                if (vAtt != null) {
-                                    listOf(vAtt)
-                                } else {
-                                    val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
-                                    listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                                }
-                            } else {
-                                val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
-                                listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                            }
-                        } else if (real == FormatSniffer.IMAGE_GIF) {
-                            val mp4Att = try {
-                                val gifBytes = MediaFileUtils.readAll(host.contentResolver, uri)
-                                if (gifBytes.size in 6..GIF_ANIM_MAX_BYTES && GifToMp4.isAnimated(gifBytes)) {
-                                    val f = File(host.cacheDir, "anim_${System.currentTimeMillis()}.mp4")
-                                    try {
-                                        val frames = GifToMp4.convert(gifBytes, f)
-                                        if (frames > 0 && f.length() in 1..MAX_VIDEO_BYTES.toLong()) {
-                                            val mp4 = f.readBytes()
-                                            f.delete()
-                                            listOf(LocalEngine.Attachment(
-                                                "video/mp4", Base64.encodeToString(mp4, Base64.NO_WRAP),
-                                                name.replace(Regex("\\.gif$", RegexOption.IGNORE_CASE), ".mp4")))
-                                        } else { f.delete(); null }
-                                    } catch (e: Exception) {
-                                        try { f.delete() } catch (_: Exception) {}
-                                        null
-                                    }
-                                } else null
-                            } catch (e: Exception) { null }
-                            if (mp4Att != null) mp4Att else {
-                                val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
-                                // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
-                                listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                            }
-                        } else {
-                            val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
-                            // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
-                            listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
-                        }
-                    }
-                    isVideo || realType == "video" -> {
-                        val vAtt = buildVideoAttachment(uri,
-                            if (realType == "video") real else mime, name, io.github.aixtin.nyral.R.string.att_label_video)
-                        if (vAtt == null) {
-                            return@execute
-                        }
+                val atts: List<LocalEngine.Attachment> = when (realType) {
+                    "image" -> imageAttachments(uri, name, real)
+                    "video" -> {
+                        val vAtt = buildVideoAttachment(uri, real, name, io.github.aixtin.nyral.R.string.att_label_video)
+                        if (vAtt == null) return@execute
                         listOf(vAtt)
                     }
-                    else -> {
-                        // 音频以魔数真实 mime 为准(扩展名可能说谎, 如 .aac 实为 MP3): 归一到模型认识的格式
-                        val effMime = if (realType == "audio" && real != FormatSniffer.UNKNOWN) real else mime
-                        val raw = MediaFileUtils.readAll(host.contentResolver, uri)
-                        // 方案A 音频双维度: 时长 >10min 拒(大小沿用 maxFileBytes 上限)
-                        if (effMime.startsWith("audio/") || realType == "audio") {
-                            val aDur = audioDurationMs(uri)
-                            if (aDur > MAX_AUDIO_SEC) {
-                                host.uiScope.launch {
-                                    Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_audio_too_long), Toast.LENGTH_SHORT).show()
-                                }
-                                return@execute
-                            }
-                        }
-                        if (raw.size > host.maxFileBytes) {
-                            host.uiScope.launch {
-                                val maxMb = UploadConfig.maxMb()
-                                val msg = when {
-                                    isPdf && !name.lowercase().endsWith(".pdf") ->
-                                        host.getString(io.github.aixtin.nyral.R.string.toast_att_pdf_abnormal, maxMb)
-                                    isPdf -> host.getString(io.github.aixtin.nyral.R.string.toast_att_pdf_large, maxMb)
-                                    else -> host.getString(io.github.aixtin.nyral.R.string.toast_att_file_large, maxMb)
-                                }
-                                Toast.makeText(host, msg, Toast.LENGTH_SHORT).show()
-                            }
-                            return@execute
-                        }
-                        // m4a: 部分设备/APP 生成 isom/mp42 容器, MiMo 仅接受 ftyp M4A; 修正 major_brand 避免 400
-                        val finalRaw = if ((effMime.startsWith("audio/") || lowName.endsWith(".m4a")) &&
-                            raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
-                            raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
-                            val brand = String(raw, 8, 4)
-                            if (brand != "M4A " && brand != "M4A\u0000") {
-                                val out = raw.clone()
-                                out[8] = 'M'.code.toByte(); out[9] = '4'.code.toByte()
-                                out[10] = 'A'.code.toByte(); out[11] = ' '.code.toByte()
-                                out
-                            } else raw
-                        } else raw
-                        val txt = DocTextExtractor.extract(name, finalRaw)
-                        // 无文本层 PDF(扫描件)且模型支持图像: 渲染为图片走 image_url, 避免 MiMo 对 input_file 500
-                        if (txt.isNullOrBlank() && isPdf &&
-                            ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
-                            val imgs = pdfToImageAttachments(uri, name)
-                            if (imgs.isEmpty()) {
-                                toast(io.github.aixtin.nyral.R.string.toast_pdf_unparsable)
-                                return@execute
-                            }
-                            // 页图标记 pdfSourceName: 显示层隐藏(不铺图片网格), 仅作为 image_url 发给模型看图;
-                            // 追加 PDF 卡片附件: 气泡以文件卡片展示(点击进 PDF 全屏预览), 不再"一通到底"
-                            imgs.map { it.copy(pdfSourceName = name) } + listOf(
-                                LocalEngine.Attachment("application/pdf", Base64.encodeToString(finalRaw, Base64.NO_WRAP), name,
-                                    text = "（PDF 扫描件，已渲染为图片供查看）"))
-                        } else if (txt.isNullOrBlank()) {
-                            toast(io.github.aixtin.nyral.R.string.toast_doc_unparsable)
-                            return@execute
-                        } else {
-                            listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name, text = txt))
-                        }
-                    }
+                    "audio" -> audioOrStore(uri, name, real, mime)
+                    else -> fileOrStore(uri, name, mime, real, isPdf)
                 }
                 host.uiScope.launch {
                     // 预览条方案: 附件先进输入框上方预览, 补文字后由 onSend 一并发送, 不再直接发出
-                    // 总量上限 6: 无论单次还是多次累积, 超出部分拒绝加入预览条(不占发送队列)
+                    // 总量上限 5: 无论单次还是多次累积, 超出部分拒绝加入预览条(不占发送队列)
                     val MAX_ATT = 5
                     // PDF 扫描件页图(pdfSourceName 非空)是同一个 PDF 的内部展开, 不占用户文件计数
                     var userAtt = host.pendingAttachments.count { it.pdfSourceName == null }
@@ -303,6 +360,15 @@ internal class AttachmentSender(private val host: MainActivity) {
                 toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
             }
         }
+    }
+
+    /** 附件显示名: 落库附件取 meta 中的原名, 否则原名 */
+    private fun displayNameOf(att: LocalEngine.Attachment): String {
+        if (!att.stored) return att.name
+        return try {
+            AttachmentStore.metaOf(host, att.name)?.let { JSONObject(it).optString("name") }
+                ?.takeIf { it.isNotBlank() } ?: att.name
+        } catch (e: Exception) { att.name }
     }
 
     /** 附件预览条加一项: 图片显缩略图, 其他显格式角标; 右上角 × 删除该项 */
@@ -331,7 +397,7 @@ internal class AttachmentSender(private val host: MainActivity) {
             }
         } else {
             TextView(host).apply {
-                text = badgeOf(att.mime, att.name)
+                text = badgeOf(att.mime, displayNameOf(att))
                 textSize = 11f
                 gravity = Gravity.CENTER
                 setTextColor(Color.WHITE)
@@ -339,13 +405,9 @@ internal class AttachmentSender(private val host: MainActivity) {
                 layoutParams = FrameLayout.LayoutParams(dp(48), dp(48))
             }
         }
-        val del = Button(host).apply {
-            text = "×"
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            isAllCaps = false
-            minHeight = 0
-            minWidth = 0
+        val del = ImageView(host).apply {
+            setImageDrawable(Ui.lucideX(host, Color.WHITE, 10))
+            scaleType = ImageView.ScaleType.CENTER
             background = rounded(dp(9), Ui.DANGER)
             layoutParams = FrameLayout.LayoutParams(dp(18), dp(18), Gravity.TOP or Gravity.END)
             setOnClickListener {

@@ -184,9 +184,8 @@ import android.widget.Toast
         imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
         drawerOpen = true
         refreshSessionList()
-        drawerMask.visibility = View.VISIBLE
-        drawerMask.animate().alpha(1f).setDuration(200).start()
-        drawerPanel.animate().translationX(0f).setDuration(220).start()
+        // 面板/遮罩/主界面下沉三路统一动画
+        animateDrawer(true, 220)
     }
 
     internal val MainActivity.searchCollapsedW get() = dp(34)
@@ -292,7 +291,7 @@ import android.widget.Toast
         }
 
         fun rebuildCols() {
-            val c = cols ?: return
+            val c = cols
             val contentHits = sortHits(hits.filter { it.matchedField == 0 })
             val thinkHits = sortHits(hits.filter { it.matchedField == 1 })
             c.removeAllViews()
@@ -532,10 +531,7 @@ import android.widget.Toast
     internal fun MainActivity.closeDrawer() {
         if (!drawerOpen) return
         drawerOpen = false
-        drawerPanel.animate().translationX(-DRAWER_WIDTH.toFloat()).setDuration(220).start()
-        drawerMask.animate().alpha(0f).setDuration(220).withEndAction {
-            drawerMask.visibility = View.GONE
-        }.start()
+        animateDrawer(false, 220)
     }
 
     /** 会话长按操作菜单: 置顶/取消置顶 + 重命名 + 删除 */
@@ -737,7 +733,8 @@ import android.widget.Toast
         var expandedId: String? = null
 
         fun rebuild() {
-            val list = LinearLayout(this).apply {
+            val act = this@showModelList
+            val list = LinearLayout(act).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(6), dp(4), dp(6), dp(4))
                 background = rounded(dp(14), Ui.SURFACE)
@@ -802,7 +799,16 @@ import android.widget.Toast
                     }
                 }
                 row.addView(TextView(this).apply {
-                    text = p.label + if (isCur) "  ✓" else ""
+                    text = run {
+                        val sb = android.text.SpannableStringBuilder(p.label)
+                        if (isCur) {
+                            sb.append("  ")
+                            val s = sb.length
+                            sb.append("●")
+                            sb.setSpan(Ui.centerDot(act, Ui.GREEN, 6), s, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                        sb
+                    }
                     textSize = 14f
                     isAllCaps = false
                     setPadding(dp(18), dp(12), dp(6), dp(12))
@@ -826,7 +832,7 @@ import android.widget.Toast
                 // 展开的子模型行（模型名 + 能力 chips）
                 if (expanded && hasSub) {
                     p.models.forEach { m ->
-                        // 仅当前生效供应商且为该供应商当前模型时高亮勾选（避免未选供应商的模型也显示✓）
+                        // 仅当前生效供应商且为该供应商当前模型时高亮勾选（避免未选供应商的模型也显示●）
                         val isCurModel = isCur && m == curModel
                         val caps = ApiConfig.modelCapabilities(p.id, m)
                         val subRow = LinearLayout(this).apply {
@@ -841,7 +847,16 @@ import android.widget.Toast
                             }
                         }
                         subRow.addView(TextView(this).apply {
-                            text = "· " + m + if (isCurModel) "  ✓" else ""
+                            text = run {
+                            val sb = android.text.SpannableStringBuilder("· " + m)
+                            if (isCurModel) {
+                                sb.append("  ")
+                                val s = sb.length
+                                sb.append("●")
+                            sb.setSpan(Ui.centerDot(act, Ui.GREEN, 6), s, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            }
+                            sb
+                        }
                             textSize = 13f
                             isAllCaps = false
                             setTextColor(if (isCurModel) Ui.PRIMARY else Ui.TEXT)
@@ -994,13 +1009,18 @@ internal class DrawerDragController(private val act: MainActivity) {
                 downX = ev.rawX
                 downY = ev.rawY
                 startTrans = act.drawerPanel.translationX
+                val sw = act.resources.displayMetrics.widthPixels
+                // 触发区与右侧浏览器右1/3完全对称(用户反馈: 原48dp太窄, 从稍靠右位置右滑即落空→穿透聊天列表滚动; 右侧1/3好触发)
+                // 打开态同样限左1/3接管关闭, 中间/右侧让位给遮罩拦截, 不再任意位置抢手势
                 mode = when {
                     // Token 面板展开时不抢手势, 避免抽屉从面板下滑出
                     act.tokenMask.visibility == View.VISIBLE -> 0
                     // 浏览器(全屏接管)打开时抽屉手势整体休眠, 保证左右互斥
                     act.browserPage.open -> 0
+                    // 开态全屏: 任意位置横滑都跟手收(斜率判定保竖滑)
                     act.drawerOpen -> 2
-                    ev.rawX <= act.dp(EDGE_DP) -> 1
+                    // 关态触发区保持左1/3(与右侧右1/3对称, 防落空穿透聊天列表)
+                    !act.drawerOpen && ev.rawX <= sw / 3f -> 1
                     else -> 0
                 }
             }
@@ -1009,8 +1029,15 @@ internal class DrawerDragController(private val act: MainActivity) {
                     val dx = ev.rawX - downX
                     val dy = ev.rawY - downY
                     val wantOpen = mode == 1
-                    val dirOk = if (wantOpen) dx > 0 else dx < 0
-                    if (kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy) && dirOk) {
+                    // 方向锁定: 未开=右滑展开, 已开=左滑收回(反方向, 同向滑动不接管)
+                    val dirOk = when (mode) {
+                        1 -> dx > 0
+                        2 -> dx < 0
+                        else -> false
+                    }
+                    // 放宽水平斜率(0.7): 人类手指滑动不笔直(斜向左上/右下), 若按 |dx|>|dy| 严格判定,
+                    // 斜向滑动会被放给下层消息列表滚动(用户反馈); 水平分量达到垂直 70% 即锁定为抽屉拖拽
+                    if (kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 0.7 && dirOk) {
                         dragging = true
                         beginDrag(wantOpen)
                         tracker?.addMovement(ev)
@@ -1030,10 +1057,15 @@ internal class DrawerDragController(private val act: MainActivity) {
         when (ev.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
                 tracker?.addMovement(ev)
-                val trans = (startTrans + (ev.rawX - downX)).coerceIn(-w, 0f)
+                // 跟手: 未开 startTrans=-w 右滑 dx>0 展开; 已开 startTrans=0 左滑 dx<0 收回(反方向)
+                val dx = ev.rawX - downX
+                val trans = (startTrans + dx).coerceIn(-w, 0f)
                 act.drawerPanel.translationX = trans
+                val frac = (trans + w) / w
                 act.drawerMask.visibility = View.VISIBLE
-                act.drawerMask.alpha = ((trans + w) / w) * MAX_ALPHA
+                // 遮罩 #66000000(40%黑) 满显=0.4黑, 与点击开合/吸附最终态一致
+                act.drawerMask.alpha = frac
+                act.setMainSink(frac)
             }
             MotionEvent.ACTION_UP -> {
                 // 正常抬手: 按 fling 速度/过半位置吸附
@@ -1042,7 +1074,7 @@ internal class DrawerDragController(private val act: MainActivity) {
                 val vx = tracker?.xVelocity ?: 0f
                 val frac = (act.drawerPanel.translationX + w) / w
                 val open = when {
-                    vx > FLING_VX -> true
+                    vx > FLING_VX -> true  // 右滑快=展开(未开滑入; 已开中途反悔右甩也回展开)
                     vx < -FLING_VX -> false
                     frac > SNAP_FRAC -> true
                     else -> false
@@ -1061,8 +1093,7 @@ internal class DrawerDragController(private val act: MainActivity) {
 
     private fun beginDrag(openDir: Boolean) {
         dragStartOpen = !openDir   // 待开=从关拖起, 待关=从开拖起
-        act.drawerPanel.animate().cancel()
-        act.drawerMask.animate().cancel()
+        act.cancelDrawerAnim()
         if (openDir) {
             // 同 openDrawer 前置: 收键盘 + 刷新会话列表, 遮罩先显示
             val imm = act.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -1079,16 +1110,8 @@ internal class DrawerDragController(private val act: MainActivity) {
         val target = if (open) 0f else -w
         val dist = kotlin.math.abs(target - cur)
         val dur = (170 + 130 * (dist / w)).toLong().coerceIn(150, 300)
-        val dec = android.view.animation.DecelerateInterpolator(1.3f)
-        if (open) {
-            act.drawerMask.visibility = View.VISIBLE
-            act.drawerPanel.animate().translationX(0f).setDuration(dur).setInterpolator(dec).start()
-            act.drawerMask.animate().alpha(MAX_ALPHA).setDuration(dur).setInterpolator(dec).start()
-        } else {
-            act.drawerPanel.animate().translationX(-w).setDuration(dur).setInterpolator(dec).start()
-            act.drawerMask.animate().alpha(0f).setDuration(dur).setInterpolator(dec)
-                .withEndAction { act.drawerMask.visibility = View.GONE }.start()
-        }
+        // 三路联动(面板/遮罩/主界面下沉)统一交给 MainActivity 单动画驱动, 保证相位一致
+        act.animateDrawer(open, dur)
     }
 
     private fun reset() {

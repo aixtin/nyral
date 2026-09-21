@@ -51,8 +51,9 @@ object LocalEngine {
 
     /** 发送附件: mime 类型 + Base64 内容 + 文件名; 图片走 image_url, 音频走 input_audio, 其余走 input_file;
      *  text 为附件本地解析出的纯文本(如 PDF 提取内容), 非空时随 history 一并注入给模型;
-     *  isVoice 标记该音频来自本地录音(需展示微信式语音气泡), 上传的音频文件为 false(展示为文件卡片) */
-    data class Attachment(val mime: String, val base64: String, val name: String = "attachment", val text: String? = null, val isVoice: Boolean = false, val pdfSourceName: String? = null, val stored: Boolean = false)
+     *  isVoice 标记该音频来自本地录音(需展示微信式语音气泡), 上传的音频文件为 false(展示为文件卡片);
+     *  isEmoji 标记该附件来自表情库(渲染端走专门表情气泡: 96dp 小图贴边, 动图循环播放) */
+    data class Attachment(val mime: String, val base64: String, val name: String = "attachment", val text: String? = null, val isVoice: Boolean = false, val pdfSourceName: String? = null, val stored: Boolean = false, val isEmoji: Boolean = false)
 
     /** 取消状态: requestCancel() 置 true, 引擎在流式读取/工具循环处检查并中断 */
     @Volatile
@@ -108,7 +109,7 @@ object LocalEngine {
         ToolSpec("calc", "数学计算", "JSON: {\"expr\":\"表达式\"} 如 {\"expr\":\"17*23\"}"),
         ToolSpec("memory_search", "语义检索本地记忆", "JSON: {\"query\":\"查询内容\"}"),
         ToolSpec("ssh_run", "通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数", "JSON: {\"command\":\"连接名:命令\"} 如 {\"command\":\"vps:ls /\"}"),
-        ToolSpec("web_download", "下载网页/文件并保存到手机工作目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}"),
+        ToolSpec("web_download", "下载网页/文件并保存到手机工作目录 下载/ 子目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}"),
         ToolSpec("js_run", "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 无文件/网络权限, 断网可用不依赖服务器)", "JSON: {\"code\":\"要执行的JS脚本\",\"timeoutMs\":8000}"),
         ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000}"),
         ToolSpec("ask_user", "当用户指令模糊/多义/缺关键信息、无法可靠推断时, 向用户当面澄清: 在手机弹原生选择框, 列出候选选项让用户点选(可选自定义输入)。用户的选择会作为本工具结果返回, 据此继续。仅在确实拿不准时才调用, 不要滥用", "JSON: {\"question\":\"要确认的问题\",\"options\":[\"选项1\",\"选项2\"],\"allow_custom\":true}"),
@@ -646,7 +647,8 @@ object LocalEngine {
         try {
         while (true) {
             if (cancelRequested) throw CancellationException("cancelled by user")
-            val line = reader!!.readLine() ?: break
+            val rd = reader ?: break
+            val line = rd.readLine() ?: break
             android.util.Log.v("Nyral", "SSE: $line")
             if (!line.startsWith("data:")) continue
             val data = line.substring(5).trim()
@@ -707,16 +709,17 @@ object LocalEngine {
                     val row = lineBuf.substring(0, nl).trimEnd()
                     lineBuf.delete(0, nl + 1)
                     if (dsmlBuf != null || DSML_MARK_RE.containsMatchIn(row)) {
-                        dsmlBuf = (dsmlBuf ?: StringBuilder()).append(row).append('\n')
-                        if (DSML_CLOSE_RE.containsMatchIn(dsmlBuf!!)) {
-                            val parsed = parseDsmlToolCalls(dsmlBuf!!.toString())
+                        val buf = (dsmlBuf ?: StringBuilder()).append(row).append('\n')
+                        dsmlBuf = buf
+                        if (DSML_CLOSE_RE.containsMatchIn(buf)) {
+                            val parsed = parseDsmlToolCalls(buf.toString())
                             if (parsed.isNotEmpty()) {
                                 if (mode == MODE_THINKING) cb.onThinkingEnd()
                                 for (t in parsed) {
                                     toolCalls.add(t)
                                     toolCallIds.add("dsml_" + toolCalls.size)
                                 }
-                                dsmlRaw = dsmlBuf!!.toString()
+                                dsmlRaw = buf.toString()
                                 dsmlBuf = null
                                 android.util.Log.w("Nyral", "DSML 泄漏已拦截解析: " + parsed.size + " 个调用 [" + parsed.joinToString { it.first } + "]")
                                 break
@@ -729,10 +732,10 @@ object LocalEngine {
                     // 但保留兼容——若模型仍按旧协议输出可识别
                     if (!useTools) {
                         if (xmlBuf != null || row.trimStart().startsWith("<tool_call") || row.trimStart().startsWith("<tool_name>")) {
-                            if (xmlBuf == null) xmlBuf = StringBuilder()
-                            xmlBuf!!.append(row).append('\n')
-                            if (xmlBuf!!.contains("</tool_call>")) {
-                                val xml = xmlBuf!!.toString()
+                            val xbuf = (xmlBuf ?: StringBuilder()).append(row).append('\n')
+                            xmlBuf = xbuf
+                            if (xbuf.contains("</tool_call>")) {
+                                val xml = xbuf.toString()
                                 xmlBuf = null
                                 val t = parseXmlToolCall(xml)
                                 if (t != null) {
@@ -817,7 +820,7 @@ object LocalEngine {
         }
         // EOF 时 XML 缓冲残留
         if (!useTools && toolCalls.isEmpty() && xmlBuf != null) {
-            val t = parseXmlToolCall(xmlBuf!!.toString())
+            val t = parseXmlToolCall(xmlBuf.toString())
             if (t != null) {
                 toolCalls.add(t)
                 toolCallIds.add("xml_${toolCalls.size}")
@@ -825,17 +828,17 @@ object LocalEngine {
         }
         // EOF 时 DSML 缓冲残留(未闭合半截/流被切断): 尽力解析, 解析出至少一个 invoke 即采纳为工具调用
         if (toolCalls.isEmpty() && nativeCalls.isEmpty() && dsmlBuf != null) {
-            val parsed = parseDsmlToolCalls(dsmlBuf!!.toString())
+            val parsed = parseDsmlToolCalls(dsmlBuf.toString())
             if (parsed.isNotEmpty()) {
                 if (mode == MODE_THINKING) cb.onThinkingEnd()
                 for (t in parsed) {
                     toolCalls.add(t)
                     toolCallIds.add("dsml_${toolCalls.size}")
                 }
-                dsmlRaw = dsmlBuf!!.toString()
+                dsmlRaw = dsmlBuf.toString()
                 android.util.Log.w("Nyral", "DSML 半截 EOF 尽力解析: ${parsed.size} 个调用 [${parsed.joinToString { it.first }}]")
             } else {
-                android.util.Log.w("Nyral", "DSML 残留解析失败已丢弃: ${dsmlBuf!!.toString().take(120)}")
+                android.util.Log.w("Nyral", "DSML 残留解析失败已丢弃: ${dsmlBuf.toString().take(120)}")
             }
             dsmlBuf = null
         }
@@ -1098,6 +1101,17 @@ object LocalEngine {
             "\n当前为聊天模式: 一律用纯文本自然语言回答, 禁止输出任何 Markdown 标记(如 # 标题、**加粗**、`代码`、- 列表、[链接](url)、表格等), 直接输出正文。"
         else
             "\n回答时鼓励使用 Markdown(如 # 标题、- 列表、`代码`、代码块、表格等)增强可读性; 涉及对比或数据时优先用表格呈现。"
+        // 表情气泡约定(2026-09-20): 仅聊天模式注入; Agent 模式不注入(模型不会主动输出表情标记)
+        val emojiBlock = if (ModeConfig.emojiEnabled()) {
+            val names = try {
+                val a = JSONArray(context.getSharedPreferences("emoji_drawer", Context.MODE_PRIVATE).getString("lib_items", "[]") ?: "[]")
+                (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() } }
+            } catch (e: Exception) { emptyList() }
+            if (names.isEmpty()) ""
+            else "\n表情气泡(仅当前聊天模式可用): 你可以在回复中穿插 [表情:名] 标记来发送独立表情气泡, 名字必须是: " +
+                names.joinToString("/") +
+                "。标记所在位置即气泡顺序(在正文前=表情先出现, 在末尾=正文先出现); 每轮最多 1~2 个, 仅在你觉得自然时使用, 严禁滥用或连续刷屏。\n"
+        } else ""
         messages.put(JSONObject().put("role", "system").put("content",
             personaBlock +
             "根据用户需求选择工具。工具清单(名称+用途):\n" +
@@ -1108,7 +1122,7 @@ object LocalEngine {
             "\n可用SSH连接:$sshHint\n" +
             "调用方式: 使用系统提供的 function calling 原生工具调用(工具名与 JSON 参数已由系统给出 schema), 一次(轮)可并行发起多个工具; 不要自己发明不存在的工具名。" +
             "记忆使用: 若所需信息可能来自与此用户过去的对话且当前上下文未提及, 应调用 memory_search 查证后再回答; 工具调用过程中拿不准时也先查记忆再作答。\n" +
-            (if (memInject.isNullOrBlank()) "" else memInject + "\n") + fmtRules + mdBan))
+            (if (memInject.isNullOrBlank()) "" else memInject + "\n") + fmtRules + mdBan + emojiBlock))
         if (attachments.isEmpty()) {
             messages.put(JSONObject().put("role", "user").put("content", history))
         } else {
@@ -1121,17 +1135,30 @@ object LocalEngine {
                         parts.put(JSONObject().put("type", "image_url")
                             .put("image_url", JSONObject().put("url", "data:${a.mime};base64,${a.base64}")))
                     a.mime.startsWith("audio/") -> {
-                        // format/MIME 归一化: m4a/mp4/x-m4a→m4a, x-wav/wave→wav, mp3/mpeg→mp3, x-flac→flac, opus→ogg
-                        val norm: Pair<String, String> = when {
-                            a.mime.startsWith("audio/wav") || a.mime.startsWith("audio/x-wav") || a.mime.startsWith("audio/wave") -> "audio/wav" to "wav"
-                            a.mime.startsWith("audio/mpeg") || a.mime.startsWith("audio/mp3") -> "audio/mpeg" to "mp3"
-                            a.mime.startsWith("audio/mp4") || a.mime.startsWith("audio/x-m4a") || a.mime.startsWith("audio/m4a") -> "audio/mp4" to "m4a"
-                            a.mime.startsWith("audio/flac") || a.mime.startsWith("audio/x-flac") -> "audio/flac" to "flac"
-                            a.mime.startsWith("audio/ogg") || a.mime.startsWith("audio/opus") -> "audio/ogg" to "ogg"
-                            else -> a.mime to a.mime.removePrefix("audio/").substringBefore("+").substringBefore(";")
+                        if (a.stored) {
+                            // 大音频落私有附件库: 不发 base64, 只放索引卡, AI 按需 file_export 导出
+                            val meta = try { AttachmentStore.metaOf(context, a.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
+                            val durS = meta?.optLong("durationSec", 0L) ?: 0L
+                            val sizeB = meta?.optLong("size", 0L) ?: 0L
+                            val sizeStr = if (sizeB >= 1024 * 1024) String.format("%.1fMB", sizeB / 1024.0 / 1024.0)
+                                else if (sizeB >= 1024) String.format("%.1fKB", sizeB / 1024.0)
+                                else "${sizeB}B"
+                            val disp = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: a.name
+                            parts.put(JSONObject().put("type", "text")
+                                .put("text", "[大音频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 音频字节未发送, 需处理时调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
+                        } else {
+                            // format/MIME 归一化: m4a/mp4/x-m4a→m4a, x-wav/wave→wav, mp3/mpeg→mp3, x-flac→flac, opus→ogg
+                            val norm: Pair<String, String> = when {
+                                a.mime.startsWith("audio/wav") || a.mime.startsWith("audio/x-wav") || a.mime.startsWith("audio/wave") -> "audio/wav" to "wav"
+                                a.mime.startsWith("audio/mpeg") || a.mime.startsWith("audio/mp3") -> "audio/mpeg" to "mp3"
+                                a.mime.startsWith("audio/mp4") || a.mime.startsWith("audio/x-m4a") || a.mime.startsWith("audio/m4a") -> "audio/mp4" to "m4a"
+                                a.mime.startsWith("audio/flac") || a.mime.startsWith("audio/x-flac") -> "audio/flac" to "flac"
+                                a.mime.startsWith("audio/ogg") || a.mime.startsWith("audio/opus") -> "audio/ogg" to "ogg"
+                                else -> a.mime to a.mime.removePrefix("audio/").substringBefore("+").substringBefore(";")
+                            }
+                            parts.put(JSONObject().put("type", "input_audio")
+                                .put("input_audio", JSONObject().put("data", "data:${norm.first};base64,${a.base64}").put("format", norm.second)))
                         }
-                        parts.put(JSONObject().put("type", "input_audio")
-                            .put("input_audio", JSONObject().put("data", "data:${norm.first};base64,${a.base64}").put("format", norm.second)))
                     }
                     a.mime.startsWith("video/") -> {
                         if (a.stored) {
@@ -1142,8 +1169,9 @@ object LocalEngine {
                             val sizeStr = if (sizeB >= 1024 * 1024) String.format("%.1fMB", sizeB / 1024.0 / 1024.0)
                                 else if (sizeB >= 1024) String.format("%.1fKB", sizeB / 1024.0)
                                 else "${sizeB}B"
+                            val disp = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: a.name
                             parts.put(JSONObject().put("type", "text")
-                                .put("text", "[大视频附件 ${a.name} | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 视频字节未发送, 需看画面时调 video_frame(name=\"att://${a.name}\", timeMs) 抽帧, 或调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
+                                .put("text", "[大视频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 视频字节未发送, 需看画面时调 video_frame(name=\"att://${a.name}\", timeMs) 抽帧, 或调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
                         } else {
                             // MiMo 视频理解: content 数组 type=video_url, url 用 data:{mime};base64 内联
                             // 官方限制: base64 后 ≤50MB(原始约 ≤37MB), 支持 MP4/MOV/AVI/WMV
@@ -1155,8 +1183,18 @@ object LocalEngine {
                         }
                     }
                     else -> {
-                        // 文档类附件(PDF/Office/txt 等): 本地已提取纯文本并随 history 注入时不再发二进制
-                        if (a.text.isNullOrBlank()) {
+                        if (a.stored) {
+                            // 文件落私有附件库: 不发二进制, 只放索引卡, AI 按需 attach_read 分块读取 / file_export 导出
+                            val meta = try { AttachmentStore.metaOf(context, a.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
+                            val sizeB = meta?.optLong("size", 0L) ?: 0L
+                            val sizeStr = if (sizeB >= 1024 * 1024) String.format("%.1fMB", sizeB / 1024.0 / 1024.0)
+                                else if (sizeB >= 1024) String.format("%.1fKB", sizeB / 1024.0)
+                                else "${sizeB}B"
+                            val disp = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: a.name
+                            parts.put(JSONObject().put("type", "text")
+                                .put("text", "[文件附件 $disp | ${a.mime} | $sizeStr | 已落私有附件库 att://${a.name} | 需读内容调 attach_read(name=\"att://${a.name}\", offset, limit) 分块读取(限 UTF-8 文本), 或调 file_export(name=\"att://${a.name}\") 导出到公共工作目录后用 workdir 工具处理]"))
+                        } else if (a.text.isNullOrBlank()) {
+                            // 文档类附件(PDF/Office/txt 等): 本地已提取纯文本并随 history 注入时不再发二进制
                             parts.put(JSONObject().put("type", "text")
                                 .put("text", "[附件 ${a.name} 无法解析文本内容]"))
                         }
@@ -1313,8 +1351,8 @@ object LocalEngine {
                 if (raw.isBlank()) return@run "错误: 缺少 name(附件文件名)"
                 val f = AttachmentStore.fileOf(context, raw) ?: return@run "错误: 附件不存在: $raw"
                 val bytes = try { f.readBytes() } catch (e: Exception) { return@run "错误: 读取失败: $raw" }
-                val ok = WorkDir.write(context, raw, bytes)
-                if (ok) "已导出到工作目录 ${WorkDir.displayPath}$raw (用户可见可改)" else "错误: 导出失败(工作目录不可写)"
+                val ok = WorkDir.write(context, raw, bytes, WorkDir.SUB_DIR_FILES)
+                if (ok) "已导出到工作目录 ${WorkDir.displaySubPath(WorkDir.SUB_DIR_FILES)}$raw (用户可见可改)" else "错误: 导出失败(工作目录不可写)"
             }
             "browser" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }

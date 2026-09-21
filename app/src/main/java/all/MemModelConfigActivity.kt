@@ -145,8 +145,7 @@ class MemModelConfigActivity : Activity() {
     }
 
     private fun renderEnable() {
-        enableBox.text = if (enabled) "✓" else ""
-        enableBox.background = Ui.rounded(if (enabled) Ui.PRIMARY else Ui.INPUT_BG, 6, this)
+        Ui.applyCheck(enableBox, enabled, this)
     }
 
     /** 连通性测试结果: canSave=true 表示可保存(通过或放行), message 为提示/警告 */
@@ -268,8 +267,7 @@ class MemModelConfigActivity : Activity() {
                 setPadding(dp(2), dp(10), dp(2), dp(10))
                 setOnClickListener {
                     checked[i] = !checked[i]
-                    cb.text = if (checked[i]) "✓" else ""
-                    cb.background = Ui.rounded(if (checked[i]) Ui.PRIMARY else Ui.INPUT_BG, 6, this@MemModelConfigActivity)
+                    Ui.applyCheck(cb, checked[i], this@MemModelConfigActivity)
                 }
                 Ui.press(this)
             }

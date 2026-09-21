@@ -27,6 +27,21 @@ object WorkDir {
     const val RELATIVE = "Download/Nyral_work"
     val displayPath: String get() = "/storage/emulated/0/Download/Nyral_work/"
 
+    /** 子目录分类(2026-09-21 三级目录): 用户可见导出物按类落子目录, 根目录保留给 AI 工作区 */
+    const val SUB_DIR_LOG_MAIN = "日志/主日志"
+    const val SUB_DIR_LOG_MEM = "日志/辅日志"
+    const val SUB_DIR_FILES = "文件"
+    const val SUB_DIR_DOWNLOADS = "下载"
+    const val SUB_DIR_SHOTS = "截图"
+
+    /** 子目录相对路径: "" -> Download/Nyral_work; "下载" -> Download/Nyral_work/下载 */
+    fun relPath(subDir: String = ""): String =
+        if (subDir.isBlank()) RELATIVE else "$RELATIVE/${subDir.trim('/')}"
+
+    /** 子目录显示路径: "" -> /storage/emulated/0/Download/Nyral_work/ ; "下载" -> .../下载/ */
+    fun displaySubPath(subDir: String = ""): String =
+        if (subDir.isBlank()) displayPath else "/storage/emulated/0/${relPath(subDir)}/"
+
     /**
      * 是否有"所有文件访问"授权。作用域存储下无此授权时:
      * - MediaStore 查询只返回 owner 为自身包名的文件(通过本 App MediaStore 创建), 
@@ -113,8 +128,8 @@ object WorkDir {
             resolver.query(
                 collection(),
                 arrayOf(MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE, MediaStore.Downloads.DATE_MODIFIED),
-                "${MediaStore.Downloads.RELATIVE_PATH} LIKE ?",
-                arrayOf("$RELATIVE%"),
+                "(${MediaStore.Downloads.RELATIVE_PATH} = ? OR ${MediaStore.Downloads.RELATIVE_PATH} = ?)",
+                arrayOf(RELATIVE, "$RELATIVE/"),
                 "${MediaStore.Downloads.DATE_MODIFIED} DESC"
             )?.use { c ->
                 while (c.moveToNext()) {
@@ -147,8 +162,8 @@ object WorkDir {
             resolver.query(
                 collection(),
                 arrayOf(MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE),
-                "${MediaStore.Downloads.RELATIVE_PATH} LIKE ?",
-                arrayOf("$RELATIVE%"),
+                "(${MediaStore.Downloads.RELATIVE_PATH} = ? OR ${MediaStore.Downloads.RELATIVE_PATH} = ?)",
+                arrayOf(RELATIVE, "$RELATIVE/"),
                 null
             )?.use { c ->
                 while (c.moveToNext()) {
@@ -171,16 +186,17 @@ object WorkDir {
         return out
     }
 
-    /** 按文件名定位已存在文件的 content uri */
-    private fun findUri(context: Context, name: String): Uri? {
+    /** 按文件名+子目录定位已存在文件的 content uri(subDir 为空=根目录) */
+    private fun findUri(context: Context, name: String, subDir: String = ""): Uri? {
         if (!supported()) return null
         val resolver = context.contentResolver
+        val rel = relPath(subDir)
         return try {
             resolver.query(
                 collection(),
                 arrayOf(MediaStore.Downloads._ID),
-                "${MediaStore.Downloads.RELATIVE_PATH} LIKE ? AND ${MediaStore.Downloads.DISPLAY_NAME}=?",
-                arrayOf("$RELATIVE%", name),
+                "(${MediaStore.Downloads.RELATIVE_PATH} = ? OR ${MediaStore.Downloads.RELATIVE_PATH} = ?) AND ${MediaStore.Downloads.DISPLAY_NAME}=?",
+                arrayOf(rel, "$rel/", name),
                 null
             )?.use { c ->
                 if (c.moveToFirst()) ContentUris.withAppendedId(collection(), c.getLong(0)) else null
@@ -190,17 +206,19 @@ object WorkDir {
         }
     }
 
-    /** 写文件(同名覆盖): 返回 true 成功, false 失败 */
-    fun write(context: Context, name: String, bytes: ByteArray): Boolean {
+    /** 写文件(同名覆盖, 可指定子目录如 "下载"/"文件"; 空=根目录): 返回 true 成功, false 失败 */
+    fun write(context: Context, name: String, bytes: ByteArray, subDir: String = ""): Boolean {
         if (!supported()) return false
         val safeName = sanitize(name)
         if (safeName.isEmpty()) return false
         val resolver = context.contentResolver
+        val rel = relPath(subDir)
+        val outDir = displaySubPath(subDir)
         return try {
-            var existing = findUri(context, safeName)
+            var existing = findUri(context, safeName, subDir)
             if (existing == null) {
                 rescan(context)
-                existing = findUri(context, safeName)
+                existing = findUri(context, safeName, subDir)
             }
             if (existing != null) {
                 // 覆盖已有文件: "wt" 截断写
@@ -210,7 +228,7 @@ object WorkDir {
             // owner 过滤兜底: 文件在磁盘但 MediaStore 查不到(非本 App 创建), 已授权时 File 直写覆盖
             if (fileReadable()) {
                 try {
-                    val f = java.io.File(displayPath, safeName)
+                    val f = java.io.File(outDir, safeName)
                     if (f.isFile) { f.writeBytes(bytes); return true }
                 } catch (_: Exception) {
                 }
@@ -218,7 +236,7 @@ object WorkDir {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, safeName)
                 put(MediaStore.Downloads.MIME_TYPE, AttachmentStore.mimeOf(safeName))
-                put(MediaStore.Downloads.RELATIVE_PATH, RELATIVE)
+                put(MediaStore.Downloads.RELATIVE_PATH, rel)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = resolver.insert(collection(), values) ?: return false

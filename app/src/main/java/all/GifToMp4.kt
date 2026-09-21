@@ -22,7 +22,11 @@ object GifToMp4 {
     private const val MAX_SIDE = 960          // 动图分辨率上限(超过等比缩小)
     private const val BITRATE = 900_000       // 码率
     private const val DEFAULT_FRAME_MS = 100  // GIF delay 为 0 的兜底帧时长
-    private const val MAX_FRAMES = 240        // 帧数上限(超出视为异常, 上层回退静态图)
+    private const val MAX_FRAMES = 240        // 采样后的编码帧数上限(超帧数时均匀抽帧, 不再回退静态图)
+    /** 表情转码时长上限(ms): 超过截断, 只保留前段并保持窗口内原始帧率。
+     *  与 EmojiFrameAnimator.MAX_DURATION_MS 对齐: 截断产物必然是短表情, 走帧动画流畅播放,
+     *  杜绝"298s/240帧 超长低帧率 MP4"导致 0.8fps 幻灯片与渲染端黑屏。 */
+    const val MAX_DURATION_MS = 3000L
 
     private class Gce(val delayMs: Int, val transparent: Int, val disposal: Int)
     private class Lzw(private val data: ByteArray) {
@@ -91,11 +95,70 @@ object GifToMp4 {
         return n
     }
 
+    /** 预扫描"时长截断窗口"内图像帧数与累计时长: 用于把采样步长限定在窗口内, 保证截断段不丢帧率。
+     *  (帧数, 窗口内累计时长 ms); maxDurMs 有限值(截断启用)时才调用。 */
+    private fun countFramesInWindow(bytes: ByteArray, maxDurMs: Long): Pair<Int, Long> {
+        if (bytes.size < 13) return 0 to 0L
+        var pos = 13
+        val packed = bytes[10].toInt() and 0xFF
+        if (packed and 0x80 != 0) pos += (1 shl ((packed and 0x07) + 1)) * 3
+        var n = 0
+        var elapsedMs = 0L
+        var pendingDelay = DEFAULT_FRAME_MS
+        while (pos < bytes.size) {
+            when (bytes[pos].toInt() and 0xFF) {
+                0x3B -> return n to elapsedMs
+                0x21 -> {
+                    pos++
+                    val label = if (pos < bytes.size) bytes[pos].toInt() and 0xFF else -1
+                    pos++
+                    var payload = ByteArray(0)
+                    var p = pos
+                    val bos = java.io.ByteArrayOutputStream()
+                    while (p < bytes.size) {
+                        val len = bytes[p].toInt() and 0xFF
+                        p++
+                        if (len == 0) break
+                        if (p + len > bytes.size) throw IllegalStateException("子块越界")
+                        bos.write(bytes, p, len)
+                        p += len
+                    }
+                    payload = bos.toByteArray()
+                    pos = p
+                    if (label == 0xF9 && payload.size >= 4) {
+                        val delayMs = le16(payload, 1) * 10
+                        pendingDelay = if (delayMs > 0) delayMs else DEFAULT_FRAME_MS
+                    }
+                }
+                0x2C -> {
+                    n++
+                    elapsedMs += pendingDelay
+                    pendingDelay = DEFAULT_FRAME_MS
+                    pos += 9
+                    val p2 = bytes[pos].toInt() and 0xFF
+                    pos++
+                    if (p2 and 0x80 != 0) pos += (1 shl ((p2 and 0x07) + 1)) * 3
+                    pos++ // LZW 最小码长
+                    while (pos < bytes.size) {
+                        val len = bytes[pos].toInt() and 0xFF
+                        pos += 1 + len
+                        if (len == 0) break
+                    }
+                    if (elapsedMs >= maxDurMs) return n to elapsedMs
+                }
+                else -> return n to elapsedMs
+            }
+        }
+        return n to elapsedMs
+    }
+
     /**
      * 把 GIF 转成无声 mp4。成功返回编码帧数(>=1); 非动图/损坏/超出限制返回 -1。
      * 任何异常均向上抛出, 由调用方兜底回退静态图。
+     * @param maxDurationMs 可选时长截断上限(ms): 表情库传 GifToMp4.MAX_DURATION_MS 截断为短循环,
+     *                      普通发送链路默认不截断(保持原行为)。
      */
-    fun convert(bytes: ByteArray, outFile: File): Int {
+    fun convert(bytes: ByteArray, outFile: File, maxDurationMs: Long = Long.MAX_VALUE): Int {
         // ---- 头部与全局色表 ----
         if (bytes.size < 13 || bytes[0] != 'G'.code.toByte() || bytes[1] != 'I'.code.toByte() ||
             bytes[2] != 'F'.code.toByte() || bytes[3] != '8'.code.toByte()) return -1
@@ -144,6 +207,12 @@ object GifToMp4 {
         val trackIdxHolder = IntArray(1) { -1 }
         val paint = Paint().apply { isAntiAlias = false; isFilterBitmap = false }
 
+        // 超长帧序列: 预扫描帧数(截断启用时只统计窗口内), 计算均匀采样步长, 把编码帧数压到 MAX_FRAMES 内
+        val useWindow = maxDurationMs != Long.MAX_VALUE
+        val (windowFrames, _) = if (useWindow) countFramesInWindow(bytes, maxDurationMs) else (countFrames(bytes) to 0L)
+        val totalFrames = windowFrames
+        val step = if (totalFrames > MAX_FRAMES) (totalFrames + MAX_FRAMES - 1) / MAX_FRAMES else 1
+
         try {
             var cur = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             var cvs = Canvas(cur)
@@ -151,9 +220,12 @@ object GifToMp4 {
             var snapshot: Bitmap? = null
             var pendingGce: Gce? = null
             var frames = 0
+            var frameIndex = 0
             var ptsUs = 0L
+            var elapsedMs = 0L
+            var breakOut = false
 
-            while (pos < bytes.size) {
+            while (pos < bytes.size && !breakOut) {
                 when (val b = bytes[pos].toInt() and 0xFF) {
                     0x3B -> break
                     0x21 -> {
@@ -195,7 +267,8 @@ object GifToMp4 {
                         val delayMs = gce?.delayMs ?: DEFAULT_FRAME_MS
                         val disposal = gce?.disposal ?: 0
 
-                        if (frames >= MAX_FRAMES) throw IllegalStateException("帧数超限")
+                        val sample = step == 1 || frameIndex % step == 0
+                        frameIndex++
                         // disposal=3: 记录绘制前快照(之后恢复)
                         if (disposal == 3) {
                             snapshot?.recycle()
@@ -218,12 +291,20 @@ object GifToMp4 {
                         cvs.drawBitmap(region, left.toFloat(), top.toFloat(), paint)
                         region.recycle()
 
-                        // 编码本帧(组合画面)
-                        val scaled = if (w != outW || h != outH) Bitmap.createScaledBitmap(cur, outW, outH, true) else cur
-                        encodeFrame(encoder, muxer, trackIdxHolder, scaled, outW, outH, ptsUs)
-                        if (scaled !== cur) scaled.recycle()
-                        frames++
+                        if (sample) {
+                            // 编码本帧(组合画面), 仅采样帧输出
+                            val scaled = if (w != outW || h != outH) Bitmap.createScaledBitmap(cur, outW, outH, true) else cur
+                            encodeFrame(encoder, muxer, trackIdxHolder, scaled, outW, outH, ptsUs)
+                            if (scaled !== cur) scaled.recycle()
+                            frames++
+                        }
+                        // 时长保真: 所有帧(含跳过的)累计显示时长, 保持动画节奏与原 GIF 一致
                         ptsUs += delayMs * 1000L
+                        // 时长截断: 超过上限停止解析后续帧(窗口内帧已全部处理, 采样节奏不受影响)
+                        if (useWindow) {
+                            elapsedMs += delayMs
+                            if (elapsedMs >= maxDurationMs) breakOut = true
+                        }
 
                         // Disposal 处理(影响后续帧的合成基线)
                         when (disposal) {

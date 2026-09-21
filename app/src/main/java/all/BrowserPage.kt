@@ -48,6 +48,8 @@ internal class BrowserPage(private val act: MainActivity) {
     internal lateinit var root: FrameLayout
     private lateinit var web: WebView
     private lateinit var thinkBody: TextView
+    private lateinit var thinkAll: TextView
+    private var thinkLog = ""
     private lateinit var thinkWrap: LinearLayout
     private lateinit var highlight: BrowserHighlightView
     private lateinit var takeover: TextView
@@ -109,6 +111,10 @@ internal class BrowserPage(private val act: MainActivity) {
     internal var hamburgerOpen = false
     private lateinit var tabEngine: TextView
     private lateinit var tabData: TextView
+    private lateinit var thinkTab: TextView
+    private lateinit var engineTitle: TextView
+    private lateinit var addTab: TextView
+    private lateinit var tabSpacer: View
     private lateinit var engineScroll: ScrollView
     private lateinit var engineList: LinearLayout
     private lateinit var dataScroll: ScrollView
@@ -222,7 +228,7 @@ internal class BrowserPage(private val act: MainActivity) {
         actionResult = ""
         val x = e.x; val y = e.y
         val safe = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
-        web.evaluateJavascript(
+        act.runOnUiThread { web.evaluateJavascript(
             "(function(){var i=$i,x=$x,y=$y,s=\"$safe\";" +
             "function findScan(i,doc){" +
             "  var el=doc.querySelector('[data-scan=\"'+i+'\"]');" +
@@ -241,7 +247,7 @@ internal class BrowserPage(private val act: MainActivity) {
             "var d=Object.getOwnPropertyDescriptor(setter,'value');" +
             "if(d&&d.set){d.set.call(el,s);}else{el.value=s;}" +
             "el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));" +
-            "daBridge.onActionResult('typed:'+(el.tagName));})();", null)
+            "daBridge.onActionResult('typed:'+(el.tagName));})();", null) }
         return "已向元素[$i]「${e.label}」发起输入"
     }
 
@@ -252,7 +258,7 @@ internal class BrowserPage(private val act: MainActivity) {
         val js = "try{(function(){var __r=(function(){return (" + script + ");})();" +
                  "daBridge.onActionResult('EVAL:'+String(JSON.stringify(__r)));})();}" +
                  "catch(e){daBridge.onActionResult('EVAL:ERR:'+e.message);}"
-        web.evaluateJavascript(js, null)
+        act.runOnUiThread { web.evaluateJavascript(js, null) }
         Thread { try { Thread.sleep(1500); done.countDown() } catch (e: Exception) {} }.start()
     }
 
@@ -274,7 +280,7 @@ internal class BrowserPage(private val act: MainActivity) {
         if (url != null) {
             lastUrl = url; loaded = true; paintStatus(act.getString(R.string.br_opening, url))
             loadDoneLatch = CountDownLatch(1)
-            web.loadUrl(toLoadableUrl(url))
+            act.runOnUiThread { web.loadUrl(toLoadableUrl(url)) }
         } else ensureLoad()
         slideIn()
     }
@@ -389,7 +395,7 @@ internal class BrowserPage(private val act: MainActivity) {
             "target=all[(idx>=0&&idx<all.length)?idx:0];}" +
             "target.click();" +
             "daBridge.onActionResult('file-input-clicked:'+(target.name||'?'));})();"
-        web.evaluateJavascript(js, null)
+        act.runOnUiThread { web.evaluateJavascript(js, null) }
         return "已发起上传 $localName 到文件选择框[$i](观察页面是否出现文件)"
     }
 
@@ -401,6 +407,8 @@ internal class BrowserPage(private val act: MainActivity) {
     internal fun setThink(s: String) {
         act.runOnUiThread {
             thinkBody.text = s
+            thinkLog = if (thinkLog.isEmpty()) s else thinkLog + "\n" + s
+            thinkAll.text = thinkLog
             thinkWrap.visibility = View.VISIBLE
         }
     }
@@ -480,7 +488,12 @@ internal class BrowserPage(private val act: MainActivity) {
         }
 
         root = FrameLayout(act).apply {
-            setBackgroundColor(Color.WHITE)
+            // 2026-09-20 浏览器页倒角: 白色圆角卡片 + clipToOutline 裁剪(与顶底栏/控制条 16dp 圆角体系一致)
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = act.dp(16).toFloat()
+            }
+            clipToOutline = true
             // 初始位于屏幕右外, 右缘左滑整页推入
             translationX = act.resources.displayMetrics.widthPixels.toFloat()
             // 浏览器作为底层内容层(悬浮聊天模式): 不再置顶, 层级由 MainActivity addView 顺序决定(main 在其上)
@@ -505,6 +518,8 @@ internal class BrowserPage(private val act: MainActivity) {
                 setOnClickListener { toggleTakeover() }
                 Ui.press(this)
             }
+            // 悬浮模式始终隐藏: 接管已迁移到输入框上方控制条, 构建即 GONE 防重启后首次打开闪现
+            takeover.visibility = View.GONE
             addView(takeover, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = act.dp(66) })
@@ -519,10 +534,10 @@ internal class BrowserPage(private val act: MainActivity) {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             hamburgerPanel = buildHamburger()
             addView(hamburgerPanel, FrameLayout.LayoutParams(
-                act.dp(300), ViewGroup.LayoutParams.MATCH_PARENT,
-                Gravity.END))
+                act.dp(300), (act.resources.displayMetrics.heightPixels * 88 / 100),
+                Gravity.CENTER))
             // 初始右外(不可见): 显式设置 View 属性, 不依赖 LayoutParams.translationX(容器可能不应用)
-            hamburgerPanel.translationX = act.dp(300).toFloat()
+            hamburgerPanel.translationX = burgerHideX
         }
         loadEngines()
     }
@@ -532,20 +547,84 @@ internal class BrowserPage(private val act: MainActivity) {
         thinkWrap = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            setPadding(act.dp(6), act.dp(6), act.dp(6), act.dp(2))
+            setPadding(act.dp(16), act.dp(12), act.dp(16), act.dp(8))
+            // 小区: 当前步骤(输入框式, 中等高度)
             thinkBody = TextView(act).apply {
                 text = act.getString(R.string.br_no_think)
                 textSize = 12f
                 setTextColor(Ui.SUB)
-                maxHeight = act.dp(110)
+                minHeight = act.dp(90)
+                maxHeight = act.dp(160)
+                // 只描边不填充
+                background = GradientDrawable().apply {
+                    setStroke(act.dp(1), Ui.STROKE)
+                    cornerRadius = act.dp(12).toFloat()
+                }
+                setPadding(act.dp(14), act.dp(12), act.dp(14), act.dp(12))
             }
             addView(thinkBody)
+            // 大区: 所有步骤(终端式, 大高度)
+            thinkAll = TextView(act).apply {
+                text = act.getString(R.string.br_no_think)
+                textSize = 12f
+                setTextColor(Ui.SUB)
+                minHeight = act.dp(300)
+                maxHeight = act.dp(520)
+                // 只描边不填充
+                background = GradientDrawable().apply {
+                    setStroke(act.dp(1), Ui.STROKE)
+                    cornerRadius = act.dp(12).toFloat()
+                }
+                setPadding(act.dp(14), act.dp(12), act.dp(14), act.dp(12))
+            }
+            addView(thinkAll, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = act.dp(12)
+            })
         }
         return thinkWrap
     }
 
+    /** 页签描边背景: 不填充, 选中=蓝色描边, 未选中=灰色描边 */
+    private fun tabOutline(active: Boolean): GradientDrawable = GradientDrawable().apply {
+        setStroke(act.dp(1), if (active) blue else Ui.STROKE)
+        cornerRadius = act.dp(10).toFloat()
+    }
+
+    /** 默认页: 只显示思考摘要, 隐藏引擎/登录数据, 同步页签高亮 */
+    private fun showThinkTab() {
+        thinkWrap.visibility = View.VISIBLE
+        engineTitle.visibility = View.GONE
+        engineScroll.visibility = View.GONE
+        dataScroll.visibility = View.GONE
+        tabSpacer.visibility = View.VISIBLE
+        addTab.visibility = View.GONE
+        tabEngine.setTextColor(gray); tabEngine.background = tabOutline(false)
+        tabData.setTextColor(gray); tabData.background = tabOutline(false)
+        thinkTab.setTextColor(blue); thinkTab.background = tabOutline(true)
+    }
+
     private fun toggleThink() {
-        thinkWrap.visibility = if (thinkWrap.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        if (thinkWrap.visibility == View.VISIBLE) {
+            thinkWrap.visibility = View.GONE
+            engineTitle.visibility = View.VISIBLE
+            engineScroll.visibility = View.VISIBLE
+            tabSpacer.visibility = View.GONE
+            addTab.visibility = View.VISIBLE
+            tabEngine.setTextColor(blue); tabEngine.background = tabOutline(true)
+            tabData.setTextColor(gray); tabData.background = tabOutline(false)
+            thinkTab.setTextColor(gray); thinkTab.background = tabOutline(false)
+        } else {
+            thinkWrap.visibility = View.VISIBLE
+            engineTitle.visibility = View.GONE
+            engineScroll.visibility = View.GONE
+            dataScroll.visibility = View.GONE
+            tabSpacer.visibility = View.VISIBLE
+            addTab.visibility = View.GONE
+            tabEngine.setTextColor(gray); tabEngine.background = tabOutline(false)
+            tabData.setTextColor(gray); tabData.background = tabOutline(false)
+            thinkTab.setTextColor(blue); thinkTab.background = tabOutline(true)
+        }
     }
 
     /** 窗口化模式: 浏览器窗口收缩到聊天内容区(titleBar 下 ~ inputBar 上), 接管/悬浮均保持该尺寸 */
@@ -596,7 +675,7 @@ internal class BrowserPage(private val act: MainActivity) {
             loaded = true
             paintStatus(act.getString(R.string.br_welcome_ready))
             loadDoneLatch = CountDownLatch(1)
-            web.loadUrl("file:///android_asset/home.html")
+            act.runOnUiThread { web.loadUrl("file:///android_asset/home.html") }
         }
     }
 
@@ -615,8 +694,18 @@ internal class BrowserPage(private val act: MainActivity) {
             root.animate().alpha(1f).setDuration(280).start()
         }
     }
+    /** 关闭浏览器时复位接管态: 手势/动画/工具关闭统一入口, 防止重开后按钮文字/聊天区与 taken 不一致 */
+    internal fun resetTakeoverState() {
+        if (taken) {
+            taken = false
+            takeover.text = act.getString(R.string.br_takeover)
+            onTakeoverChange?.invoke(false)
+        }
+    }
+
     private fun slideOut() {
         open = false
+        resetTakeoverState()
         if (hamburgerOpen) collapseHamburger()
         highlight.clearTarget()
         root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
@@ -835,111 +924,143 @@ internal class BrowserPage(private val act: MainActivity) {
 
     /* ===================== 底部导航栏 / 引擎管理 / 本地数据 ===================== */
 
-    /** 右侧汉堡面板: 初始右外隐藏, 右缘左滑展开= URL + 设置页(引擎管理/登录数据) */
+    /** 右侧汉堡面板: 初始右外隐藏, 右缘左滑展开= 顶栏(状态+页签) + 设置区 + 底栏(URL+复制) */
     private fun buildHamburger(): LinearLayout = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
         background = GradientDrawable().apply {
             setColor(Ui.SURFACE); cornerRadius = act.dp(18).toFloat()
         }
+        clipToOutline = true
         elevation = act.dp(8).toFloat()
 
-        // —— 头部: 状态 + 默认引擎 + 收起 ——
+        // —— 顶栏: 状态行 + 页签行 ——
         LinearLayout(act).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(act.dp(12), act.dp(9), act.dp(8), act.dp(9))
-            addView(TextView(act).apply {
-                text = "●"; textSize = 9f; setTextColor(Color.parseColor("#22C55E"))
-                setPadding(0, 0, act.dp(6), 0)
-            })
-            addView(TextView(act).apply {
-                text = act.getString(R.string.br_idle); textSize = 12f; maxLines = 1
-                setTextColor(Ui.TEXT)
-                setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            }.also { drawerStatus = it })
-            addView(TextView(act).apply {
-                text = (engines.getOrNull(engineIdx)?.let { engineLabel(it) } ?: "") + " ▾"; textSize = 12f; setTextColor(blue)
-                setPadding(act.dp(8), act.dp(3), act.dp(4), act.dp(3))
-            }.also { drawerEngineTag = it })
-            addView(TextView(act).apply {
-                text = act.getString(R.string.br_collapse); textSize = 12f; setTextColor(gray)
-                setPadding(act.dp(8), act.dp(4), act.dp(2), act.dp(4))
-                setOnClickListener { collapseHamburger() }
-                Ui.press(this)
-            })
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply { setColor(Ui.INPUT_BG); cornerRadius = act.dp(14).toFloat(); setStroke(act.dp(1), Ui.STROKE) }
+            setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
+
+            // 头部: 状态 + 默认引擎 + 收起
+            LinearLayout(act).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(act.dp(6), act.dp(2), act.dp(2), act.dp(2))
+                addView(TextView(act).apply {
+                    text = "●"; textSize = 9f; setTextColor(Color.parseColor("#22C55E"))
+                    setPadding(0, 0, act.dp(6), 0)
+                })
+                addView(TextView(act).apply {
+                    text = act.getString(R.string.br_idle); textSize = 12f; maxLines = 1
+                    setTextColor(Ui.TEXT)
+                    setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }.also { drawerStatus = it })
+                addView(TextView(act).apply {
+                    text = (engines.getOrNull(engineIdx)?.let { engineLabel(it) } ?: "") + " ▾"; textSize = 13f; setTextColor(blue)
+                    setPadding(act.dp(10), act.dp(5), act.dp(6), act.dp(5))
+                }.also { drawerEngineTag = it })
+                addView(TextView(act).apply {
+                    text = act.getString(R.string.br_collapse); textSize = 13f; setTextColor(gray)
+                    setPadding(act.dp(10), act.dp(6), act.dp(2), act.dp(6))
+                    setOnClickListener { collapseHamburger() }
+                    Ui.press(this)
+                })
+            }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
+
+            // 页签: 引擎管理 / 登录数据 / 思考 / 关页 (胶囊选中态)
+            LinearLayout(act).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(act.dp(8), act.dp(4), act.dp(8), act.dp(4))
+                addView(TextView(act).apply {
+                    text = act.getString(R.string.br_think); textSize = 11.5f; setTextColor(blue)
+                    gravity = Gravity.CENTER
+                    background = tabOutline(true)
+                    setOnClickListener { toggleThink() }
+                    setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, act.dp(35)).apply { rightMargin = act.dp(10) }
+                    Ui.press(this)
+                }.also { thinkTab = it })
+                addView(TextView(act).apply {
+                    text = act.getString(R.string.br_login_data); textSize = 11.5f; setTextColor(gray)
+                    gravity = Gravity.CENTER
+                    background = tabOutline(false)
+                    setOnClickListener { showDataTab() }
+                    setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, act.dp(35)).apply { rightMargin = act.dp(10) }
+                    Ui.press(this)
+                }.also { tabData = it })
+                addView(TextView(act).apply {
+                    text = act.getString(R.string.br_engine_mgr); textSize = 10.5f; setTextColor(gray)
+                    gravity = Gravity.CENTER
+                    background = tabOutline(false)
+                    setOnClickListener { showEngineTab() }
+                    setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, act.dp(35)).apply { rightMargin = act.dp(10) }
+                    Ui.press(this)
+                }.also { tabEngine = it })
+                addView(View(act).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                })
+                addView(TextView(act).apply {
+                    text = act.getString(R.string.br_add_tab); textSize = 11.5f; setTextColor(blue)
+                    gravity = Gravity.CENTER
+                    background = tabOutline(false)
+                    setOnClickListener { showEditEngineDialog(-1) }
+                    setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, act.dp(35))
+                    Ui.press(this)
+                }.also { addTab = it })
+            }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
         }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
 
-        // —— 当前访问地址(实时回显, 只读) + 一键复制 ——
-        LinearLayout(act).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(act).apply {
-                text = "—"
-                textSize = 12f; maxLines = 1
-                setTextColor(Ui.TEXT)
-                setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
-                background = GradientDrawable().apply {
-                    setColor(Ui.INPUT_BG); cornerRadius = act.dp(12).toFloat()
-                }
-                setPadding(act.dp(10), act.dp(4), act.dp(10), act.dp(4))
-                layoutParams = LinearLayout.LayoutParams(0, act.dp(34), 1f)
-            }.also { urlView = it })
-            addView(TextView(act).apply {
-                text = act.getString(R.string.br_copy); textSize = 12f; setTextColor(blue)
-                setPadding(act.dp(6), act.dp(4), act.dp(2), act.dp(4))
-                setOnClickListener { copyCurrentUrl() }
-                Ui.press(this)
-            })
-        }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
-
-        // 页签: 引擎管理 / 登录数据 / ✕ 关页
-        LinearLayout(act).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(act).apply {
-                text = act.getString(R.string.br_engine_mgr); textSize = 12f; setTextColor(blue)
-                setOnClickListener { showEngineTab() }
-                setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
-                Ui.press(this)
-            }.also { tabEngine = it })
-            addView(TextView(act).apply {
-                text = act.getString(R.string.br_login_data); textSize = 12f; setTextColor(gray)
-                setOnClickListener { showDataTab() }
-                setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
-                Ui.press(this)
-            }.also { tabData = it })
-            addView(TextView(act).apply {
-                text = act.getString(R.string.br_think); textSize = 12f; setTextColor(blue)
-                setOnClickListener { toggleThink() }
-                setPadding(act.dp(8), act.dp(5), act.dp(8), act.dp(5))
-                Ui.press(this)
-            })
-            addView(TextView(act).apply {
-                layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
-            })
-            addView(TextView(act).apply {
-                text = act.getString(R.string.br_close_page); textSize = 12f; setTextColor(Ui.DANGER)
-                setPadding(act.dp(6), act.dp(4), act.dp(2), act.dp(4))
-                setOnClickListener { slideOut() }
-                Ui.press(this)
-            })
-        }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
-
-        // 思考摘要容器(默认隐藏, 点"思考▾"展开)
+        // 思考摘要容器(默认隐藏, 点"思考"展开)
         addView(thinkCollapsed())
+        // 弹性占位: 思考展开时把底栏推到底部(引擎/数据模式由各自 ScrollView 的 weight 承担)
+        tabSpacer = View(act).apply { visibility = View.GONE }
+        addView(tabSpacer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // 引擎管理面板
+        engineTitle = TextView(act).apply {
+            text = act.getString(R.string.br_engine_mgr); textSize = 12f; setTextColor(gray)
+            setPadding(act.dp(16), act.dp(12), act.dp(16), act.dp(14))
+        }
+        addView(engineTitle)
         engineScroll = ScrollView(act).apply { isFillViewport = false; isVerticalScrollBarEnabled = false }
         engineList = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
         engineScroll.addView(engineList)
-        addView(engineScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, act.dp(196)))
+        addView(engineScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // 登录数据面板(默认隐藏)
         dataScroll = ScrollView(act).apply { isFillViewport = false; isVerticalScrollBarEnabled = false; visibility = View.GONE }
         dataBox = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
         dataScroll.addView(dataBox)
-        addView(dataScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, act.dp(196)))
+        addView(dataScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = act.dp(12) })
+
+        // —— 底栏: 当前访问地址(实时回显, 只读) + 一键复制 ——
+        LinearLayout(act).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply { setColor(Ui.INPUT_BG); cornerRadius = act.dp(14).toFloat(); setStroke(act.dp(1), Ui.STROKE) }
+            setPadding(act.dp(16), act.dp(14), act.dp(16), act.dp(14))
+            addView(TextView(act).apply {
+                text = "—"
+                textSize = 13f; maxLines = 1
+                setTextColor(Ui.TEXT)
+                setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE)
+                background = GradientDrawable().apply {
+                    setColor(Ui.INPUT_BG); cornerRadius = act.dp(12).toFloat()
+                    setStroke(act.dp(1), Ui.STROKE)
+                }
+                setPadding(act.dp(12), act.dp(3), act.dp(12), act.dp(3))
+                layoutParams = LinearLayout.LayoutParams(0, act.dp(36), 1f)
+            }.also { urlView = it })
+            addView(TextView(act).apply {
+                text = act.getString(R.string.br_copy); textSize = 14f; setTextColor(blue)
+                setPadding(act.dp(10), act.dp(8), act.dp(6), act.dp(8))
+                setOnClickListener { copyCurrentUrl() }
+                Ui.press(this)
+            })
+        }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
         refreshEngineList()
         initDataView()
     }
@@ -949,18 +1070,30 @@ internal class BrowserPage(private val act: MainActivity) {
     internal fun expandHamburger() {
         if (hamburgerOpen) return
         hamburgerOpen = true
-        hamburgerMask.alpha = 0f
-        hamburgerMask.visibility = View.VISIBLE
+        // 每次打开抽屉默认展示思考页(与用户上次停留的页签无关)
+        showThinkTab()
+        // 跟手拖动中 mask 已实时显示(alpha=frac), 不再重置为 0 再淡入(否则抬手瞬间遮罩闪没又淡入=灯光闪烁)
+        if (hamburgerMask.visibility != View.VISIBLE) {
+            hamburgerMask.alpha = 0f
+            hamburgerMask.visibility = View.VISIBLE
+        }
         onHamburgerChange?.invoke(true)
+        act.animateHamburgerSink(true, false)
         hamburgerMask.animate().alpha(1f).setDuration(180).start()
         hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
         hamburgerPanel.animate().translationX(0f).setDuration(240)
             .setInterpolator(DecelerateInterpolator(1.2f))
             .withEndAction {
                 hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                act.hamburgerDragEnd()
+                // 数据刷新延迟到下一帧: 避免与动画结束帧的硬件层释放挤在同一帧(卡顿)
+                root.post { refreshDataView() }
             }.start()
-        refreshDataView()
     }
+
+    /** 汉堡面板完全收出屏幕右侧所需的位移: 面板居中挂载(宽300dp), 需 (屏宽+300dp)/2 才能完全移出 */
+    internal val burgerHideX: Float
+        get() = (act.resources.displayMetrics.widthPixels + act.dp(300)) / 2f
 
     /** 收起汉堡面板: 隐藏遮罩+面板平移回右外 */
     internal fun collapseHamburger() {
@@ -968,29 +1101,45 @@ internal class BrowserPage(private val act: MainActivity) {
         if (wasOpen) {
             hamburgerOpen = false
             onHamburgerChange?.invoke(false)
+            act.animateHamburgerSink(false)
             hamburgerMask.animate().alpha(0f).setDuration(160).withEndAction {
                 hamburgerMask.visibility = View.GONE
             }.start()
         }
         // 无论是否已标记展开都复位面板: 修复未开态跟手展开不足阈值松手导致卡半开
-        if (hamburgerPanel.translationX != act.dp(300).toFloat()) {
+        if (hamburgerPanel.translationX != burgerHideX) {
             hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
             root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-            hamburgerPanel.animate().translationX(act.dp(300).toFloat()).setDuration(240)
+            hamburgerPanel.animate().translationX(burgerHideX).setDuration(240)
                 .setInterpolator(DecelerateInterpolator(1.2f))
                 .withEndAction {
                     hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                     root.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                    act.hamburgerDragEnd()
                 }.start()
         }
     }
     private fun showEngineTab() {
-        engineScroll.visibility = View.VISIBLE; dataScroll.visibility = View.GONE
-        tabEngine.setTextColor(blue); tabData.setTextColor(gray)
+        engineTitle.visibility = View.VISIBLE
+        engineScroll.visibility = View.VISIBLE
+        dataScroll.visibility = View.GONE
+        thinkWrap.visibility = View.GONE
+        tabSpacer.visibility = View.GONE
+        addTab.visibility = View.VISIBLE
+        tabEngine.setTextColor(blue); tabEngine.background = tabOutline(true)
+        tabData.setTextColor(gray); tabData.background = tabOutline(false)
+        thinkTab.setTextColor(gray); thinkTab.background = tabOutline(false)
     }
     private fun showDataTab() {
-        engineScroll.visibility = View.GONE; dataScroll.visibility = View.VISIBLE
-        tabEngine.setTextColor(gray); tabData.setTextColor(blue)
+        engineTitle.visibility = View.GONE
+        engineScroll.visibility = View.GONE
+        dataScroll.visibility = View.VISIBLE
+        thinkWrap.visibility = View.GONE
+        tabSpacer.visibility = View.GONE
+        addTab.visibility = View.GONE
+        tabEngine.setTextColor(gray); tabEngine.background = tabOutline(false)
+        tabData.setTextColor(blue); tabData.background = tabOutline(true)
+        thinkTab.setTextColor(gray); thinkTab.background = tabOutline(false)
         refreshDataView()
     }
 
@@ -1002,22 +1151,26 @@ internal class BrowserPage(private val act: MainActivity) {
 
         engineList.addView(TextView(act).apply {
             text = act.getString(R.string.br_add_engine_btn)
-            textSize = 13f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-            setPadding(act.dp(8), act.dp(8), act.dp(8), act.dp(8))
+            textSize = 14f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+            setPadding(act.dp(10), act.dp(13), act.dp(10), act.dp(13))
+            background = GradientDrawable().apply { setColor(blue); cornerRadius = act.dp(14).toFloat() }
             background = GradientDrawable().apply { setColor(blue); cornerRadius = act.dp(10).toFloat() }
             setOnClickListener { showEditEngineDialog(-1) }
             Ui.press(this)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            leftMargin = act.dp(12); rightMargin = act.dp(12); bottomMargin = act.dp(12)
         })
 
         for ((i, e) in engines.withIndex()) {
             val row = LinearLayout(act).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(act.dp(2), act.dp(3), act.dp(2), act.dp(3))
+                setPadding(act.dp(14), act.dp(12), act.dp(6), act.dp(12))
+                background = GradientDrawable().apply { setColor(Ui.INPUT_BG); cornerRadius = act.dp(12).toFloat() }
             }
             row.addView(TextView(act).apply {
                 text = (if (i == engineIdx) "★ " else "  ") + engineLabel(e)
-                textSize = 13f
+                textSize = 14f
                 setTextColor(if (i == engineIdx) blue else Ui.TEXT)
                 setTypeface(typeface, if (i == engineIdx) Typeface.BOLD else Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -1029,14 +1182,16 @@ internal class BrowserPage(private val act: MainActivity) {
                 }
             })
             row.addView(TextView(act).apply {
-                text = act.getString(R.string.br_edit); textSize = 12f; setTextColor(gray)
-                setPadding(act.dp(8), act.dp(2), act.dp(4), act.dp(2))
+                text = act.getString(R.string.br_edit); textSize = 12f; setTextColor(blue)
+                setPadding(act.dp(10), act.dp(5), act.dp(10), act.dp(5))
+                background = GradientDrawable().apply { setColor(blue); alpha = 26; cornerRadius = act.dp(9).toFloat() }
                 setOnClickListener { showEditEngineDialog(i) }
                 Ui.press(this)
-            })
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = act.dp(14) })
             row.addView(TextView(act).apply {
                 text = act.getString(R.string.br_delete); textSize = 12f; setTextColor(Ui.DANGER)
-                setPadding(act.dp(8), act.dp(2), act.dp(4), act.dp(2))
+                setPadding(act.dp(10), act.dp(5), act.dp(10), act.dp(5))
+                background = GradientDrawable().apply { setColor(Ui.DANGER); alpha = 22; cornerRadius = act.dp(9).toFloat() }
                 setOnClickListener {
                     if (engines.size <= 1) { Toast.makeText(act, act.getString(R.string.br_keep_one), Toast.LENGTH_SHORT).show(); return@setOnClickListener }
                     engines.removeAt(i)
@@ -1045,10 +1200,12 @@ internal class BrowserPage(private val act: MainActivity) {
                 }
                 Ui.press(this)
             })
-            engineList.addView(row)
+            engineList.addView(row, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = act.dp(12); rightMargin = act.dp(12)
+            })
             engineList.addView(View(act).apply {
-                background = GradientDrawable().apply { setColor(Ui.DIVIDER); setSize(1, 1) }
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, act.dp(8))
             })
         }    }
 
@@ -1112,7 +1269,7 @@ internal class BrowserPage(private val act: MainActivity) {
         dataBox.addView(TextView(act).apply {
             text = act.getString(R.string.br_data_intro)
             textSize = 12f; setTextColor(Ui.SUB)
-            setPadding(act.dp(10), act.dp(8), act.dp(10), act.dp(8))
+            setPadding(act.dp(12), act.dp(10), act.dp(12), act.dp(10))
             background = GradientDrawable().apply { setColor(Ui.INPUT_BG); cornerRadius = act.dp(10).toFloat() }
         })
         val auth = parseSiteAuth()
@@ -1142,7 +1299,7 @@ internal class BrowserPage(private val act: MainActivity) {
                 val row = LinearLayout(act).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(act.dp(4), act.dp(3), act.dp(4), act.dp(3))
+                    setPadding(act.dp(6), act.dp(5), act.dp(6), act.dp(5))
                 }
                 row.addView(TextView(act).apply {
                     text = site
@@ -1435,17 +1592,20 @@ internal class BrowserSlideController(private val act: MainActivity) {
                 downY = ev.rawY
                 val openNow = act.browserPage.open
                 val sw = act.resources.displayMetrics.widthPixels
-                // 三分区触发: 左份=左1/3(收/关), 右份=右1/3(开/汉堡面板), 中间1/3公共区不拦截
-                val leftThird = sw / 3f
+                // 展开态全屏可滑: 汉堡/浏览器展开后任意位置横滑跟手收(方向不限, 斜率判定保竖滑);
+                // 关闭态保持分区触发: 右缘左滑开浏览器/展开汉堡, 浏览器开时右缘左滑仍保留展开汉堡入口
                 val rightThird = sw * 2f / 3f
                 mode = when {
                     act.tokenMask.visibility == View.VISIBLE -> 0
                     // 主页汉堡页(抽屉)打开时浏览器手势让位: 右缘左滑归抽屉关闭, 避免误开浏览器
                     act.drawerOpen -> 0
-                    act.browserPage.hamburgerOpen && ev.rawX <= leftThird -> 4
-                    act.browserPage.hamburgerOpen && ev.rawX >= rightThird -> 3
-                    openNow && ev.rawX <= leftThird -> 2
+                    // 汉堡展开: 全屏任意方向跟手收
+                    act.browserPage.hamburgerOpen -> 4
+                    // 浏览器展开+右缘: 左滑展开汉堡(保留入口), 右滑交给 WebView 内部
                     openNow && ev.rawX >= rightThird -> 3
+                    // 浏览器展开: 全屏任意方向跟手收
+                    openNow -> 2
+                    // 浏览器关闭态: 右缘左滑展开
                     !openNow && ev.rawX >= rightThird -> 1
                     else -> 0
                 }
@@ -1456,15 +1616,20 @@ internal class BrowserSlideController(private val act: MainActivity) {
                 if (mode != 0 && !dragging) {
                     val dx = ev.rawX - downX
                     val dy = ev.rawY - downY
-                    val wantLeft = when (mode) {
-                        1 -> true
-                        2, 4 -> false
-                        3 -> !act.browserPage.hamburgerOpen
+                    // 方向锁定: 未开=左滑展开, 已开=右滑收回(反方向, 同向滑动不接管)
+                    val dirOk = when (mode) {
+                        1, 3 -> dx < 0
+                        2, 4 -> dx > 0
                         else -> false
                     }
-                    val dirOk = if (wantLeft) dx < 0 else dx > 0
-                    if (abs(dx) > slop && abs(dx) > abs(dy) && dirOk) {
+                    // 放宽水平斜率(0.7): 与左侧抽屉同策略, 斜向滑动即锁定浏览器/汉堡拖拽, 防带动下层消息列表
+                    if (abs(dx) > slop && abs(dx) > abs(dy) * 0.7 && dirOk) {
                         dragging = true
+                        if (mode == 3 || mode == 4) {
+                            act.hamburgerDragBase()
+                            // 汉堡面板跟手平移同样缓存纹理: 面板内容首次露出不再逐帧光栅化(防卡顿/闪烁)
+                            act.browserPage.hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                        }
                         // 跟手平移期间开硬件层: WebView 以纹理平移, 避免露白边闪白
                         act.browserPage.root.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                         tracker?.addMovement(ev)
@@ -1481,19 +1646,28 @@ internal class BrowserSlideController(private val act: MainActivity) {
     fun onTouch(ev: MotionEvent): Boolean {
         if (!dragging) return false
         val isBurger = mode == 3 || mode == 4
-        val burgerW = act.dp(300).toFloat()
+        val burgerW = act.browserPage.burgerHideX
         when (ev.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
                 tracker?.addMovement(ev)
                 if (isBurger) {
-                    // 汉堡面板: 未开(300)左滑=向左展开; 已开(0)左滑=向右推回收起
+                    // 汉堡跟手: 未开 startTrans=burgerHideX 左滑 dx<0 展开; 已开 startTrans=0 右滑 dx>0 收回(反方向)
                     val dx = ev.rawX - downX
                     val trans = (startTrans + dx).coerceIn(0f, burgerW)
                     act.browserPage.hamburgerPanel.translationX = trans
+                    // 跟手实时联动主界面下沉: 与主页右滑抽屉 setMainSink(frac) 同机制(面板滑入即主页下沉, 不再等抬手吸附)
+                    val frac = (burgerW - trans) / burgerW
+                    act.setMainSink(frac)
+                    if (frac > 0.02f) {
+                        val hm = act.browserPage.hamburgerMask
+                        if (hm.visibility != View.VISIBLE) hm.visibility = View.VISIBLE
+                        hm.alpha = frac
+                    }
                 } else {
-                    // 整页: 关闭态从 +screenW 向左推进; 打开态从 0 向右推出
+                    // 整页跟手: 未开 startTrans=+screenW 左滑 dx<0 展开; 已开 startTrans=0 右滑 dx>0 收回(反方向)
                     val sw = act.resources.displayMetrics.widthPixels
-                    val trans = (startTrans + (ev.rawX - downX)).coerceIn(0f, sw.toFloat())
+                    val dx = ev.rawX - downX
+                    val trans = (startTrans + dx).coerceIn(0f, sw.toFloat())
                     panel().translationX = trans
                 }
             }
@@ -1505,7 +1679,7 @@ internal class BrowserSlideController(private val act: MainActivity) {
                     val frac = (burgerW - act.browserPage.hamburgerPanel.translationX) / burgerW // 展开比例
                     val open = when {
                         vx > FLING_VX -> false
-                        vx < -FLING_VX -> !act.browserPage.hamburgerOpen  // 已开时左滑 fling=关闭
+                        vx < -FLING_VX -> true  // 未开左滑快=展开; 已开拖拽方向为右滑, 此分支不会出现
                         frac > SNAP_FRAC -> true
                         else -> false
                     }
@@ -1515,7 +1689,7 @@ internal class BrowserSlideController(private val act: MainActivity) {
                     val frac = (sw - panel().translationX) / sw   // 显现比例
                     val open = when {
                         vx > FLING_VX -> false
-                        vx < -FLING_VX -> true
+                        vx < -FLING_VX -> true  // 未开左滑快=展开; 已开拖拽方向为右滑, 此分支不会出现
                         frac > SNAP_FRAC -> true
                         else -> false
                     }
@@ -1551,6 +1725,7 @@ internal class BrowserSlideController(private val act: MainActivity) {
         val dur = (170 + 130 * (dist / sw)).toLong().coerceIn(150, 300)
         val dec = DecelerateInterpolator(1.3f)
         act.browserPage.open = false
+        act.browserPage.resetTakeoverState()
         act.browserPage.onOpenChange?.invoke(false)
         panel().animate().translationX(sw.toFloat()).setDuration(dur).setInterpolator(dec)
             .withEndAction {

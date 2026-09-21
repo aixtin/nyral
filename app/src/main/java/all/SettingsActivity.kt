@@ -87,7 +87,7 @@ class SettingsActivity : Activity() {
             startActivity(Intent(this@SettingsActivity, MemorySummaryActivity::class.java))
         }) { summarySubtitle = it })
         cardConn.addView(Ui.divider(this))
-        cardConn.addView(settingsItem(getString(R.string.settings_files), getString(R.string.settings_files_sub), R.drawable.ic_settings_memory, 3, {
+        cardConn.addView(settingsItem(getString(R.string.settings_files), getString(R.string.settings_files_sub), R.drawable.ic_guide_folder, 3, {
             startActivity(Intent(this@SettingsActivity, FileListActivity::class.java))
         }))
         content.addView(cardConn)
@@ -358,6 +358,8 @@ class SettingsActivity : Activity() {
         val s = TokenStore.stats(this)
         val a = TokenStore.auxStats(this)
         val (dlg, box) = Ui.dialog(this, getString(R.string.settings_token), maxHeightRatio = 0.8, jellyOvershoot = 1.4f)
+        // 标题上移: 弹窗顶部 padding 18dp -> 10dp
+        box.setPadding(box.paddingLeft, dp(10), box.paddingRight, box.paddingBottom)
         var isMain = true   // 当前 tab: true=主 AI, false=辅助 AI
 
         // ---- tab 行 ----
@@ -378,23 +380,35 @@ class SettingsActivity : Activity() {
         val tabRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
+            background = Ui.roundedBorder(Ui.DIVIDER, 12, 1, this@SettingsActivity)
+            setPadding(dp(3), dp(3), dp(3), dp(3))
         }
-        tabRow.addView(tabMain, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
-            setMargins(0, 0, dp(6), 0)
+        tabRow.addView(tabMain, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
+            setMargins(0, 0, dp(4), 0)
         })
-        tabRow.addView(tabMem, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
-            setMargins(dp(6), 0, 0, 0)
+        tabRow.addView(tabMem, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
+            setMargins(dp(4), 0, 0, 0)
         })
+        // 移除 Ui.dialog 标题下自动分割线; tab 行下不再补分割线, 上下均为描边卡片用间距分隔
+        if (box.childCount >= 2) box.removeViewAt(1)
         box.addView(tabRow)
 
         // ---- 内容区: 随 tab 切换 ----
+        val statsWrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.roundedBorder(Ui.DIVIDER, 12, 1, this@SettingsActivity)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+        }
         val stats = TextView(this).apply {
             textSize = 13f
             setTextColor(Ui.TEXT)
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(10), 0, dp(2))
         }
-        box.addView(stats)
+        statsWrap.addView(stats)
+        box.addView(statsWrap, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(10) })
 
         fun syncTab() {
             updateTokenTab(tabMain, isMain)
@@ -470,8 +484,13 @@ class SettingsActivity : Activity() {
     /** Token 统计 tab 按钮样式: 选中蓝底白字, 未选中白底灰字(同运行日志) */
     private fun updateTokenTab(tv: TextView, selected: Boolean) {
         tv.setBackgroundResource(0)
-        tv.background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.SURFACE, 12, this)
-        tv.setTextColor(if (selected) Color.WHITE else Ui.TEXT)
+        if (selected) {
+            tv.background = Ui.rounded(Ui.PRIMARY, 10, this)
+            tv.setTextColor(Color.WHITE)
+        } else {
+            tv.background = null
+            tv.setTextColor(Ui.SUB)
+        }
     }
 
     private fun showUploadSizeEdit() {

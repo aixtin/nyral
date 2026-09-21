@@ -30,6 +30,7 @@
     <string name="att_label_live_video">实况视频</string>
     <string name="att_label_image">图片</string>
     <string name="att_label_audio">音频</string>
+    <string name="att_label_file">文件</string>
     <!-- 视频压缩 -->
     <string name="toast_video_compressing">%1$s超过37MB，正在本地压缩...</string>
     <string name="toast_video_stored_lib">%1$s较大，已存入私有附件库，将发送索引卡</string>
@@ -390,8 +391,10 @@
     <string name="log_01">运行日志</string>
     <string name="log_02">主日志</string>
     <string name="log_03">辅助 AI 日志</string>
-    <string name="log_04">🔄 刷新</string>
-    <string name="log_05">🗑 清空当前</string>
+    <string name="log_04">刷新</string>
+    <string name="log_05">清空当前</string>
+    <string name="log_13">已导出到 </string>
+    <string name="log_14">导出失败</string>
     <string name="log_06">(暂无日志)\n</string>
     <string name="log_07">\n— 共 </string>
     <string name="log_08"> 条 —</string>
@@ -570,7 +573,7 @@
     <string name="br_element">元素</string>
     <string name="br_takeover">✋ 接管</string>
     <string name="br_ready">AI 准备就绪</string>
-    <string name="br_think">思考▾</string>
+    <string name="br_think">思考</string>
     <string name="br_no_think">（还没有思考摘要）</string>
     <string name="br_return_ai">🤖 交还 AI</string>
     <string name="br_returned_hint">已交还给你操作，点完验证码后再交还 AI</string>
@@ -588,7 +591,8 @@
     <string name="br_copy">复制</string>
     <string name="br_engine_mgr">引擎管理</string>
     <string name="br_login_data">登录数据</string>
-    <string name="br_close_page">✕ 关页</string>
+    <string name="br_close_page">关页</string>
+    <string name="br_add_tab">＋ 添加</string>
     <string name="br_add_engine_btn">＋ 添加搜索引擎(名称 + {q} 模板)</string>
     <string name="br_default_engine">默认引擎 → %1$s</string>
     <string name="br_edit">改</string>
@@ -628,6 +632,10 @@
     <string name="mp_preview">预览</string>
     <string name="mp_prev">‹ 上一页</string>
     <string name="mp_next">下一页 ›</string>
+    <string name="mp_save">保存到相册</string>
+    <string name="mp_share">分享</string>
+    <string name="mp_saved">已保存到相册</string>
+    <string name="mp_save_fail">保存失败</string>
     <string name="mp_pdf_fail">PDF 解析失败: %1$s</string>
     <string name="mp_tap_close">点击 ✕ 关闭</string>
     <string name="mp_audio_fail">音频加载失败: %1$s</string>

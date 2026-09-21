@@ -303,8 +303,7 @@ class MemoryListActivity : Activity() {
             row.background = if (sel) Ui.rounded(Ui.PRIMARY_LIGHT, 10, this@MemoryListActivity)
                             else Ui.rounded(Ui.SURFACE, 10, this@MemoryListActivity)
             checkView?.let {
-                it.text = if (sel) "✓" else ""
-                it.background = Ui.rounded(if (sel) Ui.PRIMARY else Ui.INPUT_BG, 6, this@MemoryListActivity)
+                Ui.applyCheck(it, sel, this@MemoryListActivity)
             }
         }
         fun toggleSelect() {

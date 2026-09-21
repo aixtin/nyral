@@ -3,16 +3,25 @@ package io.github.aixtin.nyral
 import io.github.aixtin.nyral.R
 
 import android.app.Activity
+import android.content.ContentValues
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.provider.MediaStore
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.Timer
 import java.util.TimerTask
 
@@ -40,7 +49,14 @@ class LogActivity : Activity() {
         Ui.statusBar(this)
 
         val root = Ui.pageRoot(this)
-        root.addView(Ui.titleBar(this, getString(R.string.log_01)))
+        val dlBtn = android.widget.ImageView(this).apply {
+            setImageDrawable(Ui.lucideDownload(this@LogActivity, Ui.PRIMARY, 16))
+            scaleType = android.widget.ImageView.ScaleType.CENTER
+            setOnClickListener { exportLogs() }
+        }
+        root.addView(Ui.titleBar(this, getString(R.string.log_01), right = { bar ->
+            bar.addView(dlBtn, LinearLayout.LayoutParams(dp(48), dp(48)))
+        }))
 
         // ---- tab 行 ----
         val tabRow = LinearLayout(this).apply {
@@ -71,10 +87,12 @@ class LogActivity : Activity() {
         // ---- 日志内容区 ----
         val contentWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(6), dp(12), dp(4))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(24), dp(6), dp(24), dp(4))
         }
-        scroll = ScrollView(this).apply {
-            setBackgroundColor(0xFF101418.toInt())
+        val logMaxH = (resources.displayMetrics.heightPixels * 0.8f).toInt()
+        scroll = Ui.MaxHeightScrollView(this, logMaxH).apply {
+            background = Ui.rounded(0xFF101418.toInt(), 12, this@LogActivity)
             isVerticalScrollBarEnabled = true
         }
         logText = TextView(this).apply {
@@ -94,16 +112,49 @@ class LogActivity : Activity() {
         // ---- 底部操作栏 ----
         val bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
             setPadding(dp(16), dp(6), dp(16), dp(12))
         }
-        bottomBar.addView(Ui.lightBtn(this, getString(R.string.log_04)) { refresh(true) },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(0, 0, dp(8), 0)
+        // 刷新: 浅蓝气泡 + refresh-cw 图标, 紧凑宽度
+        bottomBar.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = Ui.rounded(Ui.PRIMARY_LIGHT, 12, this@LogActivity)
+            isClickable = true
+            setOnClickListener { refresh(true) }
+            Ui.press(this)
+            addView(android.widget.ImageView(this@LogActivity).apply {
+                setImageDrawable(Ui.lucideRefresh(this@LogActivity, Ui.PRIMARY, 16))
             })
-        bottomBar.addView(Ui.primaryBtn(this, getString(R.string.log_05)) { confirmClear() },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                setMargins(dp(8), 0, 0, 0)
+            addView(TextView(this@LogActivity).apply {
+                text = getString(R.string.log_04)
+                textSize = 13f
+                setTextColor(Ui.PRIMARY)
+                setPadding(dp(6), 0, 0, 0)
             })
+        }, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+            setMargins(0, 0, dp(24), 0)
+        })
+        // 清空: 主色气泡 + trash 图标, 紧凑宽度
+        bottomBar.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = Ui.rounded(Ui.PRIMARY, 12, this@LogActivity)
+            isClickable = true
+            setOnClickListener { confirmClear() }
+            Ui.press(this)
+            addView(android.widget.ImageView(this@LogActivity).apply {
+                setImageDrawable(Ui.lucideTrash(this@LogActivity, Color.WHITE, 16))
+            })
+            addView(TextView(this@LogActivity).apply {
+                text = getString(R.string.log_05)
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                setPadding(dp(6), 0, 0, 0)
+            })
+        }, LinearLayout.LayoutParams(0, dp(40), 1f))
         root.addView(bottomBar)
 
         setContentView(root)
@@ -187,4 +238,77 @@ class LogActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun exportLogs() {
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val n1 = exportOne(LogStore.MAIN, "Nyral_主日志_" + stamp + ".txt", WorkDir.SUB_DIR_LOG_MAIN)
+        val n2 = exportOne(LogStore.MEM, "Nyral_辅助AI日志_" + stamp + ".txt", WorkDir.SUB_DIR_LOG_MEM)
+        val msg = if (n1 != null && n2 != null)
+            getString(R.string.log_13) + WorkDir.displaySubPath(WorkDir.SUB_DIR_LOG_MAIN) + n1 + "、" + n2
+                  else getString(R.string.log_14)
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+    }
+
+    /** 导出单个日志到工作目录子目录(日志/主日志|日志/辅日志), 返回实际文件名(可能带序号), 失败返回 null */
+    private fun exportOne(tag: String, base: String, subDir: String): String? {
+        val sb = StringBuilder()
+        LogStore.history(tag).forEach { sb.append(it.line()).append('\n') }
+        val content = sb.toString()
+        return try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val name = uniqueName29(base, subDir)
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, WorkDir.relPath(subDir))
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+                contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) } ?: return null
+                name
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Nyral_work/" + subDir)
+                if (!dir.exists()) dir.mkdirs()
+                val name = uniqueNameOld(dir, base)
+                File(dir, name).writeText(content, Charsets.UTF_8)
+                name
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** API29+ MediaStore 查重名(限定子目录) */
+    private fun uniqueName29(base: String, subDir: String): String {
+        var name = base
+        var n = 2
+        while (exists29(name, subDir)) {
+            val dot = base.lastIndexOf('.')
+            name = if (dot > 0) base.substring(0, dot) + "_" + n + base.substring(dot) else base + "_" + n
+            n++
+        }
+        return name
+    }
+
+    private fun exists29(name: String, subDir: String): Boolean {
+        val rel = WorkDir.relPath(subDir)
+        val c = contentResolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+            "(" + MediaStore.MediaColumns.RELATIVE_PATH + " = ? OR " + MediaStore.MediaColumns.RELATIVE_PATH + " = ?) AND " + MediaStore.MediaColumns.DISPLAY_NAME + "=?",
+            arrayOf(rel, "$rel/", name), null)
+        val cnt = c?.count ?: 0
+        c?.close()
+        return cnt > 0
+    }
+
+    /** API<29 文件系统查重名 */
+    private fun uniqueNameOld(dir: File, base: String): String {
+        var name = base
+        var n = 2
+        while (File(dir, name).exists()) {
+            val dot = base.lastIndexOf('.')
+            name = if (dot > 0) base.substring(0, dot) + "_" + n + base.substring(dot) else base + "_" + n
+            n++
+        }
+        return name
+    }
 }

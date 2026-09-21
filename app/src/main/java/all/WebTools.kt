@@ -348,7 +348,7 @@ object WebTools {
 
     /** 写入私有目录 site_auth.json (保留原文件未覆盖的其它字段); 统一记录最近保存时间戳 */
     private fun saveSiteAuth(context: Context, auth: JSONObject): Boolean {
-        if (auth != null) auth.put(SITE_AUTH_META, System.currentTimeMillis())
+        auth.put(SITE_AUTH_META, System.currentTimeMillis())
         val f = siteAuthFile(context)
         return runCatching {
             f.parentFile?.mkdirs()
@@ -479,8 +479,8 @@ object WebTools {
                 return DlResult(false, "下载被服务器中断(${e.message})，可能文件过大或防护墙拦截，已自动重试一次", retryable = true)
             }
             if (bytes.size > 100 * 1024 * 1024) return DlResult(false, "文件超过 100MB 上限")
-            if (!WorkDir.write(context, name, bytes)) return DlResult(false, "写入工作目录失败: $name")
-            return DlResult(true, "下载成功: ${WorkDir.displayPath}$name (${bytes.size} 字节)")
+            if (!WorkDir.write(context, name, bytes, WorkDir.SUB_DIR_DOWNLOADS)) return DlResult(false, "写入工作目录失败: $name")
+            return DlResult(true, "下载成功: ${WorkDir.displaySubPath(WorkDir.SUB_DIR_DOWNLOADS)}$name (${bytes.size} 字节)")
         } catch (e: SocketException) {
             return DlResult(false, "下载被服务器中断(${e.message})", retryable = true)
         } catch (e: Exception) {

@@ -144,11 +144,123 @@ fun decodeAttachmentBitmap(f: File, density: Float): Bitmap? {
     return BitmapLoader.decodeSampledFile(f, dp(density, 200))
 }
 
+/** 全局活跃 ExoPlayer 解码器硬上限(防 OOM): 内嵌气泡最多4 + 弹窗/抓帧2 = 6(旗舰档)。
+ *  名额制此前只堵 videoLoopBubble 创建入口, attach 重建/弹窗预览/抓帧路径均可绕过,
+ *  真机 09-19 00:40 崩溃前 10 秒连建 7 个 ExoPlayer 仅 1 个 Release, 堆 256MB 打爆。
+ *  所有 ExoPlayer 创建点统一 tryAcquire/release, 超限拒绝新创建, 彻底杜绝堆积。
+ *  持有者集合模型(09-19 02:30): 此前 AtomicInteger 裸计数与真实持有者脱钩——真机日志
+ *  实锤 02:12:48 名额报满 3/3 但 killOldestBubblePlayer 无可踢实例(sBubblePlayers 空),
+ *  计数漂移后所有创建入口被静默拦截, 全部视频黑屏直到重启。改为集合后:
+ *  1) 同一持有者重复 release 幂等(集合 remove no-op), 重复 acquire 幂等, 计数不可能漂移;
+ *  2) 满员拒绝时打印当前持有者清单(类名@identityHashCode), 泄漏源头一眼可见;
+ *  3) 重复归还时打印调用栈, 双还路径当场抓现行 */
+object ExoGate {
+    private val holders = java.util.Collections.synchronizedSet(HashSet<Any>())
+    /** 全局解码器硬上限(含弹窗/抓帧): 启动时按设备内存分档动态定级, 低内存告警时自动降级 */
+    @Volatile var MAX = 3
+    /** 列表页内嵌气泡并发上限(同屏最多同时播放数): 始终 = MAX 之下给弹窗/抓帧留 1 */
+    @Volatile var INLINE_MAX = 2
+    @Volatile private var lastFullLog = 0L
+    /** 名额让出广播: 弹窗关闭/终结释放后由 MainActivity 挂接"对账补建", 不滚动也能自愈被踢行 */
+    @Volatile var sOnGateReleased: (() -> Unit)? = null
+    @Volatile private var lastReleaseNotify = 0L
+
+    /** 按设备总内存分档定级(QQ 式按性能放宽并发): 低端 1/2、中端 2/3、高端 4/6 */
+    fun initByDevice(ctx: android.content.Context) {
+        val mem = android.app.ActivityManager.MemoryInfo()
+        (ctx.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager)
+            ?.getMemoryInfo(mem)
+        val totalGB = mem.totalMem.toFloat() / (1024f * 1024f * 1024f)
+        when {
+            totalGB < 4f -> { INLINE_MAX = 1; MAX = 2 }
+            totalGB < 8f -> { INLINE_MAX = 2; MAX = 3 }
+            else -> { INLINE_MAX = 4; MAX = 6 }   // 旗舰: 内嵌4(同屏一次展示4个视频全动) + 弹窗/抓帧2
+        }
+        android.util.Log.i("Nyral", "ExoGate按设备定级: 总内存=${"%.1f".format(totalGB)}GB 内嵌上限=$INLINE_MAX 全局上限=$MAX")
+    }
+
+    /** 低内存告警降级: 只降不升(避免抖动), 不杀在播, 后续新创建按更严名额执行 */
+    fun downgrade(level: Int) {
+        val wantInline = if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) INLINE_MAX - 1 else INLINE_MAX
+        val wantMax = if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) MAX - 1 else MAX
+        if (wantInline >= 1 && wantMax >= 2) {
+            INLINE_MAX = wantInline
+            MAX = wantMax
+            android.util.Log.w("Nyral", "ExoGate低内存降级: 内嵌=$INLINE_MAX 全局=$MAX (level=$level)")
+        }
+    }
+
+    fun tryAcquire(holder: Any): Boolean {
+        val ok = synchronized(holders) { holders.size < MAX && holders.add(holder) }
+        if (!ok) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastFullLog > 3000L) {   // 限频: 满员时滚动重绑高频触发, 只留取证所需
+                lastFullLog = now
+                val snapshot = synchronized(holders) { holders.toList() }
+                Log.w("Nyral", "ExoGate满${MAX}/${MAX} 拒绝持有者=${describe(holder)} 当前持有者=" +
+                        snapshot.joinToString { describe(it) })
+            }
+        }
+        return ok
+    }
+    fun release(holder: Any) {
+        val removed = holders.remove(holder)
+        if (!removed)
+            Log.w("Nyral", "ExoGate重复归还(幂等忽略): ${describe(holder)}", Throwable("此处释放了未持有的名额——若频繁出现即泄漏/双还路径"))
+        else {
+            // 名额真实让出时广播(限频 500ms): MainActivity 挂对账补建, 让"弹窗关闭/被踢行"不滚动也自愈
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastReleaseNotify > 500L) {
+                lastReleaseNotify = now
+                sOnGateReleased?.invoke()
+            }
+        }
+    }
+    fun count(): Int = holders.size
+    private fun describe(h: Any): String =
+        h::class.java.simpleName + "@" + Integer.toHexString(System.identityHashCode(h))
+}
+
+/** 视频气泡并发解码上限(全局表): 同屏最多 2 个 ExoPlayer 同时硬解码, 超限暂停最早注册的,
+ *  堵住"多视频气泡同时循环播放"导致的堆内存耗尽 OOM 闪退(真机 09-18 23:56 栈 MediaCodec.getBuffer 印证)。
+ *  从 MainActivity 移出为公开顶层变量: 弹窗预览在名额满时可直接踢最老内嵌腾解码器。 */
+val sBubblePlayers = java.util.Collections.synchronizedList(ArrayList<ExoPlayer>())
+
+/** 表情气泡专用活跃播放器集合(独立于 sBubblePlayers):
+ *  表情动图与普通视频互不干扰——视频对账(reconcileVideoBubbles)只遍历 sBubblePlayers,
+ *  表情若混入会被当"离屏视频"统一 killSelf 导致全部黑屏(09-19 真机: 第3个表情起全黑);
+ *  表情生命周期由其自身 attach/detach 看门狗管理, ExoGate 全局名额仍共用兜底防 OOM */
+val sEmojiPlayers = java.util.Collections.synchronizedList(ArrayList<ExoPlayer>())
+
+/** 表情气泡播放器 -> 自我终结函数(killSelf)注册表: 与 sBubbleKillHooks 同机制, 供表情对账
+ *  (reconcileEmojiBubbles)按配额踢超限实例, 统一收口释放+名额+视图 */
+val sEmojiKillHooks = java.util.Collections.synchronizedMap(HashMap<ExoPlayer, () -> Unit>())
+
+/** 内嵌气泡播放器 -> 自我终结函数(killSelf)注册表: 弹窗优先级"请让位"时走统一收口,
+ *  实例释放+名额归还+视图降级三件事由播放器自己的监听器完成——此前外部直接 victim.release()
+ *  + ExoGate.release(), 被踢者自己的 detach 监听之后又 release 一次 → 名额双重归还计数漂移 */
+val sBubbleKillHooks = java.util.Collections.synchronizedMap(HashMap<ExoPlayer, () -> Unit>())
+
+/** 请最老的内嵌气泡播放器让位(弹窗优先): 经其自身钩子统一终结, 返回是否成功让出 */
+fun killOldestBubblePlayer(): Boolean {
+    if (sBubblePlayers.isEmpty()) return false
+    val victim = sBubblePlayers[0]
+    val hook = sBubbleKillHooks.remove(victim) ?: return false
+    try { hook() } catch (_: Throwable) {}
+    return true
+}
+
 // ---- 视频异步取帧缓存与回调(系统栈取帧失败时的 ExoPlayer 兜底) ----
 private val sThumbCache = object : android.util.LruCache<String, Bitmap>(32 * 1024 * 1024) {
     // 按位图真实字节计内存上限(默认 32MB), 超限自动淘汰最久未用, 防止会话历史视频累积导致缓存无界增长
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
+/** QQ 式滚动暂停标志: 列表滚动中 true(不创建内嵌播放器/不入队取帧), 由 MainActivity 滚动监听维护 */
+@Volatile var sScrolling = false
+/** 批量加载窗口标志: 切会话/重启/全量重建提交后、首帧布局完成前为 true,
+ *  videoLoopBubble 入口在此窗口内一律返回 null 走缩略图, 避免"整屏大量视频行同一帧
+ *  同步 inflate+prepare 硬解码"导致首屏闪烁卡顿; 布局稳定后由重建路径主动释放并对账补建 */
+@Volatile var sBatchLoad = false
 private val sThumbInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 private val sThumbCallbacks = java.util.Collections.synchronizedMap(HashMap<String, MutableList<() -> Unit>>())
 // 取帧串行管线: 全局同一时刻仅跑一个 ExoPlayer 取帧任务, 消除重启/切会话时多条全屏 SurfaceView 叠加竞争
@@ -159,6 +271,42 @@ private val sThumbQueue = java.util.ArrayDeque<ThumbJob>()
 private val sThumbInQueue = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 @kotlin.jvm.Volatile private var sThumbRunning = false
 private class ThumbJob(val ctx: Context, val f: File, val key: String, val round: Int)
+
+// ---- 缩略图磁盘缓存(持久化): 取帧成功落盘 JPEG, 重启/切会话后读盘免重新解码 ----
+private fun thumbDiskDir(ctx: Context): File =
+    File(ctx.cacheDir, "vthumb").apply { if (!exists()) mkdirs() }
+
+private fun thumbDiskName(key: String): String {
+    // 附件文件名直接作盘名(File.getName 无路径分隔符); 统一去 "|raw" 语义后缀
+    val base = if (key.endsWith("|raw")) key.dropLast(4) else key
+    return base + ".jpg"
+}
+
+/** 后台线程调用: 读磁盘缩略图(纯帧); 无命中返回 null */
+private fun readThumbDisk(ctx: Context, key: String): Bitmap? {
+    return try {
+        val f = File(thumbDiskDir(ctx), thumbDiskName(key))
+        if (f.exists()) BitmapFactory.decodeFile(f.absolutePath) else null
+    } catch (t: Throwable) { null }
+}
+
+/** 后台线程调用: 纯帧 JPEG 落盘(先写 .tmp 再 rename, 防中断半文件); 超量清理最旧一半 */
+private fun writeThumbDisk(ctx: Context, key: String, bmp: Bitmap) {
+    try {
+        val dir = thumbDiskDir(ctx)
+        val f = File(dir, thumbDiskName(key))
+        val tmp = File(dir, f.name + ".tmp")
+        val os = java.io.FileOutputStream(tmp)
+        try { bmp.compress(Bitmap.CompressFormat.JPEG, 85, os) } finally { os.close() }
+        if (tmp.length() > 0 && tmp.renameTo(f)) {
+            // 粗放防膨胀: 缓存文件超 600 个删最旧一半(缓存可再生, 不必精确 LRU)
+            val all = dir.listFiles()?.filter { it.name.endsWith(".jpg") } ?: emptyList()
+            if (all.size > 600) {
+                all.sortedBy { it.lastModified() }.take(all.size / 2).forEach { try { it.delete() } catch (_: Throwable) {} }
+            }
+        }
+    } catch (t: Throwable) { }
+}
 
 /** 视频缩略图是否仍在异步取帧中(气泡渲染时可登记刷新回调) */
 fun isThumbPending(fname: String): Boolean = sThumbInFlight.contains(fname)
@@ -205,30 +353,19 @@ fun videoDimensionsFast(f: File): Pair<Int, Int>? {
  *        (内嵌循环播放气泡已用真实播放器渲染, 抓帧会真机全屏闪放视频 + 抢占合成层/解码器,
  *        反而把气泡顶成黑块消失), 避免无谓的侵入式抓帧。
  */
-fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boolean = true): Bitmap? {
+fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boolean = true, withPlayButton: Boolean = true): Bitmap? {
     return try {
-        sThumbCache.get(f.name)?.let { return it }
+        val cacheKey = if (withPlayButton) f.name else f.name + "|raw"
+        sThumbCache.get(cacheKey)?.let { return it }
         val req = dp(density, 200)
-        var frame: Bitmap? = null
-        // 快路径: 系统 MediaMetadataRetriever(普通视频毫秒级)
-        var mmr: MediaMetadataRetriever? = null
-        try {
-            mmr = MediaMetadataRetriever()
-            // 优先 FileDescriptor 直连文件层(规避裸路径 content:// 误解析), 失败回退绝对路径
-            try {
-                val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-                try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
-            } catch (t: Throwable) {
-                mmr.setDataSource(f.absolutePath)
-            }
-            frame = retrieveFrameRetry(mmr, f)
-        } finally {
-            mmr?.release()
-        }
+        // 快路径: 系统 MediaMetadataRetriever(普通视频毫秒级), 抽出独立函数供后台线程复用
+        var frame: Bitmap? = mmrFrame(f)
         // 兜底: 系统栈被拒(平台 extractor 拒绝的转发视频) → ExoPlayer 异步取帧(自带纯 Java mp4 解析):
         // 非阻塞, 先返回 null 渲染文件卡片, 取到帧后回调刷新当前气泡为缩略图
         if (frame == null) {
             if (!allowGrab) return null   // 该调用方不需要全屏抓帧: 直接放弃, 由调用方 16:9 兜底
+            // 滚动中不入队取帧(避免滑动过程批量占 ExoGate 抓帧, 松手刷新后自动补取)
+            if (sScrolling) return null
             val key = f.name
             try {
                 Log.i("UiKit", "DT A 进入ExoPlayer兜底 inflight=" + sThumbInFlight.contains(key) + " cache=" + (sThumbCache.get(key) != null) + " failed=" + sThumbFailed.containsKey(key))
@@ -247,15 +384,13 @@ fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boole
             }
         }
         val src = frame ?: return null
-        // 从帧直接缩放而非采样: 帧是已解码的完整位图
-        val w = src.width
-        val h = src.height
-        if (w <= 0 || h <= 0) { return null }
-        val scale = minOf(1f, req.toFloat() / maxOf(w, h))
-        val tw = (w * scale).toInt().coerceAtLeast(1)
-        val th = (h * scale).toInt().coerceAtLeast(1)
-        val scaled = if (scale < 1f) Bitmap.createScaledBitmap(src, tw, th, true) else src
-        if (scaled !== src) src.recycle()
+        // 从帧直接缩放而非采样: 帧是已解码的完整位图(抽出独立函数供后台线程复用)
+        val scaled = scaleThumbFrame(src, req) ?: return null
+        if (!withPlayButton) {
+            // 纯帧输出(调用方自行统一画固定大小播放三角): 避免与 UiKit 自带三角叠加成"大套小"
+            sThumbCache.put(cacheKey, scaled)
+            return scaled
+        }
         // 叠加播放三角: 半透明黑圆底 + 白色右三角
         val out = Bitmap.createBitmap(scaled.width, scaled.height, Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
@@ -277,9 +412,110 @@ fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boole
         c.drawPath(path, tri)
         // 缓存最终输出(缩放+播放三角后的活位图)而非完整帧: 完整帧随后被 recycle,
         // 缓存命中返回已回收 Bitmap 会让恢复渲染拿到完整分辨率(触发视频气泡意外撑满屏)
-        sThumbCache.put(f.name, out)
+        sThumbCache.put(cacheKey, out)
         out
     } catch (e: Exception) { null }
+}
+
+/** MMR 快路径取首帧(独立函数, 主线程同步/后台异步共用); 失败返回 null */
+private fun mmrFrame(f: File): Bitmap? {
+    var mmr: MediaMetadataRetriever? = null
+    return try {
+        mmr = MediaMetadataRetriever()
+        // 优先 FileDescriptor 直连文件层(规避裸路径 content:// 误解析), 失败回退绝对路径
+        try {
+            val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
+        } catch (t: Throwable) {
+            mmr.setDataSource(f.absolutePath)
+        }
+        retrieveFrameRetry(mmr, f)
+    } catch (t: Throwable) { null } finally { try { mmr?.release() } catch (_: Throwable) {} }
+}
+
+/** 已解码帧缩放到最长边 req(独立函数供同步/后台共用); 无效尺寸返回 null */
+private fun scaleThumbFrame(src: Bitmap, req: Int): Bitmap? {
+    val w = src.width
+    val h = src.height
+    if (w <= 0 || h <= 0) return null
+    val scale = minOf(1f, req.toFloat() / maxOf(w, h))
+    return if (scale < 1f) {
+        val scaled = Bitmap.createScaledBitmap(src, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true)
+        if (scaled !== src) src.recycle()
+        scaled
+    } else src
+}
+
+// ---- 视频缩略图后台解码(治主线程 MMR 取帧卡顿): 绑定路径只查缓存, 未命中后台串行解码完回调刷新 ----
+private val sThumbBgExec = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+    Thread(r, "nyral-thumb-bg").apply { priority = Thread.MIN_PRIORITY }
+}
+
+/** 只查缓存的缩略图读取(不解码不阻塞): 供视频气泡降级展示用 */
+fun peekVideoThumb(f: File): Bitmap? =
+    sThumbCache.get(f.name + "|raw") ?: sThumbCache.get(f.name)
+
+/** 主线程触发已登记的取帧刷新回调 */
+private fun fireThumbCallbacks(key: String) {
+    val cbs = synchronized(sThumbCallbacks) { sThumbCallbacks.remove(key) }
+    if (cbs != null) android.os.Handler(android.os.Looper.getMainLooper()).post {
+        for (cb in cbs) { try { cb() } catch (_: Throwable) {} }
+    }
+}
+
+/**
+ * 视频缩略图后台版(绑定路径专用): 缓存命中直接返回; 未命中入后台单线程 MMR 解码,
+ * 就绪后写缓存并回调刷新气泡(先渲染文件卡片占位, 不再主线程同步取帧造成滚动掉帧)。
+ * MMR 失败(平台 extractor 拒绝的转发视频)自动转入既有 ExoPlayer 抓帧兜底队列(串行+冷却)。
+ */
+fun decodeVideoThumbnailBg(f: File, density: Float, ctx: Context): Bitmap? {
+    peekVideoThumb(f)?.let { return it }
+    val key = f.name
+    if (sThumbInFlight.contains(key)) return null
+    val failAt = sThumbFailed[key]
+    if (failAt != null && android.os.SystemClock.uptimeMillis() - failAt < THUMB_FAIL_COOLDOWN_MS) return null
+    sThumbInFlight.add(key)
+    val req = dp(density, 200)
+    sThumbBgExec.execute {
+        try {
+            // 磁盘缓存优先: 上次已取帧落盘(重启/切会话后内存缓存空), 读盘免重新解码, 首屏不再排队闪变
+            val disk = readThumbDisk(ctx, f.name)
+            if (disk != null) {
+                sThumbCache.put(key + "|raw", disk)
+                sThumbInFlight.remove(key)
+                Log.i("UiKit", "bg thumb 磁盘命中: $key")
+                fireThumbCallbacks(key)
+                return@execute
+            }
+            val frame = mmrFrame(f)
+            val scaled = if (frame != null) scaleThumbFrame(frame, req) else null
+            if (scaled != null) {
+                sThumbCache.put(key + "|raw", scaled)
+                writeThumbDisk(ctx, f.name, scaled)
+                sThumbInFlight.remove(key)
+                Log.i("UiKit", "bg thumb 取帧成功: $key ${scaled.width}x${scaled.height}")
+                fireThumbCallbacks(key)
+                return@execute
+            }
+            // MMR 失败: 转入既有 Exo 抓帧兜底(须回主线程入队)
+            sThumbInFlight.remove(key)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    if (!sThumbInFlight.contains(key)) {
+                        sThumbInFlight.add(key)
+                        enqueueThumb(ThumbJob(ctx, f, key, 0))
+                        Log.i("UiKit", "bg thumb MMR失败转Exo抓帧: $key")
+                    }
+                } catch (t: Throwable) {
+                    sThumbInFlight.remove(key)
+                }
+            }
+        } catch (t: Throwable) {
+            sThumbInFlight.remove(key)
+            Log.w("UiKit", "bg thumb 异常", t)
+        }
+    }
+    return null
 }
 
 /** 系统栈取帧失败时, 用 ExoPlayer(自带纯 Java mp4 解析) 后台异步解码首帧:
@@ -300,7 +536,7 @@ private fun pumpThumb() {
     synchronized(sThumbQueue) {
         if (sThumbRunning) return
         while (sThumbQueue.isNotEmpty()) {
-            val job = sThumbQueue.pollFirst()!!
+            val job = sThumbQueue.pollFirst() ?: break
             sThumbInQueue.remove(job.key)
             val act = job.ctx as? android.app.Activity
             if (act == null || act.isFinishing || act.isDestroyed) {
@@ -322,7 +558,11 @@ private fun thumbJobDone(job: ThumbJob) {
 
 /** 取帧成功: 写缓存 + 触发气泡刷新 */
 private fun thumbJobSuccess(job: ThumbJob, bmp: Bitmap) {
+    // 双键写入: 绑定路径按 "|raw" 键查(纯帧), 此前只写 f.name 键导致抓帧成功后
+    // renderUserContent 永远查不到 → 转发视频抓帧白干仍显示文件卡片
     sThumbCache.put(job.key, bmp)
+    sThumbCache.put(job.key + "|raw", bmp)
+    writeThumbDisk(job.ctx, job.f.name, bmp)   // 转发视频兜底帧也落盘, 重启后直接读盘
     sThumbFailed.remove(job.key)   // 成功取帧: 清失败标记, 后续直接命中缓存
     sThumbInFlight.remove(job.key)
     Log.i("UiKit", "exo thumb PixelCopy 取帧成功: " + job.key)
@@ -362,9 +602,17 @@ private fun isNearlyBlack(bmp: Bitmap): Boolean {
 
 /** 串行执行单个取帧 job: 自建全屏 SurfaceView + ExoPlayer 渲染, PixelCopy 抓首帧 */
 private fun startThumbJob(job: ThumbJob) {
+    if (!ExoGate.tryAcquire(job)) {
+        // 全局解码器已满(内嵌气泡/弹窗预览占用): 放弃本次抓帧并进冷却, 避免无效重试堆积解码器
+        sThumbFailed[job.key] = android.os.SystemClock.uptimeMillis()
+        sThumbInFlight.remove(job.key)
+        Log.w("UiKit", "exo thumb 放弃: 解码器名额已满 " + job.key)
+        thumbJobDone(job)
+        return
+    }
     val ctx = job.ctx; val f = job.f; val key = job.key
     val root = (ctx as? android.app.Activity)?.window?.decorView as? android.view.ViewGroup
-    if (root == null || android.os.Build.VERSION.SDK_INT < 26) { thumbJobFail(job); return }
+    if (root == null || android.os.Build.VERSION.SDK_INT < 26) { ExoGate.release(job); thumbJobFail(job); return }
     val done = AtomicBoolean(false)
     val main = android.os.Handler(ctx.mainLooper)
     // 自建全屏 SurfaceView + setVideoSurfaceView: SurfaceHolder 回调给出可靠 surface 就绪信号,
@@ -380,6 +628,7 @@ private fun startThumbJob(job: ThumbJob) {
     fun cleanup() {
         try { exo.release() } catch (_: Throwable) {}
         try { root.removeView(sv) } catch (_: Throwable) {}
+        ExoGate.release(job)
     }
     fun finish(result: () -> Unit) {
         if (!done.compareAndSet(false, true)) return
@@ -637,7 +886,6 @@ fun attachIconBg(density: Float): Drawable = object : Drawable() {
     override fun draw(canvas: Canvas) {
         bg.setBounds(bounds)
         bg.draw(canvas)
-        val d = density
         val ic = dp(16).toFloat()
         val left = (bounds.width() - ic) / 2f
         val top = (bounds.height() - ic) / 2f
@@ -664,7 +912,6 @@ fun searchIconBg(density: Float): Drawable = object : Drawable() {
         strokeCap = Paint.Cap.ROUND
     }
     override fun draw(canvas: Canvas) {
-        val d = density
         val ic = dp(17).toFloat()
         val left = (bounds.width() - ic) / 2f
         val top = (bounds.height() - ic) / 2f
@@ -758,7 +1005,7 @@ fun openAttachmentExternal(context: Context, fileName: String) {
             Toast.makeText(context, context.getString(R.string.mp_file_missing), Toast.LENGTH_SHORT).show()
             return
         }
-        val mime = AttachmentStore.mimeOf(fileName)
+        val mime = AttachmentStore.mimeOf(context, fileName)
         val uri = Uri.parse("content://${context.packageName}.files/${Uri.encode(f.name)}")
         val view = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mime)
