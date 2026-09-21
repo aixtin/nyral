@@ -3,9 +3,9 @@
 # Nyral 阶段1 js_run 补丁: LocalEngine.kt 四处 + DebugServer.kt 两处
 import io, os, sys, time, shutil
 
-BASE = "/home/ymz/droid-agent/android-agent-app/app/src/main/java/all"
+BASE = "/home/ymz/Nyral/android-agent-app/app/src/main/java/all"
 TS = time.strftime("%Y%m%d_%H%M%S")
-BAK = "/home/ymz/droid-agent/android-agent-app/backups"
+BAK = "/home/ymz/Nyral/android-agent-app/backups"
 
 def read(p):
     with io.open(p, "r", encoding="utf-8") as f:

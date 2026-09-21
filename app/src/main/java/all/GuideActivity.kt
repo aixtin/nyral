@@ -82,13 +82,13 @@ class GuideActivity : Activity() {
                 setMargins(0, dp(18), 0, 0)
             }
             addView(Ui.card(this@GuideActivity).apply {
-                addView(guideItem("🤖", getString(R.string.guide_f1_t), getString(R.string.guide_f1_d)))
+                addView(guideItem(R.drawable.ic_guide_chat, getString(R.string.guide_f1_t), getString(R.string.guide_f1_d)))
                 addView(Ui.divider(this@GuideActivity))
-                addView(guideItem("🔍", getString(R.string.guide_f2_t), getString(R.string.guide_f2_d)))
+                addView(guideItem(R.drawable.ic_guide_tool, getString(R.string.guide_f2_t), getString(R.string.guide_f2_d)))
                 addView(Ui.divider(this@GuideActivity))
-                addView(guideItem("🗂️", getString(R.string.guide_f3_t), getString(R.string.guide_f3_d)))
+                addView(guideItem(R.drawable.ic_guide_folder, getString(R.string.guide_f3_t), getString(R.string.guide_f3_d)))
                 addView(Ui.divider(this@GuideActivity))
-                addView(guideItem("🖥️", getString(R.string.guide_f4_t), getString(R.string.guide_f4_d)))
+                addView(guideItem(R.drawable.ic_guide_server, getString(R.string.guide_f4_t), getString(R.string.guide_f4_d)))
             })
         }
         content.addView(featCard)
@@ -246,12 +246,12 @@ class GuideActivity : Activity() {
         setContentView(root)
     }
 
-    private fun guideItem(icon: String, title: String, desc: String): LinearLayout =
+    private fun guideItem(iconRes: Int, title: String, desc: String): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(10), dp(4), dp(10))
-            addView(Ui.iconBadge(this@GuideActivity, icon.take(1), sizeDp = 42))
+            addView(Ui.iconBadgeRes(this@GuideActivity, iconRes, sizeDp = 42))
             addView(LinearLayout(this@GuideActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {

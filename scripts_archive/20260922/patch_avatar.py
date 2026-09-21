@@ -14,7 +14,7 @@ def patch(path, edits):
     with io.open(path, 'w', encoding='utf-8') as f:
         f.write(src)
 
-BASE = "/home/ymz/droid-agent/android-agent-app/app/src/main/java/all/"
+BASE = "/home/ymz/Nyral/android-agent-app/app/src/main/java/all/"
 
 # ============ MainActivity.kt ============
 main_edits = []

@@ -4,12 +4,19 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.Settings
+import android.util.Base64
 import android.util.Log
+import android.view.KeyEvent
+import android.view.MotionEvent
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetAddress
@@ -29,6 +36,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - GET  /v1/state   读 会话/记忆/工具/token 统计
  *  - GET  /v1/logs    拉运行日志(替代 adb logcat)
  *  - POST /v1/mem/search  body {"query":"..."} 测记忆检索
+ *  - GET  /v1/screen  截当前 Activity 窗口 PNG(base64), 云端可"亲眼看到" UI
+ *  - POST /v1/touch   body {"type":"tap","x":..,"y":..} / {"type":"swipe","x1":..,"y1":..,"x2":..,"y2":..,"duration":..} 模拟手势(含惯性 fling)
+ *  - POST /v1/key     body {"action":"back"|"home"|"keycode","code":..} 模拟按键
+ *  - POST /v1/input   body {"text":".."} 向当前焦点 EditText 追加文本
  *
  * 安全底线:
  *  - 默认关闭(设置开关), 非 debuggable 构建(release)直接拒绝启动
@@ -241,6 +252,10 @@ object DebugServer {
                     method == "GET" && path == "/v1/logs" -> writeJson(out, 200, logsJson(query), reuse)
                     method == "POST" && path == "/v1/mem/search" -> memSearch(c, out, body)
                     method == "POST" && path == "/v1/chat" -> { chat(c, out, body); keepAlive = false }
+                    method == "GET" && path == "/v1/screen" -> writeJson(out, 200, screenJson(c), reuse)
+                    method == "POST" && path == "/v1/touch" -> touch(c, out, body)
+                    method == "POST" && path == "/v1/key" -> key(c, out, body)
+                    method == "POST" && path == "/v1/input" -> inputText(c, out, body)
                     method == "GET" && path == "/v1/ping" -> writeJson(out, 200, JSONObject().put("pong", true).put("time", System.currentTimeMillis()), reuse)
                     // 浏览器页调试(完整闭环: 状态快照 / open / close / status / think / scan / highlight / click / type)
                     method == "GET" && path == "/v1/browser" -> writeJson(out, 200, browserJson(), reuse)
@@ -446,6 +461,272 @@ object DebugServer {
         }
         val result = MemoryTools.search(c, q)
         writeJson(out, 200, JSONObject().put("query", q).put("result", result))
+    }
+
+    // ================= UI 操作（/v1/screen /v1/touch /v1/key /v1/input） =================
+
+    /** 应用已获 root(KernelSU/Magisk): 系统级注入优先, 对 Compose/RecyclerView 滚动、全局按键最可靠 */
+    private fun rootOk(): Boolean {
+        return try {
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id -u"))
+            val ok = p.waitFor() == 0
+            if (ok) Log.i("Nyral", "DebugServer: root injection available")
+            ok
+        } catch (e: Exception) { false }
+    }
+
+    /** 以 root 执行 shell 命令, 返回是否成功(exit 0) */
+    private fun rootExec(cmd: String): Boolean {
+        return try {
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+            p.waitFor() == 0
+        } catch (e: Exception) { false }
+    }
+
+    /** input text 参数转义: 空格用 %s; 仅纯 ASCII 走 root, 含非 ASCII 交给 EditText 注入 */
+    private fun rootInputText(text: String): Boolean {
+        if (!text.all { it.code < 128 }) return false
+        val esc = text.replace(" ", "%s")
+            .replace("&", "\\&").replace("|", "\\|").replace(";", "\\;")
+            .replace("(", "\\(").replace(")", "\\)").replace("\"", "\\\"")
+            .replace("'", "\\'").replace("\$", "\\\$")
+        return rootExec("input text '$esc'")
+    }
+
+    /** 在 UI 主线程执行 block, 等待完成(最多 5s); 用于所有涉及 View/Activity 的操作 */
+    private fun runOnMain(block: () -> Unit): Boolean {
+        val latch = CountDownLatch(1)
+        val ok = AtomicBoolean(true)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try { block() } catch (e: Exception) { ok.set(false); Log.w("Nyral", "DebugServer UI op: ${e.message}") }
+            finally { latch.countDown() }
+        }
+        return try { latch.await(5, TimeUnit.SECONDS); ok.get() } catch (e: Exception) { false }
+    }
+
+    /** /v1/screen: 截当前 Activity DecorView 为 PNG(base64), 云端可直接看图 */
+    private fun screenJson(c: Context): JSONObject {
+        val result = JSONObject()
+        val act = main
+        if (act == null) return result.put("error", "MainActivity not alive")
+        val ok = runOnMain {
+            try {
+                val view = act.window.decorView
+                val bmp = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                view.draw(canvas)
+                val baos = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                result.put("ok", true)
+                result.put("width", view.width)
+                result.put("height", view.height)
+                result.put("image_png_base64", Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP))
+                bmp.recycle()
+            } catch (e: Exception) {
+                result.put("ok", false).put("error", e.message)
+            }
+        }
+        if (!ok && !result.has("ok")) result.put("ok", false).put("error", "main thread timeout")
+        return result
+    }
+
+    /** /v1/touch: 模拟手势。tap: {type,x,y}; swipe: {type,x1,y1,x2,y2,duration}; longpress: {type,x,y,duration} */
+    private fun touch(c: Context, out: OutputStream, body: String) {
+        val o = try { JSONObject(body) } catch (e: Exception) { null }
+        if (o == null) { writeJson(out, 400, JSONObject().put("error", "bad json")); return }
+        val act = main
+        if (act == null) { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val result = JSONObject()
+        val h = android.os.Handler(android.os.Looper.getMainLooper())
+        val done = CountDownLatch(1)
+        val type = o.optString("type", "tap")
+        val actOk = AtomicBoolean(true)
+        try {
+            when (type) {
+                "tap" -> {
+                    val x = o.optDouble("x", 0.0).toFloat()
+                    val y = o.optDouble("y", 0.0).toFloat()
+                    if (rootExec("input tap ${x.toInt()} ${y.toInt()}")) {
+                        result.put("ok", true).put("root", true).put("type", "tap").put("x", x).put("y", y)
+                        done.countDown()
+                    } else {
+                        h.post {
+                            try {
+                                val view = act.window.decorView
+                                val now = SystemClock.uptimeMillis()
+                                val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
+                                view.dispatchTouchEvent(down); down.recycle()
+                                val up = MotionEvent.obtain(now, now + 60, MotionEvent.ACTION_UP, x, y, 0)
+                                view.dispatchTouchEvent(up); up.recycle()
+                                result.put("ok", true).put("type", "tap").put("x", x).put("y", y)
+                            } catch (e: Exception) { actOk.set(false); result.put("ok", false).put("error", e.message) }
+                            finally { done.countDown() }
+                        }
+                    }
+                }
+                "swipe" -> {
+                    val x1 = o.optDouble("x1", 0.0).toFloat()
+                    val y1 = o.optDouble("y1", 0.0).toFloat()
+                    val x2 = o.optDouble("x2", 0.0).toFloat()
+                    val y2 = o.optDouble("y2", 0.0).toFloat()
+                    val dur = o.optLong("duration", 300L).coerceIn(50L, 5000L)
+                    if (rootExec("input swipe ${x1.toInt()} ${y1.toInt()} ${x2.toInt()} ${y2.toInt()} $dur")) {
+                        result.put("ok", true).put("root", true).put("type", "swipe")
+                            .put("from", "$x1,$y1").put("to", "$x2,$y2").put("duration", dur)
+                        done.countDown()
+                    } else {
+                        val view = act.window.decorView
+                        val now = SystemClock.uptimeMillis()
+                        // DOWN 立即派发
+                        h.post {
+                            try {
+                                val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x1, y1, 0)
+                                view.dispatchTouchEvent(down); down.recycle()
+                            } catch (e: Exception) { actOk.set(false); result.put("ok", false).put("error", e.message) }
+                        }
+                        // 尾段 ease-out: 末段位移大, UP 时速度感真实, 可触发 fling 惯性
+                        val steps = (dur / 16).toInt().coerceIn(2, 300)
+                        for (i in 1..steps) {
+                            val t = now + dur * i / steps
+                            val frac = i.toFloat() / steps
+                            val eased = 1f - (1f - frac) * (1f - frac)
+                            val mx = x1 + (x2 - x1) * eased
+                            val my = y1 + (y2 - y1) * eased
+                            h.postDelayed({
+                                try {
+                                    val mv = MotionEvent.obtain(now, t, MotionEvent.ACTION_MOVE, mx, my, 0)
+                                    view.dispatchTouchEvent(mv); mv.recycle()
+                                } catch (e: Exception) { actOk.set(false); result.put("ok", false).put("error", e.message) }
+                            }, t - now)
+                        }
+                        // UP 最后派发, 结束手势
+                        h.postDelayed({
+                            try {
+                                val up = MotionEvent.obtain(now, now + dur, MotionEvent.ACTION_UP, x2, y2, 0)
+                                view.dispatchTouchEvent(up); up.recycle()
+                                result.put("ok", true).put("type", "swipe")
+                                    .put("from", "$x1,$y1").put("to", "$x2,$y2").put("duration", dur)
+                            } catch (e: Exception) { actOk.set(false); result.put("ok", false).put("error", e.message) }
+                            finally { done.countDown() }
+                        }, dur + 30)
+                    }
+                }
+                "longpress" -> {
+                    val x = o.optDouble("x", 0.0).toFloat()
+                    val y = o.optDouble("y", 0.0).toFloat()
+                    val dur = o.optLong("duration", 600L).coerceIn(200L, 3000L)
+                    if (rootExec("input swipe ${x.toInt()} ${y.toInt()} ${x.toInt()} ${y.toInt()} $dur")) {
+                        result.put("ok", true).put("root", true).put("type", "longpress").put("x", x).put("y", y).put("duration", dur)
+                        done.countDown()
+                    } else {
+                        val view = act.window.decorView
+                        val now = SystemClock.uptimeMillis()
+                        h.post {
+                            try {
+                                val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0)
+                                view.dispatchTouchEvent(down); down.recycle()
+                            } catch (e: Exception) { actOk.set(false); result.put("ok", false).put("error", e.message) }
+                        }
+                        h.postDelayed({
+                            try {
+                                val up = MotionEvent.obtain(now, now + dur, MotionEvent.ACTION_UP, x, y, 0)
+                                view.dispatchTouchEvent(up); up.recycle()
+                                result.put("ok", true).put("type", "longpress").put("x", x).put("y", y).put("duration", dur)
+                            } catch (e: Exception) { actOk.set(false); result.put("ok", false).put("error", e.message) }
+                            finally { done.countDown() }
+                        }, dur + 30)
+                    }
+                }
+                else -> { result.put("ok", false).put("error", "unknown type: $type"); done.countDown() }
+            }
+            done.await(if (type == "swipe") o.optLong("duration", 300L).coerceIn(50L, 5000L) + 3000 else 5000, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            result.put("ok", false).put("error", e.message)
+            done.countDown()
+        }
+        if (!result.has("ok") && actOk.get()) result.put("ok", false).put("error", "touch timeout")
+        writeJson(out, if (result.optBoolean("ok", false)) 200 else 400, result)
+    }
+
+    /** /v1/key: 模拟按键。{action:"back"|"home"|"keycode", code:..} */
+    private fun key(c: Context, out: OutputStream, body: String) {
+        val o = try { JSONObject(body) } catch (e: Exception) { null }
+        if (o == null) { writeJson(out, 400, JSONObject().put("error", "bad json")); return }
+        val act = main
+        if (act == null) { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val result = JSONObject()
+        // root 系统级按键最可靠, 优先; 失败(无 root/未授权)再回退 app 内 View 注入
+        val action = o.optString("action", "back")
+        val code = o.optInt("code", KeyEvent.KEYCODE_ENTER)
+        val cmd = when (action) {
+            "back" -> "input keyevent 4"
+            "home" -> "input keyevent 3"
+            "keycode" -> "input keyevent $code"
+            else -> null
+        }
+        if (cmd != null && rootExec(cmd)) {
+            result.put("ok", true).put("root", true).put("action", action)
+            if (action == "keycode") result.put("code", code)
+            writeJson(out, 200, result)
+            return
+        }
+        val ok = runOnMain {
+            try {
+                when (action) {
+                    "back" -> { act.onBackPressed(); result.put("ok", true).put("action", "back") }
+                    "home" -> {
+                        val i = android.content.Intent(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_HOME)
+                        act.startActivity(i)
+                        result.put("ok", true).put("action", "home")
+                    }
+                    "keycode" -> {
+                        act.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+                        act.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+                        result.put("ok", true).put("action", "keycode").put("code", code)
+                    }
+                    else -> result.put("ok", false).put("error", "unknown action: " + action)
+                }
+            } catch (e: Exception) {
+                result.put("ok", false).put("error", e.message)
+            }
+        }
+        if (!ok && !result.has("ok")) result.put("ok", false).put("error", "main thread timeout")
+        writeJson(out, if (result.optBoolean("ok", false)) 200 else 400, result)
+    }
+
+    /** /v1/input: 向当前焦点 EditText 追加文本 {text:".."} */
+    private fun inputText(c: Context, out: OutputStream, body: String) {
+        val o = try { JSONObject(body) } catch (e: Exception) { null }
+        if (o == null) { writeJson(out, 400, JSONObject().put("error", "bad json")); return }
+        val act = main
+        if (act == null) { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val text = o.optString("text", "")
+        val result = JSONObject()
+        // root 下 ASCII 文本直接走 input text(系统级, 不依赖焦点); 中文/失败回退 EditText 注入
+        if (text.isNotEmpty() && rootInputText(text)) {
+            result.put("ok", true).put("root", true).put("text_len", text.length)
+            writeJson(out, 200, result)
+            return
+        }
+        val ok = runOnMain {
+            try {
+                val focus = act.currentFocus
+                if (focus is android.widget.EditText) {
+                    val start = focus.selectionStart.coerceAtLeast(0)
+                    val end = focus.selectionEnd.coerceAtLeast(start)
+                    val cur = focus.text ?: android.text.Editable.Factory.getInstance().newEditable("")
+                    cur.replace(start, end, text)
+                    focus.setSelection(start + text.length)
+                    result.put("ok", true).put("text_len", text.length)
+                } else {
+                    result.put("ok", false).put("error", "no EditText focused")
+                }
+            } catch (e: Exception) {
+                result.put("ok", false).put("error", e.message)
+            }
+        }
+        if (!ok && !result.has("ok")) result.put("ok", false).put("error", "main thread timeout")
+        writeJson(out, if (result.optBoolean("ok", false)) 200 else 400, result)
     }
 
     // ================= /v1/browser (浏览器页调试闭环) =================

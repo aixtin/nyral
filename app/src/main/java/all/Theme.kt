@@ -31,6 +31,7 @@ interface AppTheme {
     val sub: Int           // 次要文字
     val divider: Int       // 分隔线
     val inputBg: Int       // 输入框底
+    val stroke: Int        // 卡片/面板描边（浅色主题用浅灰，暗色用深灰）
     val danger: Int        // 危险/错误
     val dangerLight: Int   // 危险浅底
     val accent: Int        // 点缀色（默认同 primary）
@@ -100,6 +101,7 @@ open class BaseTheme(
     override val sub: Int,
     override val divider: Int,
     override val inputBg: Int,
+    override val stroke: Int,
     override val danger: Int,
     override val dangerLight: Int,
     override val accent: Int,
@@ -127,6 +129,7 @@ object DefaultTheme : BaseTheme(
     sub = Color.parseColor("#999999"),
     divider = Color.parseColor("#F0F0F2"),
     inputBg = Color.parseColor("#EFEFF1"),
+    stroke = Color.parseColor("#D9D9DE"),
     danger = Color.parseColor("#E5484D"),
     dangerLight = Color.parseColor("#FFE5E5"),
     accent = Color.parseColor("#0B93F6"),
@@ -154,6 +157,7 @@ object FlatTheme : BaseTheme(
     sub = Color.parseColor("#646466"),
     divider = Color.parseColor("#F0F0F0"),
     inputBg = Color.parseColor("#F9FAFB"),
+    stroke = Color.parseColor("#E5E5EA"),
     danger = Color.parseColor("#FF653F"),
     dangerLight = Color.parseColor("#FFE3DE"),
     accent = Color.parseColor("#1E4DF6"),
@@ -181,6 +185,7 @@ object KawaiiTheme : BaseTheme(
     sub = Color.parseColor("#64748B"),
     divider = Color.parseColor("#E7EAF0"),
     inputBg = Color.parseColor("#F1F5F9"),
+    stroke = Color.parseColor("#DDE3EC"),
     danger = Color.parseColor("#EF4444"),
     dangerLight = Color.parseColor("#FEE2E2"),
     accent = Color.parseColor("#22D3EE"),
@@ -213,6 +218,7 @@ object KiwiDarkTheme : BaseTheme(
     sub = Color.parseColor("#9AA0A6"),
     divider = Color.parseColor("#262C31"),
     inputBg = Color.parseColor("#1F262C"),
+    stroke = Color.parseColor("#3A3F50"),
     danger = Color.parseColor("#F28B82"),
     dangerLight = Color.parseColor("#3A2625"),
     accent = Color.parseColor("#8AB4F8"),
@@ -246,6 +252,7 @@ object IconTheme : BaseTheme(
     sub = Color.parseColor("#8B98A3"),
     divider = Color.parseColor("#ECE6D8"),
     inputBg = Color.parseColor("#F2EEE3"),
+    stroke = Color.parseColor("#E3DED2"),
     danger = Color.parseColor("#E05B52"),
     dangerLight = Color.parseColor("#FBE4E0"),
     accent = Color.parseColor("#5FA8B8"),
@@ -279,6 +286,7 @@ object OledTheme : BaseTheme(
     sub = Color.parseColor("#8A9099"),
     divider = Color.parseColor("#1A1A1A"),
     inputBg = Color.parseColor("#111317"),
+    stroke = Color.parseColor("#262C31"),
     danger = Color.parseColor("#F28B82"),
     dangerLight = Color.parseColor("#2A1F1F"),
     accent = Color.parseColor("#8AB4F8"),

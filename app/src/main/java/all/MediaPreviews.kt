@@ -2,7 +2,10 @@ package io.github.aixtin.nyral
 
 import android.app.Activity
 import android.app.Dialog
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -13,9 +16,13 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.pdf.PdfRenderer
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import android.text.TextUtils
 import android.view.GestureDetector
 import android.view.Gravity
@@ -71,6 +78,16 @@ private fun videoSizeOf(act: Activity, fn: String): Pair<Int, Int>? {
     } catch (e: Exception) { null }
 }
 
+/** 读取图片文件实际宽高(px, 仅解码 bounds 不解码像素); 异常图片返回 null 由调用方兜底 */
+private fun imageSizeOf(act: Activity, fn: String): Pair<Int, Int>? {
+    return try {
+        val f = AttachmentStore.fileOf(act, fn) ?: return null
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(f.absolutePath, opts)
+        if (opts.outWidth > 0 && opts.outHeight > 0) Pair(opts.outWidth, opts.outHeight) else null
+    } catch (e: Exception) { null }
+}
+
 /** 附件入口分发: 按 mime 选择媒体/PDF/文本/音频预览或系统外部打开 */
 fun Activity.openAttachmentPreview(files: List<String>, startIndex: Int) {
     val act: Activity = this
@@ -81,13 +98,13 @@ fun Activity.openAttachmentPreview(files: List<String>, startIndex: Int) {
         Toast.makeText(act, getString(R.string.mp_file_missing), Toast.LENGTH_SHORT).show()
         return
     }
-    val mime = AttachmentStore.mimeOf(file)
+    val mime = AttachmentStore.mimeOf(act, file)
     when {
         mime.startsWith("image/") || mime.startsWith("video/") -> {
             // 同一条消息的图片/视频: 全屏左右滑动切换浏览
             val media = files.filter { fn ->
                 val ff = AttachmentStore.fileOf(act, fn)
-                ff != null && AttachmentStore.mimeOf(fn).let { it.startsWith("image/") || it.startsWith("video/") }
+                ff != null && AttachmentStore.mimeOf(act, fn).let { it.startsWith("image/") || it.startsWith("video/") }
             }
             val mi = media.indexOf(file).coerceAtLeast(0)
             showMediaPreviewDialog(media, mi)
@@ -105,57 +122,61 @@ private fun Activity.showMediaPreviewDialog(media: List<String>, startIndex: Int
     if (media.isEmpty()) return
     val d = Dialog(act)
     d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-    // 纯视频预览: 弹窗高度自适应(标题栏+16:9视频区+底部白栏), 上下夹住视频消灭黑边; 含图片保持原全屏逻辑
-    val isAllVideo = media.all { AttachmentStore.mimeOf(it).startsWith("video/") }
+    // 纯媒体预览(全视频或全图片): 弹窗高度自适应(标题栏+按实际宽高比算高的内容区+底部白栏), 上下夹住消灭黑边;
+    // 图+视频混合保持原全屏逻辑
+    val isAllVideo = media.all { AttachmentStore.mimeOf(act, it).startsWith("video/") }
+    val isAllImage = media.all { AttachmentStore.mimeOf(act, it).startsWith("image/") }
+    val adaptH = isAllVideo || isAllImage
     // 外层留边距, 露出圆角: 整卡黑底圆角, 顶部标题栏白底仅顶部圆角
     val outer = FrameLayout(act).apply {
         setPadding(dp(10), dp(10), dp(10), dp(10))
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     }
-    outer.addView(createMediaPreviewContent(media, startIndex, d, isAllVideo))
+    outer.addView(createMediaPreviewContent(media, startIndex, d, adaptH))
     d.setContentView(outer)
     d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
     d.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
-        if (isAllVideo) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
+        if (adaptH) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
     d.show()
 }
 
-private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: Int, d: Dialog, isAllVideo: Boolean = false): View {
+private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: Int, d: Dialog, adaptH: Boolean = false): View {
     val act: Activity = this
     val screenW = resources.displayMetrics.widthPixels
     val screenH = resources.displayMetrics.heightPixels
     // 内容区宽度: 外层留边距后实际可用宽度
     val contentW = screenW - dp(20)
-    // 纯视频自适应: 视频区高度按各视频实际宽高比(横屏16:9/竖屏9:16各自贴合), 取所需最大高度统一容器防切页跳动;
-    // 封顶=屏高减(标题栏+底栏+四周边距)余量; 取尺寸失败兜底 16:9; 底部白栏兜底防圆角裁视频内容
-    val videoH = if (isAllVideo) {
+    // 纯媒体自适应: 内容区高度按各视频/图片实际宽高比(横屏16:9/竖屏9:16各自贴合), 取所需最大高度统一容器防切页跳动;
+    // 封顶=屏高减(标题栏+底栏+四周边距)余量; 取尺寸失败兜底 16:9; 底部白栏兜底防圆角裁内容
+    val mediaH = if (adaptH) {
         val cap = (screenH - dp(130)).coerceAtLeast(dp(120))
         val needMax = media.mapNotNull { fn ->
-            val sz = videoSizeOf(act, fn)
+            val mime = AttachmentStore.mimeOf(act, fn)
+            val sz = if (mime.startsWith("video/")) videoSizeOf(act, fn) else imageSizeOf(act, fn)
             if (sz != null && sz.first > 0 && sz.second > 0) (contentW.toLong() * sz.second / sz.first).toInt() else 0
         }.maxOrNull() ?: (contentW * 9 / 16)
         needMax.coerceIn(dp(120), cap)
     } else 0
     lateinit var indicator: TextView
     val root = FrameLayout(act).apply {
-        background = rounded(dp(20), Color.BLACK)
+        background = rounded(dp(20), Ui.SURFACE)
         // 内容裁剪到圆角范围内, 视频/图片铺满底部时底角仍保持圆角
         outlineProvider = ViewOutlineProvider.BACKGROUND
         clipToOutline = true
-        // 纯视频: 整卡高度自适应内容(标题栏+视频+底栏); 含图片保持全屏
+        // 纯媒体: 整卡高度自适应内容(标题栏+内容+底栏); 混合保持全屏
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            if (isAllVideo) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
+            if (adaptH) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
     }
     // 垂直容器: 顶部标题栏占一行, 媒体内容在其下方填充剩余空间, 不被标题遮挡
     val vStack = LinearLayout(act).apply {
         orientation = LinearLayout.VERTICAL
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            if (isAllVideo) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
+            if (adaptH) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT)
     }
     val hsv = HorizontalScrollView(act).apply {
         isHorizontalScrollBarEnabled = false
         isVerticalScrollBarEnabled = false
-        layoutParams = if (isAllVideo) LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, videoH)
+        layoutParams = if (adaptH) LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, mediaH)
                        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
     }
     val strip = LinearLayout(act).apply {
@@ -163,18 +184,21 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     }
     val videoViews = arrayOfNulls<PlayerView>(media.size)
+    val exos = arrayOfNulls<ExoPlayer>(media.size)   // 按需创建: 每页至多一个活跃播放器, 离开即释放
+    // 每页 ExoGate 名额令牌: 与 exos 同生命周期持有/归还; 集合记账下双还与漏还都幂等可查(见 ExoGate 注释)
+    val gateTokens = arrayOfNulls<Any>(media.size)
     media.forEachIndexed { i, file ->
         val page = FrameLayout(act).apply {
             layoutParams = LinearLayout.LayoutParams(contentW, ViewGroup.LayoutParams.MATCH_PARENT)
         }
-        val mime = AttachmentStore.mimeOf(file)
+        val mime = AttachmentStore.mimeOf(act, file)
         if (mime.startsWith("image/")) {
             val iv = ImageView(act).apply {
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
-                    bottomMargin = dp(8)   // 底部留白收窄, 配合 root 圆角裁剪, 不遮圆角
+                    bottomMargin = if (adaptH) 0 else dp(8)   // 纯媒体有底部白栏兜底圆角; 全屏模式留白防图底遮圆角
                 }
-                setBackgroundColor(Color.BLACK)
+                setBackgroundColor(Ui.SURFACE)
             }
             val f = AttachmentStore.fileOf(act, file)
             // 大图解码移到后台线程, 避免大图在主线程解码卡顿
@@ -231,21 +255,13 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
             // 栈对特定转发视频(社交平台转存/含特殊字符/容器非标准)的拒绝(No content provider / instantiate extractor 失败)
             val pv = PlayerView(act).apply {
                 layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER).apply {
-                    bottomMargin = if (isAllVideo) 0 else dp(8)   // 纯视频有底部白栏兜底圆角; 全屏模式留白防播放控件遮底角
+                    bottomMargin = if (adaptH) 0 else dp(8)   // 纯媒体有底部白栏兜底圆角; 全屏模式留白防播放控件遮底角
                 }
+                setShutterBackgroundColor(Ui.SURFACE)   // 视频 surface 留白区与弹窗卡片同色, 不露黑边
                 useController = true
             }
             val f = AttachmentStore.fileOf(act, file)
-            if (f != null) {
-                val exo = ExoPlayer.Builder(act).build()
-                exo.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(f)))
-                // 接收端气泡循环播放管线: 预览弹窗内视频/动图 播放完一次自动重播(loop), 对齐微信大动图
-                exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
-                exo.prepare()
-                exo.playWhenReady = true
-                pv.player = exo
-                pv.setBackgroundColor(Color.BLACK)
-            }
+            if (f != null) pv.tag = f   // 按需创建: 滑动到该页才建 ExoPlayer, 离开即释放, 任意时刻最多 1 个解码器活跃
             videoViews[i] = pv
             page.addView(pv)
         }
@@ -253,9 +269,9 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
     }
     hsv.addView(strip)
 
-    // 顶部标题栏(白底融合整体 UI): 文件名 + 页码 + 关闭; 仅顶部两角圆角(与整卡黑底圆角衔接)
+    // 顶部标题栏(主题色面板融合整体 UI): 文件名 + 页码 + 关闭; 仅顶部两角圆角(与整卡同色衔接)
     val topBarBg = GradientDrawable().apply {
-        setColor(Color.WHITE)
+        setColor(Ui.SURFACE)
         cornerRadii = floatArrayOf(
             dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(),
             0f, 0f, 0f, 0f)
@@ -282,19 +298,82 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
         setTypeface(typeface, Typeface.BOLD)
         setPadding(dp(12), dp(4), dp(8), dp(4))
     }.also { indicator = it })
-    topBar.addView(TextView(act).apply {
-        text = "✕"
-        textSize = 22f
-        setTextColor(Ui.TEXT)
+    topBar.addView(ImageView(act).apply {
+        setImageDrawable(Ui.lucideX(act, Ui.TEXT, 20))
         setPadding(dp(14), dp(2), dp(12), dp(2))
         setOnClickListener { d.dismiss() }
     })
     vStack.addView(topBar)
     vStack.addView(hsv)
-    // 纯视频自适应: 底部白色底栏与顶部标题栏对称, 上下夹住视频; 圆角裁白栏而非视频内容
-    if (isAllVideo) {
+
+    fun currentPage(): Int =
+        if (media.isEmpty()) 0 else (hsv.scrollX.toFloat() / contentW).let { Math.round(it).coerceIn(0, media.size - 1) }
+
+    /** 保存当前附件到系统相册: 图片→Pictures/Nyral, 视频→Movies/Nyral; Android10+ RELATIVE_PATH 免权限, 同名去重覆盖 */
+    fun saveToGallery(act: Activity, fn: String): String {
+        val f = AttachmentStore.fileOf(act, fn) ?: return act.getString(R.string.mp_file_missing)
+        val mime = AttachmentStore.mimeOf(act, fn)
+        val isVideo = mime.startsWith("video/")
+        val relDir = (if (isVideo) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES) + "/Nyral"
+        return try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                val collection = if (isVideo) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                                 else MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                // 同名去重: 已存在则复用该条目覆盖内容, 避免重复保存堆积副本
+                var uri = act.contentResolver.query(
+                    collection, arrayOf(MediaStore.MediaColumns._ID),
+                    "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+                    arrayOf(relDir, f.name), null
+                )?.use { c -> if (c.moveToFirst()) ContentUris.withAppendedId(collection, c.getLong(0)) else null }
+                if (uri == null) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, f.name)
+                        put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, relDir)
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                    uri = act.contentResolver.insert(collection, values) ?: return act.getString(R.string.mp_save_fail)
+                    act.contentResolver.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
+                        ?: return act.getString(R.string.mp_save_fail)
+                    values.clear()
+                    values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    act.contentResolver.update(uri, values, null, null)
+                } else {
+                    act.contentResolver.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
+                        ?: return act.getString(R.string.mp_save_fail)
+                }
+            } else {
+                val base = Environment.getExternalStoragePublicDirectory(
+                    if (isVideo) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES)
+                val target = File(base, "Nyral/${f.name}")
+                target.parentFile?.mkdirs()
+                f.copyTo(target, overwrite = true)
+                act.sendBroadcast(Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, Uri.fromFile(target)))
+            }
+            act.getString(R.string.mp_saved)
+        } catch (e: Exception) {
+            act.getString(R.string.mp_save_fail) + " " + (e.message ?: "")
+        }
+    }
+
+    /** 分享当前附件: content:// FileProvider 暴露私有文件走系统分享 */
+    fun shareAttachment(act: Activity, fn: String) {
+        val f = AttachmentStore.fileOf(act, fn) ?: return
+        val mime = AttachmentStore.mimeOf(act, fn)
+        val uri = Uri.parse("content://${act.packageName}.files/${Uri.encode(f.name)}")
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try { act.startActivity(Intent.createChooser(share, act.getString(R.string.mp_share))) }
+        catch (e: Exception) { Toast.makeText(act, act.getString(R.string.mp_save_fail) + " " + (e.message ?: ""), Toast.LENGTH_SHORT).show() }
+    }
+
+    // 纯媒体自适应: 底部主题色底栏与顶部标题栏对称, 上下夹住视频/图片; 圆角裁底栏而非内容
+    if (adaptH) {
         val bottomBarBg = GradientDrawable().apply {
-            setColor(Color.WHITE)
+            setColor(Ui.SURFACE)
             cornerRadii = floatArrayOf(
                 0f, 0f, 0f, 0f,
                 dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat())
@@ -305,23 +384,87 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
             background = bottomBarBg
             setPadding(dp(10), dp(8), dp(6), dp(8))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46))
+            fun barBtn(iconRes: Int, txt: String, onClick: () -> Unit) = LinearLayout(act).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                setOnClickListener { onClick() }
+                addView(ImageView(act).apply {
+                    setImageResource(iconRes)
+                    imageTintList = android.content.res.ColorStateList.valueOf(Ui.PRIMARY)
+                    layoutParams = LinearLayout.LayoutParams(dp(18), dp(18))
+                })
+                addView(TextView(act).apply {
+                    text = txt
+                    textSize = 13f
+                    setTextColor(Ui.PRIMARY)
+                    setPadding(dp(5), 0, 0, 0)
+                })
+            }
+            addView(barBtn(R.drawable.ic_media_save, getString(R.string.mp_save)) {
+                Toast.makeText(act, saveToGallery(act, media[currentPage()]), Toast.LENGTH_SHORT).show()
+            })
+            addView(barBtn(R.drawable.ic_media_share, getString(R.string.mp_share)) { shareAttachment(act, media[currentPage()]) })
         })
     }
     root.addView(vStack)
 
-    fun currentPage(): Int =
-        if (media.isEmpty()) 0 else (hsv.scrollX.toFloat() / contentW).let { Math.round(it).coerceIn(0, media.size - 1) }
-
+    fun releaseVideoPage(i: Int) {
+        val exo = exos[i] ?: return
+        exos[i] = null
+        try { videoViews[i]?.player = null } catch (_: Exception) {}
+        try { exo.release() } catch (_: Exception) {}
+        gateTokens[i]?.let { ExoGate.release(it) }
+        gateTokens[i] = null
+    }
     fun onPageChanged(page: Int) {
         indicator.text = "${page + 1}/${media.size}"
-        media.forEachIndexed { i, fn ->
-            val pv = videoViews[i] ?: return@forEachIndexed
-            if (i == page) {
-                val p = pv.player
-                if (p != null && !p.isPlaying) { try { p.play() } catch (_: Exception) {} }
+        // 释放非当前页播放器: 任意时刻最多一个 ExoPlayer 活跃, 堵住多视频同时硬解码 OOM
+        media.indices.forEach { if (it != page) releaseVideoPage(it) }
+        val pv = videoViews[page] ?: return
+        val f = pv.tag as? File ?: return
+        if (exos[page] != null) {
+            val p = exos[page]
+            if (p != null && !p.isPlaying) { try { p.play() } catch (_: Exception) {} }
+        } else {
+            // 全局解码器硬限额(内嵌气泡2 + 弹窗1): 弹窗为用户主动预览, 优先级最高,
+            // 名额被内嵌气泡占满时请最老内嵌让位; 仍不足(抓帧/其它占位)则放弃本次创建
+            // 注意: ExoGate.tryAcquire 集合 add 幂等——同一 token 二次 tryAcquire 必失败且泄漏名额,
+            // 此前先 tryAcquire 再 kill 再 tryAcquire 的写法在"名额未满"时永远创建失败+泄漏
+            // (表现为弹窗视频点开播不了、要等/重开才出画面), 必须改为失败后才让位重试一次
+            val token = Any()
+            var acquired = ExoGate.tryAcquire(token)
+            if (!acquired) {
+                // 走统一终结钩子: 实例释放+名额归还+被踢行视图降级三件事一处收口——
+                // 此前直接 victim.release()+ExoGate.release(), 被踢者自己的 detach 监听
+                // 之后又 release 一次 → 名额双重归还, ExoGate 计数漂移后 MAX=3 形同虚设
+                killOldestBubblePlayer()
+                acquired = ExoGate.tryAcquire(token)
+            }
+            if (!acquired) {
+                android.util.Log.w("Nyral", "预览视频页创建放弃: 全局解码器名额已满(count=${ExoGate.count()})")
             } else {
-                val p = pv.player
-                if (p != null && p.isPlaying) { try { p.pause() } catch (_: Exception) {} }
+            // 建实例可能在 try 外抛(解码器耗尽等): 单独兜住, 否则名额已领却不归还 → 全局假满
+            val exo = try { ExoPlayer.Builder(act).build() } catch (e: Throwable) {
+                android.util.Log.w("Nyral", "预览视频页 Building 失败 page=$page", e)
+                ExoGate.release(token)
+                null
+            }
+            if (exo != null) try {
+                exo.setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(f)))
+                // 接收端气泡循环播放管线: 预览弹窗内视频/动图 播放完一次自动重播(loop), 对齐微信大动图
+                exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
+                exo.prepare()
+                exo.playWhenReady = true
+                exos[page] = exo
+                gateTokens[page] = token
+                pv.player = exo
+                pv.setBackgroundColor(Color.BLACK)
+            } catch (t: Throwable) {
+                android.util.Log.w("Nyral", "预览视频页创建失败 page=$page", t)
+                try { exo.release() } catch (_: Exception) {}
+                ExoGate.release(token)
+            }
             }
         }
     }
@@ -338,7 +481,7 @@ private fun Activity.createMediaPreviewContent(media: List<String>, startIndex: 
         }
         false
     }
-    d.setOnDismissListener { media.forEachIndexed { i, _ -> videoViews[i]?.player?.release() } }
+    d.setOnDismissListener { media.indices.forEach { releaseVideoPage(it) } }
 
     hsv.post {
         hsv.scrollTo(startIndex * contentW, 0)
@@ -385,10 +528,8 @@ private fun Activity.showPdfPreviewDialog(fileName: String) {
             ellipsize = TextUtils.TruncateAt.MIDDLE
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
-        addView(TextView(act).apply {
-            text = "✕"
-            textSize = 22f
-            setTextColor(Ui.TEXT)
+        addView(ImageView(act).apply {
+            setImageDrawable(Ui.lucideX(act, Ui.TEXT, 20))
             setPadding(dp(14), dp(2), dp(12), dp(2))
             setOnClickListener { d.dismiss() }
         })
@@ -564,10 +705,8 @@ private fun Activity.showTextPreviewDialog(fileName: String) {
             ellipsize = TextUtils.TruncateAt.MIDDLE
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
-        addView(TextView(act).apply {
-            text = "✕"
-            textSize = 22f
-            setTextColor(Ui.TEXT)
+        addView(ImageView(act).apply {
+            setImageDrawable(Ui.lucideX(act, Ui.TEXT, 20))
             setPadding(dp(14), dp(2), dp(12), dp(2))
             setOnClickListener { d.dismiss() }
         })

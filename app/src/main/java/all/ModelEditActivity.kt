@@ -144,7 +144,10 @@ class ModelEditActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
-        card.addView(authTypeContainer)
+        card.addView(authTypeContainer, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(8)
+        })
         renderAuthTypeSelector()
         authHeaderInput = Ui.input(this, getString(R.string.hint_auth_header_example)).apply {
             setText(selectedAuthHeader)
@@ -394,36 +397,31 @@ class ModelEditActivity : Activity() {
         val p = providerId?.let { ApiConfig.providerById(it) }
         val manual = isNew || p?.isPreset != true
         selectedModels.forEach { m ->
-            // 模型名行
-            val row = LinearLayout(this).apply {
+            // 描边框卡片：模型名 + 能力 chips 整体包进卡片，✕ 放卡片右侧垂直居中
+            val card = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding(dp(2), dp(4), dp(2), dp(0))
+                background = Ui.roundedBorder(Ui.DIVIDER, 12, 1, this@ModelEditActivity)
+                setPadding(dp(12), dp(8), dp(4), dp(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8)
+                }
             }
-            row.addView(TextView(this).apply {
+            // 左侧内容容器（模型名行 + 能力 chips 行）
+            val body = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            body.addView(TextView(this).apply {
                 text = m
                 textSize = 13f
                 setTextColor(Ui.TEXT)
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
-            row.addView(TextView(this).apply {
-                text = "✕"
-                textSize = 14f
-                setTextColor(0xFFE53935.toInt())
-                setPadding(dp(14), dp(2), dp(4), dp(2))
-                setOnClickListener {
-                    selectedModels.remove(m)
-                    selectedModelCaps.remove(m)
-                    renderSelectedModels()
-                }
-                Ui.press(this)
-            })
-            modelsContainer.addView(row)
-
             // 能力行：手动可勾选，预设只读标注
             val capsRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(2), dp(2), dp(2), dp(8))
+                setPadding(dp(0), dp(4), dp(0), dp(0))
             }
             val modelCaps: Set<String> = if (manual) {
                 selectedModelCaps.getOrPut(m) { mutableSetOf(ApiConfig.CAP_TEXT) }
@@ -454,7 +452,20 @@ class ModelEditActivity : Activity() {
                     rightMargin = dp(6)
                 })
             }
-            modelsContainer.addView(capsRow)
+            body.addView(capsRow)
+            card.addView(body)
+            // 右侧 ✕：相对整卡垂直居中
+            card.addView(android.widget.ImageView(this).apply {
+                setImageDrawable(Ui.lucideTrash(this@ModelEditActivity, 0xFFE53935.toInt(), 16))
+                setPadding(dp(8), dp(4), dp(16), dp(4))
+                setOnClickListener {
+                    selectedModels.remove(m)
+                    selectedModelCaps.remove(m)
+                    renderSelectedModels()
+                }
+                Ui.press(this)
+            })
+            modelsContainer.addView(card)
         }
     }
 
@@ -622,22 +633,31 @@ class ModelEditActivity : Activity() {
 
         val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         models.forEachIndexed { i, m ->
-            val cb = Ui.check(this, checked[i])
-            fun updateCb() {
-                cb.text = if (checked[i]) "✓" else ""
-                cb.background = Ui.rounded(if (checked[i]) Ui.PRIMARY else Ui.INPUT_BG, 6, this@ModelEditActivity)
+            val cb = Ui.check(this, checked[i]).apply { textSize = 11f }
+            lateinit var row: LinearLayout
+            fun styleRow() {
+                row.background = Ui.roundedBorder(if (checked[i]) Ui.PRIMARY else Ui.DIVIDER, 12, 1, this@ModelEditActivity)
             }
-            // 模型名行
-            val row = LinearLayout(this).apply {
+            fun updateCb() {
+                Ui.applyCheck(cb, checked[i], this@ModelEditActivity)
+                styleRow()
+            }
+            // 模型名行（独立圆角描边框卡片，整卡可点切换选中）
+            row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 isClickable = true
-                setPadding(dp(2), dp(8), dp(2), dp(2))
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8)
+                }
                 setOnClickListener {
                     checked[i] = !checked[i]
                     updateCb()
                 }
             }
+            styleRow()
             Ui.press(row)
             row.addView(TextView(this).apply {
                 text = m

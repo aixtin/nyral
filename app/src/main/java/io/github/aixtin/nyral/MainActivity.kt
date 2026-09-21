@@ -1,5 +1,6 @@
 package io.github.aixtin.nyral
 
+import android.graphics.Outline
 import android.app.Activity
 import android.app.Application
 import android.app.Dialog
@@ -42,7 +43,11 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.graphics.Matrix
+import android.graphics.SurfaceTexture
+import android.view.TextureView
 import android.os.Handler
+import android.view.LayoutInflater
 import android.os.Looper
 import android.text.Editable
 import android.text.SpannableStringBuilder
@@ -69,7 +74,10 @@ import android.widget.Button
 import android.widget.MediaController
 // Media3 ExoPlayer: 自带纯 Java MP4/容器解析, 绕开系统 MediaPlayer/MediaExtractor 对部分转发视频的拒绝
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import android.widget.SeekBar
 import android.widget.VideoView
@@ -177,8 +185,10 @@ class MainActivity : Activity() {
     private var lastAvatarStamp = 0L
     private val chatRows = ArrayList<ChatRow>()
     private lateinit var chatAdapter: ChatAdapter
-    private lateinit var chatRec: RecyclerView
+    lateinit var chatRec: RecyclerView
     private var streamingRow: ChatRow.Streaming? = null
+    /** AI 表情流式掩码缓冲: 保存跨 delta 分片的未闭合 [表情: 尾巴 */
+    private var emojiMaskTail = ""
     /** 请求代际(阶段2 流式竞态治理): 每次发起新请求/取消当前请求(切会话)自增,
      *  流式回调进入主线程后先校验代际一致才操作 holder/滚动, 天然拦截迟到回调 */
     private var requestEpoch = 0L
@@ -265,6 +275,8 @@ class MainActivity : Activity() {
 
     /** 会话打开后后台预编译历史 AI 消息(含 AiRich 分片), 上翻浏览时 bind 直接命中缓存 */
     private fun prewarmMdCache() {
+        // 纯文本模式不渲染 Markdown, 预热纯烧 CPU 还加剧会话切换卡顿
+        if (ModeConfig.chatPlainText()) return
         val aiMsgs = messages.filter { it.role != "user" && it.content.isNotBlank() }
         if (aiMsgs.isEmpty()) return
         val gen = ++mdPrewarmGen
@@ -286,10 +298,19 @@ class MainActivity : Activity() {
             }
         }
     }
-    private lateinit var root: FrameLayout
+    internal lateinit var root: FrameLayout
+    /** 返回退出二次确认: 上一次触发"再滑动一次退出"提示的时间戳(2秒窗口) */
+    private var lastExitPressTime = 0L
     // 独立固定全屏背景层: 壁纸/渐变背景挂此层(不随键盘压缩上移), root 为透明壳
     private lateinit var bgLayer: FrameLayout
     private lateinit var bodyWrap: LinearLayout
+    // 层级: bodyWrap = 消息区(chatArea)+输入框整体(dockContent)+表情抽屉(占位, 展开顶起输入框)
+    /** 输入框整体(attachPreviewWrap+inputBar), 基础层, 只被键盘 insets 顶起/回落 */
+    internal lateinit var dockContent: LinearLayout
+    /** 最近一次键盘高度(px): 档位B基准, 键盘收回后小抽屉按键盘高度档展开 */
+    internal var imeHeightField = 0
+    internal var inImeAnim = false  // 系统键盘 insets 动画进行中(提升为成员, 供抽屉转头判断 inImeAnim)
+    internal var lastImeStableAt = 0L  // 键盘 insets 最近一次稳定弹到位时间戳: onPrepare 据此判断 animStartImeH 是否满高
     // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
     private lateinit var chatArea: FrameLayout
     private lateinit var inputBar: LinearLayout
@@ -297,6 +318,11 @@ class MainActivity : Activity() {
     private lateinit var browserBar: LinearLayout
     private lateinit var browserBarStatus: TextView
     private lateinit var browserBarTakeover: TextView
+    // 浏览器控制条折叠: 输入框上方 ⌃ 手柄(默认收起), 点开展开控制条(状态+接管按钮)
+    private lateinit var browserBarToggle: ImageView
+    private var browserBarExpanded = false
+    private lateinit var collapseMaskWeb: View
+    private lateinit var collapseMaskChat: View
     internal lateinit var input: EditText
     internal lateinit var modelBtn: Button
     internal lateinit var attachBtn: Button
@@ -316,6 +342,7 @@ class MainActivity : Activity() {
     internal val REQ_RECORD = 1005
     private val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
     private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
+    internal val REQ_EMOJI_PICK = 1008  // 表情库选图: 结果存表情库而非聊天发送
     // 图片压缩上限: 最长边/质量
     internal val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
     // 录音: 上限 60 秒 / 10MB(语音消息足够, 超限直接拒)
@@ -353,7 +380,17 @@ class MainActivity : Activity() {
     internal lateinit var drawerPanel: LinearLayout
     internal lateinit var drawerMask: View
     internal lateinit var sessionList: LinearLayout
+    internal lateinit var main: LinearLayout
     internal var drawerOpen = false
+    internal var imeShown = false  // 键盘弹起状态(提升为成员, 供抽屉联动冻结判断)
+    // 抽屉联动: 主界面下沉进度(0=全尺寸 1=完全下沉), 由跟手/动画统一驱动
+    private var mainSinkP = 0f
+    private var hamburgerSinkBase = 0f
+    private var hamburgerSinkAnimator: android.animation.ValueAnimator? = null
+    private var drawerAnimator: ValueAnimator? = null
+    // 顶栏/底栏对侧圆角背景(常驻内侧两角圆角, 抽屉联动时外侧两角随进度圆角化)
+    private lateinit var titleBarBg: GradientDrawable
+    private lateinit var inputBarBg: GradientDrawable
     private lateinit var swipeDetector: GestureDetector
     /** 抽屉跟手拖拽控制器(微信式): root 拦截水平边缘/遮罩手势, 1:1 跟随 + 抬手吸附 */
     private lateinit var drawerDrag: DrawerDragController
@@ -361,6 +398,9 @@ class MainActivity : Activity() {
     internal lateinit var browserPage: BrowserPage
     private val autoSavedHinted = java.util.HashSet<String>()
     fun browserPageReady(): Boolean = ::browserPage.isInitialized
+
+    /** 浏览器是否处于打开状态(供扩展文件判断浏览器控制条显隐) */
+    internal fun browserOpen(): Boolean = browserPageReady() && browserPage.open
     /** 浏览器页右侧跟手滑入控制器(镜像抽屉): 右缘左滑整页推入, 左缘右滑/✕/返回键推回 */
     private lateinit var browserSlide: BrowserSlideController
     private var summary: String? = null
@@ -465,6 +505,24 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initThemeAndWindow()
+        initConfigs()
+        setupBrowserControllers()
+        setupSwipeDetector()
+        setupRootLayout()
+        setupChatList()
+        setupBodyAndInputArea()
+        setupBrowserBar()
+        setupEmojiDrawerAndSideDrawer()
+        setupBrowserLayerAndCallbacks()
+        setupTokenAndHamburgerPanels()
+        setupSystemGestures()
+        setupKeyboardInsets()
+        finishCreate()
+    }
+
+
+    private fun initThemeAndWindow() {
         // 应用当前主题（默认=现有视觉零变化）：全局语义色 + 气泡色
         val theme = ThemeManager.current(this)
         Ui.applyTheme(theme)
@@ -472,6 +530,9 @@ class MainActivity : Activity() {
         BUBBLE_USER = theme.bubbleUser
         BUBBLE_USER_TEXT = theme.bubbleUserText
         instance = this
+        // 视频气泡并发配额: 按设备内存动态定级; 名额让出广播挂"对账补建", 弹窗关闭/被踢行不滚动也自愈
+        ExoGate.initByDevice(this)
+        ExoGate.sOnGateReleased = { chatRec?.post { reconcileVideoBubbles(chatRec); reconcileEmojiBubbles(chatRec) } }
         // 2026-09-14 废弃启动强制权限引导: 权限全权交给 FirstRunSetupActivity 逐项授权页
         // (去授权/已完成 + 进入APP) + 功能按需请求, 不再在启动时把全部权限轰炸一遍。
         // window.decorView.post { runFirstRunPermissionGuide() }
@@ -492,6 +553,8 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= 26 && !dark) vis = vis or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
             window.decorView.systemUiVisibility = vis
         }
+    }
+    private fun initConfigs() {
         ApiConfig.init(this)
         MemoryApiConfig.init(this)   // 辅助模型配置: 冷启动必须先初始化, 否则归档读不到独立配置, 回退主对话
         TitleConfig.init(this)
@@ -508,6 +571,8 @@ class MainActivity : Activity() {
         // 记忆落库时快照当前会话标题, 长期记忆卡片按会话名分组展示
         MemoryTools.sessionTitleProvider = { currentSessionTitle }
 
+    }
+    private fun setupBrowserControllers() {
         // 抽屉跟手拖拽: root 拦截水平边缘/遮罩手势, 1:1 跟随 + 抬手吸附(替代旧 fling 固定动画)
         drawerDrag = DrawerDragController(this)
         // 右侧整屏浏览器页 + 右缘滑入控制器
@@ -574,22 +639,27 @@ class MainActivity : Activity() {
                 Toast.makeText(this, getString(R.string.ma_site_saved, host), Toast.LENGTH_SHORT).show()
             }
         }
-
-
+    }
+    private fun setupSwipeDetector() {
         swipeDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (drawerDrag.isDragging()) return false
+                if (drawerDrag.isDragging() || browserSlide.isDragging()) return false
                 val dx = e2.x - (e1?.x ?: e2.x)
                 val dy = e2.y - (e1?.y ?: e2.y)
                 if (abs(dx) > abs(dy) * 1.5f && abs(dx) > dp(60).toFloat() && abs(velocityX) > 500f) {
-                    if (dx < 0 && drawerOpen) closeDrawer()
-                    else if (dx > 0 && !drawerOpen && !browserPage.open) openDrawer()
+                    // 兜底 fling 与控制器方向一致: 展开态仅反方向快甩才收(汉堡=右滑, 抽屉=左滑);
+                    // 控制器拖拽中(isDragging)时让位, 避免兜底 fling 与 snap 动画打架(收到半路又弹出)
+                    // 关闭态保持分区触发(抽屉=左1/3右滑, 浏览器=右1/3左滑)
+                    if (browserPage.hamburgerOpen && dx > 0) browserPage.collapseHamburger()
+                    else if (drawerOpen && dx < 0) closeDrawer()
+                    else if (dx > 0 && !browserPage.open && (e1?.x ?: e2.x) < resources.displayMetrics.widthPixels / 3f) openDrawer()
                     return true
                 }
                 return false
             }
         })
-
+    }
+    private fun setupRootLayout() {
         root = object : FrameLayout(this) {
             override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
                 if (browserSlide.onIntercept(ev)) return true
@@ -603,9 +673,27 @@ class MainActivity : Activity() {
             }
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
                 swipeDetector.onTouchEvent(ev)
+                // 表情抽屉展开时, 点击抽屉外空白区域(消息区/背景/标题栏)收起抽屉;
+                // 点击输入框区域不收(交给 input.onClick 兜底收抽屉+弹键盘), 点击抽屉内部不收(交给抽屉自身交互)
+                if (ev.action == MotionEvent.ACTION_UP && emojiOpen && ::inputBar.isInitialized &&
+                    !isTouchInsideEmojiDrawer(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY)) {
+                    val il = IntArray(2)
+                    inputBar.getLocationInWindow(il)
+                    val inInputBar2 = ev.rawY.toInt() >= il[1] - dp(8)
+                    if (!inInputBar2) {
+                        post {
+                            // 先清焦点再收抽屉: hideEmojiDrawer 内部按 input.isFocused 决定是否弹键盘,
+                            // 点空白收抽屉不应弹键盘, 故先清焦点
+                            if (input.isFocused) input.clearFocus()
+                            hideEmojiDrawer()
+                        }
+                    }
+                }
                 // 键盘弹起时, 点击输入区以外(消息区/背景/标题栏)收起键盘并清光标; 未弹键盘或点击输入框/按钮时不影响
                 // 优化(2026-09-18 全面扫描): hideSoftInput 的 binder 同步调用会阻塞 UP 分发链, post 到下一帧执行
-                if (ev.action == MotionEvent.ACTION_UP && ::inputBar.isInitialized) {
+                if (ev.action == MotionEvent.ACTION_UP && ::inputBar.isInitialized &&
+                    !isTouchInsideEmojiDrawer(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY) &&
+                    android.os.SystemClock.uptimeMillis() > suppressHideImeUntil) {
                     val i3 = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
                     if (i3?.isActive == true) {
                         val loc = IntArray(2)
@@ -631,23 +719,34 @@ class MainActivity : Activity() {
         }
         root.addView(bgLayer, 0, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        val main = LinearLayout(this).apply {
+        main = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             // 透明: 让挂在 bgLayer 的聊天背景(预设渐变/自定义图)透出来, 否则不透明底色会盖住背景
             setBackgroundColor(Color.TRANSPARENT)
+        }
+        // 抽屉展开联动: 主界面整体作为"下沉卡片", 圆角 0→20dp 由 outline 驱动(进度 0 时直角不裁剪)
+        main.clipToOutline = true
+        main.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, mainSinkP * dp(20))
+            }
         }
 
         // 标题栏
         titleBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(6), dp(8), dp(8), dp(8))
-            setBackgroundColor(Ui.SURFACE)
+            // 对侧圆角: 顶栏左下/右下两角圆角(内侧两角), 左上/右上直角贴屏顶; 抽屉联动时外侧两角圆角化
+            background = GradientDrawable().apply {
+                setColor(Ui.SURFACE)
+                val r = dp(16).toFloat()
+                cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, r, r, r, r)
+            }.also { titleBarBg = it }
             gravity = Gravity.CENTER_VERTICAL
         }
-        titleBar.addView(TextView(this).apply {
-            text = "☰"
-            textSize = 24f
-            setTextColor(Ui.TEXT)
+        titleBar.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_menu)
+            setColorFilter(Ui.TEXT)
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setOnClickListener { openDrawer() }
             Ui.press(this)
@@ -672,7 +771,8 @@ class MainActivity : Activity() {
             Ui.press(this)
         })
         main.addView(titleBar)
-
+    }
+    private fun setupChatList() {
         // 消息区: RecyclerView 可回收传送带——只保留屏幕内可见的气泡, 滚出屏幕即回收销毁,
         // 滚回复用同一框架塞新内容, 不随聊天变长无限堆叠 View(解决 ScrollView+LinearLayout 长会话卡顿/内存增长)
         chatAdapter = ChatAdapter(chatRows) { row -> buildRowView(row) }
@@ -694,6 +794,24 @@ class MainActivity : Activity() {
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 // fix6: Telegram 式拖动列表时收起键盘(用户翻阅历史意图明确), 文字保留不清空
                 override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+                    // QQ 式滚动暂停: 滚动起即暂停所有内嵌播放器(冻结帧停解码省资源),
+                    // 松手先"原地恢复"在屏播放器(不重建不从头重播), 再错峰补建无播放器的视频行。
+                    // 此前松手无条件 notify 所有可见视频行——连正在播的行也整行重建 → 从头重播闪变
+                    // + 整行重绑卡顿(09-19 用户反馈"概率性播放、卡顿依旧"主因之一)
+                    val wasScrolling = sScrolling
+                    sScrolling = newState != RecyclerView.SCROLL_STATE_IDLE
+                    if (sScrolling && !wasScrolling) {
+                        for (p in sBubblePlayers.toList()) { try { p.pause() } catch (_: Exception) {} }
+                        // v6: 帧动画统一暂停(滚动中不刷帧), 停止后由对账 resumeIfReady 原地续播
+                        EmojiFrameAnimator.onScrollStart()
+                    }
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE && wasScrolling) {
+                        // QQ 式统一对账: 以当前可见行为唯一真相, 杀离屏/续播可见/按序补建,
+                        // 名额只发可见行, 不再有"离屏行抢名额"的打架(09-19 15 视频连续发送反馈重构)
+                        // 补建放下一帧: 避免松手帧同步连建多个 ExoPlayer prepare 硬解码卡顿
+                        // 表情气泡同样需要滚动停止对账: 滑动中降级的表情行在此补建恢复播放
+                        rv.post { reconcileVideoBubbles(rv); reconcileEmojiBubbles(rv) }
+                    }
                     if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                         // 修复10: 包在 post 里——hideSoftInput 的 binder 同步调用会阻塞 touch 分发链,
                         // 拖动起始帧被卡 = "停顿一瞬才继续滚动"; post 到下一帧执行避开关键帧
@@ -730,6 +848,8 @@ class MainActivity : Activity() {
         }
         chatAdapter.recyclerView = chatRec
         applyChatBackground()
+    }
+    private fun setupBodyAndInputArea() {
         // 内容容器: chatRec+inputBar 整体, 键盘弹出时高度动画缩小 = 消息+输入框上移, 标题栏与背景不动(同微信)
         bodyWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -740,6 +860,12 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bodyWrap.addView(chatArea, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        // 输入框整体(dockContent)直接挂 bodyWrap 底部(基础层), 表情抽屉在其下占位,
+        // 抽屉展开时输入框被顶到抽屉上方(微信式)
+        dockContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
 
         // 附件预览条: 选中附件出现在输入框上方, 可补文字后一并发送; 默认隐藏, 有附件才显示
         attachPreviewWrap = HorizontalScrollView(this).apply {
@@ -752,14 +878,19 @@ class MainActivity : Activity() {
         }
         attachPreviewWrap.addView(attachPreviewRow, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        bodyWrap.addView(attachPreviewWrap, LinearLayout.LayoutParams(
+        dockContent.addView(attachPreviewWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 输入区: 按钮在输入框右侧, 底对齐固定在右下角
         inputBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
-            setBackgroundColor(Ui.SURFACE)
+            // 对侧圆角: 底栏左上/右上两角圆角(内侧两角), 左下/右下直角贴屏底; 抽屉联动时外侧两角圆角化
+            background = GradientDrawable().apply {
+                setColor(Ui.SURFACE)
+                val r = dp(16).toFloat()
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            }.also { inputBarBg = it }
         }
         input = object : EditText(this) {
             // 回车去重: DOWN 放行后系统默认 KeyListener 已插入 \n; 若 IME 再 commitText 纯 "\n" 则丢弃,
@@ -797,6 +928,7 @@ class MainActivity : Activity() {
                 if (actionId == EditorInfo.IME_ACTION_SEND) { onSend(); true } else false
             }
             imeOptions = EditorInfo.IME_ACTION_SEND
+            setOnFocusChangeListener { _, hasFocus -> if (hasFocus) hideEmojiDrawer() }
             // 回车放行 DOWN(系统默认 KeyListener 插入 \n, 百度 sendKeyEvent 路径); 吞掉 UP/MULTIPLE 防重复。
             // 微信输入法在 DOWN 系统插入后还会 commitText("\n"), 由 InputConnection 包装层去重丢弃, 避免双换行。
             setOnKeyListener { v, keyCode, e ->
@@ -813,7 +945,15 @@ class MainActivity : Activity() {
             }
             // 键盘收起(光标已清)后再次点击: 只恢复焦点与键盘; 不再强制 setSelection 到末尾,
             // 光标定位交给系统默认(点哪光标哪), 否则无法点击定位到任意文本位置
+            // 抽屉展开时 input 保持聚焦, 再点击不触发 focus change(不会走上面的 hideEmojiDrawer),
+            // 必须在这里兜底收起抽屉, 否则抽屉占位残留, 之后收键盘时输入框停在抽屉顶位收不回去
             setOnClickListener { view ->
+                if (emojiOpen) {
+                    // 先确保聚焦再收抽屉: hideEmojiDrawer 按 input.isFocused 判 willShowIme,
+                    // 失焦时走"清占位+恢复动画"与随后键盘 insets 压缩打架 -> 输入框沉底/键盘弹了输入框不升/分不清谁是谁
+                    if (!input.isFocused) input.requestFocus()
+                    hideEmojiDrawer()
+                }
                 view.requestFocus()
                 (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
                     ?.showSoftInput(view, 0)
@@ -912,8 +1052,9 @@ class MainActivity : Activity() {
                 bottomMargin = dp(10)
             }
             // 默认隐藏: 输入文字后由 updateInputMode 切换为显示(语音槽让位给附件)
+            isFocusable = false
             visibility = View.GONE
-            setOnClickListener { showAttachSheet() }
+            setOnClickListener { toggleEmojiDrawer() }
         }
         micWrap.addView(attachBtn2)
         inputBar.addView(micWrap)
@@ -937,7 +1078,8 @@ class MainActivity : Activity() {
                 // 底边距由 onGlobalLayout 统一计算, 此处只给初始占位值
                 bottomMargin = dp(10)
             }
-            setOnClickListener { showAttachSheet() }
+            isFocusable = false
+            setOnClickListener { toggleEmojiDrawer() }
         }
         attachWrap.addView(attachBtn)
         sendBtn = Button(this).apply {
@@ -985,12 +1127,19 @@ class MainActivity : Activity() {
         stopBtn.setCompoundDrawablesWithIntrinsicBounds(stopSpin, null, null, null)
         attachWrap.addView(stopBtn)
         inputBar.addView(attachWrap)
+    }
+    private fun setupBrowserBar() {
         // 浏览器控制条: 悬浮聊天时位于输入框上方(欢迎文字 + 接管按钮), 浏览器关闭时隐藏
         browserBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(4), dp(12), dp(4))
-            setBackgroundColor(Ui.SURFACE)
+            // 展开态四角圆角(与顶/底栏 16dp 同语言); clipToOutline 裁剪子 view 不溢出圆角
+            background = GradientDrawable().apply {
+                setColor(Ui.SURFACE)
+                cornerRadius = dp(16).toFloat()
+            }
+            clipToOutline = true
             visibility = View.GONE
         }
         browserBarStatus = TextView(this).apply {
@@ -1001,7 +1150,7 @@ class MainActivity : Activity() {
         }
         browserBar.addView(browserBarStatus)
         browserBarTakeover = TextView(this).apply {
-            text = getString(R.string.br_takeover)
+            text = "接管"
             textSize = 13f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -1014,12 +1163,59 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(9), dp(16), dp(9))
             setOnClickListener { browserPage.toggleTakeover() }
             Ui.press(this)
+        }.apply {
+            val d = getDrawable(R.drawable.ic_mouse_pointer_click)?.mutate()
+            d?.setTint(Color.WHITE)
+            setCompoundDrawablesWithIntrinsicBounds(d, null, null, null)
+            compoundDrawablePadding = dp(5)
         }
         browserBar.addView(browserBarTakeover)
         // 悬浮 overlay 挂聊天区底部(输入框上方), 不占位挤压 chatRec; bottomMargin 在 setChatFloatMode 中动态对齐 inputBar
         chatArea.addView(browserBar, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
-        bodyWrap.addView(inputBar)
+        // 折叠手柄 ⌃: 贴输入框上边, 默认收起只露手柄, 点开展开控制条(接管按钮+状态), 再点收起
+        browserBarToggle = ImageView(this).apply {
+            setImageResource(R.drawable.ic_chevron_up)
+            setColorFilter(Ui.SUB)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#22000000"))
+                cornerRadius = dp(9).toFloat()
+            }
+            setOnClickListener { toggleBrowserBar() }
+            Ui.press(this)
+            visibility = View.GONE
+        }
+        chatArea.addView(browserBarToggle, FrameLayout.LayoutParams(
+            dp(44), dp(18),
+            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        // 展开态点击其它区域自动收回: 透明遮罩盖浏览器页/聊天区(控制条与手柄在其上不受影响), 点击即收起
+        collapseMaskChat = View(this).apply {
+            setBackgroundColor(0x01000000)
+            setOnClickListener { if (browserBarExpanded) toggleBrowserBar() }
+        }
+        collapseMaskWeb = View(this).apply {
+            setBackgroundColor(0x01000000)
+            setOnClickListener { if (browserBarExpanded) toggleBrowserBar() }
+        }
+    }
+    private fun setupEmojiDrawerAndSideDrawer() {
+        dockContent.addView(inputBar)
+        // 键盘/输入框交接处分割线: 颜色取浏览器主页黑蓝渐变(linear-gradient 160deg #0d1b2a→#1b2a4a→#274060)
+        dockContent.addView(View(this).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(0xFF0d1b2a.toInt(), 0xFF1b2a4a.toInt(), 0xFF274060.toInt())
+            )
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)))
+        // 一体式(定稿): 表情抽屉焊进 dockContent(输入框+表情区=大抽屉), 不再独立占位。
+        // 大抽屉总高=输入框高+表情区高; 键盘 insets 压缩 bodyWrap 顶起整个大抽屉,
+        // 表情区与键盘互斥占用底部空间(emojiH = emojiDrawerTargetH - imeH), 切换时输入框零位移
+        val emojiDrawerRoot = buildEmojiDrawer()
+        dockContent.addView(emojiDrawerRoot, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0))
+        bodyWrap.addView(dockContent, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
@@ -1037,7 +1233,8 @@ class MainActivity : Activity() {
         // 全局已 adjustNothing(见 onCreate 开头): 键盘始终纯悬浮, 主界面与抽屉底部都不被顶起, 无需按焦点切换
         root.addView(drawerPanel, FrameLayout.LayoutParams(
             DRAWER_WIDTH, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.START))
-
+    }
+    private fun setupBrowserLayerAndCallbacks() {
         // 浏览器作底层内容层: 先于 main 挂载(同父容器后 addView 在上), 聊天层悬浮其上
         root.addView(browserPage.root, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
@@ -1131,45 +1328,41 @@ class MainActivity : Activity() {
             lp.bottomMargin = 0
             main.layoutParams = lp
             if (float) {
-                // 悬浮 overlay: 控制条底部精确对齐输入框顶部(实测坐标差), 消除渲染缝隙, 视觉贴合
-                val blp = browserBar.layoutParams as FrameLayout.LayoutParams
+                // 悬浮 overlay: 手柄贴输入框顶, 控制条悬浮在手柄上方(底边=输入框顶-手柄高), 消除渲染缝隙
                 val cLoc = IntArray(2)
                 val iLoc = IntArray(2)
                 chatArea.getLocationInWindow(cLoc)
                 inputBar.getLocationInWindow(iLoc)
-                blp.bottomMargin = (cLoc[1] + chatArea.height - iLoc[1]).coerceAtLeast(0)
+                val base = (cLoc[1] + chatArea.height - iLoc[1]).coerceAtLeast(0)
+                val tlp = browserBarToggle.layoutParams as FrameLayout.LayoutParams
+                tlp.bottomMargin = base
+                browserBarToggle.layoutParams = tlp
+                val blp = browserBar.layoutParams as FrameLayout.LayoutParams
+                blp.bottomMargin = base + dp(18)
                 browserBar.layoutParams = blp
-                // 直接显示不淡入: onPreOpen 与 onOpenChange 会连续两次调用本函数, 每次 alpha 归零重做
-                // 淡入动画 = 打开浏览器控制条"闪一下"; 幂等保护: 已可见则跳过, 并取消可能残留的关闭动画
+                // 手柄常驻; 控制条按展开态显隐(默认收起); 幂等保护 onPreOpen/onOpenChange 双调用
                 browserBar.animate().cancel()
-                if (browserBar.visibility != View.VISIBLE) {
-                    browserBar.alpha = 1f
-                    browserBar.visibility = View.VISIBLE
+                browserBarToggle.visibility = View.VISIBLE
+                browserBarToggle.alpha = 1f
+                if (browserBarExpanded) {
+                    if (browserBar.visibility != View.VISIBLE) {
+                        browserBar.alpha = 1f
+                        browserBar.visibility = View.VISIBLE
+                    }
+                } else {
+                    browserBar.visibility = View.GONE
                 }
             } else {
-                browserBar.animate().alpha(0f).setDuration(140).withEndAction {
-                    browserBar.visibility = View.GONE
-                }.start()
+                browserBar.animate().cancel()
+                browserBar.visibility = View.GONE
+                browserBarToggle.animate().cancel()
+                browserBarToggle.visibility = View.GONE
+                // 关闭浏览器时复位控制条展开态: 重开后保持收起(只露手柄), 控制条不自动弹出
+                browserBarExpanded = false
+                browserBarToggle.rotation = 0f
+                removeCollapseMasks()
             }
             animateBubbleFloat(float)
-        }
-        // 浏览器窗口收缩到聊天内容区(titleBar 下 ~ browserBar/inputBar 上), 接管/悬浮均保持该尺寸
-        fun adjustBrowserWindow() {
-            if (!browserPage.root.isAttachedToWindow) return
-            val tLoc = IntArray(2)
-            titleBar.getLocationInWindow(tLoc)
-            val top = tLoc[1] + titleBar.height
-            // browserBar 打开时才 VISIBLE(布局未跑 height=0): 手动 measure 取真实高度, 避免取到未布局位置导致收缩错位
-            if (browserBar.height == 0) {
-                browserBar.measure(
-                    View.MeasureSpec.makeMeasureSpec(titleBar.width, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-            }
-            val iLoc = IntArray(2)
-            inputBar.getLocationInWindow(iLoc)
-            val bottom = iLoc[1] - browserBar.measuredHeight
-            val h = (bottom - top).coerceAtLeast(dp(120))
-            browserPage.setWindowRect(top, h)
         }
         // 动画开始前先收缩浏览器窗口到中间区域(标题栏下~输入框上), 消除"先全屏再跳变"闪一下
         browserPage.onPreOpen = {
@@ -1181,7 +1374,17 @@ class MainActivity : Activity() {
             if (open) {
                 setChatFloatMode(true)
                 browserPage.setBottomTakeoverVisible(false)  // 悬浮模式: 底部按钮让位于控制条
+                // 兜底: 任何路径重开浏览器都按 taken 现状同步控制条按钮文字/状态, 防残留"交还 AI"
+                browserBarTakeover.text = if (browserPage.taken) "交还 AI" else "接管"
+                browserBarStatus.text = if (browserPage.taken) "你已接管，可点击网页（如验证码）" else "欢迎回来 · 一切就绪"
                 adjustBrowserWindow()
+                // 抽屉展开中打开浏览器: 窗口按当前 sink 缩放/下沉, 与 main 保持一致, 防整屏错位
+                if (mainSinkP > 0f) {
+                    val s = 1f - 0.12f * mainSinkP
+                    browserPage.root.scaleX = s
+                    browserPage.root.scaleY = s
+                    browserPage.root.translationY = dp(24) * mainSinkP
+                }
             } else {
                 setChatFloatMode(false)
                 main.visibility = View.VISIBLE
@@ -1193,7 +1396,10 @@ class MainActivity : Activity() {
         browserPage.onTakeoverChange = { taken ->
             // 窗口化交互: 接管仅隐藏消息区, 标题栏/输入框/控制条保留, 浏览器窗口尺寸不变
             chatRec.visibility = if (taken) View.INVISIBLE else View.VISIBLE
-            browserBarTakeover.text = if (taken) "🤖 交还 AI" else "✋ 接管"
+            browserBarTakeover.text = if (taken) "交还 AI" else "接管"
+            val d = getDrawable(if (taken) R.drawable.ic_bot else R.drawable.ic_mouse_pointer_click)?.mutate()
+            d?.setTint(Color.WHITE)
+            browserBarTakeover.setCompoundDrawablesWithIntrinsicBounds(d, null, null, null)
             browserBarStatus.text = if (taken) "你已接管，可点击网页（如验证码）" else "欢迎回来 · 一切就绪"
             browserPage.setBottomTakeoverVisible(false)
         }
@@ -1201,6 +1407,8 @@ class MainActivity : Activity() {
             // 汉堡面板已提升到 root 最顶层, 直接覆盖聊天层; 接管时消息区已隐藏, 无需再 GONE main
             browserPage.setBottomTakeoverVisible(false)
         }
+    }
+    private fun setupTokenAndHamburgerPanels() {
         // Token 面板外点遮罩: 全屏透明, 面板展开时可见, 点击即收起; 置于面板之下、聊天内容之上
         tokenMask = View(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -1220,8 +1428,8 @@ class MainActivity : Activity() {
         root.addView(browserPage.hamburgerMask, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(browserPage.hamburgerPanel, FrameLayout.LayoutParams(
-            dp(300), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
-        browserPage.hamburgerPanel.translationX = dp(300).toFloat()
+            dp(300), (resources.displayMetrics.heightPixels * 88 / 100), Gravity.CENTER))
+        browserPage.hamburgerPanel.translationX = (resources.displayMetrics.widthPixels + dp(300)) / 2f
         // 右缘也注册系统手势排除区: 避免手势导航把"右缘左滑"误判为系统返回, 与左缘抽屉同策略
         if (Build.VERSION.SDK_INT >= 29) {
             browserPage.root.addOnLayoutChangeListener { _, l, _, r, b, _, _, _, _ ->
@@ -1233,6 +1441,8 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+    private fun setupSystemGestures() {
         setContentView(root)
         // 全面屏手势导航(Android10+): 左边缘横滑默认是系统"返回", 会抢走抽屉跟手手势。
         // 学 AndroidX DrawerLayout / QQ 侧边栏: 把整块抽屉区域(左缘 0..280dp 宽, 全屏高)声明为系统手势排除区,
@@ -1301,33 +1511,107 @@ class MainActivity : Activity() {
                 }
             }
         })
+    }
+    private fun setupKeyboardInsets() {
         // 键盘检测: WindowInsets.ime()(API30+) 精确报告键盘高度(adjustNothing 下不被窗口吸收)。
         // setDecorFitsSystemWindows(false) 让系统不自动消化 insets, 完整派发到内容层(含 IME), 我们统一处理:
         // 主内容避开状态栏/导航栏(fitsSystemWindows 的替代), 键盘弹起 bodyWrap 高度压缩到键盘顶,
         // 键盘收起(返回键/下滑/点空白) bodyWrap 恢复满高且输入框光标跟随关闭, 再次点击输入框可恢复继续输入
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
-            var imeShown = false
             var imeFloating = false  // QQ 式悬浮模式: 惯性滚动中弹键盘, bodyWrap 不压缩, 仅输入区悬浮到键盘顶
             var imeAnimator: android.animation.ValueAnimator? = null
             var bodyWrapFullH = 0
             var lastImeH = 0
             var prevCompressH = 0  // 压缩模式上一帧 bodyWrap 高度, 用于末条不可见时按压缩增量滚动
-            var inImeAnim = false  // 系统键盘 insets 动画进行中, 压缩高度由 WindowInsetsAnimation 逐帧驱动
             var lastProgressImeH = 0  // onProgress 最后一帧键盘高度, onEnd 据此判断动画方向(收起方向需兜底恢复)
+            var animSbBottom = 0  // 动画开始前导航栏高快照: 动画期间 systemBars 读数会漂移(实测 sb 48->248), 恢复基准需用快照
+            var animStartImeH = 0  // 动画开始前 ime 高快照: onEnd 判断动画方向(弹出/收回), 收回结束立即恢复不等最终 insets 回调
             var imeFloatingListener: RecyclerView.OnScrollListener? = null
+            // 键盘收回时 bodyWrap 平滑补完剩余距离: 系统 insets 动画最后几帧 onProgress 可能提前停止,
+            // bodyWrap 停在中间高度, 直接恢复权重会从中间跳变到满高(停顿卡一下);
+            // 用短动画把剩余高度补完再还原权重, 与键盘收回观感无缝衔接
+            fun smoothRestoreBodyWrap() {
+                // 补完动画已在跑: 不重启, 交给它收尾(insets 回调与 onEnd post 可能双触发)
+                if (imeAnimator?.isRunning == true) return
+                val lp0 = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                if (lp0.weight == 1f) return
+                val remain = bodyWrapFullH - lp0.height
+                android.util.Log.i("NyralIme", "smoothRestore remain=$remain bwH=${lp0.height} full=$bodyWrapFullH anim=${imeAnimator?.isRunning}")
+                if (remain <= dp(8)) {
+                    lp0.height = 0; lp0.weight = 1f
+                    bodyWrap.layoutParams = lp0
+                    prevCompressH = bodyWrapFullH
+                    // fix(09-22): 键盘收回 bodyWrap 恢复全高后聊天区视口变高,
+                    // 末条若在压缩态贴底则恢复后底部多出空白(键盘→表情切换截图空隙),
+                    // 末条贴底对齐(用户翻历史时末条不可见则不动)
+                    alignChatToViewport()
+                    return
+                }
+                val startH = lp0.height
+                imeAnimator?.cancel()
+                imeAnimator = android.animation.ValueAnimator.ofInt(startH, bodyWrapFullH).apply {
+                    duration = 60
+                    interpolator = android.view.animation.DecelerateInterpolator()
+                    addUpdateListener {
+                        val lp2 = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                        val v = animatedValue as Int
+                        lp2.height = v
+                        bodyWrap.layoutParams = lp2
+                        prevCompressH = v
+                    }
+                    addListener(object : android.animation.AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(a: android.animation.Animator) {
+                            val lp3 = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                            lp3.height = 0; lp3.weight = 1f
+                            bodyWrap.layoutParams = lp3
+                            prevCompressH = bodyWrapFullH
+                            if (imeAnimator === a) imeAnimator = null
+                            // fix(09-22): 平滑恢复动画结束后视口恢复变高, 末条贴底对齐
+                            alignChatToViewport()
+                        }
+                    })
+                    start()
+                }
+            }
             root.setOnApplyWindowInsetsListener { v, insets ->
                 val sb = insets.getInsets(android.view.WindowInsets.Type.systemBars())
                 main.setPadding(0, sb.top, 0, sb.bottom)
                 // 抽屉悬浮于 root 上, 不参与 main 的 insets 派发, 需自行避开状态栏/导航栏,
                 // 否则 setDecorFitsSystemWindows(false) 下顶部标题栏被状态栏遮挡、底部被导航栏顶低
                 if (::drawerPanel.isInitialized) drawerPanel.setPadding(0, sb.top, 0, sb.bottom)
+                // 汉堡面板同样悬浮于 root 最顶层, 自行避开状态栏/导航栏(底栏不被系统手势栏遮挡)
+                if (browserPageReady()) browserPage.hamburgerPanel.setPadding(0, 0, 0, sb.bottom)
+                // 表情抽屉同样贴底避开导航栏(顶起式, 同键盘)
                 val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                 lastImeH = imeH
+                if (imeH > dp(80)) imeHeightField = imeH  // 记录真实键盘高(一体式: 表情区撑高基准)
+                android.util.Log.i("NyralIme", "insets imeH=$imeH shown=$imeShown open=$emojiOpen eddH=${emojiDrawer?.height} tgt=$emojiDrawerTargetH kbH=$emojiDrawerKbH w=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).weight} h=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
                 val lp = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                // 一体式互斥公式: 键盘/表情区互斥占用底部空间, 表情区高 = target - imeH;
+                // 键盘弹出表情区自动收起到 0, 键盘收回表情区自动撑到 target, 输入框(大抽屉顶)零位移
+                val edd = emojiDrawer
+                // 动画期间互斥公式由 onProgress 逐帧驱动: 键盘弹起动画开始时 insets 先派发最终 imeH,
+                // 此处若立即执行会把表情区瞬间收为 0, 而 bodyWrap 压缩被 inImeAnim 挡住 -> 输入框闪底
+                // (表情→键盘切换"先掉底再被顶起" bug)。仅在无动画(瞬时弹收)时作兜底。
+                if (!inImeAnim && edd != null && (emojiOpen || (edd.visibility == View.VISIBLE && edd.height > dp(1)))) {
+                    val tgt = emojiDrawerTargetH
+                    // fix(09-22 键盘调低): 互斥基准用实时 imeHeightField 而非 showEmojiDrawer 时的历史快照,
+                    // 键盘档位调低后快照残留旧满高 -> 键盘弹满表情区收不净(整体抬起)、键盘收回又按旧高撑起不收回
+                    val base = imeHeightField.coerceAtLeast(tgt)
+                    if (base > 0 && tgt > 0) setEmojiDrawerHeight((base - imeH).coerceIn(0, tgt))
+                }
                 if (imeH > dp(80)) {
+                    // 补完动画在跑(键盘收回补尾中): 尊重动画不重新压缩, 防"掉下去又上来又下去"震荡
+                    if (imeAnimator?.isRunning == true) return@setOnApplyWindowInsetsListener insets
                     if (!imeShown) {
-                        bodyWrapFullH = bodyWrap.height.coerceAtLeast(1)
+                        // bodyWrapFullH 全高基准必须用公式计算(与 insets targetH 同款),
+                        // 不能用 bodyWrap.height: 抽屉切键盘时 bodyWrap 仍顶在抽屉顶位(压缩态),
+                        // 记录压缩高度当全高 -> 键盘收回按错误基准恢复: 输入框先被压到接近顶部、
+                        // 再停在中间高度卡顿、恢复权重才回底("收回键后跑到顶部又掉中间" bug)
+                        val tbF = IntArray(2)
+                        titleBar.getLocationInWindow(tbF)
+                        bodyWrapFullH = (root.height - animSbBottom - (tbF[1] + titleBar.height)).coerceAtLeast(dp(60))
                         // fix8/9: 键盘弹出瞬间若列表还在滚动(惯性 SETTLING), 直接打断滚动走压缩分支(QQ 式"滚停即顶"):
                         // 悬浮分支有"输入框一帧顶到最终位与键盘动画分家 + 惯性停止后切压缩掉落重合"两段瞬态,
                         // 用户意图本就是点输入框打字, 惯性打断符合预期; 消息顶起由 onProgress 逐帧跟随, 无跳变
@@ -1343,10 +1627,16 @@ class MainActivity : Activity() {
                     // 键盘 insets 动画期间高度由 WindowInsetsAnimation.Callback 逐帧驱动(与键盘弹起同帧);
                     // 此处仅在无动画(键盘瞬时出现/动画结束后最终 insets 兜底)时设置最终高度, 避免提前跳变
                     if (!inImeAnim) {
+                        // fix(09-22) 转头跳变根因之稳基: 键盘 insets 稳定(无动画)弹到位时记录满高,
+                        // 供表情区撑高基准。onPrepare 的 animStartImeH 在"弹出动画中途被切换打断"时
+                        // 是动画中途值, 不能作为满高(见 onPrepare 保护注释)
+                        imeHeightField = imeH
                         val tb = IntArray(2)
                         titleBar.getLocationInWindow(tb)
                         val titleBottom = tb[1] + titleBar.height
-                        val targetH = ((root.height - kotlin.math.max(imeH, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
+                        // 底部占用=键盘高度(占位模型: 键盘弹出时抽屉已同步收起, 输入框只随键盘顶起)
+                        val bottomOccupy = imeH
+                        val targetH = ((root.height - kotlin.math.max(bottomOccupy, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
                         val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
                         val dh = prevCompressH - targetH
                         prevCompressH = targetH
@@ -1370,12 +1660,12 @@ class MainActivity : Activity() {
                     }
                 } else if (imeShown) {
                     // 键盘收起动画期间 insets 可能中途回调, 高度已由 WindowInsetsAnimation 逐帧恢复, 此处等动画结束后最终 insets 再收尾
+                    // 注意: onApplyWindowInsets 在动画开始时即派发目标值(imeH=0), 不代表键盘已收完;
+                    // 若此时提前恢复会让输入框比键盘先到位(动画慢放时明显)。恢复跟随 onProgress 逐帧, onEnd 兜底补尾。
                     if (inImeAnim) return@setOnApplyWindowInsetsListener insets
                     imeShown = false
-                    if (imeFloatingListener != null) {
-                        chatRec.removeOnScrollListener(imeFloatingListener!!)
-                        imeFloatingListener = null
-                    }
+                    imeFloatingListener?.let { chatRec.removeOnScrollListener(it) }
+                    imeFloatingListener = null
                     if (imeFloating) {
                         // 收起悬浮模式: 输入区落回原位, 列表视口从未变化无需恢复
                         imeFloating = false
@@ -1385,12 +1675,13 @@ class MainActivity : Activity() {
                             attachPreviewWrap.animate().translationY(0f).setDuration(180)
                                 .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
                     } else {
-                        // 收起同步: insets 动画期间每帧已随 imeH 递减同步恢复 bodyWrap 高度, 此处只需还原为权重撑满
-                        if (imeAnimator?.isRunning == true) imeAnimator?.cancel()
-                        val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                        lpp.height = 0; lpp.weight = 1f
-                        bodyWrap.layoutParams = lpp
-                        prevCompressH = bodyWrapFullH
+                        // 收起同步: insets 动画期间每帧已随 imeH 递减同步恢复 bodyWrap 高度;
+                        // 占位模型: 抽屉展开时 bodyWrap 恢复全高, 抽屉弹出后把输入框顶到抽屉上方
+                        if (imeAnimator?.isRunning == true) {
+                            // 补完动画进行中, 不动, onAnimationEnd 会恢复权重
+                        } else {
+                            smoothRestoreBodyWrap()
+                        }
                     }
                     // 键盘已收起: 输入框光标跟随关闭
                     if (input.isFocused) input.clearFocus()
@@ -1402,8 +1693,30 @@ class MainActivity : Activity() {
                 override fun onPrepare(animation: android.view.WindowInsetsAnimation) {
                     if ((animation.typeMask and android.view.WindowInsets.Type.ime()) == 0) return
                     inImeAnim = true
-                    if (!imeShown) {
-                        // 键盘开始弹出: 记录全高并进入压缩初始状态
+                    animSbBottom = try {
+                        window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.bottom ?: 0
+                    } catch (e: Exception) { 0 }
+                    animStartImeH = try {
+                        window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+                    } catch (e: Exception) { 0 }
+                    android.util.Log.i("NyralIme", "onPrepare dur=${animation.durationMillis} shown=$imeShown open=$emojiOpen sb=$animSbBottom")
+                    // 键盘收回开始: 记录收回前键盘高, 供表情区撑高基准(一体式: 表情区目标高=键盘高)
+                    // fix(09-22) 转头跳变根因: 键盘弹出动画中途被 hideSoftInput 打断时, 系统启动的
+                    // 收回动画 animStartImeH 是"动画中途值"(非满高), 若覆盖 imeHeightField 会让互斥
+                    // 基准变小 -> 抽屉撑不满/输入框位移(用户现场: 键盘上半闪原位、下半闪底再上来)。
+                    // 保护: 只有起点不低于已记录满高(容差 24dp)才更新, 中途值保留旧满高;
+                    // 满高兜底由 onApplyWindowInsets 无动画稳定分支持续刷新
+                    if (animStartImeH > dp(80) && animStartImeH + dp(24) >= imeHeightField) imeHeightField = animStartImeH
+                    // 键盘开始弹出: 表情区退出展开态(互斥公式按 h>0 条件驱动收起到 0, 键盘接管底部空间)
+                    // 键盘开始弹出: 表情区退出展开态。仅动画前键盘未开(animStartImeH<=80, 真弹起)时清;
+                    // 动画前键盘已开(animStartImeH>80)的是收起动画, showEmojiDrawer 刚置的 emojiOpen
+                    // 不能被误清, 否则直开表情不展开/聊天不顶起
+                    if (!imeShown && emojiOpen && animStartImeH <= dp(80)) emojiOpen = false
+                    // 键盘开始弹出(animStartImeH<=80): 无条件进入压缩初始状态。
+                    // fix(09-22) 悬空根因: 转头/打断时 imeShown 可能残留 true, 旧逻辑 !imeShown 分支
+                    // 不执行 -> weight 保持 1f -> onProgress 设 height 无效(weight 主导分配)
+                    // -> bodyWrap 全高 + 键盘弹满 = 键盘比输入框低、输入框悬空可上下滑
+                    if (animStartImeH <= dp(80)) {
                         // fix9: onPrepare 先于 onApplyWindowInsets 执行, 只改 insets 侧会被这里绕过
                         // (悬浮挂起 bh 不压缩、惯性停后输入框才被拉起又掉下 = 用户"分家"现场);
                         // 此处同样 stopScroll + 禁用悬浮, 与 insets 侧两处同步拦截
@@ -1411,7 +1724,11 @@ class MainActivity : Activity() {
                             chatRec.stopScroll()
                         }
                         imeShown = true
-                        bodyWrapFullH = bodyWrap.height.coerceAtLeast(1)
+                        // 全高基准用公式计算(同 insets 回调注释): 抽屉切键盘时 bodyWrap 仍处压缩态,
+                        // bodyWrap.height 会记录到抽屉顶压缩高度 -> 键盘收回输入框先顶到顶再卡中间
+                        val tbF = IntArray(2)
+                        titleBar.getLocationInWindow(tbF)
+                        bodyWrapFullH = (root.height - animSbBottom - (tbF[1] + titleBar.height)).coerceAtLeast(dp(60))
                         imeFloating = false
                         val lp0 = bodyWrap.layoutParams as LinearLayout.LayoutParams
                         lp0.weight = 0f; lp0.height = bodyWrapFullH
@@ -1424,13 +1741,28 @@ class MainActivity : Activity() {
                     // 当前帧真实 ime 高度(动画中间值), 与键盘视觉逐帧同步
                     val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                     val sb = insets.getInsets(android.view.WindowInsets.Type.systemBars())
-                    lastProgressImeH = imeH  // 记录最后一帧键盘高度, onEnd 据此判断动画方向
+                    val prevImeH = lastProgressImeH  // 上一帧 ime 高度(方向判断用, 不覆盖原 last 日志语义)
+                    lastProgressImeH = imeH
+                    android.util.Log.i("NyralIme", "onProgress imeH=$imeH last=$lastProgressImeH shown=$imeShown")
+                    // 一体式互斥公式(每帧): 表情区高 = target - imeH, 与键盘动画同帧互斥, 输入框零位移
+                    val eddP = emojiDrawer
+                    if (eddP != null && (emojiOpen || (eddP.visibility == View.VISIBLE && eddP.height > dp(1)))) {
+                        val tgtP = emojiDrawerTargetH
+                        // fix(09-22 键盘调低): 互斥基准=实时键盘满高 imeHeightField(动画开始时 onApply 已刷新为
+                        // 本次真实满高), 不再用 showEmojiDrawer 历史快照 kbH: 键盘档位调低后快照残留旧满高,
+                        // 键盘弹满时表情区收不净(残留=旧高-新高, 输入框被顶高)、键盘收回时又按旧高把表情区
+                        // 撑起而 emojiOpen 已 false -> 表情区不收回去。中途转头保护仍由 onPrepare 容差承担
+                        val baseP = imeHeightField.coerceAtLeast(tgtP)
+                        if (baseP > 0 && tgtP > 0) setEmojiDrawerHeight((baseP - imeH).coerceIn(0, tgtP))
+                    }
                     if (imeShown) {
                         // 压缩顶起/恢复: 高度随键盘动画进度逐帧同步, 锚定末条保留底部留白
                         val tb = IntArray(2)
                         titleBar.getLocationInWindow(tb)
                         val titleBottom = tb[1] + titleBar.height
-                        val targetH = ((root.height - kotlin.math.max(imeH, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
+                        // 占位式: bodyWrap 只随键盘高度压缩(输入框 dockContent 直接挂 bodyWrap 底部,
+                        // 随 bodyWrap 底部贴键盘顶; 表情抽屉已随键盘动画收起让位)
+                        val targetH = (bodyWrapFullH - (imeH - animSbBottom).coerceAtLeast(0)).coerceAtLeast(dp(60))
                         val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
                         val dh = prevCompressH - targetH
                         prevCompressH = targetH
@@ -1458,36 +1790,55 @@ class MainActivity : Activity() {
                 override fun onEnd(animation: android.view.WindowInsetsAnimation) {
                     if ((animation.typeMask and android.view.WindowInsets.Type.ime()) == 0) return
                     inImeAnim = false
+                    // 反悔打断保护: 系统取消本动画并启动反向新动画(键盘收回中切回抽屉/抽屉下滑中切回键盘),
+                    // 旧 onEnd 的收尾若按过时状态执行(恢复权重/收抽屉)会与反向动画打架,
+                    // 表现为键盘视觉"闪下去再出来"(键盘在下半时)或"闪上去再开始"(键盘在上半时)。
+                    // 收尾延迟 16ms 执行(见下), 让反向新动画 onPrepare 的 inImeAnim=true 抢先拦截。
                     // 收起动画结束: 最终 insets 回调常被动画期间挡掉(imeShown 仍 true), bodyWrap 可能停在固定高度。
+                    // 补完交给最终 insets 回调(imeH=0 确认)执行 smoothRestoreBodyWrap, 不在 onEnd 立即补:
+                    // 立即补会与随后到达的 insets 回调(可能带中间残值>80)竞态 -> 补下去又被压回, 来回震荡
+                    // root.post 仅作兜底(最终 insets 回调被吞时)
                     // v8 曾按 lastProgressImeH<=80 判断方向, 但动画被中途打断(如点击视频弹窗抢焦点)时
                     // lastProgressImeH 停在中间值判定不恢复 -> 输入框卡在压缩中间位悬浮半空。
                     // 改为立即复查真实键盘状态: 键盘已收(insets≈0)或输入框已失焦(键盘必然在收/已收) => 强制恢复权重撑满。
                     // 立即执行(下一帧)而非延迟, 避免 bodyWrap 在中间高度停 300ms 造成"两段式"掉底观感。
-                    root.post {
-                        if (!imeShown || inImeAnim) return@post
+                    // 反悔打断收尾延迟: post 下一帧可能仍抢在反向新动画 onPrepare 之前执行(旧收尾误伤),
+                    // 延迟 16ms 让 onPrepare 先置 inImeAnim=true, 上方 !inImeAnim 检查即可拦截过时收尾。
+                    root.postDelayed({
+                        android.util.Log.i("NyralIme", "onEnd.post imeShown=$imeShown inAnim=$inImeAnim open=$emojiOpen focused=${input.isFocused} bwH=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
+                        // fix(09-22) 转头竞态: 键盘动画强打断已由 requestIme(insetsController) 保证反向
+                        // 动画立即 onPrepare, 此处仅需 inImeAnim 拦截过时收尾(闪底/闪没再被拉回)
+                        if (!imeShown || inImeAnim) return@postDelayed
                         val curImeH = try {
                             window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
                         } catch (e: Exception) { 0 }
-                        if (curImeH <= dp(80) || !input.isFocused) {
+                        // 用动画方向判据提前恢复: 动画从高位开始且末帧已到低位 => 收回, 不等最终回调
+                        val closing = lastProgressImeH <= dp(240) && animStartImeH > dp(240)
+                        // fix(09-22) 悬空误收尾: 键盘弹满时若输入框恰好失焦(收尾 clearFocus / 系统抢焦),
+                        // 旧 !focused 分支会把 bodyWrap 恢复全高 -> 键盘比输入框低。失焦分支也要求
+                        // 键盘确实收到底(curImeH 低位)才允许恢复全高
+                        if (curImeH <= dp(80) || (!input.isFocused && curImeH <= dp(240)) || (closing && curImeH <= dp(240))) {
+                            // 反悔打断残留: 抽屉半开(高度未到展开位)且键盘最终未重弹时收完, 防"反悔后键盘没弹回来+抽屉挂半空"卡死
+                            if (isEmojiDrawerHalfOpen()) {
+                                finishEmojiDrawerDrop()
+                            }
                             if (imeFloating) {
                                 imeFloating = false
                                 inputBar.translationY = 0f
                                 if (attachPreviewWrap.visibility == View.VISIBLE) attachPreviewWrap.translationY = 0f
                             }
-                            val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                            if (lpp.weight == 0f) {
-                                lpp.height = 0; lpp.weight = 1f
-                                bodyWrap.layoutParams = lpp
-                                prevCompressH = bodyWrapFullH
-                            }
+                            // 平滑补完剩余距离(内部自判 weight), 消除中间高度跳变
+                            smoothRestoreBodyWrap()
                             imeShown = false
                             if (input.isFocused) input.clearFocus()
                         }
-                    }
+                    }, 16L)
                 }
             })
         }
         // 键盘弹起时点击输入区以外收起键盘: 在 root.dispatchTouchEvent 实现(见 root 定义处), 无其它点击监听
+    }
+    private fun finishCreate() {
         summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
         appendWelcomeIntro()
         // 恢复最近一次会话，避免杀后台后聊天记录与列表丢失
@@ -1577,6 +1928,12 @@ class MainActivity : Activity() {
         maybeSaveCurrent()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // 系统内存吃紧: 视频并发配额只降不升, 不杀在播, 新创建按更严名额执行(防 OOM)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) ExoGate.downgrade(level)
+    }
+
     // ===================== 左侧抽屉 =====================
 
 
@@ -1635,6 +1992,9 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.toast_no_messages, Toast.LENGTH_SHORT).show()
             return
         }
+        // 切会话: 旧会话表情帧动画实例立即统一终结(不等 detach 看门狗 10s), 名额立即归还,
+        // 否则切回会话 10s 内新表情 attach 被旧实例占满 MAX_ACTIVE -> 全部降级缩略图不动(09-19 反馈)
+        EmojiFrameAnimator.sActive.toList().forEach { c -> try { c.killSelf() } catch (_: Throwable) {} }
         messages.clear()
         messages.addAll(msgs)
         currentSaved = true
@@ -1779,6 +2139,14 @@ class MainActivity : Activity() {
             hideTokenPanel()
             return
         }
+        // 二次确认退出: 第一次返回弹提示, 2秒内再返回才真正退到桌面(防误触)
+        val now = System.currentTimeMillis()
+        if (now - lastExitPressTime > 2000) {
+            lastExitPressTime = now
+            android.widget.Toast.makeText(this, "再滑动一次退出", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        lastExitPressTime = 0
         super.onBackPressed()
     }
 
@@ -1830,6 +2198,77 @@ class MainActivity : Activity() {
     /** 底栏交互入口: 输入框文字变化时刷新三形态布局 */
     internal fun updateInputMode() {
         applyInputMode()
+    }
+
+    /** 折叠手柄点按: 展开/收起控制条(接管按钮+状态), 手柄 ⌃→⌄ 旋转 */
+    internal fun toggleBrowserBar() {
+        browserBarExpanded = !browserBarExpanded
+        browserBar.animate().cancel()
+        browserBarToggle.animate().cancel()
+        if (browserBarExpanded) {
+            browserBar.alpha = 0f
+            browserBar.translationY = dp(6).toFloat()
+            browserBar.visibility = View.VISIBLE
+            browserBar.animate().alpha(1f).translationY(0f).setDuration(160).start()
+            addCollapseMasks()
+        } else {
+            browserBar.animate().alpha(0f).translationY(dp(6).toFloat()).setDuration(140).withEndAction {
+                browserBar.visibility = View.GONE
+            }.start()
+            removeCollapseMasks()
+        }
+        browserBarToggle.animate().rotation(if (browserBarExpanded) 180f else 0f).setDuration(160).start()
+    }
+
+    /** 展开控制条时盖住其它区域: 点击浏览器/聊天区自动收回; 控制条与手柄在遮罩之上不受影响 */
+    private fun addCollapseMasks() {
+        if (!::collapseMaskWeb.isInitialized || !::collapseMaskChat.isInitialized) return
+        if (browserPage.root.isAttachedToWindow && collapseMaskWeb.parent == null) {
+            browserPage.root.addView(collapseMaskWeb, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        if (collapseMaskChat.parent == null) {
+            chatArea.addView(collapseMaskChat,
+                chatArea.indexOfChild(browserBar).coerceAtLeast(0),
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+    }
+
+    private fun removeCollapseMasks() {
+        if (::collapseMaskWeb.isInitialized) (collapseMaskWeb.parent as? ViewGroup)?.removeView(collapseMaskWeb)
+        if (::collapseMaskChat.isInitialized) (collapseMaskChat.parent as? ViewGroup)?.removeView(collapseMaskChat)
+    }
+
+    /** 浏览器窗口固定为中间区域(标题栏下 ~ 输入框顶); 手柄/控制条悬浮覆盖其上, 展开收起不顶起浏览器 */
+    internal fun adjustBrowserWindow() {
+        if (!browserPage.root.isAttachedToWindow) return
+        val tLoc = IntArray(2)
+        titleBar.getLocationInWindow(tLoc)
+        val gap = dp(10)
+        // 上下各留 gap 间距: 顶部下移 gap, 高度再扣 gap, 使窗口离标题栏/输入栏都远一点(底部同步上移)
+        val top = tLoc[1] + titleBar.height + gap
+        // 固定按"键盘未弹出"的完整高度计算: 键盘/输入框/抽屉浮在浏览器之上自然盖住窗口底部,
+        // 不跟随 inputBar 当前位置, 否则键盘弹起瞬间窗口被顶起变矮、收回时又残留半屏
+        val sb = try {
+            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())
+                ?: android.graphics.Insets.NONE
+        } catch (e: Exception) { android.graphics.Insets.NONE }
+        val fullH = (root.height - top - sb.bottom).coerceAtLeast(dp(120))
+        val h = (fullH - inputBar.height - gap).coerceAtLeast(dp(120))
+        browserPage.setWindowRect(top, h)
+    }
+
+    internal fun setBrowserBarVisible(v: Boolean) {
+        if (!v) {
+            browserBar.visibility = View.GONE
+            browserBarToggle.visibility = View.GONE
+            browserBarExpanded = false
+            browserBarToggle.rotation = 0f
+            removeCollapseMasks()
+        } else {
+            browserBarToggle.visibility = View.VISIBLE
+            if (browserBarExpanded) browserBar.visibility = View.VISIBLE
+        }
     }
 
     internal fun doSend(attachments: List<LocalEngine.Attachment>) {
@@ -1891,12 +2330,15 @@ class MainActivity : Activity() {
                         null
                     }
                     val link = if (fileName != null) "(att://$fileName)" else ""
+                    // 落库附件取 meta 原名(文件名含时间戳/UUID 前缀), 非落库直接用原名
+                    val dispName = if (a.stored) AttachmentStore.displayName(this@MainActivity, a.name) else a.name
                     when {
+                        a.isEmoji -> "[表情:$dispName]$link"             // 表情库项: 独立表情气泡(96dp小图, 动图循环)
                         a.mime.startsWith("image/") -> "[图片]$link"
                         a.isVoice -> "[音频]$link"                       // 本地录音: 保留语音气泡形态
-                        a.mime.startsWith("audio/") -> "[文件:${a.name}]$link"  // 上传音频文件: 按文件卡片展示
-                        a.mime.startsWith("video/") -> "[视频:${a.name}]$link"
-                        else -> "[文件:${a.name}]$link"
+                        a.mime.startsWith("audio/") -> "[文件:$dispName]$link"  // 上传音频文件: 按文件卡片展示
+                        a.mime.startsWith("video/") -> "[视频:$dispName]$link"
+                        else -> "[文件:$dispName]$link"
                     }
                 }
                 // 每个附件独立成一张卡片气泡(含纯图片多图: 已废弃 3 列网格合并)
@@ -2024,7 +2466,10 @@ class MainActivity : Activity() {
                     android.util.Log.i("Nyral", "onDelta=[$text]")
                     AITerminal.push("delta", text)
                     debugSseSink?.invoke("delta", text)
-                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.appendContent(text); scrollToBottom(true) }
+                    // AI 表情标记流式掩码: 完整/半截 [表情:名] 均不直接暴露(显示〔表情〕占位),
+                    // onDone 收尾拆分落库重建为独立表情气泡
+                    val masked = maskAiEmojiMarks(text)
+                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.appendContent(masked); scrollToBottom(true) }
                 }
                 override fun onDone(reply: String) {
                     android.util.Log.i("Nyral", "onDone len=${reply.length}")
@@ -2046,8 +2491,14 @@ class MainActivity : Activity() {
                             // 思考内容随回复一起持久化, 切回会话可恢复思考区
                             // 竞态防护: 回调排队期间用户可能已切会话, 不能把回复写进新会话历史
                             if (replySessionId == currentSessionId) {
-                                messages.add(MemoryDb.SessionMsg("assistant", reply, holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot(), System.currentTimeMillis()))
-                                MemoryKeeper.push("assistant", reply)
+                                // AI 表情气泡(2026-09-20): 按 [表情:名] 白名单标记把回复拆为 正文+独立表情气泡 多条消息;
+                                // 第一条(通常正文)挂 thinking/tools 快照, 表情行独立无快照
+                                val replyParts = splitAiEmojiReply(reply)
+                                for ((pi, p) in replyParts.withIndex()) {
+                                    val snap = if (pi == 0) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
+                                    messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))
+                                    MemoryKeeper.push("assistant", p)
+                                }
                                 currentSaved = false
                                 // 回复完成即时落库, 防止进程被杀丢失最后一条回复
                                 maybeSaveCurrent()
@@ -2144,6 +2595,51 @@ class MainActivity : Activity() {
         return sb.toString()
     }
 
+    /** AI 表情标记流式掩码: 完整 [表情:名] 显示为〔表情〕占位; 跨 delta 分片的半截标记缓冲到 emojiMaskTail */
+    private fun maskAiEmojiMarks(delta: String): String {
+        val full = emojiMaskTail + delta
+        var tail = ""
+        val lastOpen = full.lastIndexOf('[')
+        val lastClose = full.lastIndexOf(']')
+        if (lastOpen > lastClose && full.startsWith("[表情:", lastOpen)) {
+            tail = full.substring(lastOpen)
+        }
+        emojiMaskTail = tail
+        val head = if (tail.isNotEmpty()) full.substring(0, lastOpen) else full
+        return head.replace(Regex("\\[表情:[^\\]]*\\]"), "〔表情〕")
+    }
+
+    /** AI 回复拆分: [表情:名] 命中表情库白名单则拆为独立表情气泡消息; 未命中/Agent 模式(emojiEnabled=false)保留原文 */
+    private fun splitAiEmojiReply(reply: String): List<String> {
+        if (!ModeConfig.emojiEnabled() || !reply.contains("[表情:")) return listOf(reply)
+        val nameToFile = try {
+            val a = org.json.JSONArray(getSharedPreferences("emoji_drawer", android.content.Context.MODE_PRIVATE).getString("lib_items", "[]") ?: "[]")
+            (0 until a.length()).mapNotNull { i ->
+                val o = a.optJSONObject(i) ?: return@mapNotNull null
+                val n = o.optString("name"); val f = o.optString("file")
+                if (n.isNotBlank() && f.isNotBlank()) n to f else null
+            }.toMap()
+        } catch (e: Exception) { emptyMap() }
+        if (nameToFile.isEmpty()) return listOf(reply)
+        val re = Regex("\\[表情:([^\\]]+)\\]")
+        var last = 0
+        var hasSplit = false
+        val parts = mutableListOf<String>()
+        for (m in re.findAll(reply)) {
+            val name = m.groupValues[1].trim()
+            val file = nameToFile[name] ?: continue // 白名单外: 不拆, 保留原文
+            val head = reply.substring(last, m.range.first)
+            if (head.isNotBlank()) parts.add(head)
+            parts.add("[表情:$name](att://$file)")
+            last = m.range.last + 1
+            hasSplit = true
+        }
+        if (!hasSplit) return listOf(reply)
+        val tail = reply.substring(last)
+        if (tail.isNotBlank()) parts.add(tail)
+        return if (parts.isEmpty()) listOf(reply) else parts
+    }
+
     // ===================== 气泡渲染 =====================
 
     /** 流式行气泡盒入场: v8.7 去掉"上移+淡入"蹦出动画(用户反馈消息是'蹦'出来的), 直接显示 */
@@ -2225,7 +2721,28 @@ class MainActivity : Activity() {
         if (aiBusy) {
             streamingRow?.let { if (it !in chatRows) chatRows.add(it) }
         }
-        chatAdapter.submit(chatRows.toList(), onCommitted)
+        chatAdapter.submit(chatRows.toList()) {
+            onCommitted?.invoke()
+            // 批量加载窗口: 全量重建提交后置窗口, 首帧布局(bind)期间抑制内嵌播放器创建,
+            // 全部走缩略图, 避免"大量视频行同一帧同步 inflate+prepare 硬解码"整屏闪烁卡顿;
+            // 布局完成(再等一帧)后释放窗口并主动对账补建, 静止首屏也能自动播放
+            sBatchLoad = true
+            chatRec.post {          // 帧1: diff 提交后的首帧布局+bind(窗口仍生效, 不建播放器)
+                chatRec.post {      // 帧2: 布局完成, 释放窗口并补建一次
+                    sBatchLoad = false
+                    reconcileVideoBubbles(chatRec)
+                    reconcileEmojiBubbles(chatRec)   // 表情行同批降级, 一并补建恢复播放
+                    // 兜底(2026-09-20): 帧2 对账时 RV 锚点/ViewHolder 可能未就绪(scrollToPosition
+                    // 锚点在下一布局帧才生效), 尾部最新两条可能不在可见范围而漏补建; 延迟再对账一次
+                    // 覆盖, 幂等安全: 已播放行走续播不重复重建, 无变化则空跑
+                    chatRec.postDelayed({
+                        if (sScrolling) return@postDelayed
+                        reconcileVideoBubbles(chatRec)
+                        reconcileEmojiBubbles(chatRec)
+                    }, 300)
+                }
+            }
+        }
     }
 
     /** 运行期新行临时 id: 负数递减, 与 DB 全局 seq(历史行 id=sessionBaseSeq+i)不冲突 */
@@ -2331,34 +2848,38 @@ class MainActivity : Activity() {
         // Agent 模式用户右气泡最大宽=chatBox内容宽(屏宽-左右padding 12dp*2), 与AI同为全屏幅宽且左右对称;
         // 不可用全屏w: 全屏w+END右对齐且可用区<气泡宽时左边缘偏移为负→左边越出屏幕
         val userMaxW = if (ModeConfig.chatMode()) maxW else (maxW - dp(24)).coerceAtLeast(dp(120))
+        // 专门表情气泡(微信式96dp小图贴边): 表情库项统一入口, 优先于视频/图片链路;
+        // 识别 [表情:xxx] 新标记 + 历史兼容(emoji_lib/ 路径的视频/图片消息); 非表情/异常回退原链路
+        val emojiView = try { emojiBubble(content, isUser, if (isUser) userMaxW else maxW) } catch (e: Exception) { null }
+        if (emojiView != null) return emojiView
         // 接收端气泡循环播放管线: 纯视频单附件消息 -> 气泡内嵌 PlayerView 自动循环播放(动图/多帧媒体
         // 播放完一次自动重播 loop), 对齐微信"大动图循环视频"; 非纯视频/异常回退原缩略图渲染
         val loopView = try { videoLoopBubble(content, isUser, if (isUser) userMaxW else maxW) } catch (e: Exception) { null }
         if (loopView != null) return loopView
         // 纯图片附件消息: 贴边不留白; 纯文件/上传音频保留正常内边距(文件卡片角标+文件名需留白)
-        val pureImage = isUser && content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
+        val pureImage = isUser && content.replace(Regex("""\[.+?\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
             content.contains("[图片]")
         // 纯视频消息: 与图片同机制, 首帧缩略图内嵌气泡, 四边边距无限接近 0
-        val pureVideo = isUser && content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
+        val pureVideo = isUser && content.replace(Regex("""\[.+?\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
             content.contains("[视频:")
         // 纯语音消息: 微信式语音气泡, 加大内边距 + 最小宽度, 保证可点区域够大
-        val pureAudio = isUser && content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
+        val pureAudio = isUser && content.replace(Regex("""\[.+?\]\(att://[^)]+\)"""), "").trim().isEmpty() &&
             content.contains("[音频]")
         // 纯文件卡片消息(文件/视频/上传音频): 文件名在渲染时已按参考宽度手动中间省略(短名自适应, 长名保留首尾+后缀)
         val isFileCard = isUser && (content.contains("[文件:") || content.contains("[视频:")) &&
-            content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isEmpty()
+            content.replace(Regex("""\[.+?\]\(att://[^)]+\)"""), "").trim().isEmpty()
         return TextView(this).apply {
             if (isUser) {
                 text = renderUserContent(content)
                 movementMethod = LinkMovementMethod.getInstance()
                 // 视频缩略图异步就绪后重建本气泡文本以显示画面缩略图(原: 系统栈取帧失败→ 仅文件卡片)
-                val vkN = Regex("""\[视频:[^\]]+\]\(att://([^)]+)\)""").find(content)?.groupValues?.get(1)
+                val vkN = Regex("""\[视频:.+?\]\(att://([^)]+)\)""").find(content)?.groupValues?.get(1)
                 if (vkN != null && isThumbPending(vkN)) {
                     registerThumbRefresh(vkN) {
                         try { text = renderUserContent(content) } catch (_: Throwable) {}
                     }
                 }
-            } else if (ModeConfig.chatPlainText()) text = ModeConfig.stripChatProtocolPrefix(content.trim())
+            } else if (ModeConfig.chatPlainText()) text = ModeConfig.stripMarkdownForChat(content.trim())
             else setMarkdownCached(this, ModeConfig.stripChatProtocolPrefix(content.trim()))
             textSize = 15f
             val edgeImage = pureImage || pureVideo
@@ -2405,20 +2926,439 @@ class MainActivity : Activity() {
      * 动图/多帧媒体 播放完一次后自动重播(loop), 对齐微信"大动图循环视频" — 发送后接收端气泡内自己动。
      * v1.3 已启用回退保护: 仅当消息为"纯单视频无其他文本"、文件未损坏且尺寸合理时内嵌; 否则返回 null 走原缩略图渲染。
      */
+
+    /** 递归找行视图树里是否有 PlayerView(= 内嵌播放器活跃): 行结构随模式变化(有无头像包装层), 逐层找最稳 */
+    private fun hasActivePlayerView(v: View): Boolean {
+        // 只认"持有活播放器"的 PlayerView: killSelf 会把 pv.player 置空, 残留的空 PlayerView 视为无播放器。
+        // 若按"存在 PlayerView"判定, killSelf 后离屏未降级的空壳会被补播复核当成"已在播"永久跳过
+        // → 视频黑屏且只有切会话/重启(整行重建)才恢复(真机 09-19 02:50 滚动压测复现)
+        if (v is PlayerView) return v.player != null
+        if (v is ViewGroup) for (i in 0 until v.childCount) if (hasActivePlayerView(v.getChildAt(i))) return true
+        return false
+    }
+
+    /** 纯视频消息判定(与 videoLoopBubble 同规则): 只有纯视频单附件消息才建内嵌播放器,
+     *  非纯视频行 notify 重绑也只会得到缩略图, 白耗整行重建 */
+    private fun isPureVideoMsg(content: String): Boolean {
+        val re = Regex("""\[.+?\]\(att://[^)]+\)""")
+        val marks = re.findAll(content).toList()
+        if (marks.size != 1 || !marks[0].value.startsWith("[视频:")) return false
+        return content.replace(re, "").trim().isEmpty()
+    }
+
+    /** 纯表情消息判定(与 emojiBubble 同规则): 单附件 + [表情: 标记, 或历史 emoji_lib/ 路径的 [视频:]/[图片];
+     *  供表情对账(reconcileEmojiBubbles)精确识别行, 避免把普通视频/图片行当表情重建 */
+    private fun isPureEmojiMsg(content: String): Boolean {
+        val re = Regex("""\[.+?\]\(att://[^)]+\)""")
+        val marks = re.findAll(content).toList()
+        if (marks.size != 1) return false
+        val markText = marks[0].value
+        val isEmojiMark = markText.startsWith("[表情:")
+        val isLegacyEmoji = (markText.startsWith("[视频:") || markText.startsWith("[图片]")) &&
+            markText.contains("emoji_lib/")
+        if (!isEmojiMark && !isLegacyEmoji) return false
+        return content.replace(re, "").trim().isEmpty()
+    }
+
+    /** 递归找行视图树里活跃 ExoPlayer(PlayerView.player 非空即活); 与 hasActivePlayerView 同遍历,
+     *  对账时用于收集"可见行持有的播放器", 杀离屏只认活跃实例 */
+    private fun activePlayerOf(v: View): ExoPlayer? {
+        if (v is PlayerView) return v.player as? ExoPlayer
+        if (v is ViewGroup) for (i in 0 until v.childCount) {
+            activePlayerOf(v.getChildAt(i))?.let { return it }
+        }
+        return null
+    }
+
+    /** QQ 式统一对账(替换原错峰补建): 滚动停止后以"当前可见行"为唯一真相,
+     *  1) 名额重排——可见纯视频行按 position 顺序, 前 INLINE_MAX 个获得播放权(已有则保留续播,
+     *     没有则待补建); 超出配额的行即使持有旧播放器也统一 killSelf 让位(否则旧行占坑导致
+     *     新行捡剩, 播放顺序乱跳 135/24, 真机 09-19 反馈);
+     *  2) 杀离屏——不在可见行的活跃播放器统一 killSelf, 名额立即归还;
+     *  3) 按序补建——有播放权的空缺行按顺序 notify, 由入口按配额串行创建。
+     *  名额只发可见行, 预取/复用池 attach 的行不再有资格, 根治"离屏行抢走可见行播放权"打架 */
+    private fun reconcileVideoBubbles(rv: RecyclerView) {
+        // 滑动中一律不做对账(QQ 式): 名额让出广播/滚动停止前都可能触发本函数,
+        // 若在此续播/补建会把滑动中已暂停的视频复活, 打断暂停(真机 09-19 滑动中视频复播反馈);
+        // 滑动停止时 onScrollStateChanged 会统一调一次对账, 不丢补建
+        if (sScrolling) return
+        val lm = rv.layoutManager as? LinearLayoutManager ?: return
+        val first = lm.findFirstVisibleItemPosition()
+        // 尾部扩展(2026-09-20): 批量重建后首帧布局锚点未就绪时 findLastVisible 可能不含最新两条,
+        // 仅当可见区已接近列表末尾时扩展到末尾覆盖它们; 屏幕外行会被下方中心检测区天然过滤, 不会误建
+        val lastVis = lm.findLastVisibleItemPosition()
+        val last = if (lastVis >= chatRows.lastIndex - 2) chatRows.lastIndex else lastVis
+        if (first < 0 || last < first) return
+        android.util.Log.d("ReconcileV", "trigger first=$first last=$last lastVis=$lastVis count=${chatRows.size} sScrolling=$sScrolling sBatchLoad=$sBatchLoad players=${sBubblePlayers.size} gate=${ExoGate.INLINE_MAX}")
+        // 中心检测区跟随真实 UI 边界: 顶栏底部 → 底栏顶部(标题栏/输入栏锚定),
+        // 标题栏多高遮多高、输入栏多高遮多高, 手机/平板/折叠屏/键盘弹起均自适应;
+        // 不再用固定屏幕比例(比例制在平板等大屏会遮掉本可播放区域, 09-19 用户确认改锚定)
+        val rvLoc = IntArray(2).also { rv.getLocationInWindow(it) }
+        val tLoc = IntArray(2).also { titleBar.getLocationInWindow(it) }
+        val iLoc = IntArray(2).also { inputBar.getLocationInWindow(it) }
+        val detectTop = (tLoc[1] + titleBar.height - rvLoc[1]).toFloat().coerceAtLeast(0f)
+        val detectBottom = (iLoc[1] - rvLoc[1]).toFloat().coerceAtLeast(0f)
+        if (detectBottom <= detectTop) return   // 布局异常(顶栏压到底栏)时不对账, 避免区间倒挂
+        // 收集候选行(按 position 顺序)及其持有的活跃播放器
+        val visibleRows = ArrayList<Pair<Int, ExoPlayer?>>()
+        for (pos in first..last) {
+            val row = chatRows.getOrNull(pos)
+            if (row !is ChatRow.User || !isPureVideoMsg(row.content)) continue
+            val vh = rv.findViewHolderForAdapterPosition(pos)
+            if (vh == null) { android.util.Log.d("ReconcileV", "cand pos=$pos vh=null"); continue }
+            val iv = vh.itemView
+            val ivLoc = IntArray(2).also { iv.getLocationInWindow(it) }
+            val centerY = ivLoc[1] + iv.height / 2f - rvLoc[1]
+            val pass = centerY >= detectTop && centerY <= detectBottom
+            android.util.Log.d("ReconcileV", "cand pos=$pos center=$centerY top=$detectTop bottom=$detectBottom pass=$pass")
+            if (!pass) continue   // 边缘行不参与名额分配
+            visibleRows.add(pos to activePlayerOf(iv))
+        }
+        // 1) 名额重排: 前 INLINE_MAX 个可见行获得播放权, 其余一律让位
+        val keepExos = HashSet<ExoPlayer>()
+        val pendingRows = ArrayList<Int>()
+        var budget = ExoGate.INLINE_MAX
+        for ((pos, exo) in visibleRows) {
+            if (budget > 0) {
+                if (exo != null) keepExos.add(exo) else pendingRows.add(pos)
+                budget--
+            }
+            // 超出配额的行: 有播放器也会在下面统一被杀(不在 keepExos), 空行保持缩略图不补建
+        }
+        // 2) 杀离屏 + 杀超配额: 不在 keepExos 的活跃播放器统一终结(名额立即归还, 经统一收口)
+        for (p in sBubblePlayers.toList()) {
+            if (p !in keepExos) sBubbleKillHooks[p]?.invoke()
+        }
+        // 3) 续播可见(原地恢复, 不重建不闪变)
+        for (p in keepExos) { try { p.play() } catch (_: Exception) {} }
+        // 帧动画行同步续播(滚动停止后 attachListener 只触发不播, 对账统一恢复)
+        for (pos in first..last) {
+            val vh = rv.findViewHolderForAdapterPosition(pos) ?: continue
+            EmojiFrameAnimator.controllerOf(vh.itemView)?.let { c -> try { c.play() } catch (_: Exception) {} }
+        }
+        // 4) 按序补建(错峰逐行, 每行间隔 120ms): 同帧 notify 多行 → 下一帧同步 bind 建多个
+        //    ExoPlayer prepare 硬解码, 首屏/切会话大量视频行时明显卡顿; 错峰后逐个建, 观感平滑
+        if (pendingRows.isNotEmpty()) {
+            android.util.Log.d("ReconcileV", "pending=$pendingRows")
+            var delay = 0L
+            for (pos in pendingRows) {
+                rv.postDelayed({
+                    if (sScrolling) return@postDelayed   // post 异步: 执行时可能已重新开始滑动, 同样短路
+                    if (sBubblePlayers.size >= ExoGate.INLINE_MAX) return@postDelayed
+                    val row = chatRows.getOrNull(pos)
+                    if (row !is ChatRow.User || !isPureVideoMsg(row.content)) return@postDelayed
+                    val vh = rv.findViewHolderForAdapterPosition(pos) ?: return@postDelayed
+                    if (hasActivePlayerView(vh.itemView)) return@postDelayed
+                    chatAdapter.notifyItemChanged(pos)
+                }, delay)
+                delay += 120L
+            }
+        }
+    }
+
+    /** 表情气泡专用对账(与 reconcileVideoBubbles 同框架, 独立于视频配额互不误杀):
+     *  重启/切会话后表情行 bind 时若遇 名额满/滑动中/批量加载 会降级静态缩略图且不再补建,
+     *  导致"发出去的表情不动"(09-19 用户反馈); 本对账在滚动停止/ExoGate 释放/批量加载结束
+     *  三个触发点按可见行重排名额, 让降级行重新 notify 走 emojiBubble 播放链路。
+     *  识别: isPureEmojiMsg 精确判定纯表情行; 已有 PlayerView 的行保留播放权, 空缺行按序补建。
+     *  配额: 前 INLINE_MAX 个可见表情行获得播放权, 超配额/离屏的统一经 sEmojiKillHooks 让位。 */
+    private fun reconcileEmojiBubbles(rv: RecyclerView) {
+        if (sScrolling) return
+        val lm = rv.layoutManager as? LinearLayoutManager ?: return
+        val first = lm.findFirstVisibleItemPosition()
+        // 尾部扩展(2026-09-20, 对齐视频对账): 批量重建后锚点未就绪时最新两条可能不在可见范围,
+        // 仅当可见区接近列表末尾时扩展到末尾覆盖; 表情行无中心检测区, 屏幕外行靠 ViewHolder 缺失自然跳过
+        val lastVis = lm.findLastVisibleItemPosition()
+        val last = if (lastVis >= chatRows.lastIndex - 2) chatRows.lastIndex else lastVis
+        if (first < 0 || last < first) return
+        android.util.Log.d("ReconcileE", "trigger first=$first last=$last lastVis=$lastVis count=${chatRows.size} sScrolling=$sScrolling sBatchLoad=$sBatchLoad players=${sEmojiPlayers.size}")
+        // 表情行对账放宽: 可见即收(不套视频行的中心检测区)——表情帧动画不占解码器名额,
+        // 最新两条贴输入栏/边缘遮挡时也能补建播放, 根治"倒数两条永久缩略图不动"(09-19 反馈)
+        val visibleRows = ArrayList<Pair<Int, ExoPlayer?>>()
+        for (pos in first..last) {
+            val row = chatRows.getOrNull(pos)
+            val emojiC = when (row) { is ChatRow.User -> row.content; is ChatRow.Ai -> row.content; else -> null } ?: continue
+            if (!isPureEmojiMsg(emojiC)) continue
+            val vh = rv.findViewHolderForAdapterPosition(pos)
+            if (vh == null) { android.util.Log.d("ReconcileE", "cand pos=$pos vh=null"); continue }
+            val iv = vh.itemView
+            // 帧动画行视为已有播放权(不占 ExoGate 名额): 跳过预算分配, 防把帧动画行当空缺行重建闪变;
+            // 原地续播: 滚动中 attach 时 sScrolling 抑制播放、抽帧完成时同样被抑制的行, 滚动停止在此补播;
+            // 已软释放(离屏 30s 看门狗)回屏的行由 resumeIfReady -> startDecode 幂等重抽续上 —— 根治"最新一条不动"
+            if (EmojiFrameAnimator.hasActiveFrame(iv)) {
+                android.util.Log.d("ReconcileE", "cand pos=$pos frameAnim=active resume")
+                EmojiFrameAnimator.controllerOf(iv)?.resumeIfReady()
+                continue
+            }
+            android.util.Log.d("ReconcileE", "cand pos=$pos frameAnim=no player=${activePlayerOf(iv) != null}")
+            visibleRows.add(pos to activePlayerOf(iv))
+        }
+        // 1) 名额重排: 前 INLINE_MAX 个可见表情行获得播放权
+        val keepExos = HashSet<ExoPlayer>()
+        val pendingRows = ArrayList<Int>()
+        var budget = ExoGate.INLINE_MAX
+        for ((pos, exo) in visibleRows) {
+            if (budget > 0) {
+                if (exo != null) keepExos.add(exo) else pendingRows.add(pos)
+                budget--
+            }
+        }
+        // 2) 杀超配额/离屏: 不在 keepExos 的表情播放器统一终结(经统一收口归还名额)
+        for (p in sEmojiPlayers.toList()) {
+            if (p !in keepExos) sEmojiKillHooks[p]?.invoke()
+        }
+        // 3) 续播可见(原地恢复, 不重建不闪变)
+        for (p in keepExos) { try { p.play() } catch (_: Exception) {} }
+        // 4) 按序补建(错峰逐行 120ms): 让降级为缩略图的表情行重新走播放链路
+        if (pendingRows.isNotEmpty()) {
+            android.util.Log.d("ReconcileE", "pending=$pendingRows")
+            var delay = 0L
+            for (pos in pendingRows) {
+                rv.postDelayed({
+                    if (sScrolling) return@postDelayed
+                    if (sEmojiPlayers.size >= ExoGate.INLINE_MAX) return@postDelayed
+                    val row = chatRows.getOrNull(pos)
+                    val emojiC2 = when (row) { is ChatRow.User -> row.content; is ChatRow.Ai -> row.content; else -> null } ?: return@postDelayed
+                    if (!isPureEmojiMsg(emojiC2)) return@postDelayed
+                    val vh = rv.findViewHolderForAdapterPosition(pos) ?: return@postDelayed
+                    if (hasActivePlayerView(vh.itemView)) return@postDelayed
+                    chatAdapter.notifyItemChanged(pos)
+                }, delay)
+                delay += 120L
+            }
+        }
+    }
+
+    /**
+     * 专门表情气泡(微信式 96dp 小图贴边, 无背景边框): 表情库项统一渲染入口。
+     * 识别新标记 [表情:xxx](att://...) ; 历史兼容: [视频:xxx] / [图片] 且 att 路径含 emoji_lib/ 也走表情。
+     * mp4 动图 → ExoPlayer 静音循环(复用 ExoGate 名额制 + 看门狗 + attach/detach 生命周期, 与视频气泡同机制);
+     * jpg 静态图 → 直接解码小图; 名额满/滚动中/批量加载 → 降级静态缩略图(不黑屏)。
+     * 固定方形小尺寸、无背景、点击进全屏预览。返回 null 回退原视频/图片链路。
+     */
+    private fun emojiBubble(content: String, isUser: Boolean, maxW: Int): View? {
+        // AI 表情气泡(2026-09-20): 放开 isUser 限制, 聊天模式 AI 纯表情消息同样渲染表情气泡(靠左);
+        // Agent 模式 emojiEnabled=false 一律不渲染表情气泡, 标记按原文显示防泄漏
+        if (!ModeConfig.emojiEnabled()) return null
+        // 仅纯单附件消息: 去掉附件占位后无其余文本
+        val re = Regex("""\[.+?\]\(att://([^)]+)\)""")
+        val marks = Regex("""\[.+?\]\(att://[^)]+\)""").findAll(content).toList()
+        if (marks.size != 1) return null
+        if (content.replace(Regex("""\[.+?\]\(att://[^)]+\)"""), "").trim().isNotEmpty()) return null
+        val markText = marks[0].value
+        // 新标记 [表情:xxx] 或 历史兼容(emoji_lib/ 路径的 [视频:xxx]/[图片] 消息)
+        val isEmojiMark = markText.startsWith("[表情:")
+        val isLegacyEmoji = (markText.startsWith("[视频:") || markText.startsWith("[图片]")) &&
+            markText.contains("emoji_lib/")
+        if (!isEmojiMark && !isLegacyEmoji) return null
+        val file = re.find(content)?.groupValues?.get(1) ?: return null
+        val f = AttachmentStore.fileOf(this, file)
+        if (f == null || !f.exists() || f.length() <= 0L) return null
+        val mime = AttachmentStore.mimeOf(this, file)
+        val isVideo = mime.startsWith("video/") || file.lowercase().endsWith(".mp4")
+        // 微信式小尺寸贴边(不超过气泡可用宽); 非正方形动图/图片按真实宽高比适配(短边保底 40dp), 不再硬裁方形
+        val maxSide = dp(96).coerceAtMost(maxW)
+        var bubbleW = maxSide
+        var bubbleH = maxSide
+        var stillBmp: android.graphics.Bitmap? = null
+        if (!isVideo) {
+            // 静态图表情: 直接解码小图(表情文件小, 内存可控, 无需缩略图管线), 用真实宽高比定气泡尺寸
+            stillBmp = try { decodeAttachmentBitmap(f, resources.displayMetrics.density) } catch (e: Exception) { null }
+            val b = stillBmp
+            if (b == null) return null
+            val a = if (b.height > 0) b.width.toFloat() / b.height.toFloat() else 1f
+            if (a >= 1f) bubbleH = (maxSide / a).toInt().coerceAtLeast(dp(40)) else bubbleW = (maxSide * a).toInt().coerceAtLeast(dp(40))
+        } else {
+            // 动图表情: 缩略图缓存/媒体元数据取宽高比(见 videoAspectOf), 竖屏窄条/横屏宽条均按比例显示
+            val a = videoAspectOf(f)
+            if (a >= 1f) bubbleH = (maxSide / a).toInt().coerceAtLeast(dp(40)) else bubbleW = (maxSide * a).toInt().coerceAtLeast(dp(40))
+        }
+        val frame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(bubbleW, bubbleH).apply {
+                topMargin = dp(6)
+                gravity = if (isUser) Gravity.END else Gravity.START
+            }
+            // 表情气泡无背景无圆角, 直接贴聊天背景(微信式); 点击进全屏预览(弹窗内图片查看/视频循环)
+            background = null
+            // 对账识别标记(reconcileEmojiBubbles 用它判定"行视图已是表情气泡"避免重复重建)
+            tag = "emoji_bubble_frame"
+            setOnClickListener { this@MainActivity.openAttachmentPreview(listOf(file), 0) }
+        }
+        if (!isVideo) {
+            // 静态图表情: frame 已按宽高比适配, FIT 完整显示原图
+            val iv = android.widget.ImageView(this@MainActivity).apply {
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                setImageBitmap(stillBmp)
+            }
+            frame.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            return frame
+        }
+        // 动图表情: 短表情优先帧动画(方案C: 不占 ExoPlayer 名额, 同屏可同时动多个);
+        // 长表情/滚动/批量/超限/抽帧失败回退 ExoPlayer 名额制兜底
+        // 滚动中 bind 也走帧动画(首帧先行, 不依赖缩略图缓存): 发送滚动到底/浏览历史时新行秒现首帧不闪黑;
+        // 滚动中不播放, 停止后由 reconcileEmojiBubbles resumeIfReady 原地续播(v4)
+        // v6: isShortEmoji 主线程纯缓存查询(永不碰 MMR), 后台 warmup 补齐探测
+        EmojiFrameAnimator.warmup(f)
+        // v6.1: 帧动画确认不可用(抽帧失败/损坏)的文件直接静态缩略图, 不落 ExoPlayer 兜底,
+        // 防"废柴文件"成批转交解码器造成并发内存洪峰(OOM 放大器, 09-20 闪退根因)
+        if (EmojiFrameAnimator.isFailed(f)) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
+        if (!sBatchLoad && EmojiFrameAnimator.isShortEmoji(f)) {
+            // 发送闪黑根治: attach 前若有缓存首帧缩略图先铺真图垫底(attach 不清空子视图, 帧动画 iv 叠加其上),
+            // 抽帧等待期显示真图不黑; 未命中不铺, 等首帧先行(几十 ms)
+            peekVideoThumb(f)?.let { thumb ->
+                frame.addView(android.widget.ImageView(this@MainActivity).apply {
+                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                    setImageBitmap(thumb)
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+            }
+            // 帧动画首帧先行: attach 后抽帧线程取到第 0 帧立即上屏
+            if (EmojiFrameAnimator.attach(frame, f)) return frame
+        }
+        // 表情独立配额满/滚动中/批量加载 → 静态缩略图降级(不黑屏不抢解码; 独立于视频配额, 互不误杀)
+        if (sEmojiPlayers.size >= ExoGate.INLINE_MAX) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
+        if (sScrolling) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
+        if (sBatchLoad) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
+        val gateToken = Any()
+        if (!ExoGate.tryAcquire(gateToken)) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
+        lateinit var exo: ExoPlayer
+        try {
+            exo = ExoPlayer.Builder(this@MainActivity).build()
+            exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
+            // 循环播放 + 静音: 与动图无声循环语义一致; 点击气泡进全屏弹窗(弹窗内同样循环)
+            exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
+            exo.volume = 0f
+            exo.prepare()
+        } catch (e: Exception) {
+            try { exo.release() } catch (_: Exception) {}
+            ExoGate.release(gateToken)
+            attachEmojiThumb(frame, f, bubbleW, bubbleH)
+            return frame
+        }
+        sEmojiPlayers.remove(exo)
+        sEmojiPlayers.add(exo)
+        // 与视频气泡同款 PlayerView(texture_view 防多实例合成层串扰); frame 已按宽高比适配,
+        // 改 FIT 完整显示(共享布局默认 zoom 是给视频气泡横向卡片裁剪用的, 这里单独覆盖)
+        val pv = LayoutInflater.from(this).inflate(R.layout.video_bubble_view, null) as PlayerView
+        pv.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        pv.player = exo
+        pv.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER)
+        frame.addView(pv)
+        // 生命周期(复用 videoLoopBubble 机制): 创建即武装看门狗 10s; detach 立即让出全局解码名额;
+        // attach 回来重新认领续播; 终结(killSelf)统一收口实例+名额+视图, 防 ExoPlayer 堆积 OOM
+        var releasePending = true
+        var gateReleased = false
+        var exoReleased = false
+        var dead = false
+        val releaseHandler = Handler(Looper.getMainLooper())
+        fun degradeToThumb() { attachEmojiThumb(frame, f, bubbleW, bubbleH) }
+        fun killSelf() {
+            if (dead) return
+            dead = true
+            releasePending = false
+            releaseHandler.removeCallbacksAndMessages(null)
+            sEmojiPlayers.remove(exo)
+            sEmojiKillHooks.remove(exo)   // 摘钩子防闭包滞留
+            try { exo.release() } catch (_: Exception) {}
+            // 摘掉已释放实例: 避免空 PlayerView 持死角播放器, 被补播复核误判为"已在播"
+            try { pv.player = null } catch (_: Exception) {}
+            if (!gateReleased) { gateReleased = true; ExoGate.release(gateToken) }
+            exoReleased = true
+            if (frame.isAttachedToWindow) degradeToThumb()   // 仍在屏: 降级防黑屏; 已离屏等 attach 重建
+        }
+        val watchdog = Runnable { if (releasePending) killSelf() }
+        sEmojiKillHooks[exo] = { killSelf() }   // 挂表情终结钩子: 对账按配额踢超限/离屏实例时经统一收口(killSelf 已声明)
+        frame.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                if (releasePending) {
+                    releasePending = false
+                    releaseHandler.removeCallbacksAndMessages(null)
+                }
+                if (exoReleased) {
+                    // 实例已终结: 统一降级缩略图, 补建由对账(reconcileVideoBubbles)按可见性+配额驱动
+                    degradeToThumb()
+                    return@onViewAttachedToWindow
+                } else {
+                    if (gateReleased) {
+                        if (!ExoGate.tryAcquire(gateToken)) { killSelf(); return@onViewAttachedToWindow }
+                        gateReleased = false
+                    }
+                    sEmojiPlayers.remove(exo)
+                    sEmojiPlayers.add(exo)
+                    sEmojiKillHooks[exo] = { killSelf() }   // 回屏重新挂钩子(参照视频气泡 detach 摘/回屏挂)
+                }
+                if (!sScrolling) try { exo.play() } catch (_: Exception) {}
+            }
+            override fun onViewDetachedFromWindow(v: View) {
+                if (dead) return
+                try { exo.pause() } catch (_: Exception) {}
+                sEmojiPlayers.remove(exo)
+                sEmojiKillHooks.remove(exo)   // 离屏摘钩子: 防离屏闭包滞留整棵视图(参照视频气泡)
+                if (!gateReleased) {
+                    gateReleased = true
+                    ExoGate.release(gateToken)
+                }
+                releasePending = true
+                releaseHandler.postDelayed(watchdog, 10_000L)
+            }
+        })
+        releasePending = true
+        releaseHandler.postDelayed(watchdog, 10_000L)
+        return frame
+    }
+
+    /** 表情动图降级: 静态首帧缩略图(frame 已按宽高比适配, FIT 完整显示), 无缓存则触发后台取帧, 就绪后自动刷新 */
+    private fun attachEmojiThumb(frame: FrameLayout, f: File, w: Int, h: Int) {
+        val key = f.name
+        val bmp = peekVideoThumb(f)
+        val iv = android.widget.ImageView(this@MainActivity).apply {
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            if (bmp != null) setImageBitmap(bmp) else setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        }
+        frame.removeAllViews()
+        frame.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        if (bmp == null) {
+            // 取帧就绪后自动刷新为真缩略图(避免长时间深色占位被误判"黑屏")
+            registerThumbRefresh(key) {
+                val nb = peekVideoThumb(f)
+                if (nb != null && frame.isAttachedToWindow) {
+                    iv.setImageBitmap(nb)
+                    iv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                }
+            }
+            decodeVideoThumbnailBg(f, resources.displayMetrics.density, this@MainActivity)
+        }
+    }
+
+    /** 动图表情宽高比: 优先首帧缩略图缓存(保留原始比例, 零解码开销), 兜底媒体元数据; 取不到按 1:1 */
+    private fun videoAspectOf(f: File): Float {
+        peekVideoThumb(f)?.let { return if (it.height > 0) it.width.toFloat() / it.height.toFloat() else 1f }
+        return try {
+            val mmr = android.media.MediaMetadataRetriever()
+            try {
+                mmr.setDataSource(f.absolutePath)
+                val w = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toFloatOrNull() ?: 0f
+                val h = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toFloatOrNull() ?: 0f
+                if (w > 0f && h > 0f) w / h else 1f
+            } finally {
+                try { mmr.release() } catch (_: Exception) {}
+            }
+        } catch (e: Exception) { 1f }
+    }
+
     private fun videoLoopBubble(content: String, isUser: Boolean, maxW: Int): View? {
         if (!isUser) return null
         // 仅纯视频附件消息: 去掉附件占位后无其余文本, 且不足两个附件
-        val re = Regex("""\[[^\]]+\]\(att://([^)]+)\)""")
-        val marks = Regex("""\[[^\]]+\]\(att://[^)]+\)""").findAll(content).toList()
+        val re = Regex("""\[.+?\]\(att://([^)]+)\)""")
+        val marks = Regex("""\[.+?\]\(att://[^)]+\)""").findAll(content).toList()
         if (marks.size != 1) return null
-        if (content.replace(Regex("""\[[^\]]+\]\(att://[^)]+\)"""), "").trim().isNotEmpty()) return null
+        if (content.replace(Regex("""\[.+?\]\(att://[^)]+\)"""), "").trim().isNotEmpty()) return null
         if (!marks[0].value.startsWith("[视频:")) return null
         val file = re.find(content)?.groupValues?.get(1) ?: return null
         val f = AttachmentStore.fileOf(this, file)
         if (f == null || !f.exists() || f.length() <= 0L) return null
         // 超大视频/前端直传长视频不内嵌(解码耗电), 走原缩略图+点击进弹窗(弹窗内已 loop)
         if (f.length() > 60L * 1024 * 1024) return null
-        if (!AttachmentStore.mimeOf(file).startsWith("video/")) return null
+        if (!AttachmentStore.mimeOf(this, file).startsWith("video/")) return null
         // 内嵌尺寸: 优先"立即可用"的首帧缩略图宽高(与纯视频缩略图一致), 兜底 16:9 估算; 不超过气泡 maxW 与屏高上限。
         // 关键: 必须 allowGrab=false —— 本气泡已内嵌真实循环播放器, 不需要抓帧缩略图; 若临时取不到缩略图,
         // 绝不触发全屏 ExoPlayer 抓帧(系统取帧失败的转发视频/GIF 转码片走该兜底时, 会在真机全屏闪放视频、
@@ -2432,17 +3372,51 @@ class MainActivity : Activity() {
         var h = (w * 9 / 16).coerceAtMost(maxH)
         w = w.coerceAtLeast(dp(80))
         h = h.coerceAtLeast(dp(60))
-        val exo = ExoPlayer.Builder(this@MainActivity).build()
-        exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
-        // 循环播放: 播放完一次自动重播(loop), 静音自动播放(与动图无声语义一致), 点击气泡进全屏弹窗
-        exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
-        exo.volume = 0f
-        exo.prepare()
-        val pv = PlayerView(this).apply {
-            this.player = exo
-            useController = false
-            layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER)
+        // 名额制: 同屏活跃解码数按设备内存动态定级(ExoGate.INLINE_MAX 低端1/中端2/高端3);
+        // 已满直接返回 null 走首帧缩略图渲染(renderUserContent 纯视频分支),
+        // 不创建 ExoPlayer, 堵住大量视频消息同时 inflate 时全部 prepare 拉起硬解码打爆堆
+        // (真机 09-19 00:08: 启动 8 秒连建 7 个 ExoPlayer 全硬解码, 堆 256MB 打满 native 崩溃)
+        if (sBubblePlayers.size >= ExoGate.INLINE_MAX) return null
+        // QQ 式滚动暂停: 滑动中不创建播放器, 走缩略图降级(vtb 分支); 滚动停止 notify 刷新后重建自动播放
+        if (sScrolling) return null
+        // 批量加载窗口: 切会话/重启全量重建提交后首帧布局完成前不创建播放器, 全部走缩略图,
+        // 避免"大量视频行同一帧同步 inflate+prepare 硬解码"整屏闪烁卡顿(09-19 用户反馈首屏闪烁);
+        // 布局稳定后由 buildRowsFromMessages 主动释放标志并对账补建, 静止首屏也能自动播放
+        if (sBatchLoad) return null
+        // 全局解码器硬上限(内嵌2 + 弹窗/抓帧1): 弹窗预览/抓帧占满时也拒绝创建, 不因绕过气泡名额堆积 OOM
+        // gateToken: 本气泡视图的名额持有者令牌——创建/attach重建/回屏复用同一令牌, detach/终结让出;
+        // ExoGate 持有者集合按令牌记账, 双还/双领幂等, 杜绝裸计数漂移导致的全局假满黑屏
+        val gateToken = Any()
+        if (!ExoGate.tryAcquire(gateToken)) return null
+        lateinit var exo: ExoPlayer
+        try {
+            exo = ExoPlayer.Builder(this@MainActivity).build()
+            exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
+            // 循环播放: 播放完一次自动重播(loop), 静音自动播放(与动图无声语义一致), 点击气泡进全屏弹窗
+            exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
+            exo.volume = 0f
+            exo.prepare()
+        } catch (e: Exception) {
+            // lateinit 未初始化(建 ExoPlayer 即抛)时 exo.release() 抛 UninitializedPropertyAccessException, 一并吞掉
+            try { exo.release() } catch (_: Exception) {}
+            ExoGate.release(gateToken)
+            return null
         }
+        // 注册活跃表(入口已保证 size<2, 注册后最多 2 个, 无需再 while 限流)
+        sBubblePlayers.remove(exo)
+        sBubblePlayers.add(exo)
+        // 修复多视频气泡画面串扰(下条竖屏画面"穿越"到上条横屏气泡): PlayerView 默认 surface_view
+        // 独立合成层, 列表多实例 Z 序错乱互相穿透; 改用 XML 指定 surface_type=texture_view
+        // (参与 View 树绘制), resize_mode=zoom 由 PlayerView 内部等比填满裁剪(无黑边, 统一 16:9 卡片)
+        val pv = LayoutInflater.from(this).inflate(R.layout.video_bubble_view, null) as PlayerView
+        pv.player = exo
+        pv.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER)
+        // 延时释放/统一终结: 创建或 detach 后 10s 未确认上屏即 killSelf, 防 ExoPlayer 实例堆积 OOM
+        var releasePending = true   // 创建即武装看门狗(见 apply 尾部): 预取行可能从未上屏就被重绑
+        var gateReleased = false   // 全局解码名额是否已让出: detach 立即让出, attach 认领, 防重复 release
+        var exoReleased = false   // 超时释放标记: attach 回来时若已释放则重建播放器, 避免对已 release 实例 play 黑屏
+        var dead = false   // 当前实例已终结(killSelf 收口过): detach 等后续回调直接跳过, 防双重归还名额
+        val releaseHandler = Handler(Looper.getMainLooper())
         val frame = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(w, h).apply {
                 topMargin = dp(6)
@@ -2456,17 +3430,94 @@ class MainActivity : Activity() {
             addView(pv)
             // 点击整块进全屏弹窗预览(弹窗内同样循环播放)
             setOnClickListener { this@MainActivity.openAttachmentPreview(listOf(file), 0) }
-            // 生命周期: 视图从窗口 detach(会话重建/滚动回收/布局变化)时仅暂停不释放,
-            // attach 回来仍能自动续播, 避免播放器被 release 后黑屏(需点击才重建)。
-            // 真正销毁由 GC/进程回收兜底; 静音循环体积小, 会话级泄漏可接受
+
+            // 视图降级: 播放器终结但视图仍在屏(被弹窗优先级让位踢掉/名额不足)时,
+            // 换成缩略图卡片(无缓存则深色占位并触发后台取帧), 杜绝黑屏冻帧
+            fun degradeToThumb() {
+                val bmp = peekVideoThumb(f)
+                if (bmp == null) decodeVideoThumbnailBg(f, resources.displayMetrics.density, this@MainActivity)
+                val iv = android.widget.ImageView(this@MainActivity).apply {
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                    if (bmp != null) setImageBitmap(bmp) else setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                }
+                removeAllViews()
+                addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }
+
+            // 统一终结(实例+名额+视图三者一处收口): 看门狗超时/弹窗让位(killOldestBubblePlayer)
+            // 都走这里; 此前外部踢人直接 victim.release()+ExoGate.release(), 被踢者自己的
+            // detach 监听之后再 release 一次 → 名额双重归还, ExoGate 计数漂移后 MAX=3 形同虚设
+            fun killSelf() {
+                if (dead) return
+                dead = true
+                releasePending = false
+                releaseHandler.removeCallbacksAndMessages(null)
+                sBubbleKillHooks.remove(exo)
+                sBubblePlayers.remove(exo)
+                try { exo.release() } catch (_: Exception) {}
+                // 摘掉已释放实例: 否则离屏未降级的空壳仍持死角播放器, 会被补播复核误判为"已在播"
+                try { pv.player = null } catch (_: Exception) {}
+                if (!gateReleased) { gateReleased = true; ExoGate.release(gateToken) }
+                exoReleased = true
+                if (isAttachedToWindow) degradeToThumb()   // 仍在屏: 降级防黑屏; 已离屏则等 attach 重建
+            }
+
+            val watchdog = Runnable { if (releasePending) killSelf() }
+
+            // 生命周期: 创建/detach 后 10s 内 attach 回来取消看门狗继续播; 超时统一 killSelf 终结,
+            // attach 回来走重建; 堵住"每气泡 new ExoPlayer 不释放"实例堆积 OOM(09-18 23:35 崩溃栈印证)
             addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {
-                    try { exo.play() } catch (_: Exception) {}
+                    // 10s 内回来(含创建后首次上屏): 取消看门狗
+                    if (releasePending) {
+                        releasePending = false
+                        releaseHandler.removeCallbacksAndMessages(null)
+                    }
+                    if (exoReleased) {
+                        // 实例已终结(超时/让位): 统一降级缩略图, 不在此抢名额重建——
+                        // 补建统一由对账(reconcileVideoBubbles)按"可见性+配额"驱动, 根治离屏行抢名额打架;
+                        // 关键: 绝不能留"空 PlayerView"在屏——对账复核会误判为已在播而永久跳过,
+                        // 表现为视频黑屏, 只有切会话/重启才恢复(真机 09-19 02:50 复现)
+                        degradeToThumb()
+                        return@onViewAttachedToWindow
+                    } else {
+                        // 回到可视(10s 内): 滚动/翻页 detach 时已立即让出全局解码名额,
+                        // 此处重新认领; 认领失败(被其它行/弹窗抢走)则统一终结降级, 等补播
+                        if (gateReleased) {
+                            if (!ExoGate.tryAcquire(gateToken)) {
+                                killSelf()
+                                return@onViewAttachedToWindow
+                            }
+                            gateReleased = false
+                        }
+                        sBubblePlayers.remove(exo)
+                        sBubblePlayers.add(exo)
+                        sBubbleKillHooks[exo] = { killSelf() }   // detach 时已摘钩子, 回屏重新挂
+                    }
+                    // 滚动中保持暂停(松手统一恢复), 静止时直接续播
+                    if (!sScrolling) try { exo.play() } catch (_: Exception) {}
                 }
                 override fun onViewDetachedFromWindow(v: View) {
+                    if (dead) return   // 已终结: 名额/实例均已收口
                     try { exo.pause() } catch (_: Exception) {}
+                    sBubblePlayers.remove(exo)   // 暂停即让出气泡名额
+                    sBubbleKillHooks.remove(exo)   // 钩子只挂"在屏"实例, 防离屏闭包滞留整棵视图
+                    // 立即让出全局解码名额(pause 后不再占用解码器), 否则滚动期 detach 的实例
+                    // 占着 ExoGate 直到 10s 超时才释放, 松手后新行 tryAcquire 失败 = "概率不播"
+                    if (!gateReleased) {
+                        gateReleased = true
+                        ExoGate.release(gateToken)
+                    }
+                    releasePending = true
+                    releaseHandler.postDelayed(watchdog, 10_000L)
                 }
             })
+            // 创建即武装看门狗 + 挂终结钩子: 预取(prefetch)绑定的行可能从未上屏就被重绑——
+            // onBindViewHolder 的 removeAllViews 对从未 attach 过的视图不触发 onViewDetachedFromWindow,
+            // 旧看门狗只挂在 detach 上永远不响 → 实例与名额永久泄漏(越滚越漏, 后续视频全灭)
+            releasePending = true
+            releaseHandler.postDelayed(watchdog, 10_000L)
+            sBubbleKillHooks[exo] = { killSelf() }
         }
         return frame
     }
@@ -2475,7 +3526,7 @@ class MainActivity : Activity() {
     internal fun renderUserContent(content: String): CharSequence {
         val sb = SpannableStringBuilder(content)
         try {
-            val re = Regex("\\[([^\\]]+)\\]\\(att://([^)]+)\\)")
+            val re = Regex("\\[(.+?)\\]\\(att://([^)]+)\\)")
             // 同一条消息的全部附件(保持原文顺序), 供点击后 App 内弹窗预览/左右滑动切换
             val allFiles = re.findAll(content).map { it.groupValues[2] }.toList()
             // 倒序遍历: 文件卡片/音频分支会 sb.replace 改变长度, 正序会让后续附件的 start/end(基于原始 content)失效错乱
@@ -2486,14 +3537,40 @@ class MainActivity : Activity() {
                 val start = m.range.first
                 val end = m.range.last + 1
                 val f = AttachmentStore.fileOf(this, file)
-                val mime = if (f != null) AttachmentStore.mimeOf(file) else ""
+                val mime = if (f != null) AttachmentStore.mimeOf(this, file) else ""
                 val bmp = if (f != null && mime.startsWith("image/"))
                     decodeAttachmentBitmap(f, resources.displayMetrics.density) else null
-                // 视频: 取首帧缩略图+播放三角, 像图片一样内嵌气泡; 取帧失败回退文件卡片
+                // 视频: 取首帧缩略图(纯帧, 不带三角), 像图片一样内嵌气泡; 取帧失败回退文件卡片。
+                // 后台版: 只查缓存, 未命中入后台线程 MMR 解码+回调刷新——此前主线程同步取帧
+                // 20~100ms/个, 滚动绑定路径掉帧(09-19 用户反馈"卡顿依旧"主因之二)
                 val vtb = if (f != null && mime.startsWith("video/"))
-                    decodeVideoThumbnail(f, resources.displayMetrics.density, this) else null
-                android.util.Log.i("Nyral", "renderAtt file=$file mime=$mime exists=${f != null} bmp=${bmp != null} vtb=${vtb != null}")
-                if (bmp != null) {
+                    decodeVideoThumbnailBg(f, resources.displayMetrics.density, this) else null
+                if (mark.startsWith("表情:") && f != null) {
+                    // 表情库项混合场景(表情与文字同一条气泡, 极少): 微信式 96dp 小图内嵌
+                    val es = dp(96)
+                    if (mime.startsWith("video/") || file.lowercase().endsWith(".mp4")) {
+                        val eBmp = peekVideoThumb(f)
+                        if (eBmp == null) decodeVideoThumbnailBg(f, resources.displayMetrics.density, this@MainActivity)
+                        if (eBmp != null) {
+                            val d = BitmapDrawable(resources, roundedBitmap(centerCropBitmap(eBmp, es, es), 0))
+                            d.setBounds(0, 0, es, es)
+                            sb.setSpan(BubbleImageSpan(d), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            sb.setSpan(object : ClickableSpan() {
+                                override fun onClick(widget: View) { this@MainActivity.openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
+                            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                    } else {
+                        val eBmp = try { decodeAttachmentBitmap(f, resources.displayMetrics.density) } catch (e: Exception) { null }
+                        if (eBmp != null) {
+                            val d = BitmapDrawable(resources, roundedBitmap(centerCropBitmap(eBmp, es, es), 0))
+                            d.setBounds(0, 0, es, es)
+                            sb.setSpan(BubbleImageSpan(d), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            sb.setSpan(object : ClickableSpan() {
+                                override fun onClick(widget: View) { this@MainActivity.openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
+                            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                    }
+                } else if (bmp != null) {
                     // 图片: 圆角化贴合气泡贴边, 替换为缩略图, 同时保留点击打开原图
                     val rb = roundedBitmap(bmp, dp(14))
                     val d = BitmapDrawable(resources, rb)
@@ -2504,7 +3581,29 @@ class MainActivity : Activity() {
                     }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 } else if (vtb != null) {
                     // 视频: 首帧缩略图(带播放三角) 像图片一样内嵌气泡, 点击进入 App 内视频预览
-                    val rb = roundedBitmap(vtb, dp(14))
+                    // 统一 16:9 全宽卡片(与 videoLoopBubble 内嵌播放器同尺寸策略): 名额满/大视频降级路径
+                    // 若按 200dp 自然尺寸渲染, 竖屏视频会变成窄条小气泡(用户 09-19 反馈), 故 center-crop 到全宽卡片
+                    val tw = (if (ModeConfig.chatMode()) chatMaxW() else chatMaxW() - dp(24)).coerceAtLeast(dp(120))
+                    val th = (tw * 9 / 16).coerceAtMost(dp(340)).coerceAtLeast(dp(60))
+                    // 纯画面卡片, 不叠加播放三角(用户 09-19 反馈"播放按钮能不能去掉"):
+                    // 内嵌播放器本就无按钮, 缩略图保持一致观感, 点击气泡进全屏预览
+                    val rb = roundedBitmap(centerCropBitmap(vtb, tw, th), dp(14))
+                    val d = BitmapDrawable(resources, rb)
+                    d.setBounds(0, 0, rb.width, rb.height)
+                    sb.setSpan(BubbleImageSpan(d), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(object : ClickableSpan() {
+                        override fun onClick(widget: View) { this@MainActivity.openAttachmentPreview(allFiles, allFiles.indexOf(file)) }
+                    }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                } else if (f != null && mime.startsWith("video/") && isThumbPending(file)) {
+                    // 取帧进行中: 先渲染 16:9 深色占位(与缩略图同尺寸同圆角), 避免"文件卡片(矮)→16:9缩略图"
+                    // 整行高度突变导致 重启/切会话/积压消息涌入 时整屏反复跳动闪烁(09-19 用户反馈首屏闪烁);
+                    // 取帧完成回调重建文本时只换画面不跳高度, 视觉平滑无闪烁
+                    val tw = (if (ModeConfig.chatMode()) chatMaxW() else chatMaxW() - dp(24)).coerceAtLeast(dp(120))
+                    val th = (tw * 9 / 16).coerceAtMost(dp(340)).coerceAtLeast(dp(60))
+                    val ph = android.graphics.Bitmap.createBitmap(tw, th, android.graphics.Bitmap.Config.ARGB_8888)
+                    ph.eraseColor(0xFF101318.toInt())
+                    val rb = roundedBitmap(ph, dp(14))
+                    if (rb !== ph) ph.recycle()
                     val d = BitmapDrawable(resources, rb)
                     d.setBounds(0, 0, rb.width, rb.height)
                     sb.setSpan(BubbleImageSpan(d), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -2554,6 +3653,42 @@ class MainActivity : Activity() {
             // 渲染失败退化为纯文本
         }
         return sb
+    }
+
+    /** 视频缩略图 center-crop 到目标卡片尺寸(全宽 16:9 语义, ZOOM 等比填满裁掉溢出) */
+    private fun centerCropBitmap(src: android.graphics.Bitmap, tw: Int, th: Int): android.graphics.Bitmap {
+        val sw = src.width.toFloat()
+        val sh = src.height.toFloat()
+        val scale = maxOf(tw / sw, th / sh)
+        val m = android.graphics.Matrix()
+        m.postScale(scale, scale)
+        val tmp = android.graphics.Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+        val x = ((tmp.width - tw) / 2f).toInt().coerceAtLeast(0)
+        val y = ((tmp.height - th) / 2f).toInt().coerceAtLeast(0)
+        val out = android.graphics.Bitmap.createBitmap(tmp, x, y, tw, th)
+        if (tmp !== src) tmp.recycle()
+        return out
+    }
+
+    /** 在中心覆盖绘制固定大小播放三角(统一缩略图降级气泡的按钮观感) */
+    private fun overlayPlayButton(bmp: android.graphics.Bitmap, rPx: Int): android.graphics.Bitmap {
+        val out = bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+        val c = android.graphics.Canvas(out)
+        val cx = out.width / 2f
+        val cy = out.height / 2f
+        val r = rPx.toFloat().coerceAtLeast(1f)
+        val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0x99000000.toInt() }
+        c.drawCircle(cx, cy, r, bg)
+        val tri = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+        val s = r * 0.55f
+        val path = android.graphics.Path().apply {
+            moveTo(cx - s * 0.4f, cy - s)
+            lineTo(cx - s * 0.4f, cy + s)
+            lineTo(cx + s * 0.9f, cy)
+            close()
+        }
+        c.drawPath(path, tri)
+        return out
     }
 
     /** 文件卡片类型角标文案: 按 mime 与文件名扩展名判定 (已抽离 UiKit.badgeOf) */
@@ -2701,7 +3836,7 @@ class MainActivity : Activity() {
                 textSize = 15f
                 val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
                 if (ModeConfig.chatPlainText()) {
-                    text = renderContent.trimEnd()
+                    text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
                 } else {
                     // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
                     setMarkdownCached(this, renderContent)
@@ -3008,7 +4143,19 @@ class MainActivity : Activity() {
         startPick(Intent.ACTION_GET_CONTENT, "audio/*", REQ_AUDIO, "选择音频")
     }
 
-    private fun startPick(action: String, type: String, code: Int, title: String) {
+    /** 表情库项发送转发: attachmentSender 为 private, 扩展函数经此入口调用 */
+    internal fun sendEmojiLibItemFile(file: File, name: String) {
+        attachmentSender.sendEmojiLibItem(file, name)
+    }
+
+    /** 表情库项直发转发: 不经预览条, 立即发出 */
+    internal fun sendEmojiLibItemNowFile(file: File, name: String) {
+        // 发送即预热首帧缩略图(幂等): 新消息 bind 时滚动中降级/attach 垫底均命中真图, 消除"发送闪黑"
+        try { decodeVideoThumbnailBg(file, resources.displayMetrics.density, this) } catch (_: Exception) {}
+        attachmentSender.sendEmojiLibItemNow(file, name)
+    }
+
+    internal fun startPick(action: String, type: String, code: Int, title: String) {
         val i = Intent(action).setType(type).addCategory(Intent.CATEGORY_OPENABLE)
             .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         try {
@@ -3033,11 +4180,132 @@ class MainActivity : Activity() {
             }
         }
         if (uris.isEmpty()) return
+        // 表情库选图分流: 压缩落库 + 强制命名, 不走聊天附件链路
+        if (requestCode == REQ_EMOJI_PICK) {
+            handleEmojiLibPick(uris)
+            return
+        }
         val MAX = 6
         if (uris.size > MAX) {
             Toast.makeText(this, getString(R.string.toast_att_max_trim, MAX, MAX), Toast.LENGTH_SHORT).show()
         }
         uris.take(MAX).forEach { attachmentSender.sendAttachmentFromUri(it) }
+    }
+
+    /** 抽屉开合统一动画: 面板位移 + 遮罩深度 + 主界面下沉三路同帧驱动(点击开合/跟手吸附/手势取消共用) */
+    internal fun animateDrawer(open: Boolean, dur: Long) {
+        drawerAnimator?.cancel()
+        drawerOpen = open
+        val from = mainSinkP
+        val to = if (open) 1f else 0f
+        if (open) drawerMask.visibility = View.VISIBLE
+        var cancelled = false
+        drawerAnimator = ValueAnimator.ofFloat(from, to).apply {
+            duration = dur
+            interpolator = android.view.animation.DecelerateInterpolator(1.3f)
+            addUpdateListener {
+                val p = it.animatedValue as Float
+                drawerPanel.translationX = -DRAWER_WIDTH.toFloat() * (1f - p)
+                drawerMask.alpha = p
+                setMainSink(p)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationCancel(a: android.animation.Animator) { cancelled = true }
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    if (open) drawerMask.alpha = 1f
+                    else {
+                        drawerMask.alpha = 0f
+                        drawerMask.visibility = View.GONE
+                    }
+                    drawerAnimator = null
+                    // 左抽屉展开到位轻震(与汉堡联动同款, 收起不震, 尊重系统触觉开关)
+                    if (open && !cancelled) {
+                        root.performHapticFeedback(
+                            if (android.os.Build.VERSION.SDK_INT >= 27)
+                                android.view.HapticFeedbackConstants.CLOCK_TICK
+                            else android.view.HapticFeedbackConstants.CONTEXT_CLICK
+                        )
+                    }
+                }
+            })
+            start()
+        }
+    }
+
+    internal fun cancelDrawerAnim() {
+        drawerAnimator?.cancel()
+        drawerAnimator = null
+    }
+
+    /** 主界面下沉联动: p∈[0,1] → scale 1→0.88, translationY 0→24dp, 圆角 0→20dp; 跟手与动画共用 */
+    internal fun setMainSink(p: Float) {
+        val pp = p.coerceIn(0f, 1f)
+        if (pp == mainSinkP) return
+        mainSinkP = pp
+        if (pp > 0.05f && pp < 0.95f) android.util.Log.i("NyralSink", "setMainSink p=$pp")
+        val s = 1f - 0.12f * pp
+        main.scaleX = s
+        main.scaleY = s
+        main.translationY = dp(24) * pp
+        main.invalidateOutline()
+        // 浏览器窗口挂 root 层(main 之下): 随 main 同步缩放/下沉, 抽屉联动时窗口与标题栏/输入框保持一致
+        // (窗口 top≈titleBar 底、pivot 中心缩放, 视觉偏差仅几像素; 网页内容随窗口一起缩小)
+        if (::browserPage.isInitialized && browserPage.open) {
+            browserPage.root.scaleX = s
+            browserPage.root.scaleY = s
+            browserPage.root.translationY = dp(24) * pp
+        }
+
+        // 顶栏/底栏外侧两角随下沉进度 0→16dp 圆角化, 与主界面圆角同相
+        if (::titleBarBg.isInitialized) {
+            val r = dp(16).toFloat()
+            val lr = r * pp
+            titleBarBg.cornerRadii = floatArrayOf(lr, lr, lr, lr, r, r, r, r)
+            inputBarBg.cornerRadii = floatArrayOf(r, r, r, r, lr, lr, lr, lr)
+        }
+    }
+
+    /** 汉堡面板展开联动: 主界面随面板一起下沉(与左抽屉同一 setMainSink), 收起恢复展开前深度 */
+    /** 汉堡面板跟手拖动联动起点: 关->开方向拖动开始时记录基准下沉深度(供收起恢复), 已开时保留展开时记录的 base */
+    internal fun hamburgerDragBase() {
+        hamburgerSinkAnimator?.cancel()
+        // 跟手联动期间 main 缓存纹理: 缩放下沉不逐帧重绘(防背景闪烁/掉帧), 吸附动画结束后恢复
+        main.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+        if (!browserPage.hamburgerOpen) hamburgerSinkBase = mainSinkP
+    }
+
+    /** 汉堡联动结束: 释放 main 硬件层, 恢复普通绘制 */
+    internal fun hamburgerDragEnd() {
+        main.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+    }
+
+    internal fun animateHamburgerSink(open: Boolean, recordBase: Boolean = true) {
+        android.util.Log.i("NyralSink", "animateHamburgerSink open=$open from=$mainSinkP")
+        hamburgerSinkAnimator?.cancel()
+        val from = mainSinkP
+        if (open && recordBase) hamburgerSinkBase = mainSinkP
+        val to = if (open) 1f else hamburgerSinkBase
+        var cancelled = false
+        hamburgerSinkAnimator = android.animation.ValueAnimator.ofFloat(from, to).apply {
+            duration = 240
+            interpolator = android.view.animation.DecelerateInterpolator(1.2f)
+            addUpdateListener { setMainSink(it.animatedValue as Float) }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationCancel(a: android.animation.Animator) { cancelled = true }
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    hamburgerSinkAnimator = null
+                    if (!cancelled && open) {
+                        // 汉堡展开到位轻震(收起不震, 尊重系统触觉开关)
+                        root.performHapticFeedback(
+                            if (android.os.Build.VERSION.SDK_INT >= 27)
+                                android.view.HapticFeedbackConstants.CLOCK_TICK
+                            else android.view.HapticFeedbackConstants.CONTEXT_CLICK
+                        )
+                    }
+                }
+            })
+            start()
+        }
     }
 
     internal fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -3062,10 +4330,5 @@ class MainActivity : Activity() {
     }
 
     // ===================== AI 流式气泡容器 =====================
-
-    /**
-     * AI 回复的动态气泡:
-     * [思考区(打字机->收缩)] [工具行] [正文(流式)] 都在同一个左对齐气泡内
-     */
 
 }

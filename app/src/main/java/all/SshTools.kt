@@ -276,10 +276,10 @@ object SshTools {
             }
             val bytes = out.toByteArray()
             if (bytes.size > 200 * 1024 * 1024) return "错误: 文件超过 200MB 上限"
-            if (!WorkDir.write(context, localName, bytes))
+            if (!WorkDir.write(context, localName, bytes, WorkDir.SUB_DIR_DOWNLOADS))
                 return "错误: 写入工作目录失败: $localName"
             Log.i(tag, "download done: $remote -> $localName (${bytes.size} bytes)")
-            "下载成功: $remote -> ${WorkDir.displayPath}$localName (${bytes.size} 字节)"
+            "下载成功: $remote -> ${WorkDir.displaySubPath(WorkDir.SUB_DIR_DOWNLOADS)}$localName (${bytes.size} 字节)"
         } catch (e: Exception) {
             Log.e(tag, "download FAILED", e)
             "下载失败: ${e.message}"

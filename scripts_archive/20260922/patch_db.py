@@ -3,7 +3,7 @@
 # patch_db.py — MemoryDb.kt 会话隔离：sessions 加 mode 列(0=agent,1=chat)，DB v8->v9
 import io, sys
 
-path = "/home/ymz/droid-agent/android-agent-app/app/src/main/java/all/MemoryDb.kt"
+path = "/home/ymz/Nyral/android-agent-app/app/src/main/java/all/MemoryDb.kt"
 d = io.open(path, encoding="utf-8").read()
 
 def rep(old, new, tag):

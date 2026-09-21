@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.webkit.MimeTypeMap
 import java.io.File
+import java.io.InputStream
 import java.util.UUID
 
 /**
@@ -21,22 +22,49 @@ object AttachmentStore {
     /** 写入附件文件, 返回唯一 fileName(引用 key) */
     fun save(context: Context, name: String, mime: String, bytes: ByteArray, metaJson: String? = null): String {
         val dir = File(context.filesDir, DIR).apply { mkdirs() }
-        val safeName = name.replace(Regex("[\\\\/:*?\"<>|() ]"), "_")
+        val safeName = name.replace(Regex("[\\\\/:*?\"<>|()\\[\\] ]"), "_")
             .ifBlank { "attachment" }
         val fileName = "${System.currentTimeMillis()}_${UUID.randomUUID().toString().substring(0, 8)}_$safeName"
         File(dir, fileName).writeBytes(bytes)
-        // 方案A: metaJson 非空时同步写 <fileName>.meta.json
+        writeMimeMeta(dir, fileName, mime, metaJson)
+        return fileName
+    }
+
+    /** 流式写入附件文件(不整文件进内存, 修复大视频 OOM); meta 规则同 save() */
+    fun saveStream(context: Context, name: String, mime: String, input: InputStream, metaJson: String? = null): String {
+        val dir = File(context.filesDir, DIR).apply { mkdirs() }
+        val safeName = name.replace(Regex("[\\\\/:*?\"<>|()\\[\\] ]"), "_")
+            .ifBlank { "attachment" }
+        val fileName = "${System.currentTimeMillis()}_${UUID.randomUUID().toString().substring(0, 8)}_$safeName"
+        File(dir, fileName).outputStream().use { out -> input.copyTo(out) }
+        writeMimeMeta(dir, fileName, mime, metaJson)
+        return fileName
+    }
+
+    /** 统一写 meta: 优先保留调用方完整 metaJson, 否则写入最小 mime 记录(修复读取端按扩展名误判视频) */
+    private fun writeMimeMeta(dir: File, fileName: String, mime: String, metaJson: String?) {
         if (!metaJson.isNullOrBlank()) {
             File(dir, "$fileName.meta.json").writeText(metaJson)
+        } else {
+            File(dir, "$fileName.meta.json").writeText("""{"mime":"$mime"}""")
         }
-        return fileName
     }
 
     /** 按引用 key 取文件; 防路径穿越只取纯文件名 */
     fun fileOf(context: Context, fileName: String): File? {
         val base = File(context.filesDir, DIR)
         val f = File(base, File(fileName).name)
-        return if (f.exists() && f.parentFile?.absolutePath == base.absolutePath) f else null
+        if (f.exists() && f.parentFile?.absolutePath == base.absolutePath) return f
+        // 表情库引用兼容(AI 表情气泡 2026-09-20): splitAiEmojiReply 拆分时按白名单 file 原样
+        // 拼 att://emoji_lib/xxx 落库, 实体文件在 filesDir/emoji_lib/ 下; 这里做二次解析,
+        // 否则 fileOf 只认 attachments/ 目录导致 AI 表情气泡解析失败回退文本渲染。
+        // 仅当引用前缀确为 emoji_lib/ 且目标文件存在时放行, 不影响原防路径穿越语义。
+        if (fileName.startsWith("emoji_lib/")) {
+            val libBase = File(context.filesDir, "emoji_lib")
+            val lib = File(libBase, File(fileName).name)
+            if (lib.exists() && lib.parentFile?.absolutePath == libBase.absolutePath) return lib
+        }
+        return null
     }
 
     /**
@@ -67,6 +95,15 @@ object AttachmentStore {
         return try { f.readText() } catch (e: Exception) { null }
     }
 
+    /** 附件显示名: 优先取 meta 中的原名(落库文件名含时间戳/UUID 前缀), 无 meta 回退文件名 */
+    fun displayName(context: Context, fileName: String): String {
+        val meta = metaOf(context, fileName)
+        if (meta.isNullOrBlank()) return fileName
+        return try {
+            org.json.JSONObject(meta).optString("name").takeIf { it.isNotBlank() } ?: fileName
+        } catch (e: Exception) { fileName }
+    }
+
     /** 按文件名推断 mime */
     fun mimeOf(fileName: String): String {
         val ext = fileName.substringAfterLast('.', "").lowercase()
@@ -81,6 +118,18 @@ object AttachmentStore {
         if (ext in textExts) return "text/plain"
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
             ?: "application/octet-stream"
+    }
+
+    /** 读取端 mime: 优先用落盘时记录的 meta.mime(真实格式), 避免扩展名非标准(如转发视频 .bin/.wechat)被误判为 octet-stream */
+    fun mimeOf(context: Context, fileName: String): String {
+        val meta = metaOf(context, fileName)
+        if (meta != null) {
+            try {
+                val m = org.json.JSONObject(meta).optString("mime")
+                if (m.isNotEmpty() && m != "null") return m
+            } catch (_: Exception) {}
+        }
+        return mimeOf(fileName)
     }
 
     /** 附件清单(不含 .meta.json, 按名与附件配对): 按修改时间倒序 */

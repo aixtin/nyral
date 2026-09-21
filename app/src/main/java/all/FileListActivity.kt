@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -28,7 +30,11 @@ import java.util.Locale
 class FileListActivity : Activity() {
 
     private lateinit var container: LinearLayout
+    private lateinit var tabRow: LinearLayout
     private lateinit var emptyView: TextView
+
+    /** 当前选中的类型 Tab, null = 全部 */
+    private var selectedType: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +47,15 @@ class FileListActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(16))
         }
+        tabRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(2), 0, dp(8))
+        }
+        // Tab 行套横向滚动: 类型再多也不拥挤, 可左右滑动查看
+        content.addView(android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(tabRow)
+        })
         container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -85,11 +100,51 @@ class FileListActivity : Activity() {
             }
         ).filter { it.second.isNotEmpty() }
 
+        // 顶部类型 Tab: 描边胶囊按钮, 选中主题蓝高亮, 计数挪到 Tab 上
+        tabRow.removeAllViews()
+        tabRow.addView(typeTab("全部", files.size, selectedType == null) {
+            selectedType = null
+            refresh()
+        })
         for ((label, list) in groups) {
-            container.addView(Ui.groupLabel(this, "$label (${list.size})"))
+            tabRow.addView(typeTab(label, list.size, selectedType == label) {
+                selectedType = label
+                refresh()
+            })
+        }
+
+        val shown = if (selectedType == null) groups else groups.filter { it.first == selectedType }
+        for ((label, list) in shown) {
             for (f in list) {
-                container.addView(fileCard(f))
+                container.addView(fileCard(f), LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(4)
+                    bottomMargin = dp(8)
+                })
             }
+        }
+    }
+
+    /** 类型 Tab: 描边胶囊按钮, 未选中灰描边灰字, 选中主题蓝描边 + 浅蓝底 */
+    private fun typeTab(label: String, count: Int, selected: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = "$label $count"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(if (selected) Ui.PRIMARY else Ui.SUB)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (selected) Ui.PRIMARY_LIGHT else Color.TRANSPARENT)
+                setStroke(dp(1), if (selected) Ui.PRIMARY else Ui.DIVIDER)
+                cornerRadius = dp(16).toFloat()
+            }
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(8)
+            }
+            isClickable = true
+            Ui.press(this)
+            setOnClickListener { onClick() }
         }
     }
 
@@ -99,67 +154,90 @@ class FileListActivity : Activity() {
         val meta = try { AttachmentStore.metaOf(this, f.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
         val durSec = meta?.optLong("durationSec", 0L) ?: 0L
         val disp = displayName(f.name)
-        return Ui.card(this).apply {
-            addView(LinearLayout(this@FileListActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // 白色圆角卡片 + 浅灰描边（区别于全局无描边 card, 文件卡片更立体）
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Ui.SURFACE)
+                setStroke(dp(1), Color.parseColor("#E3E6EB"))
+                cornerRadius = dp(16).toFloat()
+            }
+            addView(FrameLayout(this@FileListActivity).apply {
+                addView(LinearLayout(this@FileListActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(this@FileListActivity).apply {
+                        text = disp
+                        textSize = 15f
+                        setTextColor(Ui.TEXT)
+                        maxLines = 1
+                        setPadding(dp(12), dp(5), dp(60), 0)
+                    })
+                    addView(TextView(this@FileListActivity).apply {
+                        text = buildString {
+                            append(humanSize(f.length()))
+                            if (durSec > 0) append("  ·  ${fmtDuration(durSec)}")
+                            if (meta?.optInt("width", 0)?.takeIf { it > 0 } != null) {
+                                append("  ·  ${meta.optInt("width")}x${meta.optInt("height")}")
+                            }
+                        }
+                        textSize = 12f
+                        setTextColor(Ui.SUB)
+                        setPadding(dp(12), dp(1), 0, 0)
+                    })
+                })
+                // 类型角标: 垂直居中于分割线与卡片顶之间, 右缘与删除按钮对齐
                 addView(TextView(this@FileListActivity).apply {
                     text = badgeOf(mime)
                     textSize = 11f
                     gravity = Gravity.CENTER
-                    setTextColor(Color.WHITE)
-                    background = Ui.rounded(Color.parseColor("#8A8F9C"), 6, this@FileListActivity)
-                    setPadding(dp(8), dp(3), dp(8), dp(3))
-                })
-                addView(TextView(this@FileListActivity).apply {
-                    text = disp
-                    textSize = 15f
-                    setTextColor(Ui.TEXT)
-                    maxLines = 1
-                    setPadding(dp(10), 0, 0, 0)
-                })
-            })
-            addView(TextView(this@FileListActivity).apply {
-                text = buildString {
-                    append(humanSize(f.length()))
-                    if (durSec > 0) append("  ·  ${fmtDuration(durSec)}")
-                    if (meta?.optInt("width", 0)?.takeIf { it > 0 } != null) {
-                        append("  ·  ${meta.optInt("width")}x${meta.optInt("height")}")
+                    setTextColor(Ui.PRIMARY)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(Ui.PRIMARY_LIGHT)
+                        setStroke(dp(1), Ui.PRIMARY)
+                        cornerRadius = dp(10).toFloat()
                     }
-                }
-                textSize = 12f
-                setTextColor(Ui.SUB)
-                setPadding(0, dp(4), 0, 0)
+                    setPadding(dp(8), dp(3), dp(8), dp(3))
+                }, FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER_VERTICAL or Gravity.END).apply {
+                    marginEnd = dp(35) // 向右回移一点点(约5dp)
+                    translationY = dp(1).toFloat() // 上移约2.75px, 视觉更贴顶部区间
+                })
             })
             addView(Ui.divider(this@FileListActivity).apply { setPadding(0, dp(8), 0, dp(8)) })
             addView(LinearLayout(this@FileListActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
-                addView(actionBtn(getString(R.string.files_view)) {
+                addView(iconActionBtn(Ui.lucideEye(this@FileListActivity, Ui.PRIMARY, 16), getString(R.string.files_view), Ui.PRIMARY) {
                     openAttachment(f.name)
-                }, LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginEnd = dp(8) })
-                addView(actionBtn(getString(R.string.files_export)) {
+                }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(8) })
+                addView(iconActionBtn(Ui.lucideDownload(this@FileListActivity, Ui.PRIMARY, 16), getString(R.string.files_export), Ui.PRIMARY) {
                     exportAttachment(f.name)
-                }, LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginEnd = dp(8) })
-                addView(actionBtn(getString(R.string.files_delete), danger = true) {
+                }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(8) })
+                addView(iconActionBtn(Ui.lucideTrash(this@FileListActivity, Ui.DANGER, 16), getString(R.string.files_delete), Ui.DANGER) {
                     confirmDelete(f.name)
-                }, LinearLayout.LayoutParams(0, dp(34), 1f))
+                }, LinearLayout.LayoutParams(0, dp(40), 1f))
             })
         }
     }
 
-    /** 操作按钮: 浅色圆角小按钮 */
-    private fun actionBtn(label: String, danger: Boolean = false, onClick: () -> Unit): TextView {
-        return TextView(this).apply {
-            text = label
-            textSize = 13f
+    /** 操作按钮: Lucide 图标 + 文字, 无边框幽灵按钮 */
+    private fun iconActionBtn(icon: android.graphics.drawable.BitmapDrawable, label: String, color: Int, onClick: () -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setTextColor(if (danger) Ui.DANGER else Ui.PRIMARY)
-            background = Ui.rounded(
-                if (danger) Ui.DANGER_LIGHT else Ui.PRIMARY_LIGHT, 8, this@FileListActivity)
             isClickable = true
             Ui.press(this)
             setOnClickListener { onClick() }
+            addView(ImageView(this@FileListActivity).apply {
+                setImageDrawable(icon)
+            })
+            addView(TextView(this@FileListActivity).apply {
+                text = label
+                textSize = 12f
+                setTextColor(color)
+                setPadding(dp(4), 0, 0, 0)
+            })
         }
     }
 
@@ -190,8 +268,8 @@ class FileListActivity : Activity() {
             Toast.makeText(this, getString(R.string.files_export_fail, ""), Toast.LENGTH_SHORT).show()
             return
         }
-        val ok = WorkDir.write(this, outName, bytes)
-        Toast.makeText(this, if (ok) getString(R.string.files_exported, "${WorkDir.displayPath}$outName")
+        val ok = WorkDir.write(this, outName, bytes, WorkDir.SUB_DIR_FILES)
+        Toast.makeText(this, if (ok) getString(R.string.files_exported, "${WorkDir.displaySubPath(WorkDir.SUB_DIR_FILES)}$outName")
             else getString(R.string.files_export_fail, ""), Toast.LENGTH_SHORT).show()
     }
 

@@ -140,7 +140,7 @@ class UiControlService : AccessibilityService() {
 
     /** DFS 收集可操作元素: clickable/longClickable/checkable/输入框/按钮类, 限可见+有尺寸, 最多 30 条 */
     private fun walk(node: AccessibilityNodeInfo, out: ArrayList<El>, depth: Int) {
-        if (node == null || depth > 60 || out.size >= 30) return
+        if (depth > 60 || out.size >= 30) return
         if (node.isVisibleToUser && node.isEnabled) {
             val r = Rect()
             node.getBoundsInScreen(r)
@@ -214,7 +214,7 @@ class UiControlService : AccessibilityService() {
         val bmp = Bitmap.wrapHardwareBuffer(r.hardwareBuffer, r.colorSpace)
             ?: run { r.hardwareBuffer.close(); return "截图解码失败" }
         try {
-            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Nyral_work")
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Nyral_work/${WorkDir.SUB_DIR_SHOTS}")
             dir.mkdirs()
             val f = File(dir, "app_screenshot_${System.currentTimeMillis()}.png")
             FileOutputStream(f).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }

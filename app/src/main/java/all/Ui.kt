@@ -35,9 +35,12 @@ object Ui {
     @Volatile var SUB: Int = DefaultTheme.sub
     @Volatile var DIVIDER: Int = DefaultTheme.divider
     @Volatile var INPUT_BG: Int = DefaultTheme.inputBg
+    @Volatile var STROKE: Int = DefaultTheme.stroke
     @Volatile var DANGER: Int = DefaultTheme.danger
     @Volatile var DANGER_LIGHT: Int = DefaultTheme.dangerLight
     @Volatile var SURFACE: Int = DefaultTheme.surface
+    /** 选中圆点绿（勾选标记统一用绿色点，LED 荧光绿） */
+    val GREEN = 0xFF00E676.toInt()
 
     /** 应用主题：刷新全局语义色（MainActivity 启动/切换主题时调用一次） */
     fun applyTheme(t: AppTheme) {
@@ -48,6 +51,7 @@ object Ui {
         SUB = t.sub
         DIVIDER = t.divider
         INPUT_BG = t.inputBg
+        STROKE = t.stroke
         DANGER = t.danger
         DANGER_LIGHT = t.dangerLight
         SURFACE = t.surface
@@ -111,6 +115,99 @@ object Ui {
 
     fun rounded(color: Int, radiusDp: Int, a: Activity): GradientDrawable =
         GradientDrawable().apply { setColor(color); cornerRadius = dp(a, radiusDp).toFloat() }
+
+    /** 圆角描边框：无填充，仅 stroke */
+    fun roundedBorder(strokeColor: Int, radiusDp: Int, strokeDp: Int, a: Activity): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            cornerRadius = dp(a, radiusDp).toFloat()
+            setStroke(dp(a, strokeDp), strokeColor)
+        }
+
+    /** 行内点缀圆点 span：LED 灯效果 = 亮绿核心 + 半透明光晕，以文字行中线垂直居中（替代 AbsoluteSizeSpan 的基线偏移导致的点不居中） */
+    class CenterDotSpan(private val color: Int, private val sizePx: Int, private val gapPx: Int) : android.text.style.ReplacementSpan() {
+        private val coreR = sizePx / 2f
+        private val glowR = coreR * 1.5f
+        private val glowColor = android.graphics.Color.argb(110,
+            android.graphics.Color.red(color), android.graphics.Color.green(color), android.graphics.Color.blue(color))
+        override fun getSize(paint: android.graphics.Paint, text: CharSequence?, start: Int, end: Int, fm: android.graphics.Paint.FontMetricsInt?): Int = (glowR * 2f).toInt() + gapPx
+        override fun draw(canvas: android.graphics.Canvas, text: CharSequence?, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: android.graphics.Paint) {
+            val cy = (top + bottom) / 2f
+            val cx = x + glowR
+            val oldColor = paint.color
+            paint.isAntiAlias = true
+            // 光晕（先画）
+            paint.color = glowColor
+            canvas.drawCircle(cx, cy, glowR, paint)
+            // 核心（后画盖在光晕上）
+            paint.color = color
+            canvas.drawCircle(cx, cy, coreR, paint)
+            paint.color = oldColor
+        }
+    }
+
+    /** 行内垂直居中的实心圆点 span 工厂（sizeDp 为圆点直径 dp） */
+    fun centerDot(a: Activity, color: Int, sizeDp: Int): CenterDotSpan = CenterDotSpan(color, dp(a, sizeDp), dp(a, 1))
+
+    /** Lucide x 图标（矢量描边 → 指定颜色/尺寸 BitmapDrawable，全局替换 ×/✕） */
+    fun lucideX(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_x, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide trash-2 图标（垃圾桶，删除语义；用于移除模型/删除附件等） */
+    fun lucideTrash(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_trash, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide eye 图标（查看语义） */
+    fun lucideEye(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_eye, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide download 图标（导出语义） */
+    fun lucideDownload(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_download, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide refresh-cw 图标（刷新语义） */
+    fun lucideRefresh(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_refresh_cw, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
 
     /** 页面根布局：浅灰底竖向 */
     fun pageRoot(a: Activity): LinearLayout = LinearLayout(a).apply {
@@ -474,14 +571,20 @@ object Ui {
             setOnClickListener { onClick() }
         }
 
-    /** 自绘勾选框：选中=主色底白✓，未选中=浅灰底 */
+    /** 自绘勾选圆点：选中=绿底白●，未选中=浅灰圆底 */
     fun check(a: Activity, checked: Boolean): TextView = TextView(a).apply {
         gravity = Gravity.CENTER
-        textSize = 12f
-        setTextColor(Color.WHITE)
-        text = if (checked) "✓" else ""
-        background = rounded(if (checked) PRIMARY else INPUT_BG, 6, a)
-        layoutParams = LinearLayout.LayoutParams(dp(a, 22), dp(a, 22))
+        textSize = 8f
+        includeFontPadding = false
+        text = "●"
+        setTextColor(if (checked) GREEN else SUB)
+        layoutParams = LinearLayout.LayoutParams(dp(a, 12), dp(a, 12))
+    }
+
+    /** 刷新勾选圆点样式（选中=绿色小实心点，未选中=浅灰小点，视觉同呼吸灯 6dp） */
+    fun applyCheck(v: TextView, checked: Boolean, a: Activity) {
+        v.text = "●"
+        v.setTextColor(if (checked) GREEN else SUB)
     }
 
     /**

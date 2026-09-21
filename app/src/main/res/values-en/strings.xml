@@ -545,7 +545,7 @@
     <string name="br_element">element</string>
     <string name="br_takeover">✋ Take Over</string>
     <string name="br_ready">AI Ready</string>
-    <string name="br_think">Think▾</string>
+    <string name="br_think">Think</string>
     <string name="br_no_think">(no thinking summary yet)</string>
     <string name="br_return_ai">🤖 Return to AI</string>
     <string name="br_returned_hint">Returned to you; after solving the CAPTCHA, return to AI</string>
@@ -564,6 +564,7 @@
     <string name="br_engine_mgr">Engine Manager</string>
     <string name="br_login_data">Login Data</string>
     <string name="br_close_page">✕ Close</string>
+    <string name="br_add_tab">＋ Add</string>
     <string name="br_add_engine_btn">＋ Add Search Engine (name + {q} template)</string>
     <string name="br_default_engine">Default engine → %1$s</string>
     <string name="br_edit">Edit</string>

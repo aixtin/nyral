@@ -322,8 +322,8 @@ class FirstRunSetupActivity : Activity() {
                 })
             })
             addView(TextView(this@FirstRunSetupActivity).apply {
-                text = if (checked) "✓" else ""
-                textSize = 18f
+                text = if (checked) "●" else ""
+                textSize = 8f
                 setTextColor(0xFF2E7D32.toInt())
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(dp(8), 0, 0, 0)
