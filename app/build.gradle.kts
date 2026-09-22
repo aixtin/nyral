@@ -80,6 +80,9 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
+    implementation("com.atlassian.commonmark:commonmark:0.13.0")
+    implementation("com.atlassian.commonmark:commonmark-ext-gfm-tables:0.13.0")
+    implementation("com.atlassian.commonmark:commonmark-ext-gfm-strikethrough:0.13.0")
     implementation("androidx.recyclerview:recyclerview:1.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
