@@ -37,6 +37,7 @@ import android.util.Log
 import android.util.LruCache
 import android.animation.ValueAnimator
 import android.view.animation.OvershootInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -193,8 +194,19 @@ class MainActivity : Activity() {
      *  流式回调进入主线程后先校验代际一致才操作 holder/滚动, 天然拦截迟到回调 */
     private var requestEpoch = 0L
     private var scrollUserScrolled = false   // 用户手动上翻后不再自动拉底(不打扰阅读)
+    private var activeAiHolder: AiBubbleHolder? = null   // 当前流式会话的 AiBubbleHolder: scrollToBottom 打字期滚动分支判据
     private var pendingAlign = 0             // scrollToBottom 的 preDraw 对齐待执行计数(防重复注册泄漏)
     private var lastAutoScrollTs = 0L        // 流式追底去抖时间戳
+
+    // ===== 层1 正弦波涌动滚动状态（打字机蓄放, 2026-09-22）=====
+    private var wavePhase = 0.0          // 涌动波形相位(弧度)
+    private var waveLastNs = 0L          // 上一帧 nanoTime
+    private var waveLastCallNs = 0L      // 同帧去重(多段并发防叠加滚动)
+    private var waveModelRate = 0.0      // 模型吐字速率 EMA(字符/秒)
+    private var waveRandCur = 1.0f       // 随机涌动系数(EMA 缓动当前值)
+    private var waveRandTarget = 1.0f    // 随机涌动系数(目标, 周期重抽)
+    private var waveRandNextAt = 0L      // 下次重抽随机目标的时间戳(ms)
+    private var settleAnimator: ValueAnimator? = null   // 软收尾平滑贴底动画(不瞬拉打断涌动)
     /** 历史 markdown 气泡预编译缓存(2026-09-18 长气泡吸底跳跃修复):
      *  根因: 上翻历史首次 bind 长气泡时 onBindViewHolder 里同步 markwon.setMarkdown(全文),
      *  commonmark 全量解析+span 化在主线程耗 50-300ms = 掉帧跳变; 打开会话初始布局只覆盖底部(最新消息),
@@ -1428,7 +1440,7 @@ class MainActivity : Activity() {
         root.addView(browserPage.hamburgerMask, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(browserPage.hamburgerPanel, FrameLayout.LayoutParams(
-            dp(300), (resources.displayMetrics.heightPixels * 88 / 100), Gravity.CENTER))
+            dp(300), (resources.displayMetrics.heightPixels * 78 / 100), Gravity.CENTER))
         browserPage.hamburgerPanel.translationX = (resources.displayMetrics.widthPixels + dp(300)) / 2f
         // 右缘也注册系统手势排除区: 避免手势导航把"右缘左滑"误判为系统返回, 与左缘抽屉同策略
         if (Build.VERSION.SDK_INT >= 29) {
@@ -1442,6 +1454,24 @@ class MainActivity : Activity() {
             }
         }
     }
+    private var hamburgerExclusionActive = false
+
+    /** 汉堡面板展开时屏蔽整屏系统返回手势: 右缘左滑不再被当返回收起面板; 收起时恢复抽屉/浏览器默认排除区 */
+    fun setHamburgerGestureExclusion(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            hamburgerExclusionActive = enabled
+            try {
+                root.systemGestureExclusionRects = if (enabled) {
+                    listOf(Rect(0, 0, root.width, root.height))
+                } else {
+                    listOf(
+                        Rect(0, 0, DRAWER_WIDTH, root.height),
+                        Rect(root.width - root.width / 3, 0, root.width, root.height)
+                    )
+                }
+            } catch (_: Exception) {}
+        }
+    }
     private fun setupSystemGestures() {
         setContentView(root)
         // 全面屏手势导航(Android10+): 左边缘横滑默认是系统"返回", 会抢走抽屉跟手手势。
@@ -1451,11 +1481,15 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 29) {
             root.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
                 if (v.height > 0) {
-                    // 左侧整块抽屉 + 右侧 1/3 触发区(浏览器/汉堡面板) 声明为系统手势排除区, 系统返回让位
-                    v.systemGestureExclusionRects = listOf(
-                        Rect(0, 0, DRAWER_WIDTH, v.height),
-                        Rect(v.width - v.width / 3, 0, v.width, v.height)
-                    )
+                    // 汉堡展开期间保持全屏排除(由 setHamburgerGestureExclusion 管理); 否则恢复默认排除区
+                    v.systemGestureExclusionRects = if (hamburgerExclusionActive) {
+                        listOf(Rect(0, 0, v.width, v.height))
+                    } else {
+                        listOf(
+                            Rect(0, 0, DRAWER_WIDTH, v.height),
+                            Rect(v.width - v.width / 3, 0, v.width, v.height)
+                        )
+                    }
                 }
             }
         }
@@ -1580,8 +1614,7 @@ class MainActivity : Activity() {
                 // 抽屉悬浮于 root 上, 不参与 main 的 insets 派发, 需自行避开状态栏/导航栏,
                 // 否则 setDecorFitsSystemWindows(false) 下顶部标题栏被状态栏遮挡、底部被导航栏顶低
                 if (::drawerPanel.isInitialized) drawerPanel.setPadding(0, sb.top, 0, sb.bottom)
-                // 汉堡面板同样悬浮于 root 最顶层, 自行避开状态栏/导航栏(底栏不被系统手势栏遮挡)
-                if (browserPageReady()) browserPage.hamburgerPanel.setPadding(0, 0, 0, sb.bottom)
+                // 汉堡面板悬浮于 root 最顶层: 顶/底不设 padding, URL 底栏贴面板底边(用户要求无黑边)
                 // 表情抽屉同样贴底避开导航栏(顶起式, 同键盘)
                 val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                 lastImeH = imeH
@@ -2418,6 +2451,7 @@ class MainActivity : Activity() {
         startStopSpin()
         executor.execute {
             val holder = AiBubbleHolder(this@MainActivity)
+            activeAiHolder = holder
             uiScope.launch {
                 // 流式行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器
                 val row = ChatRow.Streaming(nextTempRowId(), holder)
@@ -2508,6 +2542,7 @@ class MainActivity : Activity() {
                             }
                         }
                         holder.finishContent()
+                        activeAiHolder = null
                         // 流式行收尾: 已完成回复内容已落库至 messages, 移除 Streaming 行并重建为静态 AI 行;
                         // 不清理的话, 切模式/开会话全量重建时该行会被 buildRowsFromMessages 兜底再次塞回,
                         // 表现为"切 Agent 串消息 / 切回聊天 AI 回复变两条"(重启进程 streamingRow 归零即恢复)
@@ -3975,13 +4010,20 @@ class MainActivity : Activity() {
     }
 
     /** 滚到最新一条; auto=true 为流式自动追底——用户手动上翻阅读时让位不打断, 滚回底部附近自动恢复追底 */
-    internal fun scrollToBottom(auto: Boolean = false) {
+    internal fun scrollToBottom(auto: Boolean = false, force: Boolean = false) {
         if (auto && scrollUserScrolled) {
+            return
+        }
+        // 打字机活跃期(2026-09-22): 涌动滚动收编进统一入口——流式 delta 到达不再强拉底/杀惯性,
+        // 交还 scrollToBottomWave 蓄放涌动; 收尾 force 贴底与非打字期(思考/工具/恢复)仍走原追底
+        if (auto && !force && activeAiHolder?.hasActiveTypewriter() == true) {
+            scrollToBottomWave(activeAiHolder?.currentModelRate() ?: 0.0)
             return
         }
         if (chatAdapter.itemCount == 0) return
         // 流式追底去抖: 高频 delta 合并, 避免滚动请求堆积与反复重定位
-        if (auto) {
+        // force=true 用于收尾/静默渲染等低频关键帧: 文本变高后必须重新对齐, 不能被去抖吞掉
+        if (auto && !force) {
             val now = System.currentTimeMillis()
             if (now - lastAutoScrollTs < 25) return
             lastAutoScrollTs = now
@@ -4037,6 +4079,98 @@ class MainActivity : Activity() {
             chatRec.viewTreeObserver.removeOnPreDrawListener(preDraw)
             if (pendingAlign > 0) align.run()
         }, 200)
+    }
+
+    /** 打字机涌动滚动（层1 蓄放 + 正弦波, 2026-09-22）:
+     *  蓄: 内容未超阈值不滚, 从出口线向上长、溢出屏幕底部;
+     *  放: 溢出超阈值后正弦波涌动滚动——v(t)=base+amp·sin(2πft+φ),
+     *      base 保证永不静止(全速红线), 波形频率随 modelRate 自适应(快模型波密)。
+     *  仅在打字机输出期间由 AiBubbleHolder.stepBlock 每帧驱动; 收尾仍走 force 贴底。 */
+    internal fun scrollToBottomWave(modelRate: Double) {
+        if (scrollUserScrolled) return
+        if (chatAdapter.itemCount == 0) return
+        val now = System.nanoTime()
+        // 同帧内多段并发只滚一次, 防止叠加滚动
+        if (now - waveLastCallNs < 4_000_000L) return
+        waveLastCallNs = now
+        val dt = if (waveLastNs == 0L) 0.0 else (now - waveLastNs) / 1_000_000_000.0
+        waveLastNs = now
+        if (dt <= 0.0 || dt > 0.1) return
+        // 模型速率 EMA 平滑(字符/秒)
+        if (modelRate > 0) {
+            waveModelRate = if (waveModelRate <= 0) modelRate else waveModelRate * 0.7 + modelRate * 0.3
+        }
+        // 当前溢出量: 末条内容底部超出视口底部的距离
+        val lmA = chatRec.layoutManager as? LinearLayoutManager ?: return
+        val n = chatAdapter.itemCount
+        val lastChild = lmA.findViewByPosition(n - 1) ?: lmA.getChildAt((lmA.childCount ?: 1) - 1)
+        val lag = if (lastChild != null) {
+            (lastChild.bottom - (chatRec.height - chatRec.paddingBottom)).toFloat()
+        } else {
+            (chatRec.computeVerticalScrollRange() - chatRec.computeVerticalScrollExtent() - chatRec.computeVerticalScrollOffset()).toFloat()
+        }
+        // 蓄放阈值: 视口高度 32%(键盘弹出后视口变矮自动适配); 未超阈值只蓄不放
+        val holdPx = (chatRec.height * 0.32f).toInt()
+        if (lag <= holdPx) {
+            wavePhase = 0.0
+            return
+        }
+        // 放: 不对称涌动脉冲——快涌段内部再分"快起峰(12%)+缓坡回落(18%)",
+        // 进入低谷的坡度拉长变丝滑(cos 缓降), 后 70% 慢速蓄力, 一波一波悠着涌
+        val mr = waveModelRate.toFloat()
+        val period = (3.6f - mr / 60f).coerceIn(2.0f, 3.6f)   // 每波时长(秒): 快模型波稍短
+        wavePhase += dt / period
+        if (wavePhase >= 1.0) wavePhase -= 1.0
+        val FAST_RISE = 0.12f                                // 上升段: 快速起峰(12% 周期)
+        val FAST_FALL = 0.18f                                // 下降段: 缓坡回落进低谷(18% 周期, 丝滑)
+        val pulse = when {
+            wavePhase < FAST_RISE ->
+                Math.sin(Math.PI / 2f * (wavePhase / FAST_RISE)).toFloat()                    // 0→1 快起
+            wavePhase < FAST_RISE + FAST_FALL ->
+                Math.cos(Math.PI / 2f * ((wavePhase - FAST_RISE) / FAST_FALL)).toFloat()       // 1→0 缓降
+            else -> 0f
+        }
+        // 追赶系数: lag 大滚得稍快(lag 约 1.6s 内消化, 整体更慢)
+        val base = lag * 0.9f
+        // 随机微扰: 每 ~600ms 重抽 0.85~1.15 目标, EMA 缓动逼近(平滑变速, 无逐帧毛刺), 打破机械正弦节奏
+        val nowMs = System.currentTimeMillis()
+        if (nowMs >= waveRandNextAt) {
+            waveRandNextAt = nowMs + (300L + (Math.random() * 600L).toLong())
+            waveRandTarget = (0.85f + (Math.random() * 0.30f).toFloat())
+        }
+        waveRandCur += (waveRandTarget - waveRandCur) * 0.12f
+        val speed = base * (0.20f + 0.80f * pulse) * waveRandCur
+        val dx = (speed * dt).toInt()
+        if (dx > 0) chatRec.scrollBy(0, dx)
+    }
+
+    /** 软收尾贴底(2026-09-22): markwon 收尾渲染完成后不瞬拉打断涌动,
+     *  用 Decelerate 曲线把剩余 lag 平滑滚到底; 多段连续收尾时取消重开不叠加 */
+    internal fun scrollToSettle() {
+        settleAnimator?.cancel()
+        val lmA = chatRec.layoutManager as? LinearLayoutManager ?: return
+        val n = chatAdapter.itemCount
+        if (n == 0) return
+        val lastChild = lmA.findViewByPosition(n - 1) ?: lmA.getChildAt((lmA.childCount ?: 1) - 1)
+        val lag = if (lastChild != null) {
+            lastChild.bottom - (chatRec.height - chatRec.paddingBottom)
+        } else {
+            chatRec.computeVerticalScrollRange() - chatRec.computeVerticalScrollExtent() - chatRec.computeVerticalScrollOffset()
+        }
+        if (lag <= 0) return
+        val duration = (250 + lag / 4).toLong().coerceIn(250L, 600L)
+        var lastLag = lag.toFloat()
+        settleAnimator = ValueAnimator.ofFloat(lag.toFloat(), 0f).apply {
+            this.duration = duration
+            interpolator = DecelerateInterpolator(1.6f)
+            addUpdateListener {
+                val cur = it.animatedValue as Float
+                val dx = (lastLag - cur).toInt()
+                if (dx > 0) chatRec.scrollBy(0, dx)
+                lastLag = cur
+            }
+            start()
+        }
     }
 
     /** 展开/收起气泡时保持当前阅读位置: RecyclerView 行内高度变化由 RV 自身测量处理, 这里仅确保该行仍在视口 */

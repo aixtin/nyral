@@ -51,6 +51,7 @@ internal class BrowserPage(private val act: MainActivity) {
     private lateinit var thinkAll: TextView
     private var thinkLog = ""
     private lateinit var thinkWrap: LinearLayout
+    private lateinit var thinkScrollBox: android.widget.ScrollView
     private lateinit var highlight: BrowserHighlightView
     private lateinit var takeover: TextView
     internal var taken = false      // 用户是否接管中
@@ -409,7 +410,7 @@ internal class BrowserPage(private val act: MainActivity) {
             thinkBody.text = s
             thinkLog = if (thinkLog.isEmpty()) s else thinkLog + "\n" + s
             thinkAll.text = thinkLog
-            thinkWrap.visibility = View.VISIBLE
+            thinkScrollBox.visibility = View.VISIBLE
         }
     }
     /** 高亮某元素(doc 绝对坐标), 并滚动使其可见 */
@@ -534,7 +535,7 @@ internal class BrowserPage(private val act: MainActivity) {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             hamburgerPanel = buildHamburger()
             addView(hamburgerPanel, FrameLayout.LayoutParams(
-                act.dp(300), (act.resources.displayMetrics.heightPixels * 88 / 100),
+                act.dp(300), (act.resources.displayMetrics.heightPixels * 78 / 100),
                 Gravity.CENTER))
             // 初始右外(不可见): 显式设置 View 属性, 不依赖 LayoutParams.translationX(容器可能不应用)
             hamburgerPanel.translationX = burgerHideX
@@ -546,8 +547,9 @@ internal class BrowserPage(private val act: MainActivity) {
     private fun thinkCollapsed(): LinearLayout {
         thinkWrap = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(act.dp(16), act.dp(12), act.dp(16), act.dp(8))
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.VISIBLE
+            setPadding(act.dp(16), act.dp(12), act.dp(16), act.dp(16))
             // 小区: 当前步骤(输入框式, 中等高度)
             thinkBody = TextView(act).apply {
                 text = act.getString(R.string.br_no_think)
@@ -568,8 +570,8 @@ internal class BrowserPage(private val act: MainActivity) {
                 text = act.getString(R.string.br_no_think)
                 textSize = 12f
                 setTextColor(Ui.SUB)
-                minHeight = act.dp(300)
-                maxHeight = act.dp(520)
+                minHeight = act.dp(240)
+                maxHeight = act.dp(440)
                 // 只描边不填充
                 background = GradientDrawable().apply {
                     setStroke(act.dp(1), Ui.STROKE)
@@ -593,11 +595,11 @@ internal class BrowserPage(private val act: MainActivity) {
 
     /** 默认页: 只显示思考摘要, 隐藏引擎/登录数据, 同步页签高亮 */
     private fun showThinkTab() {
-        thinkWrap.visibility = View.VISIBLE
+        thinkScrollBox.visibility = View.VISIBLE
         engineTitle.visibility = View.GONE
         engineScroll.visibility = View.GONE
         dataScroll.visibility = View.GONE
-        tabSpacer.visibility = View.VISIBLE
+        tabSpacer.visibility = View.GONE
         addTab.visibility = View.GONE
         tabEngine.setTextColor(gray); tabEngine.background = tabOutline(false)
         tabData.setTextColor(gray); tabData.background = tabOutline(false)
@@ -605,8 +607,8 @@ internal class BrowserPage(private val act: MainActivity) {
     }
 
     private fun toggleThink() {
-        if (thinkWrap.visibility == View.VISIBLE) {
-            thinkWrap.visibility = View.GONE
+        if (thinkScrollBox.visibility == View.VISIBLE) {
+            thinkScrollBox.visibility = View.GONE
             engineTitle.visibility = View.VISIBLE
             engineScroll.visibility = View.VISIBLE
             tabSpacer.visibility = View.GONE
@@ -615,11 +617,11 @@ internal class BrowserPage(private val act: MainActivity) {
             tabData.setTextColor(gray); tabData.background = tabOutline(false)
             thinkTab.setTextColor(gray); thinkTab.background = tabOutline(false)
         } else {
-            thinkWrap.visibility = View.VISIBLE
+            thinkScrollBox.visibility = View.VISIBLE
             engineTitle.visibility = View.GONE
             engineScroll.visibility = View.GONE
             dataScroll.visibility = View.GONE
-            tabSpacer.visibility = View.VISIBLE
+            tabSpacer.visibility = View.GONE
             addTab.visibility = View.GONE
             tabEngine.setTextColor(gray); tabEngine.background = tabOutline(false)
             tabData.setTextColor(gray); tabData.background = tabOutline(false)
@@ -1013,8 +1015,15 @@ internal class BrowserPage(private val act: MainActivity) {
             }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
         }.also { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
 
-        // 思考摘要容器(默认隐藏, 点"思考"展开)
-        addView(thinkCollapsed())
+        // 思考摘要容器(默认隐藏, 点"思考"展开): 包 ScrollView 占剩余空间, 内容超高可滚动, 底栏(URL卡片)始终贴底不被挤出裁剪
+        thinkScrollBox = android.widget.ScrollView(act).apply {
+            isVerticalScrollBarEnabled = false
+            isFillViewport = true
+        }
+        thinkScrollBox.addView(thinkCollapsed(), FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addView(thinkScrollBox, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         // 弹性占位: 思考展开时把底栏推到底部(引擎/数据模式由各自 ScrollView 的 weight 承担)
         tabSpacer = View(act).apply { visibility = View.GONE }
         addView(tabSpacer, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -1077,6 +1086,8 @@ internal class BrowserPage(private val act: MainActivity) {
             hamburgerMask.alpha = 0f
             hamburgerMask.visibility = View.VISIBLE
         }
+        // 汉堡展开时屏蔽整屏系统返回手势: 右缘左滑不再被当返回收起面板
+        act.setHamburgerGestureExclusion(true)
         onHamburgerChange?.invoke(true)
         act.animateHamburgerSink(true, false)
         hamburgerMask.animate().alpha(1f).setDuration(180).start()
@@ -1100,6 +1111,8 @@ internal class BrowserPage(private val act: MainActivity) {
         val wasOpen = hamburgerOpen
         if (wasOpen) {
             hamburgerOpen = false
+            // 汉堡收起后恢复默认系统手势排除区
+            act.setHamburgerGestureExclusion(false)
             onHamburgerChange?.invoke(false)
             act.animateHamburgerSink(false)
             hamburgerMask.animate().alpha(0f).setDuration(160).withEndAction {
@@ -1123,7 +1136,7 @@ internal class BrowserPage(private val act: MainActivity) {
         engineTitle.visibility = View.VISIBLE
         engineScroll.visibility = View.VISIBLE
         dataScroll.visibility = View.GONE
-        thinkWrap.visibility = View.GONE
+        thinkScrollBox.visibility = View.GONE
         tabSpacer.visibility = View.GONE
         addTab.visibility = View.VISIBLE
         tabEngine.setTextColor(blue); tabEngine.background = tabOutline(true)
@@ -1134,7 +1147,7 @@ internal class BrowserPage(private val act: MainActivity) {
         engineTitle.visibility = View.GONE
         engineScroll.visibility = View.GONE
         dataScroll.visibility = View.VISIBLE
-        thinkWrap.visibility = View.GONE
+        thinkScrollBox.visibility = View.GONE
         tabSpacer.visibility = View.GONE
         addTab.visibility = View.GONE
         tabEngine.setTextColor(gray); tabEngine.background = tabOutline(false)
