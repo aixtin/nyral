@@ -69,6 +69,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var typeFinishedRender = false
         var lastAdvanceNs = 0L         // 上次实际推进字符的时间戳(防长时间冻结)
         var lastRenderNs = 0L          // 上次真正 setText 渲染的时间戳(批量渲染节流, 消除蹦迪)
+        val streamRenderer = MdStreamRenderer()  // D路线: 流式 MD 渲染(块缓存+截断尾部)
+        var renderSkip = 0               // 懒渲染: 高吞吐时跳帧渲染(第5步 节奏控制)
         var maxShownW = 0              // 本段气泡历史最大测量宽度(px): 单向性约束, 文本变短只扩不缩防跳动
         var dimmed = false             // 输出中暗色态: 打字期间气泡+文字调暗, 完成后渐亮
         var dimAnim: ValueAnimator? = null   // 完成渐亮动画
@@ -536,13 +538,19 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             b.shownLen = idx
             b.lastAdvanceNs = frameNs
             b.view?.let { tv ->
-                // 全速前进: 每帧即时渲染
+                // 全速前进: 每帧即时渲染 (懒渲染: 高吞吐跳帧降频, 低速每帧)
                 // 层1 涌动滚动(2026-09-22): 打字期间改为蓄放+正弦波滚动, 不再瞬间贴底;
                 // 收尾 finishTypeRender 仍 force 贴底对齐
                 // 阶段3 pending 抑制: 打字期间隐藏文件/产品卡标记裸文本(占位/半截隐藏), 完成后由 markdown 渲染真实卡片
-                tv.text = suppressCards(b.text.substring(0, b.shownLen))
-                keepBubbleWidth(b, tv)
-                host.scrollToBottomWave(modelRate)
+                if (b.renderSkip > 0) {
+                    b.renderSkip--
+                } else {
+                    b.renderSkip = if (typeSpeed(total) >= 320) 1 else 0
+                    tv.text = if (ModeConfig.chatPlainText()) suppressCards(b.text.substring(0, b.shownLen))
+                    else b.streamRenderer.render(b.text.substring(0, b.shownLen))
+                    keepBubbleWidth(b, tv)
+                    host.scrollToBottomWave(modelRate)
+                }
             }
         }
         if (b.shownLen >= total && b.done) {
@@ -566,6 +574,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (b.typeFinishedRender) return
         b.typeFinishedRender = true
         b.typeActive = false
+        b.streamRenderer.clearCache()   // D路线: 收尾 markwon 接管, 释放流式解析缓存
         b.view?.let {
             if (ModeConfig.chatPlainText()) it.text = stripMarkdownForChat(b.text.toString()).trimEnd()
             else host.markwon.setMarkdown(it, ModeConfig.stripChatProtocolPrefix(b.text.toString()))
