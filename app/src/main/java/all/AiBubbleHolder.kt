@@ -1,6 +1,8 @@
 package io.github.aixtin.nyral
 
 import android.util.Log
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.graphics.Color
 import android.graphics.Typeface
@@ -10,6 +12,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -65,6 +68,15 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var typeActive = false
         var typeFinishedRender = false
         var lastAdvanceNs = 0L         // 上次实际推进字符的时间戳(防长时间冻结)
+        var lastRenderNs = 0L          // 上次真正 setText 渲染的时间戳(批量渲染节流, 消除蹦迪)
+        var maxShownW = 0              // 本段气泡历史最大测量宽度(px): 单向性约束, 文本变短只扩不缩防跳动
+        var dimmed = false             // 输出中暗色态: 打字期间气泡+文字调暗, 完成后渐亮
+        var dimAnim: ValueAnimator? = null   // 完成渐亮动画
+        var dimBg: GradientDrawable? = null  // 暗色态背景 drawable(渐亮直接 setColor, 不重建)
+        var dimBaseBg = 0              // 原始亮背景色
+        var dimBaseText = 0            // 原始亮文字色
+        var dimFactor = 0f             // 本段实际暗度因子(随模型速率动态)
+        var brightenMs = 0L            // 本段实际渐亮时长(随模型速率动态)
     }
     private val contentBlocks = ArrayList<ContentBlock>()
     private var activeContent: ContentBlock? = null   // 当前正在接收 delta 的正文段
@@ -76,6 +88,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     // 帧级节流: 高频 delta 合并到 16ms 一帧刷新一次, 避免全量 setText + 滚动积压导致卡顿/拖影
     private val uiHandler = Handler(Looper.getMainLooper())
     private var refreshPending = false
+
+    // 输出中暗色态(解决闪感): AI 流式输出期间气泡背景+文字亮度压低(暗色降低逐字刷新感知),
+    // 输出完成(finishTypeRender)后渐亮回原始色, 视觉上"安静打字 -> 完成后亮起";
+    // 参数随模型速率动态: 快模型轻暗+短过渡(避免"闪一下"), 慢模型重暗+长缓出(避免"突亮")
+    private val TYPE_DIM_FACTOR_SLOW = 0.40f   // 慢模型(<=10字/s): 重暗
+    private val TYPE_DIM_FACTOR_FAST = 0.60f   // 快模型(>=40字/s): 轻暗
+    private val TYPE_BRIGHTEN_MS_SLOW = 1400L  // 慢模型: 长缓出
+    private val TYPE_BRIGHTEN_MS_FAST = 500L   // 快模型: 短过渡
 
     /** 一段思考: 折叠态只显示字数摘要, 点击展开该段全文 */
     private inner class ThinkingBlock {
@@ -339,6 +359,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 if (ModeConfig.chatPlainText()) stripMarkdownForChat(rawB) else rawB
             } }
             addChatBubble(b.view)
+            // 输出中暗色态: 新正文段起始即暗(降低逐字刷新闪感), 收尾 finishTypeRender 后渐亮
+            b.view?.let { dimBlock(b, it) }
             // 记录每段正文真实插入位置, 恢复时按原位渲染(不固定末尾); 事件持有段对象,
             // 持久化时输出该段正文, 恢复渲染逐段精确还原(阶段2 分片配套)
             timelineEvents.add(b)
@@ -370,6 +392,12 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         }
     }
 
+    /** 是否存在正在打字(未收尾)的正文段: 供 MainActivity.scrollToBottom 判断打字期分支 */
+    fun hasActiveTypewriter(): Boolean = contentBlocks.any { it.typeActive }
+
+    /** 当前模型吐字速率(字符/秒) EMA 值, 供涌动滚动分支使用 */
+    fun currentModelRate(): Double = modelRate
+
     /** 帧回调(Choreographer): 依次推进各正文段打字机, 全部段完成收尾后停止驱动 */
     override fun tickFrame(frameNs: Long): Boolean {
         var running = false
@@ -386,6 +414,93 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return true
     }
 
+    /** 气泡宽度单向性: 文本更新后布局完成时测量真实宽度, 记忆本段历史最大宽(不超过 chatMaxW 封顶),
+     *  后续文本变短(排版变化/静默重渲染/append 变窄)时保持 minimumWidth 不缩, 避免 AI 输出长短变化
+     *  导致气泡整体放大放小左右跳动; 只在变宽时更新, 窄了不动 */
+    private fun keepBubbleWidth(b: ContentBlock, tv: TextView) {
+        tv.post {
+            val w = tv.width
+            if (w > b.maxShownW) {
+                b.maxShownW = minOf(w, maxW)
+                tv.minimumWidth = b.maxShownW
+            }
+        }
+    }
+
+    /** 输出中暗色态: 新正文段创建即调用, 气泡背景+文字亮度压暗(随模型速率动态),
+     *  暗色降低逐字刷新/换行重排的视觉"闪感"; 原始亮色与参数存段上, 完成时渐亮恢复 */
+    private fun dimBlock(b: ContentBlock, tv: TextView) {
+        if (b.dimmed) return
+        b.dimmed = true
+        b.dimBaseBg = floatBubbleColor(BUBBLE_AI)
+        b.dimBaseText = BUBBLE_AI_TEXT
+        // 速率映射: 慢模型重暗+长缓出, 快模型轻暗+短过渡; modelRate 未建立(0)时取中间默认
+        val mr = modelRate.toFloat()
+        val t = if (mr <= 0f) 0.5f else ((mr - 10f) / 30f).coerceIn(0f, 1f)
+        b.dimFactor = TYPE_DIM_FACTOR_SLOW + (TYPE_DIM_FACTOR_FAST - TYPE_DIM_FACTOR_SLOW) * t
+        b.brightenMs = TYPE_BRIGHTEN_MS_SLOW + ((TYPE_BRIGHTEN_MS_FAST - TYPE_BRIGHTEN_MS_SLOW) * t).toLong()
+        val bg = rounded(host.dp(12), dimColor(b.dimBaseBg, b.dimFactor))
+        b.dimBg = bg
+        tv.background = bg
+        tv.setTextColor(dimColor(b.dimBaseText, b.dimFactor))
+    }
+
+    /** 输出完成渐亮: 按本段速率参数时长缓出(DecelerateInterpolator 先快后缓, 收尾柔和),
+     *  取消/结束都落回全亮, 不残留暗色 */
+    private fun brightenBlock(b: ContentBlock, tv: TextView) {
+        b.dimAnim?.cancel()
+        val bg = b.dimBg
+        val fromBg = dimColor(b.dimBaseBg, b.dimFactor)
+        val fromText = dimColor(b.dimBaseText, b.dimFactor)
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = b.brightenMs
+            interpolator = DecelerateInterpolator(1.5f)
+            addUpdateListener { v ->
+                val t = v.animatedValue as Float
+                bg?.setColor(blendColor(fromBg, b.dimBaseBg, t))
+                tv.setTextColor(blendColor(fromText, b.dimBaseText, t))
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: Animator) {
+                    b.dimAnim = null
+                    b.dimmed = false
+                }
+                override fun onAnimationCancel(a: Animator) {
+                    bg?.setColor(b.dimBaseBg)
+                    tv.setTextColor(b.dimBaseText)
+                    b.dimAnim = null
+                    b.dimmed = false
+                }
+            })
+        }
+        b.dimAnim = anim
+        anim.start()
+    }
+
+    /** 颜色亮度压低(factor), 保留原 alpha(悬浮模式半透明背景不受影响) */
+    private fun dimColor(c: Int, factor: Float): Int {
+        val hsv = FloatArray(3)
+        Color.colorToHSV(c, hsv)
+        hsv[2] *= factor
+        return Color.HSVToColor(Color.alpha(c), hsv)
+    }
+
+    /** ARGB 线性插值: 渐亮动画用 */
+    private fun blendColor(a: Int, b: Int, t: Float): Int {
+        val ta = (a ushr 24) and 0xFF
+        val tr = (a ushr 16) and 0xFF
+        val tg = (a ushr 8) and 0xFF
+        val tb = a and 0xFF
+        val ba = (b ushr 24) and 0xFF
+        val br = (b ushr 16) and 0xFF
+        val bg = (b ushr 8) and 0xFF
+        val bb = b and 0xFF
+        return ((ta + ((ba - ta) * t).toInt()) shl 24) or
+                ((tr + ((br - tr) * t).toInt()) shl 16) or
+                ((tg + ((bg - tg) * t).toInt()) shl 8) or
+                (tb + ((bb - tb) * t).toInt())
+    }
+
     /** 单段打字机推进(逻辑承接原单一 contentText 打字机, 状态内聚到段内) */
     private fun stepBlock(b: ContentBlock, frameNs: Long): Boolean {
         val total = b.text.length
@@ -395,7 +510,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 finishTypeRender(b)
                 return false
             }
-            return true   // 已追平当前已收文本, 静止等待新 delta(不再渲染闪烁光标)
+            return true   // 已追平当前已收文本, 静止等待新 delta
         }
         val elapsed = if (b.lastFrameNs == 0L) 1.0 / 60.0 else (frameNs - b.lastFrameNs) / 1_000_000_000.0
         b.lastFrameNs = frameNs
@@ -421,10 +536,13 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             b.shownLen = idx
             b.lastAdvanceNs = frameNs
             b.view?.let { tv ->
-                // 打字期间只更新纯文本, 收尾一次性 markdown 排版(避免每帧全量解析抽搐)
+                // 全速前进: 每帧即时渲染
+                // 层1 涌动滚动(2026-09-22): 打字期间改为蓄放+正弦波滚动, 不再瞬间贴底;
+                // 收尾 finishTypeRender 仍 force 贴底对齐
                 // 阶段3 pending 抑制: 打字期间隐藏文件/产品卡标记裸文本(占位/半截隐藏), 完成后由 markdown 渲染真实卡片
                 tv.text = suppressCards(b.text.substring(0, b.shownLen))
-                host.scrollToBottom(true)
+                keepBubbleWidth(b, tv)
+                host.scrollToBottomWave(modelRate)
             }
         }
         if (b.shownLen >= total && b.done) {
@@ -451,8 +569,13 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         b.view?.let {
             if (ModeConfig.chatPlainText()) it.text = stripMarkdownForChat(b.text.toString()).trimEnd()
             else host.markwon.setMarkdown(it, ModeConfig.stripChatProtocolPrefix(b.text.toString()))
+            keepBubbleWidth(b, it)
+            // 输出完成渐亮: 暗色态(打字中)段在此亮起, 恢复渲染/从未暗色的段不受影响
+            if (b.dimmed) brightenBlock(b, it)
+            // force 跳过 25ms 去抖: markwon 收尾渲染可能使气泡变高, 必须重新对齐贴底,
+            // 否则差半行高度留在底部(用户需上滑一下才看到最后一行完整)
+            host.scrollToSettle()   // 软收尾: 平滑滚到底, 不瞬拉打断涌动
         }
-        host.scrollToBottom(true)
     }
 
     /**
