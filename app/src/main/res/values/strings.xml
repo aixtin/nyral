@@ -664,6 +664,11 @@
     <string name="ts_channel_desc">AI 处理任务期间的前台通知，防止进程被系统回收</string>
     <string name="ts_running">任务执行中…</string>
     <string name="ts_content">AI 正在后台处理任务，请勿强制停止</string>
+    <string name="ts_stage_thinking">思考中</string>
+    <string name="ts_stage_tool">调用工具</string>
+    <string name="ts_stage_reply">作答中</string>
+    <string name="ts_action_cancel">取消</string>
+    <string name="ts_action_retry">重试</string>
     <!-- 聊天背景 -->
     <string name="cba_img_badge">图</string>
     <string name="cba_def_badge">默</string>

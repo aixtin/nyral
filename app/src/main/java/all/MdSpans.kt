@@ -25,9 +25,10 @@ import org.commonmark.ext.gfm.tables.TableBody
 import org.commonmark.ext.gfm.tables.TableCell
 import org.commonmark.ext.gfm.tables.TableHead
 import org.commonmark.ext.gfm.tables.TableRow
+import org.json.JSONArray
 
 /** 文本区间样式类型 */
-enum class MdSpanType { BOLD, ITALIC, INLINE_CODE, STRIKETHROUGH, LINK, CODE_BLOCK, HEADING }
+enum class MdSpanType { BOLD, ITALIC, INLINE_CODE, STRIKETHROUGH, LINK, CODE_BLOCK, HEADING, TABLE_ROW, TABLE_BLOCK }
 
 /** 单个样式区间: [start,end) 左闭右开, 作用于 displayText */
 data class MdSpan(val start: Int, val end: Int, val type: MdSpanType, val extra: String? = null)
@@ -81,7 +82,7 @@ object MdToSpans {
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
                 walkChildren(node, sb, spans)
                 sb.append("\n\n")
-                spans += MdSpan(start, sb.length, MdSpanType.HEADING)
+                spans += MdSpan(start, sb.length, MdSpanType.HEADING, node.level.toString())
             }
             is Paragraph -> {
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
@@ -121,7 +122,9 @@ object MdToSpans {
             }
             is TableBlock -> {
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
+                val tableStart = sb.length
                 var c = node.firstChild
+                var dataRowIdx = 0
                 while (c != null) {
                     if (c is TableHead || c is TableBody) {
                         var row = c.firstChild
@@ -134,20 +137,35 @@ object MdToSpans {
                                     cell = cell.next
                                 }
                                 val lineStart = sb.length
+                                val isHeader = c is TableHead
+                                val odd = (!isHeader) && (dataRowIdx % 2 == 1)
                                 cells.forEachIndexed { i, tc ->
-                                    if (i > 0) sb.append(" | ")
+                                    if (i > 0) sb.append(" ")
                                     walkChildren(tc, sb, spans)
                                 }
-                                if (c is TableHead) {
-                                    spans += MdSpan(lineStart, sb.length, MdSpanType.BOLD)
-                                }
                                 sb.append("\n")
+                                // 表格行 span: extra 编码 cells(文本+对齐) + header/odd 标志,
+                                // MdSpannable 据此构造 RoundedTableRowSpan 复用 markwon 同款视觉
+                                val arr = JSONArray()
+                                arr.put(if (isHeader) 1 else 0)
+                                arr.put(if (odd) 1 else 0)
+                                val cellsArr = JSONArray()
+                                cells.forEach { tc ->
+                                    val cArr = JSONArray()
+                                    cArr.put(alignmentCode(tc.alignment))
+                                    cArr.put(collectCellText(tc))
+                                    cellsArr.put(cArr)
+                                }
+                                arr.put(cellsArr)
+                                spans += MdSpan(lineStart, (sb.length - 1).coerceAtLeast(lineStart), MdSpanType.TABLE_ROW, arr.toString())
+                                if (!isHeader) dataRowIdx++
                             }
                             row = row.next
                         }
                     }
                     c = c.next
                 }
+                spans += MdSpan(tableStart, (sb.length - 1).coerceAtLeast(tableStart), MdSpanType.TABLE_BLOCK)
                 sb.append("\n")
             }
             is StrongEmphasis -> {
@@ -184,7 +202,7 @@ object MdToSpans {
                 } else {
                     val alt = node.firstChild?.let { c ->
                         val t = StringBuilder()
-                        var ch = c
+                        var ch: Node? = c
                         while (ch != null) { if (ch is Text) t.append(ch.literal); ch = ch.next }
                         t.toString()
                     } ?: ""
@@ -207,5 +225,23 @@ object MdToSpans {
     private fun walkChildren(node: Node, sb: StringBuilder, spans: MutableList<MdSpan>) {
         var c = node.firstChild
         while (c != null) { walk(c, sb, spans, blockStart = false, listPrefix = null); c = c.next }
+    }
+
+    /** TableCell.Alignment -> RoundedTableRowSpan.ALIGN_* */
+    private fun alignmentCode(a: TableCell.Alignment?): Int = when (a) {
+        TableCell.Alignment.CENTER -> 1
+        TableCell.Alignment.RIGHT -> 2
+        else -> 0
+    }
+
+    /** 收集 cell 内全部 Text 字面量(不含 MD 标记), 供表格行 span 复用 markwon 视觉 */
+    private fun collectCellText(cell: TableCell): String {
+        val t = StringBuilder()
+        var n: Node? = cell.firstChild
+        while (n != null) {
+            if (n is Text) t.append(n.literal)
+            n = n.next
+        }
+        return t.toString()
     }
 }

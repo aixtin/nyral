@@ -109,12 +109,13 @@ public class RoundedTablePlugin extends AbstractMarkwonPlugin {
 
     @Override
     public void afterSetText(@NonNull TextView textView) {
-        schedule(textView);
+        attachInvalidators(textView);
     }
 
     // ---------- invalidator 调度（对齐 TableRowsScheduler，仅命中 RoundedTableRowSpan） ----------
 
-    private static void schedule(@NonNull final TextView view) {
+    /** 公开注入入口: 流式渲染器创建的表格 span 不走 markwon afterSetText, 需在设置 text 后手动注入 invalidator */
+    public static void attachInvalidators(@NonNull final TextView view) {
         final Object[] spans = extract(view);
         if (spans != null && spans.length > 0) {
 
@@ -277,9 +278,15 @@ public class RoundedTablePlugin extends AbstractMarkwonPlugin {
                 // Replace table char with non-breakable space
                 builder.append('\u00a0');
 
+                // 防御拷贝: 不共享可变的 pendingTableRow 引用, 过滤异常结构下可能的 null cell
+                final List<TableRowSpan.Cell> safeCells = new ArrayList<>(pendingTableRow.size());
+                for (TableRowSpan.Cell c : pendingTableRow) {
+                    if (c != null) safeCells.add(c);
+                }
+
                 final Object span = new RoundedTableRowSpan(
                         tableTheme,
-                        pendingTableRow,
+                        safeCells,
                         tableRowIsHeader,
                         tableRows % 2 == 1,
                         density);
@@ -296,23 +303,8 @@ public class RoundedTablePlugin extends AbstractMarkwonPlugin {
 
         @TableRowSpan.Alignment
         private static int tableCellAlignment(TableCell.Alignment alignment) {
-            final int out;
-            if (alignment != null) {
-                switch (alignment) {
-                    case CENTER:
-                        out = TableRowSpan.ALIGN_CENTER;
-                        break;
-                    case RIGHT:
-                        out = TableRowSpan.ALIGN_RIGHT;
-                        break;
-                    default:
-                        out = TableRowSpan.ALIGN_LEFT;
-                        break;
-                }
-            } else {
-                out = TableRowSpan.ALIGN_LEFT;
-            }
-            return out;
+            // 老板需求 2026-09-22: 表格单元格文字一律水平居中(不再跟随 markdown 对齐标记)
+            return TableRowSpan.ALIGN_CENTER;
         }
     }
 }

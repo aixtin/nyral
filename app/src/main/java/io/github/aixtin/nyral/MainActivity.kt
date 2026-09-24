@@ -62,7 +62,6 @@ import android.view.Gravity
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
-import android.view.Choreographer
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.ViewGroup
@@ -136,6 +135,16 @@ class MainActivity : Activity() {
     // 并行化后: prewarm 拆单消息粒度 3 线程消化(全量提速3倍), bind miss 编译立即获得空闲线程不排队
     internal val mdExecutor = Executors.newFixedThreadPool(3)
     internal val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    /** 全程流式: 流式渲染器与 markwon 收尾共用的表格主题(圆角+斑马纹+居中) */
+    internal val mdTableTheme by lazy {
+        TableTheme.buildWithDefaults(this)
+            .tableCellPadding((10 * resources.displayMetrics.density).toInt())
+            .tableBorderWidth((1 * resources.displayMetrics.density).toInt())
+            .tableBorderColor(Ui.DIVIDER)
+            .tableHeaderRowBackgroundColor(Ui.INPUT_BG)
+            .tableOddRowBackgroundColor(Ui.INPUT_BG)
+            .build()
+    }
     // Markdown 本地渲染 (Markwon, 开源/无网络/不接第三方服务)
     internal val markwon by lazy {
         Markwon.builder(this)
@@ -160,13 +169,7 @@ class MainActivity : Activity() {
                 }
             })
             .usePlugin(StrikethroughPlugin.create())
-            .usePlugin(RoundedTablePlugin.create(TableTheme.buildWithDefaults(this)
-                    .tableCellPadding((10 * resources.displayMetrics.density).toInt())
-                    .tableBorderWidth((1 * resources.displayMetrics.density).toInt())
-                    .tableBorderColor(Ui.DIVIDER)
-                    .tableHeaderRowBackgroundColor(Ui.INPUT_BG)
-                    .tableOddRowBackgroundColor(Ui.INPUT_BG)
-                    .build(), resources.displayMetrics.density))
+            .usePlugin(RoundedTablePlugin.create(mdTableTheme, resources.displayMetrics.density))
             .build()
     }
     // role, content, thinking(assistant 思考内容, 持久化到会话以便切回时恢复思考区), tools(工具调用序列 JSON)
@@ -193,20 +196,14 @@ class MainActivity : Activity() {
     /** 请求代际(阶段2 流式竞态治理): 每次发起新请求/取消当前请求(切会话)自增,
      *  流式回调进入主线程后先校验代际一致才操作 holder/滚动, 天然拦截迟到回调 */
     private var requestEpoch = 0L
-    private var scrollUserScrolled = false   // 用户手动上翻后不再自动拉底(不打扰阅读)
+    private var scrollUserScrolled = false   // 用户手动上翻/交互接管后不再自动拉底(不打扰阅读)
+    private var aiStage = 0            // AI 输出阶段: 0=idle 1=thinking 2=tool 3=content
+    private var contentFollow = false  // 正文跟随模式: FAB 一键到底后 true; 正文默认停滚, 右下角出现一键到底
+    private var jumpFab: android.widget.TextView? = null
     private var activeAiHolder: AiBubbleHolder? = null   // 当前流式会话的 AiBubbleHolder: scrollToBottom 打字期滚动分支判据
     private var pendingAlign = 0             // scrollToBottom 的 preDraw 对齐待执行计数(防重复注册泄漏)
     private var lastAutoScrollTs = 0L        // 流式追底去抖时间戳
 
-    // ===== 层1 正弦波涌动滚动状态（打字机蓄放, 2026-09-22）=====
-    private var wavePhase = 0.0          // 涌动波形相位(弧度)
-    private var waveLastNs = 0L          // 上一帧 nanoTime
-    private var waveLastCallNs = 0L      // 同帧去重(多段并发防叠加滚动)
-    private var waveModelRate = 0.0      // 模型吐字速率 EMA(字符/秒)
-    private var waveRandCur = 1.0f       // 随机涌动系数(EMA 缓动当前值)
-    private var waveRandTarget = 1.0f    // 随机涌动系数(目标, 周期重抽)
-    private var waveRandNextAt = 0L      // 下次重抽随机目标的时间戳(ms)
-    private var settleAnimator: ValueAnimator? = null   // 软收尾平滑贴底动画(不瞬拉打断涌动)
     /** 历史 markdown 气泡预编译缓存(2026-09-18 长气泡吸底跳跃修复):
      *  根因: 上翻历史首次 bind 长气泡时 onBindViewHolder 里同步 markwon.setMarkdown(全文),
      *  commonmark 全量解析+span 化在主线程耗 50-300ms = 掉帧跳变; 打开会话初始布局只覆盖底部(最新消息),
@@ -518,6 +515,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initThemeAndWindow()
+        // 全程流式: 尽早注入表格主题/密度, 流式渲染器与 markwon 收尾共用同一视觉(避免 markwon lazy 未触发时表格退化)
+        MdSpannable.tableTheme = mdTableTheme
+        MdSpannable.density = resources.displayMetrics.density
+        MdSpannable.codeBlockBg = Ui.INPUT_BG
+        MdSpannable.inlineCodeBg = Ui.INPUT_BG
         initConfigs()
         setupBrowserControllers()
         setupSwipeDetector()
@@ -825,6 +827,9 @@ class MainActivity : Activity() {
                         rv.post { reconcileVideoBubbles(rv); reconcileEmojiBubbles(rv) }
                     }
                     if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                        // 静态上滑时刷新一键到底显隐(09-24): 输出中按钮隐藏后, 显隐刷新只剩
+                        // 输出中的高频调用点, 静态滚动后无人调 -> 按钮永远不出现
+                        updateJumpFab()
                         // 修复10: 包在 post 里——hideSoftInput 的 binder 同步调用会阻塞 touch 分发链,
                         // 拖动起始帧被卡 = "停顿一瞬才继续滚动"; post 到下一帧执行避开关键帧
                         rv.post {
@@ -836,8 +841,23 @@ class MainActivity : Activity() {
                             }
                         }
                     }
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        updateJumpFab()   // 惯性滚动停: 按最终位置刷新显隐(09-24)
+                    }
                 }
                 override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                    // 正文跟随中用户手动上翻 -> 让位停滚, 一键到底按钮重新出现
+                    if (scrollUserScrolled && contentFollow) {
+                        contentFollow = false
+                        updateJumpFab()
+                    }
+                    // FAB 显隐兜底(09-24): 显隐刷新点不全(视口冻结恢复等程序滚动后无人调),
+                    // 每帧轻量比对期望态, 不一致才刷新(程序/用户滚动全覆盖)
+                    val fabV = jumpFab
+                    if (fabV != null && (fabV.visibility == View.VISIBLE) !=
+                        (!aiBusy && !contentFollow && rv.canScrollVertically(1))) {
+                        updateJumpFab()
+                    }
                     if (!scrollUserScrolled) return
                     // 吸底修复: 原判据 findLastVisibleItemPosition >= count-2 在长气泡场景恒真
                     // (末条比视口高时上翻中视口底端始终"看得见"末条) → 误翻 false → 程序拉底畅通;
@@ -852,6 +872,7 @@ class MainActivity : Activity() {
                         rv.postOnAnimation {
                             if (!rv.canScrollVertically(1)) {
                                 scrollUserScrolled = false
+                                updateJumpFab()   // 贴底恢复追底: 按需隐藏按钮(09-24)
                             }
                         }
                     }
@@ -872,6 +893,32 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bodyWrap.addView(chatArea, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        // assistant 式正文一键到底: 正文输出默认停滚(视口停留, 内容在屏外增长), 右下角悬浮按钮
+        // 提示"有新内容", 点击后跳到底部并恢复正文跟随(锚底接管原地生长), 上翻阅读再次让位
+        jumpFab = android.widget.TextView(this).apply {
+            text = "↓"
+            textSize = 18f
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xCC333333.toInt())
+            }
+            visibility = View.GONE
+            elevation = dp(6).toFloat()
+            setOnClickListener {
+                // 一键到底(09-24 定稿): 仅静态出现(输出中隐藏), 点击=一次性回最新消息,
+                // 无跟随语义(跟随=看打字动画非阅读); 输出中想看进度直接手动滚到底即可
+                scrollUserScrolled = false   // 解除上翻守卫, 允许回底
+                scrollToBottom(true, force = true)
+                updateJumpFab()
+            }
+        }
+        chatArea.addView(jumpFab, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END).apply {
+            marginEnd = dp(14)
+            bottomMargin = dp(14)
+        })
 
         // 输入框整体(dockContent)直接挂 bodyWrap 底部(基础层), 表情抽屉在其下占位,
         // 抽屉展开时输入框被顶到抽屉上方(微信式)
@@ -1108,7 +1155,19 @@ class MainActivity : Activity() {
             }
             // 默认隐藏发送按钮, 输入文字时切换显示 (见 updateInputMode); 与附件按钮原地替换
             visibility = View.GONE
-            setOnClickListener { onSend() }
+            setOnClickListener {
+                // 发送轻震确认(与左抽屉同款, 尊重系统触觉开关, 无需 VIBRATE 权限)
+                // 空输入且无附件时不震(与 doSend 判空一致)
+                val hasContent = input.text.toString().trim().isNotEmpty() || pendingAttachments.isNotEmpty()
+                if (hasContent) {
+                    performHapticFeedback(
+                        if (android.os.Build.VERSION.SDK_INT >= 27)
+                            android.view.HapticFeedbackConstants.CLOCK_TICK
+                        else android.view.HapticFeedbackConstants.CONTEXT_CLICK
+                    )
+                }
+                onSend()
+            }
             Ui.press(this)
         }
         attachWrap.addView(sendBtn)
@@ -1671,25 +1730,13 @@ class MainActivity : Activity() {
                         val bottomOccupy = imeH
                         val targetH = ((root.height - kotlin.math.max(bottomOccupy, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
                         val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                        val dh = prevCompressH - targetH
                         prevCompressH = targetH
                         if (lpp.height != targetH) {
                             lpp.height = targetH
                             bodyWrap.layoutParams = lpp
                         }
-                        // 顶起: 布局稳定后锚定末条贴回视口内容底(保留 paddingBottom, 滚动量=压缩量, 单动作无闪烁);
-                        // 末条不可见(翻历史)才按压缩增量滚动, 把当前位置内容顶到键盘上方
-                        chatRec.post {
-                            val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
-                            val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
-                            val lv = lm.findViewByPosition(lastPos)
-                            if (lv != null) {
-                                val gap = lv.bottom - (chatRec.height - chatRec.paddingBottom)
-                                if (gap != 0) chatRec.scrollBy(0, gap)
-                            } else if (dh != 0) {
-                                chatRec.scrollBy(0, dh)
-                            }
-                        }
+                        // 顶起: 布局稳定后贴底跟随(09-24 静态键盘贴底: 最新消息底贴输入框顶, 仅!aiBusy)
+                        imeLiftToBottom()
                     }
                 } else if (imeShown) {
                     // 键盘收起动画期间 insets 可能中途回调, 高度已由 WindowInsetsAnimation 逐帧恢复, 此处等动画结束后最终 insets 再收尾
@@ -1797,26 +1844,13 @@ class MainActivity : Activity() {
                         // 随 bodyWrap 底部贴键盘顶; 表情抽屉已随键盘动画收起让位)
                         val targetH = (bodyWrapFullH - (imeH - animSbBottom).coerceAtLeast(0)).coerceAtLeast(dp(60))
                         val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                        val dh = prevCompressH - targetH
                         prevCompressH = targetH
                         if (lpp.height != targetH) {
                             lpp.height = targetH
                             bodyWrap.layoutParams = lpp
                         }
-                        chatRec.post {
-                            val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
-                            val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
-                            val lv = lm.findViewByPosition(lastPos)
-                            // 修复10: 键盘收回动画期间用户可能正在拖动/惯性滚动(拖动收键盘触发的收回),
-                            // 此时叠加 scrollBy 会与手指速度场打架 = "卡一下"; 用户控制中不干预, 停手后自然停在手指位置
-                            if (chatRec.scrollState != RecyclerView.SCROLL_STATE_IDLE) return@post
-                            if (lv != null) {
-                                val gap = lv.bottom - (chatRec.height - chatRec.paddingBottom)
-                                if (gap != 0) chatRec.scrollBy(0, gap)
-                            } else if (dh != 0) {
-                                chatRec.scrollBy(0, dh)
-                            }
-                        }
+                        // 09-24 静态键盘贴底: 动画逐帧压缩视口, 每帧 post 下一帧按真实视口算 gap 贴底(仅!aiBusy)
+                        imeLiftToBottom()
                     }
                     return insets
                 }
@@ -1906,6 +1940,9 @@ class MainActivity : Activity() {
             val prevMode = lastModeValue
             lastModeValue = ModeConfig.modeValue()
             maybeSaveCurrent(prevMode)
+            aiStage = 0
+            contentFollow = false
+            updateJumpFab()
             messages.clear()
             chatRows.clear(); chatAdapter.notifyDataSetChanged()
             currentSaved = true
@@ -1975,12 +2012,28 @@ class MainActivity : Activity() {
 
     // ===================== 多会话 =====================
 
+    /** 胶囊交互卡: 重试动作(通知 Action 携带 ACTION_RETRY 拉起本页) */
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent?.action == TaskService.ACTION_RETRY) {
+            // 重试语义: 先取消当前请求(若在跑), 再重发最后一条用户消息
+            cancelActiveRequest()
+            val lastUser = messages.lastOrNull { it.role == "user" && it.content.isNotBlank() } ?: return
+            input.setText(lastUser.content)
+            pendingAttachments.clear()
+            onSend()
+        }
+    }
+
     /** 取消当前 AI 请求(切会话/新会话调用): 代际自增使迟到回调全部失效, 立即恢复输入态,
      *  不依赖迟到 onDone/onError 清理状态(阶段2 流式竞态治理) */
     private fun cancelActiveRequest() {
         // 丢弃流式行引用(无论 AI 是否还在输出): 防止全量重建(切模式/开会话/新会话)时
         // buildRowsFromMessages 兜底把已收尾的 Streaming 行再次塞回 → 跨模式串写/AI回复重复
         streamingRow = null
+        aiStage = 0
+        contentFollow = false
+        updateJumpFab()
         if (!aiBusy) return
         LocalEngine.requestCancel()
         requestEpoch++
@@ -2035,6 +2088,9 @@ class MainActivity : Activity() {
         currentSessionTitle = db.sessionTitleOf(id)
         // 吸底修复: 切会话重置用户滚动标记(旧会话的"正在阅读"不应带入新会话), 新会话默认追底
         scrollUserScrolled = false
+        aiStage = 0
+        contentFollow = false
+        updateJumpFab()
         // 滚动时机修复: ListAdapter.submitList 为异步 diff, 滚动必须等 diff 提交后执行,
         // 否则 itemCount 仍是旧会话值→滚到错误位置/直接不滚(表现为"切会话后不在最新, 像自己滚动")
         var scrolled = false
@@ -2396,6 +2452,9 @@ class MainActivity : Activity() {
      * 拆出来以支持"附件后台落盘后回主线程继续"这一流程。
      */
     private fun continueSend(text: String, dispList: List<String>, attachments: List<LocalEngine.Attachment>) {
+        // 09-24 追底回填: 发送即重置用户接管——上翻阅读旧消息的状态不带入新回复, 本轮流式恢复追底;
+        // 发送后用户再上滑, RV onTouch(ACTION_DOWN)重新置位, 守卫即恢复生效
+        scrollUserScrolled = false
         for (d in dispList) {
             appendUser(d)
             messages.add(MemoryDb.SessionMsg("user", d, "", "", "", System.currentTimeMillis()))
@@ -2460,18 +2519,24 @@ class MainActivity : Activity() {
                 val box = holder.createStreamingBox()
                 row.bubbleBox = box
                 chatAdapter.attachStreaming(chatRows.size - 1)
-                holder.showStatus(getString(R.string.ma_thinking))
+                holder.showLoading()
             }
             LocalEngine.chat(this@MainActivity, history, object : LocalEngine.Callback {
                 override fun onThinkingStart() {
                     LogStore.i(LogStore.MAIN, "开始思考")
-                    AITerminal.push("thinking", "开始思考…")
                     debugSseSink?.invoke("thinking_start", "")
-                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.showThinking(getString(R.string.ma_thinking_prefix)) }
+                    uiScope.launch {
+                        if (epoch != requestEpoch) return@launch
+                        aiStage = 1
+                        updateJumpFab()
+                        TaskService.updateStage(this@MainActivity, getString(R.string.ts_stage_thinking))
+                        AITerminal.push("thinking", "开始思考…")
+                        holder.showThinking()
+                    }
                 }
                 override fun onThinkingDelta(text: String) {
                     debugSseSink?.invoke("thinking", text)
-                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.appendThinking(text); scrollToBottom(true) }
+                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.appendThinking(text) }
                 }
                 override fun onThinkingEnd() {
                     AITerminal.push("thinking", "思考结束，进入作答")
@@ -2480,14 +2545,16 @@ class MainActivity : Activity() {
                 }
                 override fun onTool(name: String, arg: String) {
                     LogStore.i(LogStore.MAIN, "调用工具: $name")
-                    AITerminal.push("tool", "$name $arg")
                     debugSseSink?.invoke("tool", "$name|$arg")
                     uiScope.launch {
                         if (epoch != requestEpoch) return@launch
+                        aiStage = 2
+                        updateJumpFab()
+                        TaskService.updateStage(this@MainActivity, getString(R.string.ts_stage_tool))
+                        AITerminal.push("tool", "$name $arg")
                         holder.showTool(name, arg)
                         // 进入工具调用即表示本段思考已结束: 折叠思考区, 避免一直停在"思考中"
                         holder.collapseThinking()
-                        scrollToBottom(true)
                     }
                 }
                 override fun onToolResult(name: String, result: String) {
@@ -2503,7 +2570,21 @@ class MainActivity : Activity() {
                     // AI 表情标记流式掩码: 完整/半截 [表情:名] 均不直接暴露(显示〔表情〕占位),
                     // onDone 收尾拆分落库重建为独立表情气泡
                     val masked = maskAiEmojiMarks(text)
-                    uiScope.launch { if (epoch != requestEpoch) return@launch; holder.appendContent(masked); scrollToBottom(true) }
+                    uiScope.launch {
+                        if (epoch != requestEpoch) return@launch
+                        // 正文块开始(首个 token): 阶段推进, 正文默认停滚(视口停留, 一键到底按钮接管)
+                        if (aiStage != 3) {
+                            aiStage = 3
+                            contentFollow = false
+                            updateJumpFab()
+                        }
+                        holder.appendContent(masked)
+                        // 正文阶段停滚: 视口停留不跟随, 新内容在屏外增长;
+                        // FAB 显隐随内容增长刷新(无滚动帧, onScrolled 兜底覆盖不到)
+                        if (aiStage == 3 && !contentFollow) {
+                            updateJumpFab()
+                        }
+                    }
                 }
                 override fun onDone(reply: String) {
                     android.util.Log.i("Nyral", "onDone len=${reply.length}")
@@ -2517,6 +2598,9 @@ class MainActivity : Activity() {
                     uiScope.launch {
                         // 代际校验(阶段2): 切会话/新请求已接管, 迟到回调直接丢弃, 不碰 holder/不写库/不动状态
                         if (epoch != requestEpoch) return@launch
+                        aiStage = 0
+                        contentFollow = false
+                        updateJumpFab()
                         if (LocalEngine.cancelRequested) {
                             // 用户主动停止: 不写入对话/记忆
                             holder.appendContent("\n(已停止)")
@@ -2550,6 +2634,7 @@ class MainActivity : Activity() {
                         streamingRow = null
                         if (!LocalEngine.cancelRequested && doneRow != null) {
                             chatAdapter.remove(doneRow)
+                            // 流式行移除后重建为静态 AI 行(挂快照), 视口交由自然贴底
                             buildRowsFromMessages()
                         }
                         aiBusy = false
@@ -2557,7 +2642,6 @@ class MainActivity : Activity() {
                         updateInputMode()
                         stopBtn.visibility = View.GONE
                         stopSpinAnim?.cancel()
-                        scrollToBottom(true)
                     }
                     debugSseSink?.invoke("done", reply)
                     debugChatDone?.invoke()
@@ -2579,7 +2663,6 @@ class MainActivity : Activity() {
                         updateInputMode()
                         stopBtn.visibility = View.GONE
                         stopSpinAnim?.cancel()
-                        scrollToBottom(true)
                     }
                     debugSseSink?.invoke("error", msg)
                     debugChatDone?.invoke()
@@ -2692,7 +2775,18 @@ class MainActivity : Activity() {
         }
         // 稳定 id: 本条在 messages 中的索引(messages.add 在 appendUser 之后), 与重建公式一致;
         // fix4: 追底挂到 diff 提交后(onCommitted), itemCount 已是新值, 否则 skip 判断用旧值误跳过拉底
-        chatAdapter.add(ChatRow.User(sessionBaseSeq + messages.size.toLong(), content)) { scrollToBottom() }
+        chatAdapter.add(ChatRow.User(sessionBaseSeq + messages.size.toLong(), content)) {
+            scrollToBottom()   // 用户气泡照常拉底
+        }
+    }
+
+    /** 一键到底按钮显隐: 正文阶段(未跟随)且可向下滚动时显示 */
+    private fun updateJumpFab() {
+        val fab = jumpFab ?: return
+        // 09-24 定稿: AI 输出中隐藏(跟随=看打字动画不是读消息, 输出中滚到底只是瞄进度,
+        // 无按钮语义); 仅静态显示"跳到最新", 点击一次性回底, 无跟随
+        val show = !aiBusy && !contentFollow && chatRec.canScrollVertically(1)
+        fab.visibility = if (show) View.VISIBLE else View.GONE
     }
 
     private fun appendSys(content: String) {
@@ -3817,65 +3911,16 @@ class MainActivity : Activity() {
     }
 
     private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = ""): LinearLayout {
-        val maxW = chatMaxW()
-        // 思考折叠气泡(独立一行, 点击展开全文) —— 与流式 ThinkingBlock 一致
-        fun thinkingRow(text: String): TextView = TextView(this@MainActivity).apply {
-            var localExpanded = false
-            val count = text.codePointCount(0, text.length)
-            this.text = getString(R.string.think_expand, count)
-            textSize = 14f
-            setTextColor(THINK_TEXT)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = rounded(dp(10), floatBubbleColor(THINK_BG))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(4)
-            }
-            maxWidth = maxW
-            setOnClickListener {
-                localExpanded = !localExpanded
-                this.text = if (localExpanded) getString(R.string.think_expanded, text) else getString(R.string.think_expand, count)
-            }
-            // 交互行不启用 textIsSelectable, 保证首次点击即展开(否则被选择机制吞掉需点两次)
-        }
-        // 工具折叠气泡(一次工具调用独立一行, 点击展开参数与结果) —— 与流式 ToolBlock 一致
-        fun toolRow(name: String, arg: String, result: String): TextView = TextView(this@MainActivity).apply {
-            this.text = getString(R.string.tool_collapsed, name)
-            textSize = 14f
-            setTextColor(THINK_TEXT)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = rounded(dp(10), floatBubbleColor(THINK_BG))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(4)
-            }
-            maxWidth = maxW
-            isClickable = true
-            var toolExpanded = false
-            setOnClickListener {
-                toolExpanded = !toolExpanded
-                this.text = buildString {
-                    append("🔧 工具：$name")
-                    if (toolExpanded) {
-                        if (arg.isNotBlank()) append("\n参数：$arg")
-                        if (result.isNotBlank()) append("\n结果：$result")
-                    }
-                }
-            }
-            // 交互行不启用 textIsSelectable, 保证首次点击即展开(否则被选择机制吞掉需点两次)
-        }
         // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
-            fun contentRow(seg: String): TextView = TextView(this@MainActivity).apply {
-                textSize = 15f
-                val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
-                if (ModeConfig.chatPlainText()) {
-                    text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
-                } else {
-                    // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                    setMarkdownCached(this, renderContent)
-                }
+        fun contentRow(seg: String): TextView = TextView(this).apply {
+            textSize = 15f
+            val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
+            if (ModeConfig.chatPlainText()) {
+                text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
+            } else {
+                // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
+                setMarkdownCached(this, renderContent)
+            }
             setLineSpacing(dp(3).toFloat(), 1f)
             setTextColor(BUBBLE_AI_TEXT)
             setPadding(dp(12), dp(10), dp(12), dp(10))
@@ -3885,7 +3930,7 @@ class MainActivity : Activity() {
                 topMargin = dp(6)
                 bottomMargin = dp(4)
             }
-            maxWidth = maxW
+            maxWidth = chatMaxW()
             makeCopyable(this) { seg }
         }
         val contentSegs = splitLongContent(content)
@@ -3899,50 +3944,79 @@ class MainActivity : Activity() {
                 gravity = Gravity.START
                 topMargin = dp(6)
             }
-            // 思考功能开启时: 与流式气泡同一最小宽度基准, 防止恢复时也横向跳动
-            if (ApiConfig.thinkingEffortOf(ApiConfig.providerId()) != ApiConfig.THINK_OFF) {
-                val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                    textSize = android.util.TypedValue.applyDimension(
-                        android.util.TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
+            // 09-24 单行状态行重构: 思考/工具不再逐条独立气泡, 汇总为单行摘要
+            // ("💭 已思考X字 · 🔧 N个工具", 与流式收尾定格同形态), 点击原地展开脉络时间线(竖线+圆点)
+            val events = statusEventsOf(timelineJson, thinking, toolsJson)
+            if (events.isNotEmpty()) {
+                var expanded = false
+                var timelineView: View? = null
+                val col = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 }
-                minimumWidth = (tp.measureText("💭 已思考 1000 字，点按展开") + dp(48)).toInt()
+                val summary = makeStatusShell(this@MainActivity).apply {
+                    val tv = TextView(this@MainActivity).apply {
+                        textSize = 14f
+                        setTextColor(THINK_TEXT)
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        text = statusSummaryText(
+                            events.filter { it.type == "think" }
+                                .sumOf { it.text.codePointCount(0, it.text.length) },
+                            events.count { it.type == "tool" })
+                    }
+                    addView(tv, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    setOnClickListener {
+                        expanded = !expanded
+                        markUserTakeover()   // 展开/收起视同用户接管, 防自动滚动追底(09-24)
+                        if (expanded) {
+                            if (timelineView == null) timelineView = buildStatusTimeline(this@MainActivity, events)
+                            col.addView(timelineView, 1)
+                        } else {
+                            timelineView?.let { col.removeView(it) }
+                        }
+                        col.requestLayout()
+                    }
+                }
+                col.addView(summary)
+                addView(chatWrap(col, false))
             }
-            // 恢复渲染: 按交错时间线逐条渲染(v8, 思考/工具/正文保持真实交替顺序)
+            // 正文独立气泡: 按 timeline content 事件精确还原交错顺序(新格式), 旧格式回退全部分片
             val timeline = parseTimeline(timelineJson)
             var contentPlaced = false
             if (timeline.isNotEmpty()) {
                 timeline.forEach { (type, thinkText, name, arg, result) ->
-                    when (type) {
-                        "think" -> addView(chatWrap(thinkingRow(thinkText), false))
-                        "tool" -> addView(chatWrap(toolRow(name, arg, result), false))
-                        "content" -> if (thinkText.isNotBlank()) {
-                            // 新格式(阶段2): content 事件携带该段正文, 逐段精确还原
-                            addView(chatWrap(contentRow(thinkText), false))
-                            contentPlaced = true
-                        } else if (content.isNotBlank()) {
-                            // 旧格式: content 事件无文本, 回退渲染全部分片一次
-                            contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
-                            contentPlaced = true
-                        }
+                    if (type == "content" && thinkText.isNotBlank()) {
+                        addView(chatWrap(contentRow(thinkText), false))
+                        contentPlaced = true
                     }
                 }
-                // 兜底: timeline 无 content 事件但正文非空(旧数据), 追加末尾
                 if (!contentPlaced && content.isNotBlank()) {
                     contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
                 }
-            } else {
-                // 旧数据回退: 无 timeline 时按历史行为 思考折叠区 + 全部工具行 + 正文
-                if (thinking.isNotBlank()) {
-                    addView(chatWrap(thinkingRow(thinking), false))
-                }
-                parseTools(toolsJson).forEach { (name, arg, result) ->
-                    addView(chatWrap(toolRow(name, arg, result), false))
-                }
-                if (content.isNotBlank()) {
-                    contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
-                }
+            } else if (content.isNotBlank()) {
+                contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
             }
         }
+    }
+
+    /** 历史消息 -> 脉络时间线事件(think/tool), 供单行状态行摘要与展开渲染(09-24 新形态);
+     *  优先 timeline 交错还原, 旧数据(无 timeline)回退 thinking/tools 扁平还原 */
+    private fun statusEventsOf(timelineJson: String, thinking: String, toolsJson: String): List<StatusEvent> {
+        val out = ArrayList<StatusEvent>()
+        parseTimeline(timelineJson).forEach { (type, text, name, arg, result) ->
+            when (type) {
+                "think" -> if (text.isNotBlank()) out.add(StatusEvent("think", text, "", "", ""))
+                "tool" -> out.add(StatusEvent("tool", "", name, arg, result))
+            }
+        }
+        if (out.isEmpty()) {
+            if (thinking.isNotBlank()) out.add(StatusEvent("think", thinking, "", "", ""))
+            parseTools(toolsJson).forEach { out.add(StatusEvent("tool", "", it.first, it.second, it.third)) }
+        }
+        return out
     }
 
     /** 长正文分片(阶段2 content 分片): 优先按段落边界切块, 每块不超过 SPLIT_CONTENT_LEN;
@@ -4009,15 +4083,111 @@ class MainActivity : Activity() {
         } catch (e: Exception) { emptyList() }
     }
 
-    /** 滚到最新一条; auto=true 为流式自动追底——用户手动上翻阅读时让位不打断, 滚回底部附近自动恢复追底 */
+    /** 键盘弹起贴底跟随(09-24): 静态(非 AI 输出)时键盘顶起压缩视口, 列表同帧上滚让
+     *  最新消息底部始终贴住输入框顶; 强制拉回底(翻阅历史中途点输入框也追底——复制粘贴
+     *  发送场景必须能看到最新消息)。AI 输出中(aiBusy)完全不响应, 输出结束键盘还开着也
+     *  不补抬(保正文阅读位)。post 到下一帧按压缩后真实视口算 gap(同表情抽屉 alignChatToViewport) */
+    private fun imeLiftToBottom() {
+        if (aiBusy) return
+        if (chatAdapter.itemCount == 0) return
+        chatRec.post {
+            val lmA = chatRec.layoutManager as? LinearLayoutManager ?: return@post
+            val n = chatAdapter.itemCount
+            if (n == 0) return@post
+            val lastChild = lmA.findViewByPosition(n - 1)
+            if (lastChild != null) {
+                val gap = lastChild.bottom - (chatRec.height - chatRec.paddingBottom)
+                if (gap > 0) chatRec.scrollBy(0, gap)
+            } else {
+                lmA.scrollToPosition(n - 1)   // 翻阅历史中: 强制拉回最新
+                LogStore.i(LogStore.MAIN, "imeLift jump-to-bottom n=$n")
+            }
+        }
+    }
+
+    // ===== 打字机帧合并锚底(2026-09-23, 对齐 assistant/Kuikly 同帧 diff) =====
+    // 打字期间内容每帧增长(stepBlock setText), 本帧 preDraw(布局完成后、绘制前)里
+    // scrollBy 补偿该帧增长量 -> 视口锚底, 视觉上内容在底部原地生长、无追滚滞后;
+    // 用户上翻阅读(scrollUserScrolled)或打字结束自动停。
+    private var typeAnchorActive = false
+    private val typeAnchorPreDraw = object : android.view.ViewTreeObserver.OnPreDrawListener {
+        override fun onPreDraw(): Boolean {
+            if (!typeAnchorActive) {
+                chatRec.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+            val holder = activeAiHolder
+            val typing = holder?.hasActiveTypewriter() == true
+            val status = holder?.hasStatusRow() == true
+            // 用户接管提前判停(09-24): 上翻阅读(scrollUserScrolled)直接让位, 不再先补偿后停(向上展开)
+            if (scrollUserScrolled) {
+                typeAnchorActive = false
+                chatRec.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+            // 短正文追底修复(09-24): 先补偿本帧增长/收尾排版高度变化, 再判停——
+            // 收尾帧 stepBlock 在 preDraw 前已 finishTypeRender(typing=false), 旧顺序
+            // 直接停导致短正文最后一次增长(常为全部增长)被丢弃, 视口差一截不追底
+            val lmA = chatRec.layoutManager as? LinearLayoutManager
+            if (lmA != null) {
+                val n = chatAdapter.itemCount
+                val lastChild = lmA.findViewByPosition(n - 1)
+                val viewBottom = chatRec.height - chatRec.paddingBottom
+                val offset0 = chatRec.computeVerticalScrollOffset()
+                if (lastChild != null) {
+                    val gap = lastChild.bottom - viewBottom
+                    if (gap > 0) {
+                        chatRec.scrollBy(0, gap)   // 本帧直接补偿, 与内容增长同帧
+                    }
+                } else {
+                    val range = chatRec.computeVerticalScrollRange()
+                    val extent = chatRec.computeVerticalScrollExtent()
+                    val gap2 = (range - extent) - offset0
+                    if (gap2 > 0) {
+                        chatRec.scrollBy(0, gap2)
+                    }
+                }
+            }
+            // 无任何增长源(打字结束且状态行已移除/定格)才停; 思考/工具阶段状态行在屏则继续锚底(09-24)
+            if (holder == null || (!typing && !status) || chatAdapter.itemCount == 0) {
+                typeAnchorActive = false
+                chatRec.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+            return true
+        }
+    }
+
+    /** 打字机每帧内容增长回调(AiBubbleHolder.tickFrame -> 本方法): 启用同帧锚底;
+     *  finished=true 表示本帧刚收尾排版(短正文推完即收尾), typing 已结束也放行注册一次,
+     *  由 preDraw 先补偿后停兜住最后一次增长 */
+    internal fun onTypeGrownFrame(finished: Boolean = false) {
+        if (typeAnchorActive || scrollUserScrolled || chatAdapter.itemCount == 0) return
+        // 09-24 追底回填: 删"正文默认停滚"拦截(思考自动滚动已退役, 无闪烁源), 正文打字恢复锚底;
+        // 用户上滑守卫(scrollUserScrolled)仍在前一行生效, 上翻阅读即停不互相打扰
+        if (activeAiHolder?.hasActiveTypewriter() != true && !finished) return
+        typeAnchorActive = true
+        chatRec.viewTreeObserver.addOnPreDrawListener(typeAnchorPreDraw)
+    }
+
+    /** 思考/工具状态行增长回调(AiBubbleHolder 状态行更新 -> 本方法): 启用同帧锚底,
+     *  与打字锚底同机制; 思考/工具阶段无打字机驱动, 单独注册入口(09-24) */
+    internal fun onStatusGrown() {
+        if (typeAnchorActive || scrollUserScrolled || chatAdapter.itemCount == 0) return
+        if (activeAiHolder?.hasStatusRow() != true) return
+        typeAnchorActive = true
+        chatRec.viewTreeObserver.addOnPreDrawListener(typeAnchorPreDraw)
+    }
+
+    /** 用户接管滚动(09-24): 点击状态行展开/收起思考/工具时间线时, 点击落在可点击子 view 上,
+     *  RV 的 onTouch(ACTION_DOWN 置 scrollUserScrolled)不触发, 自动滚动源畅通会把视口拉底;
+     *  展开/收起点击视同用户接管, 置标记掐断一切自动拉底(贴底或下轮发送时自动复位) */
+    internal fun markUserTakeover() {
+        scrollUserScrolled = true
+    }
+
     internal fun scrollToBottom(auto: Boolean = false, force: Boolean = false) {
         if (auto && scrollUserScrolled) {
-            return
-        }
-        // 打字机活跃期(2026-09-22): 涌动滚动收编进统一入口——流式 delta 到达不再强拉底/杀惯性,
-        // 交还 scrollToBottomWave 蓄放涌动; 收尾 force 贴底与非打字期(思考/工具/恢复)仍走原追底
-        if (auto && !force && activeAiHolder?.hasActiveTypewriter() == true) {
-            scrollToBottomWave(activeAiHolder?.currentModelRate() ?: 0.0)
             return
         }
         if (chatAdapter.itemCount == 0) return
@@ -4079,104 +4249,6 @@ class MainActivity : Activity() {
             chatRec.viewTreeObserver.removeOnPreDrawListener(preDraw)
             if (pendingAlign > 0) align.run()
         }, 200)
-    }
-
-    /** 打字机涌动滚动（层1 蓄放 + 正弦波, 2026-09-22）:
-     *  蓄: 内容未超阈值不滚, 从出口线向上长、溢出屏幕底部;
-     *  放: 溢出超阈值后正弦波涌动滚动——v(t)=base+amp·sin(2πft+φ),
-     *      base 保证永不静止(全速红线), 波形频率随 modelRate 自适应(快模型波密)。
-     *  仅在打字机输出期间由 AiBubbleHolder.stepBlock 每帧驱动; 收尾仍走 force 贴底。 */
-    internal fun scrollToBottomWave(modelRate: Double) {
-        if (scrollUserScrolled) return
-        if (chatAdapter.itemCount == 0) return
-        val now = System.nanoTime()
-        // 同帧内多段并发只滚一次, 防止叠加滚动
-        if (now - waveLastCallNs < 4_000_000L) return
-        waveLastCallNs = now
-        val dt = if (waveLastNs == 0L) 0.0 else (now - waveLastNs) / 1_000_000_000.0
-        waveLastNs = now
-        if (dt <= 0.0 || dt > 0.1) return
-        // 模型速率 EMA 平滑(字符/秒)
-        if (modelRate > 0) {
-            waveModelRate = if (waveModelRate <= 0) modelRate else waveModelRate * 0.7 + modelRate * 0.3
-        }
-        // 当前溢出量: 末条内容底部超出视口底部的距离
-        val lmA = chatRec.layoutManager as? LinearLayoutManager ?: return
-        val n = chatAdapter.itemCount
-        val lastChild = lmA.findViewByPosition(n - 1) ?: lmA.getChildAt((lmA.childCount ?: 1) - 1)
-        val lag = if (lastChild != null) {
-            (lastChild.bottom - (chatRec.height - chatRec.paddingBottom)).toFloat()
-        } else {
-            (chatRec.computeVerticalScrollRange() - chatRec.computeVerticalScrollExtent() - chatRec.computeVerticalScrollOffset()).toFloat()
-        }
-        // 蓄放阈值: 视口高度 32%(键盘弹出后视口变矮自动适配); 未超阈值只蓄不放
-        val holdPx = (chatRec.height * 0.32f).toInt()
-        if (lag <= holdPx) {
-            wavePhase = 0.0
-            return
-        }
-        // 放: 不对称涌动脉冲——快涌段内部再分"快起峰(12%)+缓坡回落(18%)",
-        // 进入低谷的坡度拉长变丝滑(cos 缓降), 后 70% 慢速蓄力, 一波一波悠着涌
-        val mr = waveModelRate.toFloat()
-        val period = (3.6f - mr / 60f).coerceIn(2.0f, 3.6f)   // 每波时长(秒): 快模型波稍短
-        wavePhase += dt / period
-        if (wavePhase >= 1.0) wavePhase -= 1.0
-        val FAST_RISE = 0.12f                                // 上升段: 快速起峰(12% 周期)
-        val FAST_FALL = 0.18f                                // 下降段: 缓坡回落进低谷(18% 周期, 丝滑)
-        val pulse = when {
-            wavePhase < FAST_RISE ->
-                Math.sin(Math.PI / 2f * (wavePhase / FAST_RISE)).toFloat()                    // 0→1 快起
-            wavePhase < FAST_RISE + FAST_FALL ->
-                Math.cos(Math.PI / 2f * ((wavePhase - FAST_RISE) / FAST_FALL)).toFloat()       // 1→0 缓降
-            else -> 0f
-        }
-        // 追赶系数: lag 大滚得稍快(lag 约 1.6s 内消化, 整体更慢)
-        val base = lag * 0.9f
-        // 随机微扰: 每 ~600ms 重抽 0.85~1.15 目标, EMA 缓动逼近(平滑变速, 无逐帧毛刺), 打破机械正弦节奏
-        val nowMs = System.currentTimeMillis()
-        if (nowMs >= waveRandNextAt) {
-            waveRandNextAt = nowMs + (300L + (Math.random() * 600L).toLong())
-            waveRandTarget = (0.85f + (Math.random() * 0.30f).toFloat())
-        }
-        waveRandCur += (waveRandTarget - waveRandCur) * 0.12f
-        val speed = base * (0.20f + 0.80f * pulse) * waveRandCur
-        val dx = (speed * dt).toInt()
-        if (dx > 0) chatRec.scrollBy(0, dx)
-    }
-
-    /** 软收尾贴底(2026-09-22): markwon 收尾渲染完成后不瞬拉打断涌动,
-     *  用 Decelerate 曲线把剩余 lag 平滑滚到底; 多段连续收尾时取消重开不叠加 */
-    internal fun scrollToSettle() {
-        settleAnimator?.cancel()
-        val lmA = chatRec.layoutManager as? LinearLayoutManager ?: return
-        val n = chatAdapter.itemCount
-        if (n == 0) return
-        val lastChild = lmA.findViewByPosition(n - 1) ?: lmA.getChildAt((lmA.childCount ?: 1) - 1)
-        val lag = if (lastChild != null) {
-            lastChild.bottom - (chatRec.height - chatRec.paddingBottom)
-        } else {
-            chatRec.computeVerticalScrollRange() - chatRec.computeVerticalScrollExtent() - chatRec.computeVerticalScrollOffset()
-        }
-        if (lag <= 0) return
-        val duration = (250 + lag / 4).toLong().coerceIn(250L, 600L)
-        var lastLag = lag.toFloat()
-        settleAnimator = ValueAnimator.ofFloat(lag.toFloat(), 0f).apply {
-            this.duration = duration
-            interpolator = DecelerateInterpolator(1.6f)
-            addUpdateListener {
-                val cur = it.animatedValue as Float
-                val dx = (lastLag - cur).toInt()
-                if (dx > 0) chatRec.scrollBy(0, dx)
-                lastLag = cur
-            }
-            start()
-        }
-    }
-
-    /** 展开/收起气泡时保持当前阅读位置: RecyclerView 行内高度变化由 RV 自身测量处理, 这里仅确保该行仍在视口 */
-    internal fun keepReadingPosition(view: View) {
-        val holder = chatRec.findContainingViewHolder(view) ?: return
-        chatRec.post { chatRec.scrollToPosition(holder.bindingAdapterPosition.coerceAtLeast(0)) }
     }
 
     /** 长按进入"原文本模式": 弹窗展示该条消息的原始文本, 在该模式下自由选择/复制全文或片段 */

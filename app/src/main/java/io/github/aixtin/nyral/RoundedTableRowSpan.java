@@ -72,6 +72,7 @@ public class RoundedTableRowSpan extends ReplacementSpan {
 
     private int width;
     private int height;
+    private final int maxWidth;
     private Invalidator invalidator;
 
     public RoundedTableRowSpan(
@@ -87,6 +88,25 @@ public class RoundedTableRowSpan extends ReplacementSpan {
         this.header = header;
         this.odd = odd;
         this.radius = 0f;
+        this.maxWidth = 0;
+    }
+
+    /** 流式渲染重载: 注入 TextView 可用宽度, 首测 getSize 直接返回该宽度, 避免半截表格 cell 内容估算致宽度抖动 */
+    public RoundedTableRowSpan(
+            @NonNull TableTheme theme,
+            @NonNull List<TableRowSpan.Cell> cells,
+            boolean header,
+            boolean odd,
+            float density,
+            int maxWidth) {
+        this.theme = theme;
+        this.cells = cells;
+        this.layouts = new ArrayList<>(cells.size());
+        this.textPaint = new TextPaint();
+        this.header = header;
+        this.odd = odd;
+        this.radius = 0f;
+        this.maxWidth = maxWidth;
     }
 
     @Override
@@ -100,14 +120,33 @@ public class RoundedTableRowSpan extends ReplacementSpan {
         // 修复: 首次测量(width 尚未经 draw 赋值)时, 用各 cell 内容宽度估算初始表格宽,
         // 避免 getSize 返回 0 导致 TextView 首测被压成窄条、单元格逐字竖排(恢复渲染必现)
         if (width <= 0) {
-            final int cellPadding = theme.tableCellPadding() * 2;
-            final int cellBorder = theme.tableBorderWidth(paint) * 2;
-            int contentWidth = 0;
-            for (int i = 0; i < cells.size(); i++) {
-                final CharSequence c = cells.get(i).text();
-                contentWidth += (int) paint.measureText(c, 0, c.length());
+            if (maxWidth > 0) {
+                // 流式修复: 首测直接使用 TextView 可用宽度, 与 draw 阶段 spanWidth 一致,
+                // 消除半截表格 cell 内容估算宽度抖动导致的字符挤压/叠加变形
+                width = maxWidth;
+            } else {
+                final int cellPadding = theme.tableCellPadding() * 2;
+                final int cellBorder = theme.tableBorderWidth(paint) * 2;
+                int contentWidth = 0;
+                for (int i = 0; i < cells.size(); i++) {
+                    final TableRowSpan.Cell cell = cells.get(i);
+                    if (cell == null) continue;   // 防御: 异常表格结构下 cells 可能含 null(崩溃 20:14 根因)
+                    final CharSequence c = cell.text();
+                    contentWidth += (int) paint.measureText(c, 0, c.length());
+                }
+                width = Math.max(1, contentWidth + cellPadding * cells.size() + cellBorder);
             }
-            width = Math.max(1, contentWidth + cellPadding * cells.size() + cellBorder);
+        }
+
+        // 高度自适应修复: 首测(layouts 未构建)时直接用当前宽度构建真实布局,
+        // 使 fm 高度按实际内容(可能多行换行)计算, 替代单行估算——两行/多行内容不再超出底部边框
+        if (layouts.isEmpty()) {
+            if (paint instanceof TextPaint) {
+                textPaint.set((TextPaint) paint);
+            } else {
+                textPaint.set(paint);
+            }
+            makeNewLayouts();
         }
 
         if (layouts.size() > 0) {
@@ -132,6 +171,16 @@ public class RoundedTableRowSpan extends ReplacementSpan {
                 fm.top = fm.ascent;
                 fm.bottom = 0;
             }
+        } else if (fm != null) {
+            // 兜底: 布局仍为空(异常结构)时用默认行高+cell padding 估算, 避免 0 高度
+            final Paint.FontMetrics def = paint.getFontMetrics();
+            final float lineH = def.descent - def.ascent;
+            final int padding = theme.tableCellPadding() * 2;
+            height = (int) (lineH + padding);
+            fm.ascent = -(int) (lineH + padding);
+            fm.descent = 0;
+            fm.top = fm.ascent;
+            fm.bottom = 0;
         }
 
         return width;
@@ -335,7 +384,9 @@ public class RoundedTableRowSpan extends ReplacementSpan {
         this.layouts.clear();
 
         for (int i = 0, size = cells.size(); i < size; i++) {
-            makeLayout(i, w, cells.get(i));
+            final TableRowSpan.Cell cell = cells.get(i);
+            if (cell == null) continue;   // 防御: 与 getSize 同源, 异常结构下跳过空 cell
+            makeLayout(i, w, cell);
         }
     }
 
