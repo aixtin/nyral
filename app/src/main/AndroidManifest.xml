@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- 所有文件访问: 解决作用域存储下 adb push 落盘文件 owner=NULL 对 MediaStore 查询不可见的问题 -->
@@ -41,8 +42,17 @@
         <activity
             android:name=".MainActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:theme="@android:style/Theme.Material.Light.NoActionBar">
         </activity>
+
+        <receiver
+            android:name=".TaskDismissReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".TaskControlReceiver"
+            android:exported="false" />
 
         <!-- 任务执行前台服务: AI 处理任务期间防止进程被回收, dataSync 类型 -->
         <service

@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "io.github.aixtin.nyral"
-    compileSdk = 34
+    compileSdk = 36
 
     // 正式签名（keystore.properties 不入库，密码不硬编码）
     val keystoreProps = rootProject.file("keystore.properties")
@@ -28,7 +28,7 @@ android {
     defaultConfig {
         applicationId = "io.github.aixtin.nyral"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 32
         versionName = "2.0"
         ndk {
@@ -77,6 +77,7 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.2")
     implementation("io.noties.markwon:core:4.6.2")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
