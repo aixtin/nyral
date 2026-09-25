@@ -123,7 +123,7 @@ class AppearanceActivity : Activity() {
                 }) { showThemePicker() },
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
             })
-            // 行2：显示 MD / AI 悬浮终端 / 输入澄清（设置页移入）
+            // 行2：显示 MD / 输入澄清（设置页移入）
             addView(LinearLayout(this@AppearanceActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -133,13 +133,24 @@ class AppearanceActivity : Activity() {
                     if (ModeConfig.chatMarkdown()) getString(R.string.appr_33) else getString(R.string.appr_34)
                 }) { ModeConfig.setChatMarkdown(!ModeConfig.chatMarkdown()) },
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
-                addView(gridSwitch(R.drawable.ic_appr_terminal, 21, getString(R.string.appr_25), {
-                    terminalStatusText()
-                }) { toggleTerminal() },
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
                 addView(gridSwitch(R.drawable.ic_appr_ask, 22, getString(R.string.settings_ask_user), {
                     if (AskUserConfig.enabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)
                 }) { AskUserConfig.setEnabled(this@AppearanceActivity, !AskUserConfig.enabled(this@AppearanceActivity)) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
+            })
+            // 行3：AI 悬浮终端 / 行动轨道（方案A 原型开关）
+            addView(LinearLayout(this@AppearanceActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+                addView(gridSwitch(R.drawable.ic_appr_terminal, 21, getString(R.string.appr_25), {
+                    terminalStatusText()
+                }) { toggleTerminal() },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
+                addView(gridSwitch(R.drawable.ic_appr_track, 23, getString(R.string.appr_39), {
+                    if (ModeConfig.actionTrack()) getString(R.string.appr_33) else getString(R.string.appr_34)
+                }) { ModeConfig.setActionTrack(!ModeConfig.actionTrack()) },
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
             })
         })

@@ -26,6 +26,7 @@ import android.widget.TextView
 import android.widget.Toast
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.TimeUnit
 
 /**
  * 设置页（入口列表）— 与主页统一视觉（灰底 + 白色圆角卡片 + 自绘标题栏）
@@ -143,6 +144,9 @@ class SettingsActivity : Activity() {
                 showDebugDialog()
             }) { debugSubtitle = it })
             addView(Ui.divider(this@SettingsActivity))
+            addView(buildAnimScaleRow())
+            addView(Ui.divider(this@SettingsActivity))
+            addView(buildSlowBallRow())
         }
         debugBox.visibility = if (DebugServer.unlocked(this)) View.VISIBLE else View.GONE
         cardAbout.addView(debugBox)
@@ -205,6 +209,103 @@ class SettingsActivity : Activity() {
             permSubtitleView.text = permStatus()
         }
     }
+
+    /** 悬浮慢放球开关: 显示可拖动悬浮球, 一键切换全局慢放(免进设置页) */
+    private fun buildSlowBallRow(): View {
+        val ctx = this@SettingsActivity
+        val sw = Switch(ctx)
+        sw.isChecked = SlowBall.isEnabled(ctx)
+        sw.setOnCheckedChangeListener { _, on ->
+            if (on == SlowBall.isEnabled(ctx)) return@setOnCheckedChangeListener
+            if (on) {
+                Thread {
+                    val rooted = RootCheck.isGranted()
+                    runOnUiThread {
+                        if (!rooted) {
+                            Toast.makeText(ctx, getString(R.string.settings_slow_ball_noroot), Toast.LENGTH_SHORT).show()
+                            sw.isChecked = false
+                            return@runOnUiThread
+                        }
+                        val ok = SlowBall.show(ctx)
+                        if (ok) SlowBall.setEnabled(ctx, true)
+                        else {
+                            sw.isChecked = false
+                            Toast.makeText(ctx, getString(R.string.settings_slow_ball_fail), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }.start()
+            } else {
+                SlowBall.hide()
+                SlowBall.setEnabled(ctx, false)
+            }
+        }
+        return LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(14), dp(12), dp(14))
+            addView(LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(Ui.itemTitle(ctx, getString(R.string.settings_slow_ball)))
+                addView(Ui.hint(ctx, getString(R.string.settings_slow_ball_sub)).apply { setPadding(0, dp(3), 0, 0) })
+            })
+            addView(sw)
+        }
+    }
+
+    /** 动画慢放开关: root 写 animator_duration_scale, 10x 慢速排查动画 bug */
+    private fun buildAnimScaleRow(): View {
+        val ctx = this@SettingsActivity
+        val sw = Switch(ctx)
+        sw.isChecked = animScaleOn()
+        sw.setOnCheckedChangeListener { _, on ->
+            if (on == animScaleOn()) return@setOnCheckedChangeListener
+            if (on && !RootCheck.isGranted()) {
+                Toast.makeText(ctx, getString(R.string.settings_anim_scale_noroot), Toast.LENGTH_SHORT).show()
+                sw.isChecked = false
+                return@setOnCheckedChangeListener
+            }
+            sw.isEnabled = false
+            Thread {
+                val ok = setAnimScale(if (on) 10f else 1f)
+                runOnUiThread {
+                    sw.isEnabled = true
+                    if (ok) {
+                        // 气泡打字机慢放联动(09-24): 系统动画缩放只管属性动画, 打字机走 Choreographer
+                        // 虚拟时间, 需手动把慢放倍数同步给 TypewriterCenter, 慢放时气泡打字动画同步变慢
+                        TypewriterCenter.setSlowMul(if (on) 10.0 else 1.0)
+                    } else {
+                        sw.isChecked = !on
+                        Toast.makeText(ctx, getString(R.string.settings_anim_scale_fail), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+        return LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(14), dp(12), dp(14))
+            addView(LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(Ui.itemTitle(ctx, getString(R.string.settings_anim_scale)))
+                addView(Ui.hint(ctx, getString(R.string.settings_anim_scale_sub)).apply { setPadding(0, dp(3), 0, 0) })
+            })
+            addView(sw)
+        }
+    }
+
+    /** 当前是否处于动画慢放(系统 animator_duration_scale >= 2 视为已开) */
+    private fun animScaleOn(): Boolean =
+        Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) >= 2f
+
+    /** root 写 animator_duration_scale; 成功返回 true */
+    private fun setAnimScale(v: Float): Boolean = try {
+        val p = ProcessBuilder("su", "-c", "settings put global animator_duration_scale $v")
+            .redirectErrorStream(true).start()
+        if (p.waitFor(4000, TimeUnit.MILLISECONDS)) p.exitValue() == 0
+        else { p.destroyForcibly(); false }
+    } catch (e: Exception) { false }
 
     /** 调试服务弹窗: 启用开关 / 端口 / Token 展示与重置 / 局域网访问 */
     private fun showDebugDialog() {

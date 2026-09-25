@@ -213,6 +213,14 @@ object Ui {
     fun pageRoot(a: Activity): LinearLayout = LinearLayout(a).apply {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(BG)
+        // targetSdk 36 强制 edge-to-edge(09-24): 根布局消费状态栏 inset, 顶栏不再与系统状态栏叠加
+        if (Build.VERSION.SDK_INT >= 35) {
+            setOnApplyWindowInsetsListener { v, insets ->
+                val top = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
+                v.setPadding(0, top, 0, 0)
+                insets
+            }
+        }
     }
 
     /** 自绘白色标题栏：左返回 + 标题 + 可选右侧操作 */

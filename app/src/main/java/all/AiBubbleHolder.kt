@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AlphaAnimation
+import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -97,23 +98,24 @@ internal fun buildStatusTimeline(
     events.forEachIndexed { i, e ->
         val first = i == 0
         val last = i == events.size - 1
-        // 左列脉络: 竖线(首行从圆点起/末行到圆点止) + 9dp 圆点压在段首
+        // 左列脉络: 竖线连续贯穿(含行间空隙) + 事件图标(思考💭/工具🔧)压在行顶(线段交界处), 线从图标中心穿过(09-25)
         val spine = FrameLayout(host)
+        val iconH = host.dp(18)
         val line = View(host).apply { setBackgroundColor(lineColor) }
         spine.addView(line, FrameLayout.LayoutParams(host.dp(2), ViewGroup.LayoutParams.MATCH_PARENT).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = if (first) host.dp(12) else 0
-            bottomMargin = if (last) host.dp(14) else 0
+            topMargin = if (first) iconH / 2 else 0      // 首行: 线从图标中心起
+            bottomMargin = if (last) iconH / 2 else 0    // 末行: 线到图标中心止
         })
-        val bead = View(host).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(THINK_TEXT)
-            }
+        val bead = TextView(host).apply {
+            text = if (e.type == "think") "💭" else "🔧"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
         }
-        spine.addView(bead, FrameLayout.LayoutParams(host.dp(9), host.dp(9)).apply {
+        spine.addView(bead, FrameLayout.LayoutParams(iconH, iconH).apply {
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            topMargin = host.dp(8)
+            topMargin = 0   // 图标压行顶: 行顶即上一行竖线终点/本行竖线起点的交界处, 线被图标盖住中间, 上下缘露出
         })
         // 内容块: 与原思考/工具深色气泡同款
         val body = TextView(host).apply {
@@ -138,14 +140,13 @@ internal fun buildStatusTimeline(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.TOP
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = if (last) 0 else host.dp(10)
-            }
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         row.addView(spine, LinearLayout.LayoutParams(host.dp(20), ViewGroup.LayoutParams.MATCH_PARENT))
         row.addView(body, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             marginStart = host.dp(4)
+            bottomMargin = if (last) 0 else host.dp(10)   // 空隙计入 body: spine 高度随之包含空隙, 竖线连续
         })
         box.addView(row)
     }
@@ -193,6 +194,12 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     // 打字速率自适应: 跟随模型实际吐字节奏(字符/秒 EMA), 避免"急打急停"的顿挫卡顿感
     private var modelRate = 0.0          // 模型吐字速率(字符/秒) EMA
     private var lastDeltaNs = 0L         // 上次收到 delta 的时间戳
+    // 墨水节奏(方案2): 瞬时速率环形窗(最近 4 次 delta 的字符数/间隔),
+    // 区别于钝 EMA, 直接反映"模型这一瞬在快吐还是停顿", 供打字机弹性映射
+    private val instChars = DoubleArray(4)
+    private val instDts = DoubleArray(4)
+    private var instHead = 0
+    private var instFill = 0
     private var charBudget = 0.0         // 浮点字符预算累积器(严格按速率推进, 消除"每帧+1"的强制快打)
 
     // 帧级节流: 高频 delta 合并到 16ms 一帧刷新一次, 避免全量 setText + 滚动积压导致卡顿/拖影
@@ -204,12 +211,20 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     // statusCol = chatWrap 外层行内的竖容器(状态行+展开的时间线同属一个头像行)
     private var statusCol: LinearLayout? = null
     private var statusWrap: View? = null         // 状态行整行挂到 bubbleBox 的实际 view(chatWrap 外层)
+    // ==== 行动轨道(方案A 原型): 时间轴分轨 —— 行动珠子轨道 + 无框文本轨道 ====
+    // 开启 actionTrack 时, 思考/工具不再折叠进轮播状态行, 而是沿时间轴实时补珠子;
+    // 正文走无框文本轨道(去气泡), 打字机机制原样复用。
+    private var trackCol: LinearLayout? = null   // 轨道容器(行动行/正文无框行的纵向容器)
+    private var trackWrap: View? = null          // 轨道整条挂到 bubbleBox 的实际 view(chatWrap 外层)
     private var statusSwitcher: TextSwitcher? = null
     private var statusCounter: TextView? = null
+    private var dbgCnt = 0
     private var statusExpanded = false          // 状态行是否已展开脉络时间线
+    private var statusToggleAnim: ValueAnimator? = null  // 展开/收起动画(09-24)
     private var timelineView: View? = null      // 展开的时间线容器
     private var carouselRunnable: Runnable? = null   // 片段轮播驱动
     private var lastSnippet: String? = null     // 当前展示片段(相同不重切, 避免动画空转)
+    private var lastThinkChars = 0              // 思考封段时的字数(完成→收尾间计数过渡展示)
     private var statusSealed = false            // 收尾定格后不再轮播
 
     // 输出中暗色态(解决闪感): AI 流式输出期间气泡背景+文字亮度压低(暗色降低逐字刷新感知),
@@ -225,6 +240,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val text = StringBuilder()
         var collapsed = false   // 该段思考是否已封段
         var tlView: TextView? = null   // 脉络时间线里的全文块(展开状态下流式实时刷新)
+        var titleView: TextView? = null   // 行动轨道: 标题行(尾部摘要, 实时刷新)
         val count: Int get() = text.codePointCount(0, text.length)
     }
 
@@ -232,6 +248,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private inner class ToolBlock(val name: String, val arg: String) {
         var result: String? = null
         var tlView: TextView? = null   // 脉络时间线里的详情块(展开状态下结果回填实时刷新)
+        var titleView: TextView? = null   // 行动轨道: 标题行(工具名)
         fun expandedText(): String = buildString {
             append("🔧 工具：$name")
             if (arg.isNotBlank()) append("\n参数：$arg")
@@ -257,9 +274,18 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     /** 思考块内多段只显示最后一段, 避免 "思考中: 思考一思考二..." 眼花 */
     private fun tailThinking(b: ThinkingBlock): String {
-        val s = b.text.toString()
-        val idx = s.lastIndexOf("\n\n")
-        return if (idx >= 0) s.substring(idx + 2).trim() else s
+        // 跳过尾部空段: 思考文本常以 "\n\n" 分隔/结尾, 直接取末段会拿到空串
+        // → snippet 走 ifBlank 兜底成 "…", 状态行永远三个点
+        val full = b.text.toString()
+        var s = full
+        while (true) {
+            val idx = s.lastIndexOf("\n\n")
+            if (idx < 0) break
+            val tail = s.substring(idx + 2).trim()
+            if (tail.isNotEmpty()) { s = tail; break }
+            s = s.substring(0, idx)
+        }
+        return s.trim().ifEmpty { full.trim() }
     }
 
     fun createStreamingBox(): LinearLayout {
@@ -346,15 +372,27 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             // 同段内续写: 追加分隔
             b.text.append("\n\n")
         }
-        ensureStatusRow()
-        showSnippet()   // 思考事件即时上屏, 不等轮播周期
-        driveCarousel()
+        if (ModeConfig.actionTrack()) {
+            appendTrackEvent(b)   // 行动轨道: 实时补思考珠子
+        } else {
+            ensureStatusRow()
+            showSnippet()   // 思考事件即时上屏, 不等轮播周期
+            driveCarousel()
+        }
         scheduleRefresh()
         host.onStatusGrown()   // 状态行出现/移动: 通知主层锚底跟随(09-24)
     }
 
     fun appendThinking(text: String) {
         activeThinking?.let { it.text.append(text) }
+        if (ModeConfig.actionTrack()) {
+            // 行动轨道: 标题行实时滚动尾部摘要(保留轮播感), 展开态全文同步
+            activeThinking?.titleView?.let { tv ->
+                val s = "💭 " + snippet(tailThinking(activeThinking!!).replace("\n", " ").trim())
+                if (tv.text.toString() != s) tv.text = s
+            }
+            activeThinking?.tlView?.let { it.text = "💭 " + activeThinking!!.text }
+        }
         scheduleRefresh()
         host.onStatusGrown()   // 思考内容增长: 通知主层锚底跟随(09-24)
     }
@@ -364,8 +402,123 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val b = activeThinking ?: return
         if (b.collapsed) return
         b.collapsed = true
+        lastThinkChars = b.count   // 记住封段字数: 计数从"N字"过渡到"已思考N字", 不瞬间断尾
         activeThinking = null
         // 状态行形态下状态行本身即"生成中"指示, 不再另起三点加载行
+    }
+
+    // ===================== 行动轨道(方案A 原型) =====================
+
+    /** 确保行动轨道容器存在并停在 bubbleBox 末尾(跟随最新活动) */
+    private fun ensureTrackRow() {
+        if (trackCol != null) {
+            // 已存在: 整条移到末尾, 新一轮思考/工具时轨道跟随最新输出位置
+            trackWrap?.let { w ->
+                (w.parent as? ViewGroup)?.let { p ->
+                    p.removeView(w)
+                    bubbleBox?.addView(w)
+                }
+            }
+            return
+        }
+        val col = LinearLayout(host).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        trackCol = col
+        trackWrap = addChatBubble(col)
+    }
+
+    /** 行动轨道: 追加一行事件(思考💭/工具🔧), 复用 spine/bead 语言(竖线贯穿+珠子压行顶);
+     *  标题行默认展示(尾部摘要/工具名), 点击标题或珠子展开/收起详情块 */
+    private fun appendTrackEvent(b: Any) {
+        ensureTrackRow()
+        val col = trackCol ?: return
+        var thinkB: ThinkingBlock? = null
+        var toolB: ToolBlock? = null
+        val beadText: String
+        val titleText: String
+        val detailText: String
+        when (b) {
+            is ThinkingBlock -> {
+                thinkB = b
+                beadText = "💭"
+                titleText = "💭 " + snippet(tailThinking(b).replace("\n", " ").trim())
+                detailText = "💭 " + b.text
+            }
+            is ToolBlock -> {
+                toolB = b
+                beadText = "🔧"
+                titleText = "🔧 " + b.name
+                detailText = b.expandedText()
+            }
+            else -> return
+        }
+        val iconH = host.dp(18)
+        val row = LinearLayout(host).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        // 左列 spine: 竖线贯穿整行(含行间空隙) + 珠子压行顶, 线从珠子中心穿过
+        val spine = FrameLayout(host)
+        val line = View(host).apply { setBackgroundColor((THINK_TEXT and 0x00FFFFFF) or (0x55 shl 24)) }
+        spine.addView(line, FrameLayout.LayoutParams(host.dp(2), ViewGroup.LayoutParams.MATCH_PARENT).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+        })
+        val bead = TextView(host).apply {
+            text = beadText
+            textSize = 12f
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+        }
+        spine.addView(bead, FrameLayout.LayoutParams(iconH, iconH).apply {
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+        })
+        // 右列 body: 标题行 + 详情块(默认收起, 点击展开)
+        val bodyCol = LinearLayout(host).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = host.dp(4)
+                bottomMargin = host.dp(10)   // 行间距计入 body: spine 高度随之包含, 竖线连续
+            }
+        }
+        val title = TextView(host).apply {
+            text = titleText
+            textSize = 14f
+            setTextColor(THINK_TEXT)
+            maxWidth = host.chatMaxW() - host.dp(24)
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+        }
+        val detail = TextView(host).apply {
+            textSize = 14f
+            setTextColor(THINK_TEXT)
+            maxWidth = host.chatMaxW() - host.dp(24)
+            setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
+            background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
+            text = detailText
+            visibility = View.GONE
+            setTextIsSelectable(true)
+        }
+        val toggle: () -> Unit = {
+            detail.visibility = if (detail.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            host.onStatusGrown()   // 展开/收起高度变化: 通知主层锚底跟随
+        }
+        title.setOnClickListener { toggle() }
+        bead.setOnClickListener { toggle() }
+        bodyCol.addView(title)
+        bodyCol.addView(detail)
+        row.addView(spine, LinearLayout.LayoutParams(host.dp(20), ViewGroup.LayoutParams.MATCH_PARENT))
+        row.addView(bodyCol, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        col.addView(row)
+        if (thinkB != null) { thinkB.titleView = title; thinkB.tlView = detail }
+        if (toolB != null) { toolB.titleView = title; toolB.tlView = detail }
     }
 
     // ===================== 单行状态行(09-24 重构) =====================
@@ -396,19 +549,24 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                         textSize = 14f
                         setTextColor(THINK_TEXT)
                         maxLines = 1
-                        // 宽度封顶(行整体不超 chatMaxW): LinearLayout 无 maxWidth, 移到内部 TextView
-                        maxWidth = host.chatMaxW()
+                        // 宽度封顶(行整体不超 chatMaxW 且给右侧计数预留空间):
+                        // LinearLayout 无 maxWidth, 移到内部 TextView; 若片段撑满 chatMaxW,
+                        // 横向布局会把 wrap 计数 TextView 压成 AT_MOST 窄条导致"已思考N字"竖排(09-25)
+                        maxWidth = host.chatMaxW() - host.dp(96)
                         ellipsize = TextUtils.TruncateAt.END
+                        gravity = Gravity.START or Gravity.CENTER_VERTICAL
                     }
                 }
-                inAnimation = AlphaAnimation(0f, 1f).apply { duration = 180L }
-                outAnimation = AlphaAnimation(1f, 0f).apply { duration = 180L }
+                inAnimation = AlphaAnimation(0f, 1f).apply { duration = (180L * TypewriterCenter.slowMul()).toLong() }
+                outAnimation = AlphaAnimation(1f, 0f).apply { duration = (180L * TypewriterCenter.slowMul()).toLong() }
                 // 固定最小宽: 片段文本长短变化时行宽稳定不抖
-                minimumWidth = host.dp(140)
+                minimumWidth = host.dp(64)   // 只兜住短片段("💭 …"量级), 避免 140dp 撑出大片右侧留白
             }
             val counter = TextView(host).apply {
                 textSize = 12f
                 setTextColor(THINK_TEXT)
+                maxLines = 1   // 兜底: 即使被压缩也不竖排(正常态有 sw maxWidth 预留, 不会触发截断)
+                ellipsize = TextUtils.TruncateAt.END
             }
             addView(sw, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -420,10 +578,15 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             setOnClickListener { toggleStatusExpand() }
         }
         c.addView(shell)
-        statusWrap = addChatBubble(c)
+        // 挂载前先填充首帧内容(setCurrentText 无动画): 避免空壳先上屏、内容随后淡入(慢放下呈"空气泡先出现")
         statusCol = c
         statusSwitcher = shell.getChildAt(0) as? TextSwitcher
         statusCounter = shell.getChildAt(1) as? TextView
+        lastSnippet = null
+        lastThinkChars = 0
+        currentSnippet()?.let { statusSwitcher?.setCurrentText(it); lastSnippet = it }
+        updateStatusCounter()
+        statusWrap = addChatBubble(c)
     }
 
     /** 当前应展示的片段: 活跃思考 tail / 最新工具(无结果=参数, 有结果=结果) */
@@ -461,7 +624,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             driveCarousel()
         }
         carouselRunnable = r
-        uiHandler.postDelayed(r, STATUS_CAROUSEL_MS)
+        uiHandler.postDelayed(r, (STATUS_CAROUSEL_MS * TypewriterCenter.slowMul()).toLong())
     }
 
     private fun cancelCarousel() {
@@ -484,14 +647,23 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val b = activeThinking
         val t = if (b != null && !b.collapsed) "${b.count}字"
         else if (toolBlocks.isNotEmpty()) "🔧 ${toolBlocks.size}"
+        else if (lastThinkChars > 0) "已思考${lastThinkChars}字"
         else null
         if (t != null) { tv.text = t; tv.visibility = View.VISIBLE } else tv.visibility = View.GONE
     }
 
+    /** 状态行展开/收起动画时长(ms): 跟随全局慢放倍数, 慢放时时间线展开同步变慢(09-24) */
+    private fun statusToggleAnimMs(): Long =
+        (220L * TypewriterCenter.slowMul()).toLong().coerceAtLeast(1L)
+
     /** 状态行点击: 原地展开/收起脉络时间线(竖线+圆点+思考/工具块, 非弹窗) */
     private fun toggleStatusExpand() {
+        Log.d("SlowDbg", "statusToggle expand=" + statusExpanded + " slowMul=" + TypewriterCenter.slowMul() + " dur=" + statusToggleAnimMs())
         val col = statusCol ?: return
         host.markUserTakeover()   // 展开/收起视同用户接管, 防自动滚动追底(09-24)
+        statusToggleAnim?.cancel()
+        val colH0 = col.height
+        val colBaseY = IntArray(2).also { col.getLocationInWindow(it) }[1]
         statusExpanded = !statusExpanded
         if (statusExpanded) {
             if (timelineView == null) {
@@ -504,9 +676,69 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                     }
                 }
             }
-            col.addView(timelineView, 1)
+            val tl = timelineView ?: return
+            // 预测量 wrap 高度(尚未 addView, 用 col 宽度约束)
+            tl.measure(
+                View.MeasureSpec.makeMeasureSpec(col.width - col.paddingLeft - col.paddingRight, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val targetH = tl.measuredHeight.coerceAtLeast(1)
+            val lp = tl.layoutParams
+            col.addView(tl, 1)
+            lp.height = 0
+            tl.alpha = 0f
+            val anim = ValueAnimator.ofInt(0, targetH).apply {
+                duration = statusToggleAnimMs()
+                interpolator = DecelerateInterpolator()
+                addUpdateListener { v ->
+                    lp.height = v.animatedValue as Int
+                    tl.alpha = v.animatedFraction.coerceIn(0f, 1f)
+                    col.requestLayout()
+                }
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(a: Animator) {
+                        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                        tl.alpha = 1f
+                        statusToggleAnim = null
+                        host.compensateStatusToggle(col, colH0, colBaseY)
+                    }
+                    override fun onAnimationCancel(a: Animator) {
+                        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                        tl.alpha = 1f
+                        statusToggleAnim = null
+                    }
+                })
+            }
+            statusToggleAnim = anim
+            anim.start()
         } else {
-            timelineView?.let { col.removeView(it) }
+            val tl = timelineView
+            if (tl != null && tl.parent === col) {
+                val startH = tl.height.coerceAtLeast(1)
+                val anim = ValueAnimator.ofInt(startH, 0).apply {
+                    duration = statusToggleAnimMs()
+                    interpolator = AccelerateInterpolator()
+                    addUpdateListener { v ->
+                        tl.layoutParams.height = v.animatedValue as Int
+                        tl.alpha = (1f - v.animatedFraction).coerceIn(0f, 1f)
+                        col.requestLayout()
+                    }
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(a: Animator) {
+                            col.removeView(tl)
+                            statusToggleAnim = null
+                            host.compensateStatusToggle(col, colH0, colBaseY)
+                        }
+                        override fun onAnimationCancel(a: Animator) {
+                            statusToggleAnim = null
+                        }
+                    })
+                }
+                statusToggleAnim = anim
+                anim.start()
+            } else {
+                host.compensateStatusToggle(col, colH0, colBaseY)
+            }
         }
         col.requestLayout()
     }
@@ -547,9 +779,13 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val b = ToolBlock(name, arg)
         toolBlocks.add(b)
         timelineEvents.add(b)
-        ensureStatusRow()
-        showSnippet()   // 工具事件即时上屏
-        driveCarousel()
+        if (ModeConfig.actionTrack()) {
+            appendTrackEvent(b)   // 行动轨道: 实时补工具珠子
+        } else {
+            ensureStatusRow()
+            showSnippet()   // 工具事件即时上屏
+            driveCarousel()
+        }
         host.onStatusGrown()   // 工具状态行出现/移动: 通知主层锚底跟随(09-24)
     }
 
@@ -558,7 +794,15 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val b = toolBlocks.lastOrNull() ?: return
         b.result = result
         b.tlView?.let { it.text = b.expandedText() }
-        showSnippet()
+        if (ModeConfig.actionTrack()) {
+            // 行动轨道: 标题加完成标记, 详情含结果(展开可见)
+            b.titleView?.let { tv ->
+                val s = "🔧 " + b.name + " ✓"
+                if (tv.text.toString() != s) tv.text = s
+            }
+        } else {
+            showSnippet()
+        }
         host.onStatusGrown()   // 工具结果回填: 通知主层锚底跟随(09-24)
     }
 
@@ -611,6 +855,11 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             if (dt > 0.001) {
                 val inst = text.length / dt
                 modelRate = if (modelRate <= 0) inst else modelRate * 0.7 + inst * 0.3
+                // 墨水节奏(方案2): 环形窗记录 (字符数, 间隔), 覆盖最旧采样
+                instChars[instHead] = text.length.toDouble()
+                instDts[instHead] = dt
+                instHead = (instHead + 1) % instChars.size
+                if (instFill < instChars.size) instFill++
             }
         }
         lastDeltaNs = nowNs
@@ -629,13 +878,26 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             textSize = 15f
             setTextColor(BUBBLE_AI_TEXT)
             setLineSpacing(host.dp(3).toFloat(), 1f)
-            setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
-            background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
-            maxWidth = maxW
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = host.dp(6)
-                bottomMargin = host.dp(4)
+            includeFontPadding = false
+            if (ModeConfig.actionTrack()) {
+                // 行动轨道(方案A): 正文走无框文本轨道, 缩进到珠子列右侧, 打字机照旧
+                setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+                maxWidth = maxW - host.dp(24)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = host.dp(24)   // 与行动行珠子列对齐(spine 20dp + margin 4dp)
+                    topMargin = host.dp(2)
+                    bottomMargin = host.dp(6)
+                }
+            } else {
+                setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+                background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
+                maxWidth = maxW
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = host.dp(6)
+                    bottomMargin = host.dp(4)
+                }
             }
         }
         val block = b
@@ -655,11 +917,58 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 是否存在正在打字(未收尾)的正文段: 供 MainActivity.scrollToBottom 判断打字期分支 */
     fun hasActiveTypewriter(): Boolean = contentBlocks.any { it.typeActive }
 
+    // 触摸冻结(09-25 方案2.1): 用户触摸列表(ACTION_DOWN)即冻结打字机渲染/推进,
+    // 布局立即稳定, 上滑滚动实时跟手(不再"延迟一下"——原方案1 flush 追平让用户
+    // 感觉"摁了没反应", 本版冻结保留当前半截文字, 布局完全静止; 静态(输出完成)
+    // 后才允许长按复制窗, 打字中长按不弹窗避免抢占触摸)
+    @Volatile var userTakeover = false
+
+    /** 触摸冻结: 置接管标志, stepBlock 直接跳过渲染/推进(布局零变化, 可立即拖动) */
+    fun freezeTypewriter() {
+        userTakeover = true
+    }
+
+    /** 恢复打字: 先一次性追平冻结期间积压的已收文本(布局追上模型), 再继续逐字慢打 */
+    fun resumeTypewriter() {
+        userTakeover = false
+        for (b in contentBlocks) {
+            if (b.typeFinishedRender || !b.typeActive) continue
+            if (b.shownLen >= b.text.length) continue
+            b.shownLen = b.text.length
+            b.lastFrameNs = 0L
+            b.view?.let { tv ->
+                MdSpannable.tableMaxWidth = tv.maxWidth
+                tv.text = if (ModeConfig.chatPlainText()) suppressCards(b.text.toString())
+                else b.streamRenderer.render(b.text.toString())
+                keepBubbleWidth(b, tv)
+                RoundedTablePlugin.attachInvalidators(tv)
+            }
+            if (b.done) {
+                finishTypeRender(b)
+                continue
+            }
+        }
+    }
+
     /** 状态行是否活跃(思考/工具阶段单行状态行在屏): 供 MainActivity 判断状态行锚底(09-24) */
     fun hasStatusRow(): Boolean = statusCol != null
 
     /** 当前模型吐字速率(字符/秒) EMA 值, 供涌动滚动分支使用 */
     fun currentModelRate(): Double = modelRate
+
+    /** 墨水节奏(方案2): 最近环形窗瞬时速率(字符/秒), 直接反映当前吐字快慢;
+     *  窗未填满或全为停顿采样时回落 EMA, 保证起步期不误判 */
+    private fun instRate(): Double {
+        if (instFill == 0) return modelRate
+        var c = 0.0
+        var d = 0.0
+        for (i in 0 until instFill) {
+            val idx = (instHead - 1 - i + instChars.size) % instChars.size
+            c += instChars[idx]
+            d += instDts[idx]
+        }
+        return if (d > 0) c / d else modelRate
+    }
 
     /** 帧回调(Choreographer): 依次推进各正文段打字机, 全部段完成收尾后停止驱动 */
     override fun tickFrame(frameNs: Long): Boolean {
@@ -776,6 +1085,12 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 单段打字机推进(逻辑承接原单一 contentText 打字机, 状态内聚到段内) */
     private fun stepBlock(b: ContentBlock, frameNs: Long): Boolean {
         val total = b.text.length
+        // 触摸冻结(09-25): 用户正在拖动列表, 本帧不渲染不推进, 布局零变化;
+        // 积压的已收文本由 resumeTypewriter 一次性追平, 此处只管"停"
+        if (userTakeover) {
+            b.lastFrameNs = frameNs
+            return true
+        }
         if (b.shownLen >= total) {
             b.lastFrameNs = frameNs
             if (b.done) {
@@ -786,10 +1101,25 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         }
         val elapsed = if (b.lastFrameNs == 0L) 1.0 / 60.0 else (frameNs - b.lastFrameNs) / 1_000_000_000.0
         b.lastFrameNs = frameNs
-        // 打字速率自适应: 跟随模型吐字节奏(不超过模型速率1.5倍, 下限16字/秒保证视觉连续)
+        // 墨水节奏(方案2): 打字速率跟随模型瞬时吐字速率弹性波动(2026-09-25 替换原
+        // modelRate EMA 钝映射): 模型这一瞬吐得快 -> 打字机提速跟紧, 吐得慢/停顿(思考/
+        // 工具间隙) -> 打字机降速半拍, 消除"模型急停/急喷时打字机匀速无视"的脱节感
         var rate = typeSpeed(total).toDouble()
-        if (modelRate > 0) rate = minOf(rate, modelRate * 1.5)
+        val ir = instRate()
+        if (ir > 0) {
+            // 瞬时速率归一映射: 0~12字/秒(停顿/慢吐) 压到基准 0.25 倍, >=80字/秒(涌出) 拉到 1.8 倍,
+            // 中间平滑过渡; 上限不封死模型爆发, 下限仍保视觉连续
+            val t = ((ir - 12.0) / (80.0 - 12.0)).coerceIn(0.0, 1.0)
+            rate *= (0.25 + t * 1.55)
+        }
+        // 等墨降速(方案2): 距上次收到 delta 超 200ms(模型思考/工具间隙/吐字中断),
+        // 打字机随之慢半拍等墨, 恢复吐字后由瞬时窗自然提速 —— 墨水节奏的灵魂
+        if (lastDeltaNs != 0L && (frameNs - lastDeltaNs) > 200_000_000L) {
+            rate *= 0.35
+        }
         rate = maxOf(rate, 16.0)
+        // 墨水微抖(方案2): ±20% 随机抖动消除匀速机器感, 让字迹跟随"脑内节奏"呼吸
+        rate *= (0.8 + 0.4 * Math.random())
         // 超屏冲刺(2026-09-23): 气泡完全滚出视口(不可见)时不留余地, 本帧直接追平已收文本;
         // 屏内保留分级变速(短慢长快)打字感, 超屏说明用户不在看输出(上翻阅读/吸顶顶出), 全力追上模型
         val tv0 = b.view
@@ -801,6 +1131,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         charBudget += rate * elapsed
         var budget = charBudget.toInt()
         if (budget >= 1) charBudget -= budget
+        if (dbgCnt % 30 == 0) {
+            val vis = if (tv0 != null) { val r = android.graphics.Rect(); tv0.getGlobalVisibleRect(r); r.height() == 0 } else false
+            android.util.Log.d("SlowDbg", "step mul=" + TypewriterCenter.slowMul() +
+                " rate=" + rate + " ir=" + String.format(java.util.Locale.US, "%.1f", instRate()) +
+                " el=" + String.format(java.util.Locale.US, "%.5f", elapsed) +
+                " b=" + budget + " shown=" + b.shownLen + "/" + total + " off=" + vis)
+        }
+        dbgCnt++
         // 视觉连续兜底: 距上次推进超50ms(≈20Hz)仍无预算时强制推进1个, 消除慢模型/高帧率下
         // 攒预算等待造成的步进感(原800ms在90/120Hz高刷下会明显一顿一顿)
         if (budget < 1 && b.shownLen < total && frameNs - b.lastAdvanceNs > 50_000_000L) {
@@ -851,24 +1189,30 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (b.typeFinishedRender) return
         b.typeFinishedRender = true
         b.typeActive = false
-        b.view?.let {
-            if (ModeConfig.chatPlainText()) it.text = stripMarkdownForChat(b.text.toString()).trimEnd()
+        b.view?.let { tv ->
+            val stripped = ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim()
+            // 空气泡兜底(09-25): 整段剥离协议前缀后为空(纯 思考:/TOOL: 行误入正文, 常见于思考->工具间隙),
+            // 不再保留空壳气泡: 摘除视图即可(不动 contentBlocks, 避免 tickFrame 遍历中改列表)
+            if (stripped.isEmpty() && b.text.isNotBlank()) {
+                (tv.parent as? ViewGroup)?.removeView(tv)
+                return
+            }
+            if (ModeConfig.chatPlainText()) tv.text = stripMarkdownForChat(b.text.toString()).trimEnd()
             else {
-                val raw = ModeConfig.stripChatProtocolPrefix(b.text.toString())
-                MdSpannable.tableMaxWidth = it.maxWidth
+                MdSpannable.tableMaxWidth = tv.maxWidth
                 // 全程流式: 无附件时不切换 markwon, 流式渲染器已对齐表格/标题/代码块视觉,
                 // 直接渲染完整文本消除收尾视觉突变; 含附件(att://)仍走 markwon 渲染真实卡片
-                if (raw.contains("att://")) {
+                if (stripped.contains("att://")) {
                     b.streamRenderer.clearCache()
-                    host.markwon.setMarkdown(it, raw)
+                    host.markwon.setMarkdown(tv, stripped)
                 } else {
-                    it.text = b.streamRenderer.render(raw)
+                    tv.text = b.streamRenderer.render(stripped)
                 }
             }
-            keepBubbleWidth(b, it)
-            RoundedTablePlugin.attachInvalidators(it)
+            keepBubbleWidth(b, tv)
+            RoundedTablePlugin.attachInvalidators(tv)
             // 输出完成渐亮: 暗色态(打字中)段在此亮起, 恢复渲染/从未暗色的段不受影响
-            if (b.dimmed) brightenBlock(b, it)
+            if (b.dimmed) brightenBlock(b, tv)
             // 收尾贴底已去除(2026-09-23): 输出完成后不再强制滚动, 用户自由阅读
         }
     }
@@ -956,6 +1300,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private fun sealStatusSummary() {
         statusSealed = true
         cancelCarousel()
+        if (ModeConfig.actionTrack()) return   // 行动轨道常显, 不折叠为摘要(方案A)
         val thinkChars = thinkingBlocks.sumOf { it.count }
         val tools = toolBlocks.size
         if (thinkChars <= 0 && tools <= 0) {
@@ -969,6 +1314,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     private fun removeStatusRow() {
         cancelCarousel()
+        if (ModeConfig.actionTrack()) return   // 行动轨道随消息保留(方案A)
         statusWrap?.let { w -> (w.parent as? ViewGroup)?.removeView(w) }
         statusWrap = null
         statusCol = null
@@ -977,6 +1323,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         timelineView = null
         statusExpanded = false
         lastSnippet = null
+        lastThinkChars = 0
     }
 
     /** 取全部思考块全文(供持久化到会话历史, 切回会话时恢复思考区) */

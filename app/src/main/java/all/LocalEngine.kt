@@ -763,6 +763,24 @@ object LocalEngine {
                         if (restartOut.isNotEmpty() || toolCalls.isNotEmpty()) break
                     } else {
                         // 原生 tools 模式: content 纯正文直接流式(无需行级协议解析, 但保留换行)
+                        if (row.startsWith("思考:") || row.startsWith("思考：")) {
+                            // 思考->工具间隙空气泡修复(09-25): 原生 tools 模式兼容 content 通道的 思考:/答案: 前缀行,
+                            // 前缀行识别进 thinking 通道不再当正文渲染(否则收尾剥离前缀 -> 文字变空 -> 空气泡)
+                            if (mode != MODE_THINKING) {
+                                mode = MODE_THINKING
+                                cb.onThinkingStart()
+                            }
+                            val body = row.substring(3).trim()
+                            if (body.isNotEmpty()) cb.onThinkingDelta(body)
+                            continue
+                        }
+                        if (row.startsWith("答案:") || row.startsWith("答案：")) {
+                            if (mode == MODE_THINKING) cb.onThinkingEnd()
+                            mode = MODE_CONTENT
+                            val t = row.substring(3).trim()
+                            if (t.isNotEmpty()) { cb.onDelta(t + "\n"); accumulated.append(t).append('\n') }
+                            continue
+                        }
                         if (mode != MODE_CONTENT) {
                             if (mode == MODE_THINKING) cb.onThinkingEnd()
                             mode = MODE_CONTENT
