@@ -13,6 +13,7 @@ object ModeConfig {
     private const val PREFS = "mode_config"
     private const val KEY_CHAT_MODE = "chat_mode"
     private const val KEY_CHAT_MD = "chat_md"
+    private const val KEY_ACTION_TRACK = "action_track"
     private lateinit var prefs: SharedPreferences
 
     fun init(ctx: Context) {
@@ -37,6 +38,14 @@ object ModeConfig {
 
     /** 渲染层统一判断：是否应按纯文本处理正文（聊天模式且关闭 MD 时才剥；Agent 模式/开 MD 均按 Markdown 渲染） */
     fun chatPlainText(): Boolean = chatMode() && !chatMarkdown()
+
+    /** 行动轨道开关(方案A 原型): AI 流式输出以时间轴行动轨道+无框文本轨道呈现, 替代气泡形态 */
+    fun actionTrack(): Boolean = prefs.getBoolean(KEY_ACTION_TRACK, false)
+
+    /** 切换行动轨道 */
+    fun setActionTrack(on: Boolean) {
+        prefs.edit().putBoolean(KEY_ACTION_TRACK, on).apply()
+    }
 
     /** 表情气泡开关: 仅聊天模式可用(有头像场景); Agent 模式(无头像)两端均禁发表情气泡 */
     fun emojiEnabled(): Boolean = chatMode()

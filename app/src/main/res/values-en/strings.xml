@@ -121,6 +121,10 @@
     <string name="settings_upload_size_sub">Attachment limit · current %1$d MB</string>
     <string name="settings_token">Token Stats</string>
     <string name="settings_token_sub">Cumulative tokens / requests</string>
+    <string name="settings_anim_scale">Animation Slow-mo</string>
+    <string name="settings_anim_scale_sub">Global animation 10x slow · debug animation bugs</string>
+    <string name="settings_anim_scale_noroot">Root permission required to enable animation slow-mo</string>
+    <string name="settings_anim_scale_fail">Failed to set animation scale</string>
     <string name="settings_debug">Debug Service</string>
     <string name="settings_perm">Permissions</string>
     <string name="settings_perm_sub">View and grant all permissions</string>

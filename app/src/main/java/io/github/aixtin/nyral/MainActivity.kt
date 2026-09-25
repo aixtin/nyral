@@ -197,6 +197,10 @@ class MainActivity : Activity() {
      *  流式回调进入主线程后先校验代际一致才操作 holder/滚动, 天然拦截迟到回调 */
     private var requestEpoch = 0L
     private var scrollUserScrolled = false   // 用户手动上翻/交互接管后不再自动拉底(不打扰阅读)
+    // 触摸即冻结(09-25): 记录 DOWN 坐标, UP 按位移区分轻按(恢复慢打)/滑动(保持接管)
+    private var touchDownX = 0f
+    private var touchDownY = 0f
+    private val touchSlopPx by lazy { android.view.ViewConfiguration.get(this).scaledTouchSlop }
     private var aiStage = 0            // AI 输出阶段: 0=idle 1=thinking 2=tool 3=content
     private var contentFollow = false  // 正文跟随模式: FAB 一键到底后 true; 正文默认停滚, 右下角出现一键到底
     private var jumpFab: android.widget.TextView? = null
@@ -793,15 +797,32 @@ class MainActivity : Activity() {
         chatRec = NyralRecyclerView(this).apply {
             layoutManager = NyralLayoutManager(this@MainActivity)
             adapter = chatAdapter
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(12), dp(10), dp(12), dp(30))
             clipToPadding = false
             overScrollMode = View.OVER_SCROLL_ALWAYS
             // 修复1: 关闭 item 变化动画(流式中气泡高度增长触发重排动画=跳动) + 加大离屏缓存
             itemAnimator = null
             setItemViewCacheSize(20)
             // 用户一旦手动滑动(上翻阅读), 标记后不再被自动滚动打断
+            // 触摸即冻结(09-25 方案2.1): DOWN 立即冻结打字机渲染使布局稳定, 上滑实时跟手
             setOnTouchListener { _, ev ->
-                if (ev.actionMasked == MotionEvent.ACTION_DOWN) scrollUserScrolled = true
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        touchDownX = ev.x
+                        touchDownY = ev.y
+                        scrollUserScrolled = true
+                        activeAiHolder?.freezeTypewriter()
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        // 轻按(位移 <= touchSlop)视为"暂停一下想看", 松手恢复慢打;
+                        // 滑动(>= touchSlop)视为上翻阅读, 保持冻结布局稳定
+                        val dx = ev.x - touchDownX
+                        val dy = ev.y - touchDownY
+                        if (dx * dx + dy * dy <= touchSlopPx * touchSlopPx) {
+                            activeAiHolder?.resumeTypewriter()
+                        }
+                    }
+                }
                 false
             }
             // 用户滚回底部附近时恢复自动追底(上翻阅读仅在离开底部期间让位, 复活旧 ScrollView 版 scrollUserScrolled 语义)
@@ -846,6 +867,13 @@ class MainActivity : Activity() {
                     }
                 }
                 override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                    // 覆盖式下拉面板不随 item 滚动: 一滚动立即收起(09-25)
+                    // 09-25 崩溃修复: onScrolled 可能在 RV 布局帧内同步回调, 直接 removeView
+                    // 会破坏 chatArea 正在进行的 layoutChildren 遍历(child.getVisibility NPE on null);
+                    // post 延迟到布局遍历完成后移除, 幂等(removeDropPanel 已判 parent)
+                    if (statusDropPanel != null) {
+                        chatArea.post { if (statusDropPanel != null) dismissStatusDrop(false) }
+                    }
                     // 正文跟随中用户手动上翻 -> 让位停滚, 一键到底按钮重新出现
                     if (scrollUserScrolled && contentFollow) {
                         contentFollow = false
@@ -872,6 +900,7 @@ class MainActivity : Activity() {
                         rv.postOnAnimation {
                             if (!rv.canScrollVertically(1)) {
                                 scrollUserScrolled = false
+                                activeAiHolder?.resumeTypewriter()   // 滚回底部: 恢复慢打(09-25)
                                 updateJumpFab()   // 贴底恢复追底: 按需隐藏按钮(09-24)
                             }
                         }
@@ -911,6 +940,7 @@ class MainActivity : Activity() {
                 // 一键到底(09-24 定稿): 仅静态出现(输出中隐藏), 点击=一次性回最新消息,
                 // 无跟随语义(跟随=看打字动画非阅读); 输出中想看进度直接手动滚到底即可
                 scrollUserScrolled = false   // 解除上翻守卫, 允许回底
+                activeAiHolder?.resumeTypewriter()   // 一键到底: 恢复慢打(09-25)
                 scrollToBottom(true, force = true)
                 updateJumpFab()
             }
@@ -1906,11 +1936,15 @@ class MainActivity : Activity() {
         // 键盘弹起时点击输入区以外收起键盘: 在 root.dispatchTouchEvent 实现(见 root 定义处), 无其它点击监听
     }
     private fun finishCreate() {
+        TypewriterCenter.initFromSystem(this)   // 气泡打字机慢放倍数跟随系统动画缩放(09-24)
+        if (SlowBall.isEnabled(this)) SlowBall.show(this)   // 重启后恢复悬浮慢放球(09-24)
         summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
         appendWelcomeIntro()
         // 恢复最近一次会话，避免杀后台后聊天记录与列表丢失
         val recent = db.listSessions(1, ModeConfig.modeValue())
-        if (recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()) {
+        val canOpen = recent.isNotEmpty() && db.loadSessionMessages(recent[0].id).isNotEmpty()
+        Log.d("SCROLLDBG", "finishCreate recent=" + recent.size + " canOpen=" + canOpen + " attached=" + chatRec.isAttachedToWindow + " h=" + chatRec.height + " itemCount=" + chatAdapter.itemCount)
+        if (canOpen) {
             openSession(recent[0].id)
         }
         // 开发者调试服务: 默认关闭; 设置开启且为 debug 构建时在 onCreate 末尾拉起
@@ -2088,6 +2122,7 @@ class MainActivity : Activity() {
         currentSessionTitle = db.sessionTitleOf(id)
         // 吸底修复: 切会话重置用户滚动标记(旧会话的"正在阅读"不应带入新会话), 新会话默认追底
         scrollUserScrolled = false
+        activeAiHolder?.resumeTypewriter()   // 切会话: 恢复慢打(09-25)
         aiStage = 0
         contentFollow = false
         updateJumpFab()
@@ -2119,6 +2154,7 @@ class MainActivity : Activity() {
             } else {
                 // 吸底修复: AsyncListDiffer 的 onCommitted 可能迟到(用户切会话后已开始上翻),
                 // 用户已触摸列表就让位, 不再拉底打断阅读(不触摸则正常定位底部)
+                Log.d("SCROLLDBG", "openSession commit id=" + id + " scrolled=" + scrolled + " uScroll=" + scrollUserScrolled + " itemCount=" + chatAdapter.itemCount + " attached=" + chatRec.isAttachedToWindow + " h=" + chatRec.height)
                 if (!scrollUserScrolled) scrollToBottom()
             }
         }
@@ -2455,6 +2491,7 @@ class MainActivity : Activity() {
         // 09-24 追底回填: 发送即重置用户接管——上翻阅读旧消息的状态不带入新回复, 本轮流式恢复追底;
         // 发送后用户再上滑, RV onTouch(ACTION_DOWN)重新置位, 守卫即恢复生效
         scrollUserScrolled = false
+        activeAiHolder?.resumeTypewriter()   // 发送: 恢复慢打(09-25)
         for (d in dispList) {
             appendUser(d)
             messages.add(MemoryDb.SessionMsg("user", d, "", "", "", System.currentTimeMillis()))
@@ -2634,8 +2671,19 @@ class MainActivity : Activity() {
                         streamingRow = null
                         if (!LocalEngine.cancelRequested && doneRow != null) {
                             chatAdapter.remove(doneRow)
-                            // 流式行移除后重建为静态 AI 行(挂快照), 视口交由自然贴底
-                            buildRowsFromMessages()
+                            // 流式行移除后重建为静态 AI 行(挂快照); 重建提交(布局稳定)后未上翻
+                            // 则统一精确贴底一次到位(09-25: 消除收尾帧中间态补偿造成的两段式抬升;
+                            // 键盘收起同样追底——用户复现场景 imeShown=false 时旧条件直接跳过)
+                            buildRowsFromMessages(onCommitted = {
+                                android.util.Log.i("NyralIme", "onDone.rebuild scroll=$scrollUserScrolled itemCount=${chatAdapter.itemCount} imeShown=$imeShown")
+                                if (!scrollUserScrolled) scrollToBottom(auto = true, force = true)
+                                // 收尾渲染延迟增高(09-25): rebuild 后 markwon 静态渲染/收尾排版可能在
+                                // align 之后才使气泡变高, pendingAlign 已扣到 0 不再补; 延迟再对齐一次
+                                // 覆盖最终高度, 防最后几行被输入框遮住(用户现场: 末两行在输入框下边)
+                                chatRec.postDelayed({
+                                    if (!scrollUserScrolled) scrollToBottom(auto = true, force = true)
+                                }, 150)
+                            })
                         }
                         aiBusy = false
                         TaskService.stop(this@MainActivity)
@@ -2840,7 +2888,8 @@ class MainActivity : Activity() {
             chatRows.add(
                 when {
                     m.role == "user" -> ChatRow.User(sessionBaseSeq + msgIdx.toLong(), m.content)
-                    m.thinking.isNotBlank() -> ChatRow.AiRich(sessionBaseSeq + msgIdx.toLong(), m.thinking, m.content, m.tools, m.timeline)
+                    m.thinking.isNotBlank() || m.tools.isNotBlank() || m.timeline.isNotBlank() ->
+                        ChatRow.AiRich(sessionBaseSeq + msgIdx.toLong(), m.thinking, m.content, m.tools, m.timeline)
                     else -> ChatRow.Ai(sessionBaseSeq + msgIdx.toLong(), m.content)
                 })
             msgIdx++
@@ -3912,16 +3961,19 @@ class MainActivity : Activity() {
 
     private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = ""): LinearLayout {
         // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
-        fun contentRow(seg: String): TextView = TextView(this).apply {
-            textSize = 15f
+        fun contentRow(seg: String): TextView? {
             val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
-            if (ModeConfig.chatPlainText()) {
-                text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
-            } else {
-                // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                setMarkdownCached(this, renderContent)
-            }
+            if (renderContent.isBlank()) return null   // 空气泡兜底(09-25): 纯协议前缀段不建视图
+            return TextView(this).apply {
+                textSize = 15f
+                if (ModeConfig.chatPlainText()) {
+                    text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
+                } else {
+                    // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
+                    setMarkdownCached(this, renderContent)
+                }
             setLineSpacing(dp(3).toFloat(), 1f)
+            includeFontPadding = false
             setTextColor(BUBBLE_AI_TEXT)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
@@ -3932,6 +3984,7 @@ class MainActivity : Activity() {
             }
             maxWidth = chatMaxW()
             makeCopyable(this) { seg }
+        }
         }
         val contentSegs = splitLongContent(content)
         return LinearLayout(this).apply {
@@ -3948,8 +4001,6 @@ class MainActivity : Activity() {
             // ("💭 已思考X字 · 🔧 N个工具", 与流式收尾定格同形态), 点击原地展开脉络时间线(竖线+圆点)
             val events = statusEventsOf(timelineJson, thinking, toolsJson)
             if (events.isNotEmpty()) {
-                var expanded = false
-                var timelineView: View? = null
                 val col = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(
@@ -3969,15 +4020,7 @@ class MainActivity : Activity() {
                     addView(tv, LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
                     setOnClickListener {
-                        expanded = !expanded
-                        markUserTakeover()   // 展开/收起视同用户接管, 防自动滚动追底(09-24)
-                        if (expanded) {
-                            if (timelineView == null) timelineView = buildStatusTimeline(this@MainActivity, events)
-                            col.addView(timelineView, 1)
-                        } else {
-                            timelineView?.let { col.removeView(it) }
-                        }
-                        col.requestLayout()
+                        toggleStatusDrop(this, events)   // 09-25 窗帘式下拉面板(覆盖式, 不挤 RV 布局流)
                     }
                 }
                 col.addView(summary)
@@ -3989,15 +4032,14 @@ class MainActivity : Activity() {
             if (timeline.isNotEmpty()) {
                 timeline.forEach { (type, thinkText, name, arg, result) ->
                     if (type == "content" && thinkText.isNotBlank()) {
-                        addView(chatWrap(contentRow(thinkText), false))
-                        contentPlaced = true
+                        contentRow(thinkText)?.let { addView(chatWrap(it, false)); contentPlaced = true }
                     }
                 }
                 if (!contentPlaced && content.isNotBlank()) {
-                    contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
+                    contentSegs.forEach { contentRow(it)?.let { r -> addView(chatWrap(r, false)) } }
                 }
             } else if (content.isNotBlank()) {
-                contentSegs.forEach { addView(chatWrap(contentRow(it), false)) }
+                contentSegs.forEach { contentRow(it)?.let { r -> addView(chatWrap(r, false)) } }
             }
         }
     }
@@ -4087,7 +4129,7 @@ class MainActivity : Activity() {
      *  最新消息底部始终贴住输入框顶; 强制拉回底(翻阅历史中途点输入框也追底——复制粘贴
      *  发送场景必须能看到最新消息)。AI 输出中(aiBusy)完全不响应, 输出结束键盘还开着也
      *  不补抬(保正文阅读位)。post 到下一帧按压缩后真实视口算 gap(同表情抽屉 alignChatToViewport) */
-    private fun imeLiftToBottom() {
+    private fun imeLiftToBottom(force: Boolean = false) {
         if (aiBusy) return
         if (chatAdapter.itemCount == 0) return
         chatRec.post {
@@ -4097,7 +4139,9 @@ class MainActivity : Activity() {
             val lastChild = lmA.findViewByPosition(n - 1)
             if (lastChild != null) {
                 val gap = lastChild.bottom - (chatRec.height - chatRec.paddingBottom)
-                if (gap > 0) chatRec.scrollBy(0, gap)
+                // 默认仅内容溢出视口底时下滚贴底; force(输出完成重建后)则无论正负都滚到贴底,
+                // 消除"重建后视口留白未滚到底"造成的空隙(09-25)
+                if (gap > 0 || (force && gap != 0)) chatRec.scrollBy(0, gap)
             } else {
                 lmA.scrollToPosition(n - 1)   // 翻阅历史中: 强制拉回最新
                 LogStore.i(LogStore.MAIN, "imeLift jump-to-bottom n=$n")
@@ -4121,6 +4165,12 @@ class MainActivity : Activity() {
             val status = holder?.hasStatusRow() == true
             // 用户接管提前判停(09-24): 上翻阅读(scrollUserScrolled)直接让位, 不再先补偿后停(向上展开)
             if (scrollUserScrolled) {
+                typeAnchorActive = false
+                chatRec.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+            // 输出完成已置空(09-25): 直接停, 不做中间态补偿, 由 onDone 重建后 imeLiftToBottom 统一贴底
+            if (activeAiHolder == null) {
                 typeAnchorActive = false
                 chatRec.viewTreeObserver.removeOnPreDrawListener(this)
                 return true
@@ -4162,6 +4212,8 @@ class MainActivity : Activity() {
      *  finished=true 表示本帧刚收尾排版(短正文推完即收尾), typing 已结束也放行注册一次,
      *  由 preDraw 先补偿后停兜住最后一次增长 */
     internal fun onTypeGrownFrame(finished: Boolean = false) {
+        // 输出完成已置空(09-25): 收尾帧不再注册锚底, 中间态补偿交给 onDone 重建后统一贴底
+        if (activeAiHolder == null) return
         if (typeAnchorActive || scrollUserScrolled || chatAdapter.itemCount == 0) return
         // 09-24 追底回填: 删"正文默认停滚"拦截(思考自动滚动已退役, 无闪烁源), 正文打字恢复锚底;
         // 用户上滑守卫(scrollUserScrolled)仍在前一行生效, 上翻阅读即停不互相打扰
@@ -4186,7 +4238,130 @@ class MainActivity : Activity() {
         scrollUserScrolled = true
     }
 
+    /** 流式状态行展开/收起后的滚动补偿(09-24): 状态行 col 高度变化引起 RV 布局漂移,
+     *  用 getLocationInWindow 实测展开前后 col 顶部窗口位移差, 反向 scrollBy 钉住原位 */
+    internal fun compensateStatusToggle(col: View, colH0: Int, colBaseY: Int = -1) {
+        chatRec.post {
+            val loc = IntArray(2)
+            col.getLocationInWindow(loc)
+            val delta = if (colBaseY >= 0) loc[1] - colBaseY else col.height - colH0
+            if (delta != 0) chatRec.scrollBy(0, delta)
+        }
+    }
+
+    // ==== 历史状态行窗帘式下拉面板(09-25): 覆盖式挂 chatArea, 不参与 RV 布局流, 杜绝锚点漂移 ====
+    private var statusDropPanel: ScrollView? = null    // 当前展开的历史状态行下拉面板(带滚动)
+    private var statusDropAnchor: View? = null          // 触发锚点(summary), 同一锚点再点=收起
+    private var statusDropAnim: ValueAnimator? = null   // 展开/收起动画
+    private var statusDropToken = 0   // 动画代际(09-25 连点竞态修复): 每次新操作递增, 旧动画回调 token 不匹配一律忽略
+
+    internal fun toggleStatusDrop(summary: View, events: List<StatusEvent>) {
+        markUserTakeover()   // 展开/收起视同用户接管, 防自动滚动追底(09-24)
+        if (statusDropPanel != null && statusDropAnchor === summary) {
+            dismissStatusDrop(true)
+            return
+        }
+        // 已有面板先移除(换锚点)
+        dismissStatusDrop(false)
+        val token = ++statusDropToken   // 本代展开动画标识: 取代一切旧动画回调
+        val host = this
+        val tl = buildStatusTimeline(host, events)
+        val panel = ScrollView(host).apply {
+            isFillViewport = true   // 内容宽铺满面板
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = rounded(dp(12), floatBubbleColor(THINK_BG))
+            elevation = dp(8).toFloat()
+            isClickable = true   // 拦截点击不穿透到底层
+        }
+        panel.addView(tl, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // 定位: summary 窗口坐标 -> chatArea 内坐标(锚点正下方, 窗帘向下垂)
+        val sLoc = IntArray(2); summary.getLocationInWindow(sLoc)
+        val cLoc = IntArray(2); chatArea.getLocationInWindow(cLoc)
+        val left = sLoc[0] - cLoc[0]
+        val top = sLoc[1] - cLoc[1] + summary.height
+        // 目标高度: 内容全高 clamp 到聊天区可视下边界(dp(12) 留白), 超高时面板内 ScrollView 可滚动
+        val wMax = summary.width.coerceAtLeast(dp(120)).coerceAtMost(chatMaxW())
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(wMax, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        val contentH = panel.measuredHeight.coerceAtLeast(1)
+        val availBottom = cLoc[1] + chatArea.height - dp(12)
+        val maxH = (availBottom - (sLoc[1] + summary.height)).coerceAtLeast(dp(80))
+        val targetH = contentH.coerceAtMost(maxH)
+        val lp = FrameLayout.LayoutParams(wMax, 0).apply {
+            gravity = Gravity.TOP or Gravity.START
+            leftMargin = left
+            topMargin = top
+        }
+        chatArea.addView(panel, lp)
+        statusDropPanel = panel
+        statusDropAnchor = summary
+        val dur = (220L * TypewriterCenter.slowMul()).toLong().coerceAtLeast(1L)
+        statusDropAnim = ValueAnimator.ofInt(0, targetH).apply {
+            duration = dur
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { va ->
+                if (token != statusDropToken) { va.cancel(); return@addUpdateListener }   // 旧代帧: 自停, 不碰新状态
+                lp.height = va.animatedValue as Int
+                panel.requestLayout()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    if (token != statusDropToken) return   // 已被新代取代: 状态归新代管
+                    lp.height = targetH   // 保持 clamp 后高度, 防 ScrollView wrap 回内容全高超屏
+                    statusDropAnim = null
+                }
+            })
+            start()
+        }
+    }
+
+    internal fun dismissStatusDrop(animate: Boolean) {
+        val panel = statusDropPanel ?: return
+        val lp = panel.layoutParams as? FrameLayout.LayoutParams ?: return
+        val token = ++statusDropToken   // 本代操作: 旧动画回调(token 不匹配)全部失效, 防连点竞态
+        val startH = lp.height
+        statusDropAnim?.cancel()
+        statusDropAnim = null
+        if (!animate || startH <= 0) {
+            removeDropPanel(panel)
+            return
+        }
+        val dur = (180L * TypewriterCenter.slowMul()).toLong().coerceAtLeast(1L)
+        statusDropAnim = ValueAnimator.ofInt(startH, 0).apply {
+            duration = dur
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { va ->
+                if (token != statusDropToken) { va.cancel(); return@addUpdateListener }   // 旧代帧: 自停
+                lp.height = va.animatedValue as Int
+                panel.requestLayout()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    if (token != statusDropToken) return   // 已被新代取代: 不碰状态
+                    removeDropPanel(panel)
+                }
+            })
+            start()
+        }
+    }
+
+    /** 幂等移除下拉面板(09-25 连点竞态修复): 仅当仍在 chatArea 才移除, 同步清状态引用 */
+    private fun removeDropPanel(panel: View) {
+        if (panel.parent === chatArea) chatArea.removeView(panel)
+        if (statusDropPanel === panel) {
+            statusDropPanel = null
+            statusDropAnchor = null
+        }
+        statusDropAnim = null
+    }
+
+    /** 状态行展开/收起锚点位移补偿(09-24): RV 布局锚点行为(贴底时保持 item 底部)会把
+     *  状态行顶出视口(向上展开); 用 getLocationInWindow 测展开前后状态行顶部屏幕位移差,
+     *  反向 scrollBy 补偿, 状态行原位不动、时间线原地向下展开。中间阅读态位移≈0 自动不滚 */
     internal fun scrollToBottom(auto: Boolean = false, force: Boolean = false) {
+        Log.d("SCROLLDBG", "scrollToBottom auto=" + auto + " force=" + force + " itemCount=" + chatAdapter.itemCount + " attached=" + chatRec.isAttachedToWindow + " h=" + chatRec.height + " uScroll=" + scrollUserScrolled + " lastVis=" + ((chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager)?.findLastVisibleItemPosition()))
         if (auto && scrollUserScrolled) {
             return
         }
@@ -4231,7 +4406,10 @@ class MainActivity : Activity() {
                 target - chatRec.computeVerticalScrollOffset()
             }
             if (gap != 0) {
+                Log.d("SCROLLDBG", "align gap=" + gap + " n=" + n + " lastChild=" + (lastChild != null) + " h=" + chatRec.height + " lastVis=" + (lmA?.findLastVisibleItemPosition()))
                 chatRec.scrollBy(0, gap)
+            } else {
+                Log.d("SCROLLDBG", "align gap=0 n=" + n + " lastChild=" + (lastChild != null) + " h=" + chatRec.height + " lastVis=" + (lmA?.findLastVisibleItemPosition()))
             }
         }
         pendingAlign++
@@ -4251,10 +4429,13 @@ class MainActivity : Activity() {
         }, 200)
     }
 
-    /** 长按进入"原文本模式": 弹窗展示该条消息的原始文本, 在该模式下自由选择/复制全文或片段 */
+    /** 长按进入"原文本模式": 弹窗展示该条消息的原始文本, 在该模式下自由选择/复制全文或片段;
+     *  AI 输出(打字机活跃)期间长按不弹窗(09-25): 打字中长按多为"想按住暂停/滑动阅读",
+     *  复制窗抢占触摸会打断滚动让位; 静态(输出完成)后再放行长按复制 */
     internal fun makeCopyable(tv: TextView, textProvider: () -> String = { tv.text.toString() }) {
         // 拦截长按, 进入原文本模式(不启用系统文本选择, 避免两套交互冲突)
         tv.setOnLongClickListener {
+            if (activeAiHolder?.hasActiveTypewriter() == true) return@setOnLongClickListener false
             openRawText(textProvider())
             true
         }

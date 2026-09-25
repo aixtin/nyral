@@ -143,6 +143,17 @@
     <string name="settings_upload_size_sub">附件上传限制 · 当前 %1$d MB</string>
     <string name="settings_token">Token 统计</string>
     <string name="settings_token_sub">累计 token 用量 / 请求次数</string>
+    <string name="settings_anim_scale">动画慢放</string>
+    <string name="settings_anim_scale_sub">全局动画 10x 慢速 · 排查动画 Bug</string>
+    <string name="settings_anim_scale_noroot">需要 Root 授权才能启用动画慢放</string>
+    <string name="settings_anim_scale_fail">动画慢放设置失败</string>
+    <string name="settings_slow_ball">悬浮慢放球</string>
+    <string name="settings_slow_ball_sub">悬浮球一键切换全局慢放 · 拖动换位 · 长按关闭</string>
+    <string name="settings_slow_ball_noroot">需要 Root 授权才能启用悬浮慢放球</string>
+    <string name="settings_slow_ball_fail">悬浮慢放球启动失败</string>
+    <string name="slow_ball_on">慢</string>
+    <string name="slow_ball_off">快</string>
+    <string name="slow_ball_closed">悬浮慢放球已关闭</string>
     <string name="settings_debug">调试服务</string>
     <string name="settings_perm">权限管理</string>
     <string name="settings_perm_sub">查看与补开全部权限</string>
@@ -565,6 +576,8 @@
     <string name="appr_36">默认</string>
     <string name="appr_37">渐变预设</string>
     <string name="appr_38">自定义图片</string>
+    <string name="appr_39">行动轨道</string>
+    <string name="appr_40">时间轴分轨 · 珠子行动 + 无框文本</string>
     <!-- 浏览器接管/交互状态 -->
     <string name="br_click_view_not_ready">点击: 视图未就绪</string>
     <string name="br_tapped">已物理点击(%1$d,%2$d)</string>

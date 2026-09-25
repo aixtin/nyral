@@ -316,7 +316,7 @@ import kotlinx.coroutines.launch
                     1f, 0.96f, 1f, 0.96f,
                     android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f,
                     android.view.animation.Animation.RELATIVE_TO_SELF, 0.5f).apply {
-                    duration = 220
+                    duration = (220L * TypewriterCenter.slowMul()).toLong()
                     repeatCount = 2
                     repeatMode = android.view.animation.Animation.REVERSE
                     interpolator = android.view.animation.DecelerateInterpolator()

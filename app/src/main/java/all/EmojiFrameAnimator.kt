@@ -222,19 +222,21 @@ object EmojiFrameAnimator {
         fun frameTick(now: Long): Long {
             val arr = frames ?: return -1
             if (arr.isEmpty()) return -1
+            // 慢放联动(09-24): 帧间隔按全局慢放倍数放大(系统 animator_duration_scale 只管属性动画)
+            val eff = (intervalMs * TypewriterCenter.slowMul()).toLong().coerceAtLeast(1L)
             if (arr.size == 1) {
                 if (lastShownIdx != 0) { iv.setImageBitmap(arr[0]); lastShownIdx = 0 }
                 lastIdx = 0
-                return intervalMs
+                return eff
             }
             val el = (now - startUptime).coerceAtLeast(0L)
-            val i = ((el / intervalMs) % arr.size).toInt()
+            val i = ((el / eff) % arr.size).toInt()
             if (i != lastShownIdx) {
                 iv.setImageBitmap(arr[i])
                 lastShownIdx = i
             }
             lastIdx = i
-            return intervalMs
+            return eff
         }
 
         private val watchdog = Runnable { if (releasePending) softRelease() }
@@ -316,7 +318,7 @@ object EmojiFrameAnimator {
                 pausedElapsed = (SystemClock.uptimeMillis() - startUptime).coerceAtLeast(0L)
                 val arr = frames
                 if (arr != null && arr.isNotEmpty() && intervalMs > 0) {
-                    pausedElapsed = pausedElapsed % (intervalMs * arr.size)
+                    pausedElapsed = pausedElapsed % ((intervalMs * TypewriterCenter.slowMul()).toLong().coerceAtLeast(1L) * arr.size)
                 }
             }
             playing = false
