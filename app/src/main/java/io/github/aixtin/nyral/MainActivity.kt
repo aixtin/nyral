@@ -245,9 +245,13 @@ class MainActivity : Activity() {
         // 直接 tv.text=spanned 会绕过 Markwon 的 TextView 生命周期钩子, 列表等 span 测量异常 = 气泡右侧被截断
         mdCache.get(md)?.let {
             if (sScrolling) {
-                // 根治(09-27): 缓存命中路径滑动中同样 defer——命中时 tv 多处于"占位纯文本"态,
-                // 直接 setParsedMarkdown 替换会产生占位→渲染高度突变(实测 delta=-755), 滑动中
-                // 无人补偿会推挤视口=多气泡跳; 挂起等 IDLE 统一替换+补偿
+                // 根治(09-27): 缓存命中路径滑动中同样 defer——直接 setParsedMarkdown 替换
+                // 会产生占位→渲染高度突变(实测 delta=-755), 滑动中无人补偿会推挤视口=多气泡跳;
+                // 挂起等 IDLE 统一替换+补偿
+                // 修复(09-28 第三波): 挂起前必须先设纯文本占位(与长文本路径一致)——池化行复用后
+                // tv 文本已被清空, 若保持空白, IDLE flush 的 text 校验(tv.text==md)必失败,
+                // 替换被丢弃 = 正文永久空白气泡(用户实测: 只剩思考气泡, 正文全空白)
+                if (tv.text?.toString() != md) tv.text = md
                 pendingMdReplacements.add {
                     if (tv.text?.toString() == md) markwon.setParsedMarkdown(tv, it)
                     tryResumeBottomIfTrueBottom()
