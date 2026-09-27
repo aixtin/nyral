@@ -122,12 +122,17 @@ fun roundedBitmap(src: Bitmap, radius: Int): Bitmap {
     return out
 }
 
-/** 圆角背景 Drawable */
+/** 圆角背景 Drawable（按 radius+color 缓存复用：气泡滚动重绑/流式高频创建时避免每帧 new drawable） */
+private val sRoundedCache = object : android.util.LruCache<String, GradientDrawable>(96) {
+    override fun sizeOf(key: String, value: GradientDrawable): Int = 1
+}
 fun rounded(radius: Int, color: Int): GradientDrawable {
+    val k = radius.toString() + "_" + color
+    sRoundedCache.get(k)?.let { return it }
     return GradientDrawable().apply {
         setColor(color)
         cornerRadius = radius.toFloat()
-    }
+    }.also { sRoundedCache.put(k, it) }
 }
 
 /** 文件卡片文件名省略参考宽度(px): 首条参照文件名(连接卡_记忆库读写.md) 的渲染宽度。
@@ -141,7 +146,9 @@ fun fileCardNameMaxWidth(scaledDensity: Float): Int {
 
 /** 附件图片采样解码为气泡缩略图(最长边 ~200dp), 失败返回 null */
 fun decodeAttachmentBitmap(f: File, density: Float): Bitmap? {
-    return BitmapLoader.decodeSampledFile(f, dp(density, 200))
+    // 09-28 滑动丝滑：走 BitmapLoader 统一缩略图缓存——上翻历史重复 bind 同一附件时
+    // 不再主线程反复 decodeFile（此前每次滚动重绑都整图采样解码，掉帧尖峰）
+    return BitmapLoader.cachedSampled(f.absolutePath, "att_" + f.absolutePath, dp(density, 200))
 }
 
 /** 全局活跃 ExoPlayer 解码器硬上限(防 OOM): 内嵌气泡最多4 + 弹窗/抓帧2 = 6(旗舰档)。

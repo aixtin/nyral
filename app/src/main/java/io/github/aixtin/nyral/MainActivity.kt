@@ -202,6 +202,16 @@ class MainActivity : Activity() {
      *  流式回调进入主线程后先校验代际一致才操作 holder/滚动, 天然拦截迟到回调 */
     private var requestEpoch = 0L
     private var scrollUserScrolled = false   // 用户手动上翻/交互接管后不再自动拉底(不打扰阅读)
+    // 占位→渲染替换异步在途计数(09-27 修复2): 渲染未完成时列表高度偏小,
+    // canScrollVertically(1) 会长时间"伪贴底", 二次确认照样通过 → 误解除守卫,
+    // 渲染完成瞬间自动追底猛推 = 录屏末尾"静止→瞬移→底部结论"跳变;
+    // 在途 >0 期间禁止解除守卫, 渲染完成且真贴底才恢复自动追底
+    private val mdRenderPending = java.util.concurrent.atomic.AtomicInteger(0)
+    // 滑动中渲染完成的替换挂起队列(09-27 根治): 滑动中占位→markdown 高度突变(1500+px)
+    // 无人补偿会推挤视口内多行=多气泡跳; 渲染完成先挂起, 滚动完全停止(IDLE)后统一替换,
+    // 此时 watchHeightDrift 正常补偿钉住阅读位置, 与手势无打架
+    private val pendingMdReplacements = ArrayList<Runnable>()
+    private val FLUSH_BATCH = 6   // IDLE 后每帧最多执行的挂起替换数(09-28 第二波分批)
     // 触摸即冻结(09-25): 记录 DOWN 坐标, UP 按位移区分轻按(恢复慢打)/滑动(保持接管)
     private var touchDownX = 0f
     private var touchDownY = 0f
@@ -234,7 +244,17 @@ class MainActivity : Activity() {
         // 命中路径必须走 setParsedMarkdown(内部跑 beforeSetText/afterSetText 全流程),
         // 直接 tv.text=spanned 会绕过 Markwon 的 TextView 生命周期钩子, 列表等 span 测量异常 = 气泡右侧被截断
         mdCache.get(md)?.let {
-            markwon.setParsedMarkdown(tv, it)
+            if (sScrolling) {
+                // 根治(09-27): 缓存命中路径滑动中同样 defer——命中时 tv 多处于"占位纯文本"态,
+                // 直接 setParsedMarkdown 替换会产生占位→渲染高度突变(实测 delta=-755), 滑动中
+                // 无人补偿会推挤视口=多气泡跳; 挂起等 IDLE 统一替换+补偿
+                pendingMdReplacements.add {
+                    if (tv.text?.toString() == md) markwon.setParsedMarkdown(tv, it)
+                    tryResumeBottomIfTrueBottom()
+                }
+            } else {
+                markwon.setParsedMarkdown(tv, it)
+            }
             watchHeightDrift(tv)
             return
         }
@@ -249,6 +269,7 @@ class MainActivity : Activity() {
         // 替换引起的高度突变同样由 drift watcher 统一补偿(见 watchHeightDrift)
         tv.text = md
         watchHeightDrift(tv)
+        mdRenderPending.incrementAndGet()   // 占位已上屏, 渲染在途: 贴底判定冻结(09-27 修复2)
         mdExecutor.execute {
             val spanned = try {
                 if (mdCache.get(md) == null) mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
@@ -256,7 +277,39 @@ class MainActivity : Activity() {
             } catch (e: Exception) { null }
             if (spanned != null) runOnUiThread {
                 // holder 可能已被 RV 回收复用: 校验 tv 仍挂着本条占位文本才替换, 否则丢弃(幂等安全)
-                if (tv.text?.toString() == md) markwon.setParsedMarkdown(tv, spanned)
+                if (tv.text?.toString() != md) { mdRenderPending.decrementAndGet(); return@runOnUiThread }
+                if (sScrolling) {
+                    // 根治(09-27): 滑动中不上屏替换——占位→markdown 高度突变(1500+px)在滑动中
+                    // 无人补偿会推挤视口内多行内容=多气泡跳; 挂起到滚动停止统一替换, 停止后
+                    // watchHeightDrift 正常补偿钉住阅读位置(与手势无打架)
+                    pendingMdReplacements.add {
+                        if (tv.text?.toString() == md) markwon.setParsedMarkdown(tv, spanned)
+                        mdRenderPending.decrementAndGet()   // 替换执行/丢弃均归还计数
+                        tryResumeBottomIfTrueBottom()
+                    }
+                    // 注意: mdRenderPending 保持 >0, 渲染未上屏期间贴底判定继续冻结
+                } else {
+                    markwon.setParsedMarkdown(tv, spanned)
+                    mdRenderPending.decrementAndGet()   // 替换完成, 恢复贴底判定资格
+                    tryResumeBottomIfTrueBottom()
+                }
+            } else {
+                mdRenderPending.decrementAndGet()   // 编译失败也归还计数(罕见)
+            }
+        }
+    }
+
+    /** 渲染替换完成/贴底后: 若用户曾上翻且此刻真贴底, 主动恢复自动追底(09-27) */
+    private fun tryResumeBottomIfTrueBottom() {
+        // 替换完成瞬间高度已稳定(下一帧布局后): 若用户曾上翻且此刻真贴底,
+        // 主动恢复自动追底; 在中间阅读位则守卫保持, 不被自动追底拉走
+        if (scrollUserScrolled && !chatRec.canScrollVertically(1)) {
+            chatRec.postOnAnimation {
+                if (mdRenderPending.get() == 0 && !chatRec.canScrollVertically(1)) {
+                    scrollUserScrolled = false
+                    activeAiHolder?.resumeTypewriter()
+                    updateJumpFab()
+                }
             }
         }
     }
@@ -294,16 +347,21 @@ class MainActivity : Activity() {
                         Log.d("DRIFTDBG", "skip-scrolling delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
                         lastBottom = b; return true
                     }
+                    // 09-27 终版(气泡顶跳回标题栏根因): 用户上翻历史浏览(scrollUserScrolled=true)时
+                    // 阅读锚点是视口顶部, 底边钉住补偿的 scrollBy(+delta) 会把视口向底部猛拉
+                    // (flush 时双气泡替换叠加实测 +1592px)= 气泡顶边从屏幕中间跳回标题栏下方;
+                    // 历史浏览态不做补偿, RV 布局自然锚定首可见项顶, 替换气泡向下生长不扰动阅读位;
+                    // 补偿仅保留给贴底追读态(scrollUserScrolled=false, 流式输出钉住最新气泡底边)
+                    if (scrollUserScrolled) {
+                        Log.d("DRIFTDBG", "skip-history delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
+                        lastBottom = b; return true
+                    }
                     var row: android.view.View = tv
                     while (row.parent is android.view.View && row.parent !== chatRec) row = row.parent as android.view.View
                     if (row.parent === chatRec && row.top < chatRec.height && row.bottom > 0) {
-                        // 09-27 跳变修复2: 单次漂移超 400px 视为占位→渲染替换级替换(非流式增长/二次测量),
-                        // 松手瞬间命中也不猛推, 交由 RV 自然布局
-                        val ad = if (delta >= 0) delta else -delta
-                        if (ad > 400) {
-                            Log.d("DRIFTDBG", "skip-bigdelta delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
-                            lastBottom = b; return true
-                        }
+                        // 09-27 根治: 滑动中渲染替换已 defer 到滚动停止后, 此处只会在
+                        // sScrolling=false 时到达(滑动中提前 return), 补偿与手势无打架;
+                        // 占位→替换级大 delta 亦直接补偿钉住, 交由 RV 自然布局会推挤视口=跳
                         Log.d("DRIFTDBG", "compensate delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
                         chatRec.scrollBy(0, delta)
                     }
@@ -835,7 +893,8 @@ class MainActivity : Activity() {
     private fun setupChatList() {
         // 消息区: RecyclerView 可回收传送带——只保留屏幕内可见的气泡, 滚出屏幕即回收销毁,
         // 滚回复用同一框架塞新内容, 不随聊天变长无限堆叠 View(解决 ScrollView+LinearLayout 长会话卡顿/内存增长)
-        chatAdapter = ChatAdapter(chatRows) { row -> buildRowView(row) }
+        chatAdapter = ChatAdapter(chatRows, { row -> buildRowView(row) },
+            { row -> chatRowPoolType(row) }, { v, row -> bindPooledView(v, row) })
         chatRec = NyralRecyclerView(this).apply {
             layoutManager = NyralLayoutManager(this@MainActivity)
             adapter = chatAdapter
@@ -906,6 +965,13 @@ class MainActivity : Activity() {
                     }
                     if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                         updateJumpFab()   // 惯性滚动停: 按最终位置刷新显隐(09-24)
+                        // 根治(09-27): 滚动停止后统一执行滑动中挂起的 markdown 替换,
+                        // 此刻 sScrolling=false, watchHeightDrift 逐帧补偿钉住阅读位置,
+                        // 滑动中不再出现占位→替换的高度突变推挤(多气泡跳)
+                        if (pendingMdReplacements.isNotEmpty()) {
+                            Log.d("DRIFTDBG", "flush-pending start n=" + pendingMdReplacements.size + " (idle replace defer, batched)")
+                            flushPendingMdReplacements()
+                        }
                     }
                 }
                 override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
@@ -938,9 +1004,13 @@ class MainActivity : Activity() {
                     // = 上翻历史被瞬间抽到最新消息(快速吸底);
                     // 改为 postOnAnimation 下一动画帧(当帧布局完成后)二次确认, 布局挤动的
                     // 单帧误判被滤除, 只有真稳定贴底才恢复自动追底
-                    if (!rv.canScrollVertically(1)) {
+                    // 修复2(09-27): 渲染在途(mdRenderPending>0)期间列表高度偏小会造成
+                    // 跨多帧的"伪贴底"(占位高度 < 渲染后高度), 旧二次确认照样放行;
+                    // 渲染替换完成那一下高度增长 + 守卫已解除 = 自动追底猛推跳变,
+                    // 故在途期间冻结贴底判定, 渲染完成且真贴底才恢复
+                    if (!rv.canScrollVertically(1) && mdRenderPending.get() == 0) {
                         rv.postOnAnimation {
-                            if (!rv.canScrollVertically(1)) {
+                            if (!rv.canScrollVertically(1) && mdRenderPending.get() == 0) {
                                 scrollUserScrolled = false
                                 activeAiHolder?.resumeTypewriter()   // 滚回底部: 恢复慢打(09-25)
                                 updateJumpFab()   // 贴底恢复追底: 按需隐藏按钮(09-24)
@@ -2875,9 +2945,63 @@ class MainActivity : Activity() {
     }
 
     /** RecyclerView 行渲染分发: 每条 ChatRow 对应一个气泡(复用既有 bubble/aiBubbleWithThinking 渲染, 不重造轮子) */
+    // ===== 滑动丝滑优化（09-28）：形态池化 =====
+    // 气泡定位标记：chatWrap 容器内唯一标识气泡 View（User/Ai 池化行使用）
+    private val POOLED_BUBBLE_TAG = "nyral_pooled_bubble_" + System.identityHashCode(this)
+    // ===== 滑动丝滑优化（09-28 第二波）：AiRich 行内部池化 =====
+    private val aiRichSegPool = ArrayList<TextView>()      // AiRich 正文分片 TextView 池
+    private val aiRichWrapPool = ArrayList<LinearLayout>() // AiRich chatWrap(横向容器)池
+    private val aiAvatarPool = ArrayList<View>()           // AiRich chatWrap 的 AI 头像池
+    // 行形态稳定且创建成本高的纯文本类行进入形态池：滚出滚回复用同一 View 树，bind 只 setText
+    private fun chatRowPoolType(row: ChatRow): Int = when (row) {
+        is ChatRow.User -> if (isPoolableUserText(row.content)) ChatAdapter.PT_USER_TEXT else ChatAdapter.PT_NONE
+        is ChatRow.Ai -> if (!row.content.contains("att://") && !row.content.contains("[表情:") && !row.content.contains("emoji_lib/"))
+            ChatAdapter.PT_AI_TEXT else ChatAdapter.PT_NONE
+        is ChatRow.Sys -> ChatAdapter.PT_SYS
+        is ChatRow.TimeTag -> ChatAdapter.PT_TAG
+        is ChatRow.Welcome -> ChatAdapter.PT_WELCOME
+        is ChatRow.AiRich -> ChatAdapter.PT_AI_RICH
+        else -> ChatAdapter.PT_NONE
+    }
+
+    // 保守等价 bubble() 富媒体分支：含富媒体标记一律不池化（维持原重建路径），纯文本才池化
+    private fun isPoolableUserText(content: String): Boolean =
+        !content.contains("[表情:") && !content.contains("emoji_lib/") &&
+            !content.contains("[视频:") && !content.contains("[图片]") &&
+            !content.contains("[音频]") && !content.contains("[文件:")
+
+    // 池化命中时的原地内容更新（View 树不复建，只刷新数据）
+    // 注意：User/Ai 行 buildRowView 返回 chatWrap 容器（含头像布局），气泡本身打了
+    // POOLED_BUBBLE_TAG 标记，这里 findViewWithTag 穿透容器定位 TextView 再更新
+    private fun bindPooledView(v: View, row: ChatRow) {
+        when (row) {
+            is ChatRow.User -> {
+                val b = v.findViewWithTag<View>(POOLED_BUBBLE_TAG)
+                if (b is TextView) {
+                    b.text = renderUserContent(row.content)
+                    val userMaxW = if (ModeConfig.chatMode()) chatMaxW()
+                    else (chatMaxW() - dp(24)).coerceAtLeast(dp(120))
+                    (b.layoutParams as? LinearLayout.LayoutParams)?.width =
+                        if (row.content.length > 60) userMaxW else ViewGroup.LayoutParams.WRAP_CONTENT
+                }
+            }
+            is ChatRow.Ai -> {
+                val b = v.findViewWithTag<View>(POOLED_BUBBLE_TAG)
+                if (b is TextView) {
+                    if (ModeConfig.chatPlainText()) b.text = ModeConfig.stripMarkdownForChat(row.content.trim())
+                    else setMarkdownCached(b, ModeConfig.stripChatProtocolPrefix(row.content.trim()))
+                }
+            }
+            is ChatRow.Sys -> if (v is TextView) v.text = row.text
+            is ChatRow.TimeTag -> if (v is TextView) v.text = row.text
+            is ChatRow.AiRich -> if (v is LinearLayout) bindAiRichPooled(v, row)
+            else -> {}
+        }
+    }
+
     internal fun buildRowView(row: ChatRow): View = when (row) {
-        is ChatRow.User -> chatWrap(bubble(row.content, isUser = true), true)
-        is ChatRow.Ai -> chatWrap(bubble(row.content, isUser = false), false)
+        is ChatRow.User -> chatWrap(bubble(row.content, isUser = true).also { it.tag = POOLED_BUBBLE_TAG }, true)
+        is ChatRow.Ai -> chatWrap(bubble(row.content, isUser = false).also { it.tag = POOLED_BUBBLE_TAG }, false)
         is ChatRow.AiRich -> aiBubbleWithThinking(row.thinking, row.content, row.tools, row.timeline)
         is ChatRow.Sys -> TextView(this).apply {
             text = row.text
@@ -3988,34 +4112,7 @@ class MainActivity : Activity() {
     }
 
     private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = ""): LinearLayout {
-        // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
-        fun contentRow(seg: String): TextView? {
-            val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
-            if (renderContent.isBlank()) return null   // 空气泡兜底(09-25): 纯协议前缀段不建视图
-            return TextView(this).apply {
-                textSize = 15f
-                if (ModeConfig.chatPlainText()) {
-                    text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
-                } else {
-                    // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                    setMarkdownCached(this, renderContent)
-                }
-            setLineSpacing(dp(3).toFloat(), 1f)
-            includeFontPadding = false
-            setTextColor(BUBBLE_AI_TEXT)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(4)
-            }
-            maxWidth = chatMaxW()
-            makeCopyable(this) { seg }
-        }
-        }
-        val contentSegs = splitLongContent(content)
-        return LinearLayout(this).apply {
+        val container = LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
             // Agent 模式不要头像(仅聊天模式并排头像); 聊天模式头像由 chatWrap 负责
             // 独立气泡容器: 不包裹大气泡背景, 思考/工具/正文各自成气泡, 与流式 attach() 一致
@@ -4025,50 +4122,157 @@ class MainActivity : Activity() {
                 gravity = Gravity.START
                 topMargin = dp(6)
             }
-            // 09-24 单行状态行重构: 思考/工具不再逐条独立气泡, 汇总为单行摘要
-            // ("💭 已思考X字 · 🔧 N个工具", 与流式收尾定格同形态), 点击原地展开脉络时间线(竖线+圆点)
-            val events = statusEventsOf(timelineJson, thinking, toolsJson)
-            if (events.isNotEmpty()) {
-                val col = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                }
-                val summary = makeStatusShell(this@MainActivity).apply {
-                    val tv = TextView(this@MainActivity).apply {
-                        textSize = 14f
-                        setTextColor(THINK_TEXT)
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                        text = statusSummaryText(
-                            events.filter { it.type == "think" }
-                                .sumOf { it.text.codePointCount(0, it.text.length) },
-                            events.count { it.type == "tool" })
+        }
+        fillAiRich(container, thinking, content, toolsJson, timelineJson)
+        return container
+    }
+
+    /** AiRich 行池化绑定（09-28 第二波）：复用外层容器 View 树，先回收旧子树再原地填充 */
+    private fun bindAiRichPooled(container: LinearLayout, row: ChatRow.AiRich) {
+        recycleAiRichChildren(container)
+        fillAiRich(container, row.thinking, row.content, row.tools, row.timeline)
+    }
+
+    /** 回收 AiRich 容器子树：chatWrap 容器/分片 TextView/AI 头像各自入池，保证下次 bind 干净复用 */
+    private fun recycleAiRichChildren(container: LinearLayout) {
+        while (container.childCount > 0) {
+            val child = container.getChildAt(0)
+            container.removeViewAt(0)
+            if (child is LinearLayout && child.orientation == LinearLayout.HORIZONTAL) {
+                // chatWrap(AI 侧): [头像, content]; content 可能是分片 TextView 或状态行 col
+                for (i in 0 until child.childCount) {
+                    val c = child.getChildAt(i)
+                    if (i == 0 && c is TextView) {
+                        aiAvatarPool.add(c)
+                    } else if (c is TextView) {
+                        c.text = ""   // 清占位, 防 setMarkdownCached 命中校验误判
+                        c.setOnLongClickListener(null)
+                        aiRichSegPool.add(c)
+                    } else if (c is LinearLayout) {
+                        c.removeAllViews()   // 状态行 col: 整体丢弃(行数少, 不池化)
                     }
-                    addView(tv, LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-                    setOnClickListener {
-                        toggleStatusDrop(this, events)   // 09-25 窗帘式下拉面板(覆盖式, 不挤 RV 布局流)
-                    }
                 }
-                col.addView(summary)
-                addView(chatWrap(col, false))
+                child.removeAllViews()
+                aiRichWrapPool.add(child)
+            } else if (child is LinearLayout) {
+                child.removeAllViews()
             }
-            // 正文独立气泡: 按 timeline content 事件精确还原交错顺序(新格式), 旧格式回退全部分片
-            val timeline = parseTimeline(timelineJson)
-            var contentPlaced = false
-            if (timeline.isNotEmpty()) {
-                timeline.forEach { (type, thinkText, name, arg, result) ->
-                    if (type == "content" && thinkText.isNotBlank()) {
-                        contentRow(thinkText)?.let { addView(chatWrap(it, false)); contentPlaced = true }
-                    }
-                }
-                if (!contentPlaced && content.isNotBlank()) {
-                    contentSegs.forEach { contentRow(it)?.let { r -> addView(chatWrap(r, false)) } }
-                }
-            } else if (content.isNotBlank()) {
-                contentSegs.forEach { contentRow(it)?.let { r -> addView(chatWrap(r, false)) } }
+        }
+    }
+
+    /** AiRich 容器原地填充（原 aiBubbleWithThinking apply 体）：分片 TextView/AI 头像/chatWrap 从池取用 */
+    private fun fillAiRich(container: LinearLayout, thinking: String, content: String, toolsJson: String, timelineJson: String) {
+        // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
+        fun obtainSeg(seg: String): TextView? {
+            val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
+            if (renderContent.isBlank()) return null   // 空气泡兜底(09-25): 纯协议前缀段不建视图
+            val tv = aiRichSegPool.removeLastOrNull() ?: TextView(this@MainActivity).apply {
+                textSize = 15f
+                setLineSpacing(dp(3).toFloat(), 1f)
+                includeFontPadding = false
+                setTextColor(BUBBLE_AI_TEXT)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                maxWidth = chatMaxW()
             }
+            tv.background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
+            if (tv.layoutParams !is LinearLayout.LayoutParams) {
+                tv.layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(6)
+                    bottomMargin = dp(4)
+                }
+            }
+            if (ModeConfig.chatPlainText()) {
+                tv.text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
+            } else {
+                // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
+                setMarkdownCached(tv, renderContent)
+            }
+            makeCopyable(tv) { seg }
+            return tv
+        }
+        fun obtainChatWrap(content: View): View {
+            if (!ModeConfig.chatMode()) return content
+            val row = aiRichWrapPool.removeLastOrNull() ?: LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                // 禁用 baseline 对齐: 气泡与头像均为 TextView, 默认会按文字基线对齐,
+                // 导致无文本头像被下推, 短气泡时头像底部超出行边界被裁剪(下边缺角)
+                isBaselineAligned = false
+                gravity = Gravity.START or Gravity.TOP
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.START
+                    topMargin = dp(6)
+                    bottomMargin = 0
+                }
+            }
+            row.removeAllViews()
+            val avatar = aiAvatarPool.removeLastOrNull() ?: aiAvatar()
+            row.addView(avatar, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                rightMargin = dp(8)
+            })
+            row.addView(content, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            return row
+        }
+        val contentSegs = splitLongContent(content)
+        // 09-24 单行状态行重构: 思考/工具不再逐条独立气泡, 汇总为单行摘要
+        // ("💭 已思考X字 · 🔧 N个工具", 与流式收尾定格同形态), 点击原地展开脉络时间线(竖线+圆点)
+        val events = statusEventsOf(timelineJson, thinking, toolsJson)
+        if (events.isNotEmpty()) {
+            val col = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            val summary = makeStatusShell(this@MainActivity).apply {
+                val tv = TextView(this@MainActivity).apply {
+                    textSize = 14f
+                    setTextColor(THINK_TEXT)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    text = statusSummaryText(
+                        events.filter { it.type == "think" }
+                            .sumOf { it.text.codePointCount(0, it.text.length) },
+                        events.count { it.type == "tool" })
+                }
+                addView(tv, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                setOnClickListener {
+                    toggleStatusDrop(this, events)   // 09-25 窗帘式下拉面板(覆盖式, 不挤 RV 布局流)
+                }
+            }
+            col.addView(summary)
+            container.addView(obtainChatWrap(col))
+        }
+        // 正文独立气泡: 按 timeline content 事件精确还原交错顺序(新格式), 旧格式回退全部分片
+        val timeline = parseTimeline(timelineJson)
+        var contentPlaced = false
+        if (timeline.isNotEmpty()) {
+            timeline.forEach { (type, thinkText, name, arg, result) ->
+                if (type == "content" && thinkText.isNotBlank()) {
+                    obtainSeg(thinkText)?.let { container.addView(obtainChatWrap(it)); contentPlaced = true }
+                }
+            }
+            if (!contentPlaced && content.isNotBlank()) {
+                contentSegs.forEach { obtainSeg(it)?.let { r -> container.addView(obtainChatWrap(r)) } }
+            }
+        } else if (content.isNotBlank()) {
+            contentSegs.forEach { obtainSeg(it)?.let { r -> container.addView(obtainChatWrap(r)) } }
+        }
+    }
+
+    /** 滑动停止(IDLE)后分批 flush 挂起的 markdown 替换（09-28 第二波）：
+     *  原实现一帧内集中执行全部替换, 长历史一次上翻可能积压几十条 = 停止瞬间集中布局卡顿;
+     *  改为每帧最多 FLUSH_BATCH 条, 余量 post 下一帧续跑, 停止后的布局成本摊平 */
+    private fun flushPendingMdReplacements() {
+        if (pendingMdReplacements.isEmpty() || sScrolling) return
+        val n = minOf(FLUSH_BATCH, pendingMdReplacements.size)
+        val pend = ArrayList<Runnable>(n)
+        repeat(n) { pend.add(pendingMdReplacements.removeAt(0)) }
+        for (r in pend) r.run()
+        if (pendingMdReplacements.isNotEmpty()) {
+            chatRec.post { flushPendingMdReplacements() }
         }
     }
 
