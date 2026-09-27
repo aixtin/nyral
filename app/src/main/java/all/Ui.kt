@@ -161,6 +161,18 @@ object Ui {
         return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
     }
 
+    /** Lucide square 图标（描边圆角方块，停止生成语义；用于停止按钮） */
+    fun lucideSquare(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_square, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
     /** Lucide trash-2 图标（垃圾桶，删除语义；用于移除模型/删除附件等） */
     fun lucideTrash(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
         val px = dp(a, sizeDp)
@@ -201,6 +213,54 @@ object Ui {
     fun lucideRefresh(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
         val px = dp(a, sizeDp)
         val src = a.resources.getDrawable(R.drawable.lucide_refresh_cw, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide badge-check 图标（完成勾，替换 ✓ 文字；行动轨道工具完成态） */
+    fun lucideBadgeCheck(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_badge_check, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide wrench 图标（工具珠子，替换 🔧；行动轨道工具块） */
+    fun lucideWrench(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_wrench, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide brain 图标（思考珠子，替换 💭；行动轨道思考块） */
+    fun lucideBrain(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_brain, a.theme).mutate()
+        src.setTint(color)
+        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        src.setBounds(0, 0, px, px)
+        src.draw(c)
+        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)
+    }
+
+    /** Lucide route 图标（流程终点：两端圆点+折线路径；行动轨道末尾结尾标记） */
+    fun lucideRoute(a: Activity, color: Int, sizeDp: Int): android.graphics.drawable.BitmapDrawable {
+        val px = dp(a, sizeDp)
+        val src = a.resources.getDrawable(R.drawable.lucide_route, a.theme).mutate()
         src.setTint(color)
         val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
         val c = android.graphics.Canvas(bmp)
@@ -274,13 +334,9 @@ object Ui {
         TextView(a).apply {
             text = if (ch.isEmpty()) "" else String(Character.toChars(ch.codePointAt(0)))
             textSize = 16f
-            setTextColor(Color.WHITE)
+            setTextColor(Ui.TEXT)
             gravity = Gravity.CENTER
-            val base = if (seed == 0) Ui.PRIMARY else colorFromSeed(seed)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(lighten(base), base)
-            ).apply { cornerRadius = dp(a, 10).toFloat() }
+            background = Ui.roundedBorder(Ui.PRIMARY, 10, 2, a)
             layoutParams = LinearLayout.LayoutParams(dp(a, sizeDp), dp(a, sizeDp))
         }
 
@@ -291,12 +347,8 @@ object Ui {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val pad = dp(a, if (sizeDp <= 40) 9 else 11)
             setPadding(pad, pad, pad, pad)
-            setColorFilter(Color.WHITE)
-            val base = if (seed == 0) Ui.PRIMARY else colorFromSeed(seed)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(lighten(base), base)
-            ).apply { cornerRadius = dp(a, 10).toFloat() }
+            setColorFilter(Ui.TEXT)
+            background = Ui.roundedBorder(Ui.PRIMARY, 10, 2, a)
             layoutParams = LinearLayout.LayoutParams(dp(a, sizeDp), dp(a, sizeDp))
         }
     /** 列表项标题文字 */
@@ -390,20 +442,6 @@ object Ui {
         textSize = 11f
         setTextColor(Ui.SUB)
         setPadding(dp(a, 2), dp(a, 3), 0, 0)
-    }
-
-    /** 由 seed 派生一个稳定的中亮色（用于图标底色） */
-    private fun colorFromSeed(seed: Int): Int {
-        val h = ((seed and 0x7FFFFFFF) % 360)
-        return Color.HSVToColor(floatArrayOf(h.toFloat(), 0.45f, 0.85f))
-    }
-
-    private fun lighten(c: Int): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(c, hsv)
-        hsv[1] *= 0.55f
-        hsv[2] = 0.95f
-        return Color.HSVToColor(hsv)
     }
 
     // ---- 风格化弹窗（与页面同视觉：透明遮罩 + 白色圆角卡片） ----

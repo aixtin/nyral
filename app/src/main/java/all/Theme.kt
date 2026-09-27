@@ -307,3 +307,37 @@ object OledTheme : BaseTheme(
     override fun btnCorner(density: Float): Float = 12 * density
     override fun inputCorner(density: Float): Float = 10 * density
 }
+
+/** 主题 6：白域（白色色域自由发挥：纯白底 + 月白/霜白/银灰同色系层次 + 极淡弥散阴影 + 胶囊按钮，极简高级感） */
+object WhiteTheme : BaseTheme(
+    id = 6,
+    nameRes = R.string.theme_white,
+    bg = Color.parseColor("#FCFCFD"),
+    surface = Color.parseColor("#FFFFFF"),
+    primary = Color.parseColor("#2B2B30"),
+    primaryLight = Color.parseColor("#F2F2F5"),
+    text = Color.parseColor("#1C1C20"),
+    sub = Color.parseColor("#A7A7B0"),
+    divider = Color.parseColor("#F1F1F4"),
+    inputBg = Color.parseColor("#F5F5F7"),
+    stroke = Color.parseColor("#E4E4EA"),
+    danger = Color.parseColor("#E5484D"),
+    dangerLight = Color.parseColor("#FBEDED"),
+    accent = Color.parseColor("#4A4A52"),
+    bubbleAi = Color.parseColor("#F4F4F6"),
+    bubbleAiText = Color.parseColor("#2C2C32"),
+    bubbleUser = Color.parseColor("#E9E9EE"),
+    bubbleUserText = Color.parseColor("#1C1C20"),
+    thinkBg = Color.parseColor("#F0F0F3"),
+    thinkText = Color.parseColor("#6F6F78"),
+    radius = RadiusTokens(20, 16, 999, 18, 10, 20),
+    spacing = SpacingTokens(16, 16, 12, 16),
+    typography = TypeTokens(17f, 16f, 12f, 11f),
+    shadow = ShadowTokens(6, 16)
+) {
+    // 白域大圆角 + 胶囊按钮语言
+    override fun bubbleCorner(density: Float): Float = 18 * density
+    override fun cardCorner(density: Float): Float = 20 * density
+    override fun btnCorner(density: Float): Float = 999 * density
+    override fun inputCorner(density: Float): Float = 16 * density
+}
