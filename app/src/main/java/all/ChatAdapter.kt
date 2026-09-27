@@ -34,12 +34,25 @@ internal sealed class ChatRow(val id: Long) {
  */
 internal class ChatAdapter(
     private val rows: MutableList<ChatRow>,
-    private val buildRow: (ChatRow) -> View
+    private val buildRow: (ChatRow) -> View,
+    private val poolType: (ChatRow) -> Int = { PT_NONE },
+    private val bindView: (View, ChatRow) -> Unit = { _, _ -> }
 ) : ListAdapter<ChatRow, ChatAdapter.VH>(DIFF) {
 
     class VH(val root: LinearLayout) : RecyclerView.ViewHolder(root)
 
     var recyclerView: RecyclerView? = null
+
+    /**
+     * 形态 View 池（2026-09-28 滑动丝滑优化）：
+     * 此前 onBindViewHolder 每次 removeAllViews + buildRow 重建整棵 View 树，
+     * ViewHolder 复用被完全绕过——滚出滚回的行每帧都在 new TextView/GradientDrawable/
+     * LayoutParams + measure/layout，是 120Hz 下"不够丝滑"的最大成本。
+     * 现在按形态池化：同形态行复用同一 View 树，bind 只原地更新内容（setText 等）。
+     * 注意：缓存的 View 必须 parent==null 才可复用（removeAllViews 已 detach）；
+     * 若仍挂在旧 holder（异常时序）则走新建并覆盖池，保证不崩不串。
+     */
+    private val viewPool = HashMap<Int, View>()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         return VH(LinearLayout(parent.context).apply {
@@ -58,9 +71,25 @@ internal class ChatAdapter(
                 (box.parent as? ViewGroup)?.removeView(box)
                 holder.root.addView(box)
             }
-        } else {
-            holder.root.addView(buildRow(row))
+            return
         }
+        val pt = poolType(row)
+        if (pt >= 0) {
+            val cached = viewPool[pt]
+            if (cached != null && cached.parent == null) {
+                holder.root.addView(cached)
+                bindView(cached, row)
+                return
+            }
+        }
+        val nv = buildRow(row)
+        holder.root.addView(nv)
+        if (pt >= 0) viewPool[pt] = nv
+    }
+
+    /** 清理形态池（全量重建/会话切换时避免旧 View 树滞留） */
+    fun clearPool() {
+        viewPool.clear()
     }
 
     /** 追加单条(用户/系统/流式行): 同步维护外部列表 + submitList 增量 diff; onCommitted 在 diff 提交后回调 */
@@ -118,6 +147,14 @@ internal class ChatAdapter(
     }
 
     companion object {
+        const val PT_NONE = -1
+        const val PT_USER_TEXT = 0
+        const val PT_AI_TEXT = 1
+        const val PT_SYS = 2
+        const val PT_TAG = 3
+        const val PT_WELCOME = 4
+        const val PT_AI_RICH = 5
+
         private val DIFF = object : DiffUtil.ItemCallback<ChatRow>() {
             override fun areItemsTheSame(a: ChatRow, b: ChatRow) = a.id == b.id
             override fun areContentsTheSame(a: ChatRow, b: ChatRow): Boolean {
