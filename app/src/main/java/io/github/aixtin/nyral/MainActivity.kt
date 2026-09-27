@@ -286,9 +286,24 @@ class MainActivity : Activity() {
                 val b = tv.bottom
                 if (lastBottom != Int.MIN_VALUE && b != lastBottom) {
                     val delta = b - lastBottom
+                    // 09-27 跳变修复2: 用户滑动/惯性中(DRAGGING/SETTLING)不做补偿——
+                    // 滑动中 bind 历史长文(占位→渲染替换, delta 可达 1500+) 若仍 scrollBy,
+                    // 会把正在滚动的列表猛推/拉回 = 录屏 8~9s 的上下反复跳变;
+                    // 滚动中只更新基线, 停止后高度已稳定, 无增量自然不补, 位置即 RV 布局自然位
+                    if (sScrolling) {
+                        Log.d("DRIFTDBG", "skip-scrolling delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
+                        lastBottom = b; return true
+                    }
                     var row: android.view.View = tv
                     while (row.parent is android.view.View && row.parent !== chatRec) row = row.parent as android.view.View
                     if (row.parent === chatRec && row.top < chatRec.height && row.bottom > 0) {
+                        // 09-27 跳变修复2: 单次漂移超 400px 视为占位→渲染替换级替换(非流式增长/二次测量),
+                        // 松手瞬间命中也不猛推, 交由 RV 自然布局
+                        val ad = if (delta >= 0) delta else -delta
+                        if (ad > 400) {
+                            Log.d("DRIFTDBG", "skip-bigdelta delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
+                            lastBottom = b; return true
+                        }
                         Log.d("DRIFTDBG", "compensate delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
                         chatRec.scrollBy(0, delta)
                     }
