@@ -145,6 +145,11 @@ class MainActivity : Activity() {
             .tableOddRowBackgroundColor(Ui.INPUT_BG)
             .build()
     }
+    /** markwon 渲染互斥锁(2026-09-27): 主线程同步渲染与后台预热(mdExecutor 3线程)并发调用同一 markwon 单例,
+     *  RoundedTablePlugin 的 TableVisitor 持有共享 pendingTableRow, 并发渲染表格时一边遍历一边 add
+     *  → ConcurrentModificationException 首启闪退(二次打开正常, 概率性)。解析/渲染段统一串行化 */
+    private val markwonRenderLock = Any()
+
     // Markdown 本地渲染 (Markwon, 开源/无网络/不接第三方服务)
     internal val markwon by lazy {
         Markwon.builder(this)
@@ -223,12 +228,19 @@ class MainActivity : Activity() {
     internal fun setMarkdownCached(tv: TextView, md: String) {
         // 高度漂移补偿: 表格/复杂 span 的二次测量发生在首次布局之后(post 同文本再 setText),
         // 高度突增推挤视口内容 = 上翻"突然加速"; watcher 每帧 draw 前反向补偿钉住阅读位置
-        watchHeightDrift(tv)
+        // 09-27 修复: watcher 必须在文本设置之后注册——若先注册, 基线记的是 RV 复用残留的旧内容
+        // (或空内容)高度, setMarkdown 替换文本瞬间的高度差(可达几百px)被误当"生长量"补偿,
+        // 产生 delta=-236/+310 的上下跳闪(DRIFTDBG 实测)
         // 命中路径必须走 setParsedMarkdown(内部跑 beforeSetText/afterSetText 全流程),
         // 直接 tv.text=spanned 会绕过 Markwon 的 TextView 生命周期钩子, 列表等 span 测量异常 = 气泡右侧被截断
-        mdCache.get(md)?.let { markwon.setParsedMarkdown(tv, it); return }
+        mdCache.get(md)?.let {
+            markwon.setParsedMarkdown(tv, it)
+            watchHeightDrift(tv)
+            return
+        }
         if (md.length < 600) {   // 短文本同步渲染本就不卡, 直接走旧路径并回填缓存
-            markwon.setMarkdown(tv, md)
+            synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md) }
+            watchHeightDrift(tv)
             (tv.text as? Spanned)?.let { mdCache.put(md, it) }
             return
         }
@@ -236,9 +248,10 @@ class MainActivity : Activity() {
         // 先纯文本占位投并行编译池立即开始, 完成后回主线程替换并回填缓存;
         // 替换引起的高度突变同样由 drift watcher 统一补偿(见 watchHeightDrift)
         tv.text = md
+        watchHeightDrift(tv)
         mdExecutor.execute {
             val spanned = try {
-                if (mdCache.get(md) == null) mdCache.put(md, markwon.toMarkdown(md))
+                if (mdCache.get(md) == null) mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
                 mdCache.get(md)
             } catch (e: Exception) { null }
             if (spanned != null) runOnUiThread {
@@ -256,7 +269,16 @@ class MainActivity : Activity() {
      *  视口重叠的漂移在 draw 前反向 scrollBy 钉住——气泡底边不动、向上生长, 阅读位置纹丝不动。
      *  对表格二次测量/占位→渲染替换/任何未来高度突变源统一生效。
      *  生命周期: tv 离屏(detach)摘除, 重挂(缓存行复用)重置基线重新观察, 每帧成本一次整数比较 */
+    // 单气泡单 watcher 登记表(09-27 去重): 同一 tv 流式更新/内容替换会反复进入 watchHeightDrift,
+    // 每次 new 的 preDraw listener 若只 add 不摘除, 会在 chatRec observer 上累积 N 个,
+    // 一次高度变化被 N 个 watcher 各自 scrollBy(delta) 叠加补偿 = 上滑闪跳(顶部边框下滑又闪回);
+    // 先摘旧再挂新 + detach 清理登记表, 保证任意时刻单 watcher 无泄漏
+    private val driftPreDraws = HashMap<android.view.View, android.view.ViewTreeObserver.OnPreDrawListener>()
+    private val driftAttaches = HashMap<android.view.View, android.view.View.OnAttachStateChangeListener>()
+
     private fun watchHeightDrift(tv: TextView) {
+        driftPreDraws.remove(tv)?.let { chatRec.viewTreeObserver.removeOnPreDrawListener(it) }
+        driftAttaches.remove(tv)?.let { tv.removeOnAttachStateChangeListener(it) }
         var lastBottom = Int.MIN_VALUE
         val listener = object : android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
@@ -267,6 +289,7 @@ class MainActivity : Activity() {
                     var row: android.view.View = tv
                     while (row.parent is android.view.View && row.parent !== chatRec) row = row.parent as android.view.View
                     if (row.parent === chatRec && row.top < chatRec.height && row.bottom > 0) {
+                        Log.d("DRIFTDBG", "compensate delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)
                         chatRec.scrollBy(0, delta)
                     }
                 }
@@ -274,16 +297,22 @@ class MainActivity : Activity() {
                 return true
             }
         }
-        chatRec.viewTreeObserver.addOnPreDrawListener(listener)
-        tv.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        val attach = object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
                 lastBottom = Int.MIN_VALUE   // 重置基线: 重挂后(如缓存行复用)表格会再调度二次测量
                 chatRec.viewTreeObserver.addOnPreDrawListener(listener)
+                driftPreDraws[tv] = listener   // 同步登记: detach 清 map 后 attach 复活 listener 仍需可去重
             }
             override fun onViewDetachedFromWindow(v: View) {
                 chatRec.viewTreeObserver.removeOnPreDrawListener(listener)
+                driftPreDraws.remove(tv)
+                driftAttaches.remove(tv)
             }
-        })
+        }
+        driftPreDraws[tv] = listener
+        driftAttaches[tv] = attach
+        chatRec.viewTreeObserver.addOnPreDrawListener(listener)
+        tv.addOnAttachStateChangeListener(attach)
     }
 
     /** 会话打开后后台预编译历史 AI 消息(含 AiRich 分片), 上翻浏览时 bind 直接命中缓存 */
@@ -305,7 +334,7 @@ class MainActivity : Activity() {
                     if (md.length < 600) continue   // 短文本同步渲染本就不卡, 只预热长文
                     if (mdCache.get(md) != null) continue
                     try {
-                        mdCache.put(md, markwon.toMarkdown(md))
+                        mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
                     } catch (e: Exception) { /* 预热失败不阻塞, bind 时走异步兜底 */ }
                 }
             }
@@ -2945,7 +2974,7 @@ class MainActivity : Activity() {
                 setTextColor(BUBBLE_AI_TEXT)
                 setLineSpacing(dp(3).toFloat(), 1f)
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
-                markwon.setMarkdown(this, getString(R.string.welcome_intro_body))
+                synchronized(markwonRenderLock) { markwon.setMarkdown(this, getString(R.string.welcome_intro_body)) }
             })
         }
         inner.layoutParams = LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -4263,7 +4292,8 @@ class MainActivity : Activity() {
         val sLoc = IntArray(2); summary.getLocationInWindow(sLoc)
         val cLoc = IntArray(2); chatArea.getLocationInWindow(cLoc)
         val left = sLoc[0] - cLoc[0]
-        val top = sLoc[1] - cLoc[1] + summary.height
+        val gap = dp(8)   // 面板与气泡间距(09-27 用户反馈: 顶部边框贴太近)
+        val top = sLoc[1] - cLoc[1] + summary.height + gap
         // 目标高度: 内容全高 clamp 到聊天区可视下边界(dp(12) 留白), 超高时面板内 ScrollView 可滚动
         val wMax = summary.width.coerceAtLeast(dp(120)).coerceAtMost(chatMaxW())
         panel.measure(
@@ -4271,7 +4301,7 @@ class MainActivity : Activity() {
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         val contentH = panel.measuredHeight.coerceAtLeast(1)
         val availBottom = cLoc[1] + chatArea.height - dp(12)
-        val maxH = (availBottom - (sLoc[1] + summary.height)).coerceAtLeast(dp(80))
+        val maxH = (availBottom - (sLoc[1] + summary.height + gap)).coerceAtLeast(dp(80))
         val targetH = contentH.coerceAtMost(maxH)
         val lp = FrameLayout.LayoutParams(wMax, 0).apply {
             gravity = Gravity.TOP or Gravity.START

@@ -5,8 +5,8 @@ import android.content.SharedPreferences
 
 /**
  * 界面模式配置：聊天模式 / Agent 模式
- * - 聊天模式(chatMode=true)：带头像(用户/AI 并排)；正文默认渲染 Markdown(chatMarkdown=true)，可关闭回退纯文本
- * - Agent 模式(chatMode=false)：维持原样(不展示头像，保留 Markdown 渲染)
+ * - 聊天模式(chatMode=true)：带头像(用户/AI 并排)；正文默认不渲染 Markdown(chatMarkdown=false，走纯文本)，可在外观设置手动开启
+ * - Agent 模式(chatMode=false)：维持原样(不展示头像，始终保留 Markdown 渲染)
  * 会话按模式隔离(listSessions 只列当前模式会话)，长期记忆库两模式互通。
  */
 object ModeConfig {
@@ -28,8 +28,8 @@ object ModeConfig {
         prefs.edit().putBoolean(KEY_CHAT_MODE, on).apply()
     }
 
-    /** 聊天模式是否渲染 Markdown(默认开)；关闭则正文走纯文本剥离 */
-    fun chatMarkdown(): Boolean = prefs.getBoolean(KEY_CHAT_MD, true)
+    /** 聊天模式是否渲染 Markdown(默认关，纯文本)；打开则正文走 Markdown 渲染。Agent 模式不读此键，恒走 Markdown */
+    fun chatMarkdown(): Boolean = prefs.getBoolean(KEY_CHAT_MD, false)
 
     /** 开关聊天模式的 Markdown 渲染 */
     fun setChatMarkdown(on: Boolean) {
