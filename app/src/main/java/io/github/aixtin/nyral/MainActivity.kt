@@ -386,10 +386,8 @@ class MainActivity : Activity() {
     internal var modelClosing = false   // 弹窗收起动画进行中, 防重复触发
     internal var attachPopup: PopupWindow? = null
     internal var attachClosing = false  // 附件弹窗收起动画进行中, 防重复触发
-    internal lateinit var sendBtn: Button
-    private lateinit var stopBtn: Button
-    private lateinit var stopSpin: ArcRingDrawable      // 停止按钮上的无限旋转加载环(带缺口弧)
-    private var stopSpinAnim: ValueAnimator? = null        // 旋转动画驱动
+    internal lateinit var sendBtn: ImageView
+    private lateinit var stopBtn: ImageView
     internal lateinit var drawerPanel: LinearLayout
     internal lateinit var drawerMask: View
     internal lateinit var sessionList: LinearLayout
@@ -1171,15 +1169,12 @@ class MainActivity : Activity() {
             setOnClickListener { toggleEmojiDrawer() }
         }
         attachWrap.addView(attachBtn)
-        sendBtn = Button(this).apply {
-            text = getString(R.string.ma_send)
-            textSize = 13f
-            isAllCaps = false
-            minHeight = 0
-            minWidth = 0
-            setTextColor(Color.WHITE)
+        sendBtn = ImageView(this).apply {
+            setImageResource(R.drawable.ic_send)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setColorFilter(Color.WHITE)
             background = rounded(dp(16), Ui.PRIMARY)
-            setPadding(dp(2), dp(5), dp(2), dp(5))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 bottomMargin = dp(10)
             }
@@ -1201,15 +1196,12 @@ class MainActivity : Activity() {
             Ui.press(this)
         }
         attachWrap.addView(sendBtn)
-        stopBtn = Button(this).apply {
-            text = "■"
-            textSize = 13f
-            isAllCaps = false
-            minHeight = 0
-            minWidth = 0
-            setTextColor(Color.WHITE)
-            background = rounded(dp(18), Ui.DANGER)
-            setPadding(0, 0, 0, 0)
+        stopBtn = ImageView(this).apply {
+            setImageResource(R.drawable.lucide_square)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setColorFilter(Color.WHITE)
+            background = rounded(dp(18), Ui.PRIMARY)
+            setPadding(dp(9), dp(9), dp(9), dp(9))
             visibility = View.GONE
             // 固定 36dp, 与附件/发送同槽位叠放
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
@@ -1218,14 +1210,10 @@ class MainActivity : Activity() {
             setOnClickListener {
                 LocalEngine.requestCancel()
                 stopBtn.isEnabled = false
-                stopBtn.text = "…"
-                stopSpinAnim?.cancel()
                 android.util.Log.i("Nyral", "stop clicked, cancelRequested=${LocalEngine.cancelRequested}")
             }
             Ui.press(this)
         }
-        stopSpin = ArcRingDrawable(dp(16), dp(3), Color.WHITE)
-        stopBtn.setCompoundDrawablesWithIntrinsicBounds(stopSpin, null, null, null)
         attachWrap.addView(stopBtn)
         inputBar.addView(attachWrap)
     }
@@ -1618,7 +1606,7 @@ class MainActivity : Activity() {
                     val bh = dp(36)
                     // 以输入框中心为基准算出底边距, 再统一微调 7dp 抵消视觉偏上(作用于全部按钮)
                     val bm = (ibh - inputBar.paddingTop - ih / 2f - bh / 2f).toInt() - dp(7)
-                    val setMargin = { btn: Button ->
+                    val setMargin = { btn: View ->
                         btn.layoutParams = (btn.layoutParams as FrameLayout.LayoutParams).apply {
                             gravity = Gravity.BOTTOM
                             bottomMargin = bm
@@ -2075,7 +2063,6 @@ class MainActivity : Activity() {
         TaskService.stop(this@MainActivity)
         updateInputMode()
         stopBtn.visibility = View.GONE
-        stopSpinAnim?.cancel()
         LogStore.i(LogStore.MAIN, "切会话取消进行中请求, 代际=${requestEpoch}")
     }
 
@@ -2544,7 +2531,6 @@ class MainActivity : Activity() {
         sendBtn.visibility = View.GONE
         stopBtn.visibility = View.VISIBLE
         stopBtn.isEnabled = true
-        startStopSpin()
         executor.execute {
             val holder = AiBubbleHolder(this@MainActivity)
             activeAiHolder = holder
@@ -2689,7 +2675,6 @@ class MainActivity : Activity() {
                         TaskService.stop(this@MainActivity)
                         updateInputMode()
                         stopBtn.visibility = View.GONE
-                        stopSpinAnim?.cancel()
                     }
                     debugSseSink?.invoke("done", reply)
                     debugChatDone?.invoke()
@@ -2710,7 +2695,6 @@ class MainActivity : Activity() {
                         TaskService.stop(this@MainActivity)
                         updateInputMode()
                         stopBtn.visibility = View.GONE
-                        stopSpinAnim?.cancel()
                     }
                     debugSseSink?.invoke("error", msg)
                     debugChatDone?.invoke()
@@ -3916,7 +3900,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#4A90D9"))
+                setColor(Ui.PRIMARY)
             }
         }
         layoutParams = LinearLayout.LayoutParams(s, s)
@@ -4704,17 +4688,6 @@ class MainActivity : Activity() {
         return if (ModeConfig.chatMode()) (w - dp(120)).coerceAtLeast(dp(100)) else w
     }
 
-    /** 停止按钮加载环: 无限旋转(0->360度), 驱动 RotateDrawable 的 level */
-    private fun startStopSpin() {
-        stopSpinAnim?.cancel()
-        stopSpinAnim = ValueAnimator.ofInt(0, 360).apply {
-            duration = 1200
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = android.view.animation.LinearInterpolator()
-            addUpdateListener { stopSpin.setAngle(it.animatedValue as Int) }
-            start()
-        }
-    }
 
     // ===================== AI 流式气泡容器 =====================
 

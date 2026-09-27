@@ -17,6 +17,7 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextSwitcher
 import android.widget.TextView
@@ -71,12 +72,12 @@ internal fun makeStatusShell(host: MainActivity): LinearLayout = LinearLayout(ho
     }
 }
 
-/** 收尾/历史摘要文案: "💭 已思考X字 · 🔧 N个工具"(缺项自动省略) */
+/** 收尾/历史摘要文案: "已思考X字 · N个工具"(缺项自动省略) */
 internal fun statusSummaryText(thinkChars: Int, toolCount: Int): String = buildString {
-    if (thinkChars > 0) append("💭 已思考").append(thinkChars).append("字")
+    if (thinkChars > 0) append("已思考").append(thinkChars).append("字")
     if (toolCount > 0) {
         if (isNotEmpty()) append(" · ")
-        append("🔧 ").append(toolCount).append("个工具")
+        append(toolCount).append("个工具")
     }
 }
 
@@ -96,26 +97,28 @@ internal fun buildStatusTimeline(
         }
     }
     events.forEachIndexed { i, e ->
-        val first = i == 0
-        val last = i == events.size - 1
-        // 左列脉络: 竖线连续贯穿(含行间空隙) + 事件图标(思考💭/工具🔧)压在行顶(线段交界处), 线从图标中心穿过(09-25)
+        // 左列脉络: 珠子行顶, 竖线从珠子下方留白处起(线不穿珠), 行间空隙处连续
         val spine = FrameLayout(host)
+        spine.clipChildren = false   // 中间珠子负边距上移出界可见
         val iconH = host.dp(18)
-        val line = View(host).apply { setBackgroundColor(lineColor) }
-        spine.addView(line, FrameLayout.LayoutParams(host.dp(2), ViewGroup.LayoutParams.MATCH_PARENT).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = if (first) iconH / 2 else 0      // 首行: 线从图标中心起
-            bottomMargin = if (last) iconH / 2 else 0    // 末行: 线到图标中心止
-        })
-        val bead = TextView(host).apply {
-            text = if (e.type == "think") "💭" else "🔧"
-            textSize = 12f
-            gravity = Gravity.CENTER
-            includeFontPadding = false
+        val beadGap = host.dp(4)   // 珠子下方留白: 线不贴珠子(给表情留一段)
+        val beadTop = 0   // 珠子行顶: 行顶=上一行底, 中间珠子自然嵌在行间空隙(无负边距, 不被裁剪)
+        // 竖线: 从珠子底边下方留白处起(跟随珠子); 非末行下端避开下一行上移的珠子
+        spine.addView(View(host).apply { setBackgroundColor(lineColor) },
+            FrameLayout.LayoutParams(host.dp(2), ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = beadTop + iconH + beadGap
+                bottomMargin = beadGap   // 每行下端留白, 行间珠子处断开(不穿珠)
+            })
+        val bead = ImageView(host).apply {
+            val ic = if (e.type == "think") Ui.lucideBrain(host, THINK_TEXT, 14)
+            else Ui.lucideWrench(host, THINK_TEXT, 14)
+            setImageDrawable(ic)
+            contentDescription = if (e.type == "think") "思考" else "工具"
         }
         spine.addView(bead, FrameLayout.LayoutParams(iconH, iconH).apply {
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            topMargin = 0   // 图标压行顶: 行顶即上一行竖线终点/本行竖线起点的交界处, 线被图标盖住中间, 上下缘露出
+            topMargin = beadTop
         })
         // 内容块: 与原思考/工具深色气泡同款
         val body = TextView(host).apply {
@@ -125,10 +128,10 @@ internal fun buildStatusTimeline(
             setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
             background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
             text = if (e.type == "think") {
-                if (e.text.isBlank()) "💭" else "💭 " + e.text
+                if (e.text.isBlank()) "…" else e.text
             } else {
                 buildString {
-                    append("🔧 工具：").append(e.name)
+                    append("工具：").append(e.name)
                     if (e.arg.isNotBlank()) append("\n参数：").append(e.arg)
                     if (e.result.isNotBlank()) append("\n结果：").append(e.result)
                 }
@@ -139,6 +142,7 @@ internal fun buildStatusTimeline(
         val row = LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.TOP
+            clipChildren = false   // 中间珠子负边距上移出界可见
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
@@ -146,10 +150,30 @@ internal fun buildStatusTimeline(
         row.addView(body, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             marginStart = host.dp(4)
-            bottomMargin = if (last) 0 else host.dp(10)   // 空隙计入 body: spine 高度随之包含空隙, 竖线连续
+            topMargin = if (i == 0) host.dp(10) else host.dp(20)   // 首行内容在珠子下10dp; 中间行内容在珠子下20dp(珠子18+2留白)
+            bottomMargin = 0   // 行间空隙由下一行 body topMargin 承担, 此处不留行底空隙
         })
         box.addView(row)
     }
+    // 轨道末尾: route 结尾标记(流程终点), 与珠子同列对齐(行顶)(09-25)
+    val endRow = LinearLayout(host).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.TOP
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = 0   // route 紧贴末行收尾, 底部不留空白行
+        }
+    }
+    val left = FrameLayout(host)
+    endRow.addView(left, LinearLayout.LayoutParams(host.dp(20), ViewGroup.LayoutParams.WRAP_CONTENT))
+    val ic = ImageView(host).apply {
+        setImageDrawable(Ui.lucideRoute(host, THINK_TEXT, 16))
+        contentDescription = "完成"
+    }
+    left.addView(ic, FrameLayout.LayoutParams(host.dp(18), host.dp(18)).apply {
+        gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+    })
+    box.addView(endRow)
     return box
 }
 
@@ -215,6 +239,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     // 开启 actionTrack 时, 思考/工具不再折叠进轮播状态行, 而是沿时间轴实时补珠子;
     // 正文走无框文本轨道(去气泡), 打字机机制原样复用。
     private var trackCol: LinearLayout? = null   // 轨道容器(行动行/正文无框行的纵向容器)
+    private var trackEndRow: View? = null        // 轨道末尾 route 结尾标记行(流程终点)
     private var trackWrap: View? = null          // 轨道整条挂到 bubbleBox 的实际 view(chatWrap 外层)
     private var statusSwitcher: TextSwitcher? = null
     private var statusCounter: TextView? = null
@@ -250,7 +275,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var tlView: TextView? = null   // 脉络时间线里的详情块(展开状态下结果回填实时刷新)
         var titleView: TextView? = null   // 行动轨道: 标题行(工具名)
         fun expandedText(): String = buildString {
-            append("🔧 工具：$name")
+            append("工具：$name")
             if (arg.isNotBlank()) append("\n参数：$arg")
             result?.takeIf { it.isNotBlank() }?.let { append("\n结果：$it") }
         }
@@ -388,10 +413,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (ModeConfig.actionTrack()) {
             // 行动轨道: 标题行实时滚动尾部摘要(保留轮播感), 展开态全文同步
             activeThinking?.titleView?.let { tv ->
-                val s = "💭 " + snippet(tailThinking(activeThinking!!).replace("\n", " ").trim())
+                val s = snippet(tailThinking(activeThinking!!).replace("\n", " ").trim())
                 if (tv.text.toString() != s) tv.text = s
             }
-            activeThinking?.tlView?.let { it.text = "💭 " + activeThinking!!.text }
+            activeThinking?.tlView?.let { it.text = activeThinking!!.text.toString() }
         }
         scheduleRefresh()
         host.onStatusGrown()   // 思考内容增长: 通知主层锚底跟随(09-24)
@@ -430,27 +455,24 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         trackWrap = addChatBubble(col)
     }
 
-    /** 行动轨道: 追加一行事件(思考💭/工具🔧), 复用 spine/bead 语言(竖线贯穿+珠子压行顶);
+    /** 行动轨道: 追加一行事件(思考💭/工具🔧), 复用 spine/bead 语言(竖线穿内容行+珠子悬于行间空隙);
      *  标题行默认展示(尾部摘要/工具名), 点击标题或珠子展开/收起详情块 */
     private fun appendTrackEvent(b: Any) {
         ensureTrackRow()
         val col = trackCol ?: return
         var thinkB: ThinkingBlock? = null
         var toolB: ToolBlock? = null
-        val beadText: String
         val titleText: String
         val detailText: String
         when (b) {
             is ThinkingBlock -> {
                 thinkB = b
-                beadText = "💭"
-                titleText = "💭 " + snippet(tailThinking(b).replace("\n", " ").trim())
-                detailText = "💭 " + b.text
+                titleText = snippet(tailThinking(b).replace("\n", " ").trim())
+                detailText = b.text.toString()
             }
             is ToolBlock -> {
                 toolB = b
-                beadText = "🔧"
-                titleText = "🔧 " + b.name
+                titleText = b.name
                 detailText = b.expandedText()
             }
             else -> return
@@ -459,23 +481,32 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val row = LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.TOP
+            clipChildren = false   // 中间珠子负边距上移出界可见
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
-        // 左列 spine: 竖线贯穿整行(含行间空隙) + 珠子压行顶, 线从珠子中心穿过
+        // 左列 spine: 珠子行顶, 竖线从珠子底边下方留白处起(跟随珠子, 线不穿珠)
         val spine = FrameLayout(host)
-        val line = View(host).apply { setBackgroundColor((THINK_TEXT and 0x00FFFFFF) or (0x55 shl 24)) }
-        spine.addView(line, FrameLayout.LayoutParams(host.dp(2), ViewGroup.LayoutParams.MATCH_PARENT).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
-        val bead = TextView(host).apply {
-            text = beadText
-            textSize = 12f
-            gravity = Gravity.CENTER
-            includeFontPadding = false
+        spine.clipChildren = false   // 中间珠子负边距上移出界可见
+        val lineColor = (THINK_TEXT and 0x00FFFFFF) or (0x55 shl 24)
+        val beadGap = host.dp(4)   // 珠子下方留白: 线不贴珠子(给表情留一段)
+        val beadTop = 0   // 珠子行顶: 行顶=上一行底, 中间珠子自然嵌在行间空隙(无负边距, 不被裁剪)
+        // 竖线: 从珠子底边下方留白处起(跟随珠子); 本行为当前末行, 下端留白 4dp(不再被视作末行时再增大)
+        spine.addView(View(host).apply { setBackgroundColor(lineColor) },
+            FrameLayout.LayoutParams(host.dp(2), ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = beadTop + iconH + beadGap
+                bottomMargin = beadGap
+            })
+        val bead = ImageView(host).apply {
+            val ic = if (b is ThinkingBlock) Ui.lucideBrain(host, THINK_TEXT, 15)
+            else Ui.lucideWrench(host, THINK_TEXT, 15)
+            setImageDrawable(ic)
+            contentDescription = if (b is ThinkingBlock) "思考" else "工具"
         }
         spine.addView(bead, FrameLayout.LayoutParams(iconH, iconH).apply {
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            topMargin = beadTop
         })
         // 右列 body: 标题行 + 详情块(默认收起, 点击展开)
         val bodyCol = LinearLayout(host).apply {
@@ -483,7 +514,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 marginStart = host.dp(4)
-                bottomMargin = host.dp(10)   // 行间距计入 body: spine 高度随之包含, 竖线连续
+                topMargin = if (col.childCount == 0) host.dp(10) else host.dp(20)   // 首行内容在珠子下10dp; 中间行内容在珠子下20dp(珠子18+2留白)
+                bottomMargin = 0   // 行间空隙由下一行 body topMargin 承担, 此处不留行底空隙
             }
         }
         val title = TextView(host).apply {
@@ -516,9 +548,43 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         row.addView(spine, LinearLayout.LayoutParams(host.dp(20), ViewGroup.LayoutParams.MATCH_PARENT))
         row.addView(bodyCol, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // 行间空隙由 body topMargin 承担, 行底不再留空隙(无需旧末行恢复)
         col.addView(row)
+        ensureTrackEnd(col)   // 追加事件后把 route 结尾标记重挂到轨道最末
+        // 末行(route 前最后事件行)紧贴 route 收尾: 去掉行间空隙, 底部不留多余空白行
+        val evtCnt = col.childCount
+        if (evtCnt >= 3) {
+            val lastLp = (col.getChildAt(evtCnt - 2) as? LinearLayout)
+                ?.getChildAt(1)?.layoutParams as? LinearLayout.LayoutParams
+            lastLp?.bottomMargin = 0
+        }
         if (thinkB != null) { thinkB.titleView = title; thinkB.tlView = detail }
         if (toolB != null) { toolB.titleView = title; toolB.tlView = detail }
+    }
+
+    /** 行动轨道末尾: route 结尾标记(流程终点), 与珠子同列对齐(行顶), 每次追加事件后重挂到最末 */
+    private fun ensureTrackEnd(col: LinearLayout) {
+        trackEndRow?.let { col.removeView(it) }
+        val iconH = host.dp(18)
+        val end = LinearLayout(host).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = 0   // route 紧贴末行收尾, 底部不留空白行
+            }
+        }
+        val left = FrameLayout(host)
+        end.addView(left, LinearLayout.LayoutParams(host.dp(20), ViewGroup.LayoutParams.WRAP_CONTENT))
+        val ic = ImageView(host).apply {
+            setImageDrawable(Ui.lucideRoute(host, THINK_TEXT, 16))
+            contentDescription = "完成"
+        }
+        left.addView(ic, FrameLayout.LayoutParams(iconH, iconH).apply {
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+        })
+        col.addView(end)
+        trackEndRow = end
     }
 
     // ===================== 单行状态行(09-24 重构) =====================
@@ -593,16 +659,16 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private fun currentSnippet(): String? {
         activeThinking?.let { b ->
             if (!b.collapsed) {
-                return "💭 " + snippet(tailThinking(b).replace("\n", " ").trim())
+                return snippet(tailThinking(b).replace("\n", " ").trim())
             }
         }
         toolBlocks.lastOrNull()?.let { tb ->
             val r = tb.result?.trim().orEmpty()
-            return if (r.isEmpty()) "🔧 ${tb.name} · ${snippet(tb.arg)}"
-            else "🔧 ${tb.name} → ${snippet(r)}"
+            return if (r.isEmpty()) "${tb.name} · ${snippet(tb.arg)}"
+            else "${tb.name} → ${snippet(r)}"
         }
         thinkingBlocks.lastOrNull()?.let {
-            return "💭 " + snippet(tailThinking(it).replace("\n", " ").trim())
+            return snippet(tailThinking(it).replace("\n", " ").trim())
         }
         return null
     }
@@ -646,7 +712,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val tv = statusCounter ?: return
         val b = activeThinking
         val t = if (b != null && !b.collapsed) "${b.count}字"
-        else if (toolBlocks.isNotEmpty()) "🔧 ${toolBlocks.size}"
+        else if (toolBlocks.isNotEmpty()) "工具 ${toolBlocks.size}"
         else if (lastThinkChars > 0) "已思考${lastThinkChars}字"
         else null
         if (t != null) { tv.text = t; tv.visibility = View.VISIBLE } else tv.visibility = View.GONE
@@ -758,7 +824,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         for (e in timelineEvents) {
             when (e) {
                 is ThinkingBlock -> e.tlView?.let {
-                    val t = "💭 " + e.text.toString()
+                    val t = e.text.toString()
                     if (it.text.length != t.length) it.text = t
                 }
                 is ToolBlock -> e.tlView?.let {
@@ -795,10 +861,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         b.result = result
         b.tlView?.let { it.text = b.expandedText() }
         if (ModeConfig.actionTrack()) {
-            // 行动轨道: 标题加完成标记, 详情含结果(展开可见)
+            // 行动轨道: 标题加完成标记(右侧 badge-check 图标), 详情含结果(展开可见)
             b.titleView?.let { tv ->
-                val s = "🔧 " + b.name + " ✓"
-                if (tv.text.toString() != s) tv.text = s
+                val s = b.name
+                if (tv.text.toString() != s) {
+                    tv.text = s
+                    tv.setCompoundDrawablesWithIntrinsicBounds(null, null, Ui.lucideBadgeCheck(host, THINK_TEXT, 14), null)
+                    tv.compoundDrawablePadding = host.dp(3)
+                }
             }
         } else {
             showSnippet()

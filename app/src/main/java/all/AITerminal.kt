@@ -89,7 +89,7 @@ object AITerminal {
             "stop"        -> "[停止]"
             else          -> "[AI]"
         }
-        val body = text?.replace('\n', ' ')?.trim() ?: ""
+        val body = text.replace("\n", " ").trim()
         if (body.isEmpty()) return null
         val cut = if (body.length > MAX_LINE_LEN) body.take(MAX_LINE_LEN) + "…" else body
         val t = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
