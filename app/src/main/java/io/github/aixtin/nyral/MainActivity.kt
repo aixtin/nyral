@@ -2471,6 +2471,11 @@ class MainActivity : Activity() {
         // 阶段5 池化清理: 切会话即清形态 View 池, 旧会话 View 树(含文本/rendered Spanned)不滞留复用,
         // 避免串会话内容残留与内存驻留; 会话内全量重建(头像刷新/窗口外回退)不清池, 保留复用收益
         chatAdapter.clearPool()
+        // 09-28 第五波: AiRich 分片/头像/wrap 三池一并清空——切会话后池中旧会话 View 树若被新会话复用,
+        // 残留 KEY_RENDER_MD tag 会命中幂等跳过渲染(内容相同时)或滞留旧会话 Spanned 引用
+        aiRichSegPool.clear()
+        aiAvatarPool.clear()
+        aiRichWrapPool.clear()
         messages.addAll(msgs)
         currentSaved = true
         currentSessionId = id
@@ -4414,6 +4419,8 @@ class MainActivity : Activity() {
                     } else if (c is TextView) {
                         c.text = ""   // 清占位, 防 setMarkdownCached 命中校验误判
                         c.minimumHeight = 0   // 09-28: 清等高占位固定高度残留, 防池化行复用高度异常
+                        c.setTag(KEY_RENDER_MD, null)   // 09-28 第五波: 清幂等 tag——text 已清空而 tag 残留时,
+                        // 同内容行滚回复用会命中 bind 幂等(tag==md)跳过渲染, 上屏空白气泡(只剩思考气泡)
                         c.setOnLongClickListener(null)
                         aiRichSegPool.add(c)
                     } else if (c is LinearLayout) {
