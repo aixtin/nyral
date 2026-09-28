@@ -7,6 +7,7 @@ import android.animation.ValueAnimator
 import android.graphics.Color
 import android.graphics.Typeface
 import android.text.TextUtils
+import android.text.SpannableStringBuilder
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -204,6 +205,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var lastAdvanceNs = 0L         // 上次实际推进字符的时间戳(防长时间冻结)
         var lastRenderNs = 0L          // 上次真正 setText 渲染的时间戳(批量渲染节流, 消除蹦迪)
         val streamRenderer = MdStreamRenderer()  // D路线: 流式 MD 渲染(块缓存+截断尾部)
+        // 静默分层(阶段4): 正文输出期不上屏, 排版与 UI 解耦——封段/收尾生成成品暂存, 收尾原位显现
+        var renderedSilent = false              // 是否已在静默期排版暂存(pendingSpanned)
+        var pendingSpanned: CharSequence? = null // 排版产物暂存(收尾直接上屏, 不再二次排版)
+        var revealed = false                    // 收尾显现动画已执行(三点淡出+文字淡入)
         var maxShownW = 0              // 本段气泡历史最大测量宽度(px): 单向性约束, 文本变短只扩不缩防跳动
         var dimmed = false             // 输出中暗色态: 打字期间气泡+文字调暗, 完成后渐亮
         var dimAnim: ValueAnimator? = null   // 完成渐亮动画
@@ -347,6 +352,17 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 生成等待指示(阶段1 请求/翻记忆期): 三点指示器; 状态行存在时状态行即活动指示, 不再重复 */
     fun showLoading() {
         if (loadingRow != null || contentBlocks.isNotEmpty() || statusCol != null) return
+        // v8.7 呼吸闪烁降噪: 原三点错相位无限呼吸(900ms 循环 alpha 0.25~1.0)在聊天模式下
+        // 与头像气泡相邻, 视觉呈"头像跟气泡呼吸式闪烁"(用户反馈); 改为静态三点保持加载语义,
+        // 消息到达后由 stopLoading 移除, 不再循环明暗
+        loadingAnim = null
+        loadingRow = addChatBubble(makeDotsRow())
+        android.util.Log.i("Nyral", "startLoading blocks=" + contentBlocks.size)
+    }
+
+    /** 三点占位行(等待/正文静默共用): 请求期由 showLoading 挂 loadingRow;
+     *  正文输出期由 ensureBodyDots 接管为 bodyDots, 收尾原位淡出 */
+    private fun makeDotsRow(): LinearLayout {
         val row = LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -354,9 +370,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
-        val dots = ArrayList<View>(3)
         repeat(3) { i ->
-            dots.add(View(host).apply {
+            row.addView(View(host).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(THINK_TEXT)
@@ -364,14 +379,27 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 val lp = LinearLayout.LayoutParams(host.dp(6), host.dp(6))
                 if (i > 0) lp.leftMargin = host.dp(5)
                 layoutParams = lp
-            }.also { row.addView(it) })
+            })
         }
-        // v8.7 呼吸闪烁降噪: 原三点错相位无限呼吸(900ms 循环 alpha 0.25~1.0)在聊天模式下
-        // 与头像气泡相邻, 视觉呈"头像跟气泡呼吸式闪烁"(用户反馈); 改为静态三点保持加载语义,
-        // 消息到达后由 stopLoading 移除, 不再循环明暗
-        loadingAnim = null
-        loadingRow = addChatBubble(row)
-        android.util.Log.i("Nyral", "startLoading blocks=" + contentBlocks.size)
+        return row
+    }
+
+    private var bodyDots: View? = null   // 静默分层: 正文输出期三点占位(收尾原位切换成真实气泡)
+
+    /** 静默分层: 确保正文三点占位在气泡盒末尾(请求期 loadingRow 直接接管, 避免重建闪烁) */
+    private fun ensureBodyDots() {
+        if (bodyDots != null) return
+        if (loadingRow != null) {
+            bodyDots = loadingRow
+            loadingRow = null
+            return
+        }
+        bodyDots = addChatBubble(makeDotsRow())
+    }
+
+    private fun removeBodyDots() {
+        bodyDots?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        bodyDots = null
     }
 
     private fun stopLoading() {
@@ -882,8 +910,12 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (b.done) return
         b.done = true
         activeContent = null
-        if (!b.typeActive) finishTypeRender(b)   // 从未进入打字(无持续输出): 直接完稿排版
-        // 若正在打字: done 后由 tickFrame 在追平剩余字符时自动收尾, 保持打字机节奏
+        // 静默分层(阶段4): 封段不再立即排版上屏——排版暂存(渲染压力分散), UI 保持三点占位;
+        // 挂空占位保持时间线顺序(其后可能有思考/工具/新正文段)
+        if (b.text.isNotBlank()) {
+            sealContentPlaceholder(b)
+            renderSilent(b)
+        }
         // 空气泡修复(09-24): 全空白且无视图的段(懒建跳过的 preamble)直接丢弃,
         // 不进收尾/时间线, 防止空段持久化后历史重建再渲染出空气泡
         if (b.view == null && b.text.isBlank()) {
@@ -894,7 +926,9 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     fun appendContent(text: String) {
         removeStatus()
-        stopLoading()
+        // 静默分层(阶段4): 正文输出期不停止三点占位——内容静默累积后台排版,
+        // 用户视野保持"正在输入"; 占位在收尾原位切换成真实气泡+打字显现
+        ensureBodyDots()
         var b = activeContent
         if (b == null || b.done) {
             // 新正文段: 独立气泡(浅色背景), 与思考/工具深色气泡区分
@@ -906,17 +940,17 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             // 无文字), 空白段永远填不上字 -> 空气泡停在思考与工具之间。改为懒建:
             // 首个非空白字符到达才真正创建视图挂气泡(attachContentView), 纯空白段
             // 不产生空气泡。时间线仍在建段时记录(保持事件顺序), 快照时过滤空段。
+            // 静默分层: 视图挂载进一步推迟——未封段段收尾才挂, 封段段由 sealContentPlaceholder 挂占位
             timelineEvents.add(b)
         }
         b.text.append(text)
-        if (b.view == null && b.text.isNotBlank()) attachContentView(b)
-        // 阶段2 超长分片: 累计超过阈值立即封段另起气泡(已收内容立即排版可见, 渲染压力分散),
-        // 避免单段超大 TextView 收尾一次性全量 markdown 解析卡顿
+        // 阶段2 超长分片: 累计超过阈值立即封段另起气泡(渲染压力分散——静默期排版暂存,
+        // 收尾直接上屏), 避免单段超大 TextView 收尾一次性全量 markdown 解析卡顿
         if (b.text.length >= SPLIT_CONTENT_LEN) {
             b.done = true
             activeContent = null
-            b.shownLen = b.text.length   // 直接追平剩余字符: 该段内容已确定, 立即排版而非继续打字
-            finishTypeRender(b)
+            sealContentPlaceholder(b)   // 挂占位保持时间线顺序
+            renderSilent(b)             // 静默排版暂存
         }
         // 跟踪模型吐字速率: 用本次 delta 的字符数/间隔 更新 EMA(字符/秒), 供 tickFrame 自适应打字速度
         val nowNs = System.nanoTime()
@@ -933,18 +967,16 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             }
         }
         lastDeltaNs = nowNs
-        if (!b.typeActive) {
-            b.typeActive = true
-            b.typeFinishedRender = false
-            b.lastFrameNs = 0L
-            TypewriterCenter.register(this)
-        }
+        // 静默分层(阶段4): 不启动打字机(TypewriterCenter)——正文不外显半成品,
+        // 收尾排版完成后占位原位切换+打字显现(alpha 淡入), 打字机节奏逻辑整体让位
     }
 
     /** 懒挂正文气泡视图(09-24 空气泡修复): 首个非空白字符到达才创建, 挂载后立即渲染
-     *  已推进的打字机进度(空白期 shownLen 已推进但无视图可渲), 并通知主层正文顶定位 */
-    private fun attachContentView(b: ContentBlock) {
-        b.view = TextView(host).apply {
+     *  已推进的打字机进度(空白期 shownLen 已推进但无视图可渲), 并通知主层正文顶定位。
+     *  静默分层(阶段4): 视图挂载推迟到收尾/封段占位, 本函数仅收尾成品挂载使用,
+     *  不再显示打字机进度(静默期无打字), 内容由 finishTypeRender 一次性填充 */
+    private fun attachContentView(b: ContentBlock): TextView? {
+        val tv = TextView(host).apply {
             textSize = 15f
             setTextColor(BUBBLE_AI_TEXT)
             setLineSpacing(host.dp(3).toFloat(), 1f)
@@ -971,21 +1003,134 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             }
         }
         val block = b
-        b.view?.let { host.makeCopyable(it) {
+        host.makeCopyable(tv) {
             val rawB = ModeConfig.stripChatProtocolPrefix(block.text.toString())
             if (ModeConfig.chatPlainText()) stripMarkdownForChat(rawB) else rawB
-        } }
-        addChatBubble(b.view)
-        if (b.shownLen > 0) {
-            b.view?.let { tv ->
-                tv.text = if (ModeConfig.chatPlainText()) suppressCards(b.text.substring(0, b.shownLen))
-                else b.streamRenderer.render(b.text.substring(0, b.shownLen))
-            }
         }
+        b.view = tv
+        addChatBubble(tv)
+        return tv
     }
 
     /** 是否存在正在打字(未收尾)的正文段: 供 MainActivity.scrollToBottom 判断打字期分支 */
     fun hasActiveTypewriter(): Boolean = contentBlocks.any { it.typeActive }
+
+    // ===== 静默分层(阶段4): 正文输出期排版与 UI 解耦, 收尾原位显现 =====
+
+    /** 封段占位: 段在输出中被截断(思考/工具/超长分片插入)时, 挂空占位保持时间线顺序,
+     *  成品留待收尾 revealContent 原位显现; 未挂过视图且非空白才挂(空白段走空气泡修复丢弃) */
+    private fun sealContentPlaceholder(b: ContentBlock) {
+        if (b.view != null || b.text.isBlank()) return
+        val ph = TextView(host).apply {
+            textSize = 15f
+            setTextColor(BUBBLE_AI_TEXT)
+            setLineSpacing(host.dp(3).toFloat(), 1f)
+            includeFontPadding = false
+            if (ModeConfig.actionTrack()) {
+                setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+                maxWidth = maxW - host.dp(24)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = host.dp(24)
+                    topMargin = host.dp(2)
+                    bottomMargin = host.dp(6)
+                }
+            } else {
+                setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+                background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
+                maxWidth = maxW
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = host.dp(6)
+                    bottomMargin = host.dp(4)
+                }
+            }
+        }
+        b.view = ph
+        addChatBubble(ph)
+        b.shownLen = b.text.length   // 占位即全文: 封段段收尾不再有打字节奏(打字机已让位)
+    }
+
+    /** 静默排版: 完整文本排版一次暂存(pendingSpanned), 收尾直接上屏不再二次排版;
+     *  含附件(att://)因卡片挂载依赖视图, 推迟到收尾由 finishTypeRender 走 markwon */
+    private fun renderSilent(b: ContentBlock) {
+        if (b.renderedSilent || b.text.isBlank()) return
+        b.renderedSilent = true
+        if (ModeConfig.chatPlainText()) return
+        val stripped = ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim()
+        if (stripped.isEmpty()) return
+        if (stripped.contains("att://")) return   // 附件走收尾 markwon(需视图挂卡片)
+        val tv = b.view ?: return
+        MdSpannable.tableMaxWidth = tv.maxWidth
+        b.pendingSpanned = b.streamRenderer.render(stripped)
+    }
+
+    /** 收尾显现: 段成品原位上屏(占位淡出+文字淡入), 每段只执行一次;
+     *  有静默暂存(pendingSpanned)由本函数动画上屏; 无暂存段(att:///异常)由
+     *  finishTypeRender 先上屏, 本函数兜底直接可见(无闪帧) */
+    private fun revealContent(b: ContentBlock) {
+        if (b.revealed) return
+        b.revealed = true
+        val tv = b.view ?: return
+        val spanned = b.pendingSpanned
+        if (spanned != null) {
+            // 封段/静默暂存段: 空占位(alpha 1, 无内容)淡出 -> 成品淡入原位切换
+            val fadeOut = tv.animate().alpha(0f).setDuration(120).setInterpolator(DecelerateInterpolator())
+            fadeOut.withEndAction {
+                tv.text = spanned
+                RoundedTablePlugin.attachInvalidators(tv)
+                keepBubbleWidth(b, tv)
+                tv.animate().alpha(1f).setDuration(140).setInterpolator(AccelerateInterpolator()).start()
+            }
+            fadeOut.start()
+        } else {
+            // 无暂存段(att:// 走 markwon 上屏等): 文本已就位, 直接可见, 不做二次动画
+            tv.alpha = 1f
+        }
+        removeBodyDots()
+    }
+
+    /** 静默分层正文快照(持久化用): 富文本上屏前取其文本, 收尾显现后直接取成品文本 */
+    fun contentSnapshot(): String {
+        val sb = StringBuilder()
+        for (b in contentBlocks) {
+            if (b.text.isBlank()) continue
+            if (sb.isNotEmpty()) sb.append('\n')
+            val v = b.view   // 局部捕获: 成员 var 不能智能转换
+            if (v != null && b.revealed) {
+                sb.append(v.text?.toString() ?: b.text.toString())
+            } else {
+                sb.append(ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim())
+            }
+        }
+        return sb.toString()
+    }
+
+    /** 静默分层成品快照(写回 rendered 用): 与 finishTypeRender 同一排版路径, 保证落库=所见 */
+    fun renderedSnapshot(): CharSequence? {
+        if (ModeConfig.chatPlainText()) return null
+        var any = false
+        val sb = SpannableStringBuilder()
+        for (b in contentBlocks) {
+            if (b.text.isBlank()) continue
+            any = true
+            val stripped = ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim()
+            if (stripped.isEmpty()) continue
+            val tv = b.view
+            val spanned = when {
+                tv != null && b.revealed && b.pendingSpanned != null -> b.pendingSpanned
+                tv != null && !b.revealed && !stripped.contains("att://") -> {
+                    MdSpannable.tableMaxWidth = tv.maxWidth
+                    b.streamRenderer.render(stripped)
+                }
+                else -> null
+            }
+            val chunk = spanned ?: SpannableStringBuilder(stripped)   // 附件/异常兜底纯文本, 保证落库完整
+            if (sb.isNotEmpty()) sb.append('\n')
+            sb.append(chunk)
+        }
+        return if (any) sb else null
+    }
 
     // 触摸冻结(09-25 方案2.1): 用户触摸列表(ACTION_DOWN)即冻结打字机渲染/推进,
     // 布局立即稳定, 上滑滚动实时跟手(不再"延迟一下"——原方案1 flush 追平让用户
@@ -1007,9 +1152,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             b.shownLen = b.text.length
             b.lastFrameNs = 0L
             b.view?.let { tv ->
-                MdSpannable.tableMaxWidth = tv.maxWidth
-                tv.text = if (ModeConfig.chatPlainText()) suppressCards(b.text.toString())
-                else b.streamRenderer.render(b.text.toString())
+                // 09-28 后渲染: 打字期间纯文本(含卡片/表情占位), markdown 富文本收尾一次到位
+                tv.text = suppressCards(b.text.toString())
                 keepBubbleWidth(b, tv)
                 RoundedTablePlugin.attachInvalidators(tv)
             }
@@ -1225,16 +1369,12 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             b.shownLen = idx
             b.lastAdvanceNs = frameNs
             b.view?.let { tv ->
-                // 全速前进: 每帧即时渲染 (2026-09-23 移除 renderSkip 跳帧: 每个 token 到达的下一帧
-                // 即重渲染, 半截态停留时间最小化, 对齐 DeepSeek 实时渲染"吐出来就是 MD 结构+中途微调")
-                // 层1 涌动滚动(2026-09-22): 打字期间改为蓄放+正弦波滚动, 不再瞬间贴底;
-                // 收尾 finishTypeRender 仍 force 贴底对齐
-                // 阶段3 pending 抑制: 打字期间隐藏文件/产品卡标记裸文本(占位/半截隐藏), 完成后由 markdown 渲染真实卡片
-                MdSpannable.tableMaxWidth = tv.maxWidth
-                tv.text = if (ModeConfig.chatPlainText()) suppressCards(b.text.substring(0, b.shownLen))
-                else b.streamRenderer.render(b.text.substring(0, b.shownLen))
+                // 09-28 后渲染: 打字期间只推纯文本(卡片/表情占位), 不跑 markdown 渲染器;
+                // 富文本由 finishTypeRender 收尾一次性渲染 —— 气泡延伸与输出节奏彻底解耦,
+                // 消除逐帧 markdown 重排导致的延伸卡顿/高度抖动
+                tv.text = suppressCards(b.text.substring(0, b.shownLen))
                 keepBubbleWidth(b, tv)
-                RoundedTablePlugin.attachInvalidators(tv)
+                // 纯文本阶段无 markdown span, 表格 invalidator 收尾渲染时再挂
                 // 追底已去除(2026-09-23): 打字期间不再自动滚动, 用户自由阅读; 收尾 force 贴底对齐
             }
         }
@@ -1267,17 +1407,20 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 (tv.parent as? ViewGroup)?.removeView(tv)
                 return
             }
-            if (ModeConfig.chatPlainText()) tv.text = stripMarkdownForChat(b.text.toString()).trimEnd()
-            else {
-                MdSpannable.tableMaxWidth = tv.maxWidth
-                // 全程流式: 无附件时不切换 markwon, 流式渲染器已对齐表格/标题/代码块视觉,
-                // 直接渲染完整文本消除收尾视觉突变; 含附件(att://)仍走 markwon 渲染真实卡片
-                if (stripped.contains("att://")) {
-                    b.streamRenderer.clearCache()
-                    host.markwon.setMarkdown(tv, stripped)
-                } else {
-                    tv.text = b.streamRenderer.render(stripped)
+            if (ModeConfig.chatPlainText()) {
+                tv.text = stripMarkdownForChat(b.text.toString()).trimEnd()
+            } else if (stripped.contains("att://")) {
+                // 含附件(att://): 卡片挂载依赖视图, 静默期未排版, 收尾走 markwon 渲染真实卡片
+                b.streamRenderer.clearCache()
+                host.markwon.setMarkdown(tv, stripped)
+            } else {
+                // 静默分层(阶段4): 静默期已排版暂存(pendingSpanned)直接上屏——同一渲染路径,
+                // 收尾零二次排版; 未暂存(异常/无视图)现场渲染兜底
+                val spanned = b.pendingSpanned ?: run {
+                    MdSpannable.tableMaxWidth = tv.maxWidth
+                    b.streamRenderer.render(stripped)
                 }
+                tv.text = spanned
             }
             keepBubbleWidth(b, tv)
             RoundedTablePlugin.attachInvalidators(tv)
@@ -1360,8 +1503,16 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         activeContent = null
         for (b in contentBlocks) {
             b.done = true
-            if (!b.typeActive) finishTypeRender(b)   // 未在打字(从未收到正文或已打完): 直接排版
-            // 正在打字的段: done 后由帧回调追上剩余字符自动收尾
+            // 静默分层(阶段4): 未封段段此刻才挂视图(封段段 sealContentPlaceholder 已挂占位)
+            if (b.view == null && b.text.isNotBlank()) attachContentView(b)
+            // 未封段段此刻排版暂存(封段段幂等跳过), 有暂存走动画原位显现, 无暂存(att://)现场排版
+            renderSilent(b)
+            if (b.pendingSpanned != null) {
+                revealContent(b)      // 占位淡出+成品淡入(打字显现), 不再 finishTypeRender 避免闪帧
+            } else {
+                finishTypeRender(b)   // att:// 走 markwon / 纯文本直接上屏
+                revealContent(b)      // 兜底直接可见
+            }
         }
     }
 

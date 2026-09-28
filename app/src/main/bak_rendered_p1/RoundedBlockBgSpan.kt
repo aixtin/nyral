@@ -16,7 +16,7 @@ import android.text.style.MetricAffectingSpan
  * 避免流式阶段文本级底色 -> 收尾整块圆角的视觉突变。
  */
 class RoundedBlockBgSpan(
-    val bgColor: Int,
+    private val bgColor: Int,
     private val density: Float
 ) : MetricAffectingSpan(), LeadingMarginSpan {
 

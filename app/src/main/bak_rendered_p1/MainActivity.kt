@@ -126,8 +126,6 @@ import android.text.style.TypefaceSpan
 class MainActivity : Activity() {
     companion object {
         @Volatile var instance: MainActivity? = null
-        /** 阶段5 渲染幂等标记: TextView keyed tag 存"已上屏 md", 池化复用同内容时跳过重复渲染 */
-        private const val KEY_RENDER_MD = 0x4E594D44  // "NYMD"
     }
 
     private val TAG = "Nyral"
@@ -318,7 +316,7 @@ class MainActivity : Activity() {
 
     /** 历史气泡渲染统一入口: 命中预编译缓存直接 set(主线程零解析), 未命中同步渲染(旧路径)并回填缓存;
      *  所有路径挂高度漂移补偿, 抵御 Markwon 表格 span 布局后二次测量 */
-    internal fun setMarkdownCached(tv: TextView, md: String, rendered: String? = null, writeback: ((Spanned) -> Unit)? = null) {
+    internal fun setMarkdownCached(tv: TextView, md: String) {
         // 高度漂移补偿: 表格/复杂 span 的二次测量发生在首次布局之后(post 同文本再 setText),
         // 高度突增推挤视口内容 = 上翻"突然加速"; watcher 每帧 draw 前反向补偿钉住阅读位置
         // 09-27 修复: watcher 必须在文本设置之后注册——若先注册, 基线记的是 RV 复用残留的旧内容
@@ -326,31 +324,7 @@ class MainActivity : Activity() {
         // 产生 delta=-236/+310 的上下跳闪(DRIFTDBG 实测)
         // 命中路径必须走 setParsedMarkdown(内部跑 beforeSetText/afterSetText 全流程),
         // 直接 tv.text=spanned 会绕过 Markwon 的 TextView 生命周期钩子, 列表等 span 测量异常 = 气泡右侧被截断
-        // 阶段1 rendered 三级读取第②级: 内存 miss 时反序列化落库产物回填缓存(零 markwon 解析)
-
-        // 阶段5 span 宽度现算: 表格行宽度固化在 span 里, 渲染/反序列化前必须注入当前 TextView 可用宽,
-        // 与 AiBubbleHolder 一致, 保证池化复用/重启直读与现场渲染同宽(消除表格二次跳变)
-        val renderW = if (tv.maxWidth > 0) tv.maxWidth else MdSpannable.tableMaxWidth
-        if (mdCache.get(md) == null && !rendered.isNullOrBlank()) {
-            val dec = RenderedCodec.decode(
-                rendered,
-                markwon.configuration().theme(),
-                mdTableTheme,
-                resources.displayMetrics.density,
-                renderW
-            )
-            if (dec != null) mdCache.put(md, dec)
-        }
         mdCache.get(md)?.let {
-            // 阶段5 bind 幂等: 池化复用同内容行时 tv 已上屏同 md 成品(非占位), 跳过重复 setParsedMarkdown
-            // (每次 setParsedMarkdown 都会重建 span 树+触发 layout, 是同形态复用滑动的最大残余成本)
-            if (tv.getTag(KEY_RENDER_MD) == md) {
-                writeback?.invoke(it)
-                return
-            }
-            // 阶段1: 内存缓存命中同样写回——prewarm/本进程渲染产物 DB 可能尚未落库,
-            // 命中即视为"渲染完成", 幂等写回(内容相同会跳过)
-            writeback?.invoke(it)
             if (sScrolling) {
                 // 根治(09-27): 缓存命中路径滑动中同样 defer——直接 setParsedMarkdown 替换
                 // 会产生占位→渲染高度突变(实测 delta=-755), 滑动中无人补偿会推挤视口=多气泡跳;
@@ -361,28 +335,22 @@ class MainActivity : Activity() {
                 val ph = mdPlaceholder(md)
                 if (tv.text?.toString() != ph) tv.text = ph
                 pendingMdReplacements.add {
-                    if (tv.text?.toString() == ph) {
-                        markwon.setParsedMarkdown(tv, it)
-                        tv.setTag(KEY_RENDER_MD, md)
-                    }
+                    if (tv.text?.toString() == ph) markwon.setParsedMarkdown(tv, it)
                     tryResumeBottomIfTrueBottom()
                     recordMdHeight(tv, md)
                 }
                 schedulePendingFlush()
             } else {
                 markwon.setParsedMarkdown(tv, it)
-                tv.setTag(KEY_RENDER_MD, md)
             }
             watchHeightDrift(tv)
             recordMdHeight(tv, md)
             return
         }
         if (md.length < 600) {   // 短文本同步渲染本就不卡, 直接走旧路径并回填缓存
-            MdSpannable.tableMaxWidth = renderW
             synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md) }
             watchHeightDrift(tv)
-            (tv.text as? Spanned)?.let { mdCache.put(md, it); writeback?.invoke(it) }
-            tv.setTag(KEY_RENDER_MD, md)
+            (tv.text as? Spanned)?.let { mdCache.put(md, it) }
             recordMdHeight(tv, md)
             return
         }
@@ -401,7 +369,6 @@ class MainActivity : Activity() {
             watchHeightDrift(tv)
             mdRenderPending.incrementAndGet()   // 占位已上屏, 渲染在途: 贴底判定冻结(09-27 修复2)
             mdExecutor.execute {
-                MdSpannable.tableMaxWidth = renderW   // 阶段5: 异步现场渲染前注入同款表格宽度(与主线程现算一致)
                 val spanned = try {
                     if (mdCache.get(md) == null) mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
                     mdCache.get(md)
@@ -413,8 +380,6 @@ class MainActivity : Activity() {
                         if (tv.text?.toString() == ph) {
                             markwon.setParsedMarkdown(tv, spanned)
                             tv.minimumHeight = 0   // 等高占位使命完成: 解除固定高度, 内容自然接管
-                            tv.setTag(KEY_RENDER_MD, md)
-                            writeback?.invoke(spanned)   // 阶段1: 渲染完成写回 rendered
                         }
                         mdRenderPending.decrementAndGet()   // 替换执行/丢弃均归还计数
                         tryResumeBottomIfTrueBottom()
@@ -438,11 +403,9 @@ class MainActivity : Activity() {
             // 直接主线程同步渲染显示最终结果, 从根上消灭占位→渲染高度突变;
             // 仅打开会话瞬间发生且 prewarm 通常已命中大部分, 少数同步渲染小卡可接受;
             // 滚动中/流式中不走(防掉帧)
-            MdSpannable.tableMaxWidth = renderW   // 阶段5: 同步现场渲染前注入同款表格宽度
             synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md) }
             watchHeightDrift(tv)
-            (tv.text as? Spanned)?.let { mdCache.put(md, it); writeback?.invoke(it) }
-            tv.setTag(KEY_RENDER_MD, md)
+            (tv.text as? Spanned)?.let { mdCache.put(md, it) }
             recordMdHeight(tv, md)
             return
         }
@@ -452,7 +415,6 @@ class MainActivity : Activity() {
         watchHeightDrift(tv)
         mdRenderPending.incrementAndGet()   // 占位已上屏, 渲染在途: 贴底判定冻结(09-27 修复2)
         mdExecutor.execute {
-            MdSpannable.tableMaxWidth = renderW   // 阶段5: 异步现场渲染前注入同款表格宽度(与主线程现算一致)
             val spanned = try {
                 if (mdCache.get(md) == null) mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
                 mdCache.get(md)
@@ -461,11 +423,7 @@ class MainActivity : Activity() {
                 // holder 可能已被 RV 回收复用: 校验 tv 仍挂着本条占位文本才替换, 否则丢弃(幂等安全)
                 if (tv.text?.toString() != ph) { mdRenderPending.decrementAndGet(); return@runOnUiThread }
                 val replace = {
-                    if (tv.text?.toString() == ph) {
-                        markwon.setParsedMarkdown(tv, spanned)
-                        tv.setTag(KEY_RENDER_MD, md)
-                        writeback?.invoke(spanned)   // 阶段1: 渲染完成写回 rendered
-                    }
+                    if (tv.text?.toString() == ph) markwon.setParsedMarkdown(tv, spanned)
                     mdRenderPending.decrementAndGet()   // 替换执行/丢弃均归还计数
                     tryResumeBottomIfTrueBottom()
                     recordMdHeight(tv, md)
@@ -484,26 +442,6 @@ class MainActivity : Activity() {
                 mdRenderPending.decrementAndGet()   // 编译失败也归还计数(罕见)
             }
         }
-    }
-
-    /** 阶段1: 渲染完成写回 rendered —— 内存 messages(下次落库携带) + DB 增量(防中途退出丢失)。
-     *  ChatRow.id = sessionBaseSeq + msgIdx, msgIdx 与 messages 索引一一对应(全空消息同样占位) */
-    private fun writeBackRendered(seq: Long, spanned: Spanned) {
-        val json = RenderedCodec.encode(spanned)
-        if (json == null) { android.util.Log.w(TAG, "writeback encode null seq=$seq len=${spanned.length}"); return }
-        if (json.isBlank()) return
-        val idx = (seq - sessionBaseSeq).toInt()
-
-        if (idx in messages.indices) {
-            val m = messages[idx]
-            if (m.rendered != json) {
-                messages[idx] = m.copy(rendered = json, renderedVersion = RenderedCodec.VERSION)
-                currentSessionId?.let { sid ->
-                    try { db.updateRendered(sid, seq.toInt(), json, RenderedCodec.VERSION) }
-                    catch (e: Exception) { android.util.Log.w(TAG, "db fail seq=$seq", e) }
-                }
-            }
-        } else android.util.Log.w(TAG, "idx OOB seq=$seq idx=$idx")
     }
 
     /** 渲染替换完成/贴底后: 若用户曾上翻且此刻真贴底, 主动恢复自动追底(09-27) */
@@ -606,60 +544,25 @@ class MainActivity : Activity() {
     private fun prewarmMdCache() {
         // 纯文本模式不渲染 Markdown, 预热纯烧 CPU 还加剧会话切换卡顿
         if (ModeConfig.chatPlainText()) return
-        val aiMsgs = messages.mapIndexedNotNull { i, m ->
-            if (m.role != "user" && m.content.isNotBlank()) i to m else null
-        }
+        val aiMsgs = messages.filter { it.role != "user" && it.content.isNotBlank() }
         if (aiMsgs.isEmpty()) return
         val gen = ++mdPrewarmGen
         // 倒序拆成单消息粒度任务投并行池(最新→最旧): 3线程同时消化全量时间/3;
         // bind miss 的兜底任务与剩余预热并行执行, 不再排在整条预热循环之后数秒等待
-        for ((idx, m) in aiMsgs.asReversed()) {
+        for (m in aiMsgs.asReversed()) {
             mdExecutor.execute {
                 if (gen != mdPrewarmGen) return@execute   // 已切走会话: 任务自杀
                 // AiRich 分片路径与 contentRow 渲染一致(超长分片阈值), 用户消息不走 markwon
                 val parts = if (m.content.length > SPLIT_CONTENT_LEN) splitLongContent(m.content) else listOf(m.content)
-                // 阶段3 存量写回判定: 与 fillAiRich singleSeg 一致——timeline content 事件<=1 且
-                // content 未分段时整条 rendered 的 span 区间才与单段文本匹配, 可安全写回落库
-                val cEvts = if (m.timeline.isBlank()) 0 else runCatching {
-                    parseTimeline(m.timeline).count { it[0] == "content" }
-                }.getOrDefault(0)
-                val writeableSeg = parts.size == 1 && cEvts <= 1 &&
-                    (m.renderedVersion < 1 || m.rendered.isBlank())
-                var segSpanned: Spanned? = null
                 for (p in parts) {
                     val md = ModeConfig.stripChatProtocolPrefix(p.trim())
-                    // 短文同步渲染本就不卡, 不走 prewarm 也不写回(bind 短文本路径已含 writeback)
-                    if (md.length < 600) { segSpanned = null; break }
-                    var spanned = mdCache.get(md)
-                    if (spanned == null) {
-                        // 阶段2 rendered 直读: DB 已有落库产物(renderedVersion>=1)时反序列化回填缓存,
-                        // 打开已渲染会话零 markwon 解析(长文 markwon 最贵), decode 失败回退 markwon
-                        if (m.renderedVersion >= 1 && m.rendered.isNotBlank()) {
-                            try {
-                                val dec = RenderedCodec.decode(m.rendered, markwon.configuration().theme(), mdTableTheme, resources.displayMetrics.density, chatMaxW())
-                                if (dec != null) { mdCache.put(md, dec); spanned = dec }
-                            } catch (e: Exception) { /* decode 失败回退 markwon 渲染 */ }
-                        }
-                        if (spanned == null) {
-                            try {
-                                spanned = synchronized(markwonRenderLock) { markwon.toMarkdown(md) }
-                                mdCache.put(md, spanned)
-
-                            } catch (e: Exception) { spanned = null }
-                        }
-                    } else {
-
-                    }
-                    if (spanned != null) {
-                        segSpanned = spanned
-                        enqueueMdMeasure(md, spanned)
-                    } else { segSpanned = null; break }
-                }
-                // 阶段3: 单段长文且 DB 无 rendered → 渲染完成即写回(打开会话零等待, 防 updateSession 全量重写抹掉)
-                if (writeableSeg && segSpanned != null) {
-                    val sp = segSpanned!!
-                    val seq = sessionBaseSeq + idx
-                    runOnUiThread { writeBackRendered(seq.toLong(), sp) }
+                    if (md.length < 600) continue   // 短文本同步渲染本就不卡, 只预热长文
+                    if (mdCache.get(md) != null) continue
+                    try {
+                        val spanned = synchronized(markwonRenderLock) { markwon.toMarkdown(md) }
+                        mdCache.put(md, spanned)
+                        enqueueMdMeasure(md, spanned)   // 09-28: 渲染完成入队测高度, 等高占位兜底用
+                    } catch (e: Exception) { /* 预热失败不阻塞, bind 时走异步兜底 */ }
                 }
             }
         }
@@ -2468,9 +2371,6 @@ class MainActivity : Activity() {
         // 否则切回会话 10s 内新表情 attach 被旧实例占满 MAX_ACTIVE -> 全部降级缩略图不动(09-19 反馈)
         EmojiFrameAnimator.sActive.toList().forEach { c -> try { c.killSelf() } catch (_: Throwable) {} }
         messages.clear()
-        // 阶段5 池化清理: 切会话即清形态 View 池, 旧会话 View 树(含文本/rendered Spanned)不滞留复用,
-        // 避免串会话内容残留与内存驻留; 会话内全量重建(头像刷新/窗口外回退)不清池, 保留复用收益
-        chatAdapter.clearPool()
         messages.addAll(msgs)
         currentSaved = true
         currentSessionId = id
@@ -2992,9 +2892,6 @@ class MainActivity : Activity() {
                         aiStage = 0
                         contentFollow = false
                         updateJumpFab()
-                        // 阶段4 增量落库索引: 正文首条在 messages 中的位置(写回 rendered 用);
-                        // 声明在最外层供 finishContent 后写回使用; 取消/无正文保持 -1 不写
-                        var contentIdx = -1
                         if (LocalEngine.cancelRequested) {
                             // 用户主动停止: 不写入对话/记忆
                             holder.appendContent("\n(已停止)")
@@ -3006,7 +2903,6 @@ class MainActivity : Activity() {
                                 // AI 表情气泡(2026-09-20): 按 [表情:名] 白名单标记把回复拆为 正文+独立表情气泡 多条消息;
                                 // 第一条(通常正文)挂 thinking/tools 快照, 表情行独立无快照
                                 val replyParts = splitAiEmojiReply(reply)
-                                contentIdx = if (replyParts.isEmpty()) -1 else messages.size
                                 for ((pi, p) in replyParts.withIndex()) {
                                     val snap = if (pi == 0) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
                                     messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))
@@ -3021,15 +2917,6 @@ class MainActivity : Activity() {
                             }
                         }
                         holder.finishContent()
-                        // 阶段4 增量落库: 正文首条写回 rendered(排版产物所见即所得, 与 finishTypeRender
-                        // 同一渲染路径), 防重启/重进二次渲染跳变; 取消(cancel)分支不落库不写回
-                        if (contentIdx >= 0 && !LocalEngine.cancelRequested) {
-                            val spanned = holder.renderedSnapshot()
-                            if (spanned != null && spanned.isNotBlank()) {
-                                try { writeBackRendered((sessionBaseSeq + contentIdx).toLong(), spanned as android.text.Spanned) }
-                                catch (e: Exception) { android.util.Log.w(TAG, "silent writeback fail", e) }
-                            }
-                        }
                         activeAiHolder = null
                         // 流式行收尾: 已完成回复内容已落库至 messages, 移除 Streaming 行并重建为静态 AI 行;
                         // 不清理的话, 切模式/开会话全量重建时该行会被 buildRowsFromMessages 兜底再次塞回,
@@ -3256,7 +3143,7 @@ class MainActivity : Activity() {
                 val b = v.findViewWithTag<View>(POOLED_BUBBLE_TAG)
                 if (b is TextView) {
                     if (ModeConfig.chatPlainText()) b.text = ModeConfig.stripMarkdownForChat(row.content.trim())
-                    else setMarkdownCached(b, ModeConfig.stripChatProtocolPrefix(row.content.trim()), row.rendered) { spanned -> writeBackRendered(row.id, spanned) }
+                    else setMarkdownCached(b, ModeConfig.stripChatProtocolPrefix(row.content.trim()))
                 }
             }
             is ChatRow.Sys -> if (v is TextView) v.text = row.text
@@ -3268,8 +3155,8 @@ class MainActivity : Activity() {
 
     internal fun buildRowView(row: ChatRow): View = when (row) {
         is ChatRow.User -> chatWrap(bubble(row.content, isUser = true).also { it.tag = POOLED_BUBBLE_TAG }, true)
-        is ChatRow.Ai -> chatWrap(bubble(row.content, isUser = false, rendered = row.rendered, writeback = { spanned -> writeBackRendered(row.id, spanned) }).also { it.tag = POOLED_BUBBLE_TAG }, false)
-        is ChatRow.AiRich -> aiBubbleWithThinking(row.thinking, row.content, row.tools, row.timeline, row.rendered) { spanned -> writeBackRendered(row.id, spanned) }
+        is ChatRow.Ai -> chatWrap(bubble(row.content, isUser = false).also { it.tag = POOLED_BUBBLE_TAG }, false)
+        is ChatRow.AiRich -> aiBubbleWithThinking(row.thinking, row.content, row.tools, row.timeline)
         is ChatRow.Sys -> TextView(this).apply {
             text = row.text
             textSize = 12f
@@ -3308,8 +3195,8 @@ class MainActivity : Activity() {
                 when {
                     m.role == "user" -> ChatRow.User(sessionBaseSeq + msgIdx.toLong(), m.content)
                     m.thinking.isNotBlank() || m.tools.isNotBlank() || m.timeline.isNotBlank() ->
-                        ChatRow.AiRich(sessionBaseSeq + msgIdx.toLong(), m.thinking, m.content, m.tools, m.timeline, m.rendered)
-                    else -> ChatRow.Ai(sessionBaseSeq + msgIdx.toLong(), m.content, m.rendered)
+                        ChatRow.AiRich(sessionBaseSeq + msgIdx.toLong(), m.thinking, m.content, m.tools, m.timeline)
+                    else -> ChatRow.Ai(sessionBaseSeq + msgIdx.toLong(), m.content)
                 })
             msgIdx++
         }
@@ -3440,7 +3327,7 @@ class MainActivity : Activity() {
     }
 
     /** 生成一条消息气泡 View (用户右深色 / AI 左浅色) */
-    private fun bubble(content: String, isUser: Boolean, rendered: String = "", writeback: ((Spanned) -> Unit)? = null): View {
+    private fun bubble(content: String, isUser: Boolean): View {
         val maxW = chatMaxW()
         // Agent 模式用户右气泡最大宽=chatBox内容宽(屏宽-左右padding 12dp*2), 与AI同为全屏幅宽且左右对称;
         // 不可用全屏w: 全屏w+END右对齐且可用区<气泡宽时左边缘偏移为负→左边越出屏幕
@@ -3477,7 +3364,7 @@ class MainActivity : Activity() {
                     }
                 }
             } else if (ModeConfig.chatPlainText()) text = ModeConfig.stripMarkdownForChat(content.trim())
-            else setMarkdownCached(this, ModeConfig.stripChatProtocolPrefix(content.trim()), rendered, writeback)
+            else setMarkdownCached(this, ModeConfig.stripChatProtocolPrefix(content.trim()))
             textSize = 15f
             val edgeImage = pureImage || pureVideo
             setLineSpacing(if (edgeImage) 0f else dp(3).toFloat(), 1f)
@@ -4378,7 +4265,7 @@ class MainActivity : Activity() {
         return row
     }
 
-    private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = "", rendered: String = "", writeback: ((Spanned) -> Unit)? = null): LinearLayout {
+    private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = ""): LinearLayout {
         val container = LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
             // Agent 模式不要头像(仅聊天模式并排头像); 聊天模式头像由 chatWrap 负责
@@ -4390,14 +4277,14 @@ class MainActivity : Activity() {
                 topMargin = dp(6)
             }
         }
-        fillAiRich(container, thinking, content, toolsJson, timelineJson, rendered, writeback)
+        fillAiRich(container, thinking, content, toolsJson, timelineJson)
         return container
     }
 
     /** AiRich 行池化绑定（09-28 第二波）：复用外层容器 View 树，先回收旧子树再原地填充 */
     private fun bindAiRichPooled(container: LinearLayout, row: ChatRow.AiRich) {
         recycleAiRichChildren(container)
-        fillAiRich(container, row.thinking, row.content, row.tools, row.timeline, row.rendered) { spanned -> writeBackRendered(row.id, spanned) }
+        fillAiRich(container, row.thinking, row.content, row.tools, row.timeline)
     }
 
     /** 回收 AiRich 容器子树：chatWrap 容器/分片 TextView/AI 头像各自入池，保证下次 bind 干净复用 */
@@ -4429,9 +4316,9 @@ class MainActivity : Activity() {
     }
 
     /** AiRich 容器原地填充（原 aiBubbleWithThinking apply 体）：分片 TextView/AI 头像/chatWrap 从池取用 */
-    private fun fillAiRich(container: LinearLayout, thinking: String, content: String, toolsJson: String, timelineJson: String, rendered: String = "", writeback: ((Spanned) -> Unit)? = null) {
+    private fun fillAiRich(container: LinearLayout, thinking: String, content: String, toolsJson: String, timelineJson: String) {
         // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
-        fun obtainSeg(seg: String, segRendered: String = "", segWriteback: ((Spanned) -> Unit)? = null): TextView? {
+        fun obtainSeg(seg: String): TextView? {
             val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
             if (renderContent.isBlank()) return null   // 空气泡兜底(09-25): 纯协议前缀段不建视图
             val tv = aiRichSegPool.removeLastOrNull() ?: TextView(this@MainActivity).apply {
@@ -4454,7 +4341,7 @@ class MainActivity : Activity() {
                 tv.text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
             } else {
                 // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                setMarkdownCached(tv, renderContent, segRendered, segWriteback)
+                setMarkdownCached(tv, renderContent)
             }
             makeCopyable(tv) { seg }
             return tv
@@ -4515,25 +4402,18 @@ class MainActivity : Activity() {
         }
         // 正文独立气泡: 按 timeline content 事件精确还原交错顺序(新格式), 旧格式回退全部分片
         val timeline = parseTimeline(timelineJson)
-        // 阶段1: rendered 直出/写回仅适用"单段渲染"(timeline content 事件<=1 条 且 content 未分段);
-        // 多段时整条 rendered 的 span 区间与单段文本不匹配, 强制走现场渲染(与现状一致, 防纯文本降级)
-        val contentEvts = timeline.count { it[0] == "content" }
-        val singleSeg = contentEvts <= 1 && contentSegs.size <= 1
-
-        val segRendered = if (singleSeg) rendered else ""
-        val segWriteback = if (singleSeg) writeback else null
         var contentPlaced = false
         if (timeline.isNotEmpty()) {
             timeline.forEach { (type, thinkText, name, arg, result) ->
                 if (type == "content" && thinkText.isNotBlank()) {
-                    obtainSeg(thinkText, segRendered, segWriteback)?.let { container.addView(obtainChatWrap(it)); contentPlaced = true }
+                    obtainSeg(thinkText)?.let { container.addView(obtainChatWrap(it)); contentPlaced = true }
                 }
             }
             if (!contentPlaced && content.isNotBlank()) {
-                contentSegs.forEach { obtainSeg(it, segRendered, segWriteback)?.let { r -> container.addView(obtainChatWrap(r)) } }
+                contentSegs.forEach { obtainSeg(it)?.let { r -> container.addView(obtainChatWrap(r)) } }
             }
         } else if (content.isNotBlank()) {
-            contentSegs.forEach { obtainSeg(it, segRendered, segWriteback)?.let { r -> container.addView(obtainChatWrap(r)) } }
+            contentSegs.forEach { obtainSeg(it)?.let { r -> container.addView(obtainChatWrap(r)) } }
         }
     }
 
