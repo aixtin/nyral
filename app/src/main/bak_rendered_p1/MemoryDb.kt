@@ -73,9 +73,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "seq INTEGER NOT NULL," +
                 "tools TEXT, " +
                 "thinking TEXT, " +
-                "timeline TEXT, " +
-                "rendered TEXT, " +
-                "rendered_version INTEGER DEFAULT 0)"
+                "timeline TEXT)"
         )
         db.execSQL("CREATE INDEX idx_sms_sid ON session_msgs(session_id)")
     }
@@ -88,16 +86,12 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         var hasTools = false
         var hasTimeline = false
         var hasTs = false
-        var hasRendered = false
-        var hasRenderedVersion = false
         while (cols.moveToNext()) {
             when (cols.getString(1)) {
                 "thinking" -> hasThinking = true
                 "tools" -> hasTools = true
                 "timeline" -> hasTimeline = true
                 "ts" -> hasTs = true
-                "rendered" -> hasRendered = true
-                "rendered_version" -> hasRenderedVersion = true
             }
         }
         cols.close()
@@ -115,13 +109,6 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         // 幂等兜底：timeline 列保存思考/工具交错时间线(v8)，缺失则补齐
         if (!hasTimeline) {
             db.execSQL("ALTER TABLE session_msgs ADD COLUMN timeline TEXT")
-        }
-        // 幂等兜底：rendered 列保存序列化渲染产物(阶段1 渲染产物落库)，缺失则补齐
-        if (!hasRendered) {
-            db.execSQL("ALTER TABLE session_msgs ADD COLUMN rendered TEXT")
-        }
-        if (!hasRenderedVersion) {
-            db.execSQL("ALTER TABLE session_msgs ADD COLUMN rendered_version INTEGER DEFAULT 0")
         }
     }
 
@@ -475,7 +462,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     data class SessionInfo(val id: Long, val title: String, val updatedAt: Long, val pinned: Boolean)
 
     /** 会话消息: role / content(正文) / thinking(AI 思考) / tools(工具调用序列 JSON) / timeline(思考+工具交错时间线 JSON, v8) / ts(消息时间戳 v10) / seq(会话内序号, 窗口化加载时用于定位) */
-    data class SessionMsg(val role: String, val content: String, val thinking: String = "", val tools: String = "", val timeline: String = "", val ts: Long = 0L, val seq: Int = -1, val rendered: String = "", val renderedVersion: Int = 0)
+    data class SessionMsg(val role: String, val content: String, val thinking: String = "", val tools: String = "", val timeline: String = "", val ts: Long = 0L, val seq: Int = -1)
 
     /** 保存当前会话为新会话，返回 session id；assistant 消息附思考内容(可空) */
     fun saveSession(title: String, msgs: List<SessionMsg>, mode: Int = 0): Long {
@@ -499,8 +486,6 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                             put("thinking", m.thinking.ifBlank { null })
                             put("tools", m.tools.ifBlank { null })
                             put("timeline", m.timeline.ifBlank { null })
-                            put("rendered", m.rendered.ifBlank { null })
-                            put("rendered_version", m.renderedVersion)
                             put("seq", i)
                         })
                 }
@@ -582,8 +567,6 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                             put("thinking", m.thinking.ifBlank { null })
                             put("tools", m.tools.ifBlank { null })
                             put("timeline", m.timeline.ifBlank { null })
-                            put("rendered", m.rendered.ifBlank { null })
-                            put("rendered_version", m.renderedVersion)
                             put("seq", baseSeq + i)
                         })
                 }
@@ -594,23 +577,12 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
-    /** 增量写回单条消息渲染产物(阶段1): 流式/历史渲染完成后落库, 防中途退出丢失 */
-    fun updateRendered(sessionId: Long, seq: Int, rendered: String, version: Int) {
-        if (rendered.isBlank()) return
-        lock.withLock {
-            writableDatabase.execSQL(
-                "UPDATE session_msgs SET rendered = ?, rendered_version = ? WHERE session_id = ? AND seq = ?",
-                arrayOf(rendered, version, sessionId.toString(), seq.toString())
-            )
-        }
-    }
-
-    /** 读取某个会话的全部消息 (role, content, thinking, tools, timeline, rendered, rendered_version) */
+    /** 读取某个会话的全部消息 (role, content, thinking, tools, timeline) */
     fun loadSessionMessages(id: Long): List<SessionMsg> {
         lock.withLock {
             val out = mutableListOf<SessionMsg>()
             readableDatabase.rawQuery(
-                "SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0), COALESCE(rendered, ''), COALESCE(rendered_version, 0) FROM session_msgs WHERE session_id = ? ORDER BY seq ASC",
+                "SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0) FROM session_msgs WHERE session_id = ? ORDER BY seq ASC",
                 arrayOf(id.toString())
             ).use { c ->
                 while (c.moveToNext()) {
@@ -620,10 +592,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         if (c.isNull(2)) "" else c.getString(2),
                         if (c.isNull(3)) "" else c.getString(3),
                         if (c.isNull(4)) "" else c.getString(4),
-                        c.getLong(5),
-                        -1,
-                        c.getString(6),
-                        c.getInt(7)
+                        c.getLong(5)
                     ))
                 }
             }
@@ -653,7 +622,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         lock.withLock {
             val out = mutableListOf<SessionMsg>()
             readableDatabase.rawQuery(
-                "SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0), COALESCE(rendered, ''), COALESCE(rendered_version, 0), seq FROM session_msgs " +
+                "SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0), seq FROM session_msgs " +
                     "WHERE session_id = ? ORDER BY seq DESC LIMIT ?",
                 arrayOf(id.toString(), tail.toString())
             ).use { c ->
@@ -665,9 +634,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         if (c.isNull(3)) "" else c.getString(3),
                         if (c.isNull(4)) "" else c.getString(4),
                         c.getLong(5),
-                        c.getInt(8),
-                        c.getString(6),
-                        c.getInt(7)
+                        c.getInt(6)
                     ))
                 }
             }

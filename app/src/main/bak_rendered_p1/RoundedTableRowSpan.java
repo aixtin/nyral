@@ -91,13 +91,6 @@ public class RoundedTableRowSpan extends ReplacementSpan {
         this.maxWidth = 0;
     }
 
-    /** 序列化读取(rendered 落库): 暴露表格行元信息 */
-    public boolean getHeader() { return header; }
-
-    public boolean getOdd() { return odd; }
-
-    public List<TableRowSpan.Cell> getCells() { return cells; }
-
     /** 流式渲染重载: 注入 TextView 可用宽度, 首测 getSize 直接返回该宽度, 避免半截表格 cell 内容估算致宽度抖动 */
     public RoundedTableRowSpan(
             @NonNull TableTheme theme,

@@ -15,8 +15,8 @@ import androidx.recyclerview.widget.RecyclerView
 internal sealed class ChatRow(val id: Long) {
     // data class: areContentsTheSame 才能真正比较内容, 避免全量重建时所有行被误判 changed 触发整表重绘闪跳
     data class User(val rowId: Long, val content: String) : ChatRow(rowId)
-    data class Ai(val rowId: Long, val content: String, val rendered: String = "") : ChatRow(rowId)
-    data class AiRich(val rowId: Long, val thinking: String, val content: String, val tools: String, val timeline: String, val rendered: String = "") : ChatRow(rowId)
+    data class Ai(val rowId: Long, val content: String) : ChatRow(rowId)
+    data class AiRich(val rowId: Long, val thinking: String, val content: String, val tools: String, val timeline: String) : ChatRow(rowId)
     data class Sys(val rowId: Long, val text: String) : ChatRow(rowId)
     /** 新会话开场介绍卡片行 */
     data class Welcome(val rowId: Long) : ChatRow(rowId)
