@@ -2303,6 +2303,8 @@ class MainActivity : Activity() {
         }
         // 开发者调试服务: 默认关闭; 设置开启且为 debug 构建时在 onCreate 末尾拉起
         DebugServer.init(this)
+        // 保活: 前台服务防止退后台后进程被冻结, DebugServer accept 线程停摆
+        DebugService.start(this)
         // 工作目录 MediaStore 索引自愈: adb push 等非 MediaStore 落盘的文件默认不在索引,
         // 启动时后台触发系统媒体扫描, 让 workdir_list/read 立即可见(修复 site_auth 读取失效)
         Thread { WorkDir.rescan(this) }.start()
@@ -5030,6 +5032,7 @@ class MainActivity : Activity() {
         if (::browserPage.isInitialized) browserPage.destroy()
         // 调试服务随 Activity 销毁关闭, 并清引用避免泄漏
         DebugServer.stop()
+        DebugService.stop(this)
         DebugServer.detach(this)
         audioPlayer?.release()
         audioPlayer = null
