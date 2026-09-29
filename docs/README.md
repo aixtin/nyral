@@ -94,8 +94,8 @@
 | 项 | 要求 |
 |----|------|
 | JDK | 17 |
-| Gradle | 8.5+（**无 wrapper，需本机系统 Gradle**） |
-| Android SDK | 34（compileSdk） |
+| Gradle | 8.13（**无 wrapper，需本机系统 Gradle**） |
+| Android SDK | 36（compileSdk） |
 | 目标设备 | Android 7.0+（minSdk 24）、arm64-v8a |
 
 ### 构建命令
@@ -108,7 +108,7 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.0 / versionCode 30）。
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.0 / versionCode 32）。
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 
 ### 装机

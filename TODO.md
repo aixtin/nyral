@@ -28,6 +28,8 @@
 - 2026-09-14: 工具自热度排序落地（用户拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-09-29: 开源收口（chore 安全加固与清理 9150c73）+ targetSdk/compileSdk 升 36（AGP 8.13.0 + Gradle 8.13，为 Android 16 Live Updates 接入准备，versionCode 32）
+- 2026-09-27/28: D 路线实时 Markdown 渲染落地（MdSpans/MdBlocks/MdStreamRenderer 第1-5步）+ 消息列表滑动丝滑优化（RecyclerView 形态池化/AiRich 容器池化/flush 分批/漂移补偿，池化回归修复多轮）+ 行动轨道原型 + 慢放体系 + 键盘/表情/输入框三层联动修复
 - 2026-09-13: 三处并发/时序 bug 修复并真机验证闭环（DebugServer chat 互斥、browser_scan 同步回填、browser open 就绪等待）+ DebugServer keep-alive 吞吐优化 + UpdateChecker NPE 修复（af7135a）+ 发视频 OOM 修复（流式读取+大小上限+VideoCompressor）
 - 2026-09-13: v2.0 正式签名发布（versionCode 30，自建 keystore 接入 release signingConfig，密钥异地备份）+ 版本号动态化修复更新检测
 - 2026-09-11: v1.3（versionCode 23）+ 开源准备收口（浏览器模块与 Markdown 渲染源码入库、脱敏内网 IP、清理备份/补丁脚本）+ 开发者文档（docs/README + ADR 13 条）
