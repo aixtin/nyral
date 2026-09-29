@@ -339,7 +339,7 @@ class MainActivity : Activity() {
                 resources.displayMetrics.density,
                 renderW
             )
-            if (dec != null) mdCache.put(md, dec)
+            if (dec != null) { mdCache.put(md, dec); android.util.Log.i("DbgMd", "decode mdLen=" + md.length + " decLen=" + dec.length) }
         }
         mdCache.get(md)?.let {
             // 阶段5 bind 幂等: 池化复用同内容行时 tv 已上屏同 md 成品(非占位), 跳过重复 setParsedMarkdown
@@ -363,6 +363,7 @@ class MainActivity : Activity() {
                 pendingMdReplacements.add {
                     if (tv.text?.toString() == ph) {
                         markwon.setParsedMarkdown(tv, it)
+                        val _t1 = it; tv.post { android.util.Log.i("DbgMd", "bind tvLen=" + tv.text.length + " h=" + tv.height + " layH=" + (tv.layout?.height ?: -1) + " mdLen=" + _t1.length) }
                         tv.setTag(KEY_RENDER_MD, md)
                     }
                     tryResumeBottomIfTrueBottom()

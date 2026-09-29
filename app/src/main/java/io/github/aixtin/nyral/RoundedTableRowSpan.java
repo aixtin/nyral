@@ -126,6 +126,7 @@ public class RoundedTableRowSpan extends ReplacementSpan {
 
         // 修复: 首次测量(width 尚未经 draw 赋值)时, 用各 cell 内容宽度估算初始表格宽,
         // 避免 getSize 返回 0 导致 TextView 首测被压成窄条、单元格逐字竖排(恢复渲染必现)
+        android.util.Log.i("TabDbg", "getSize w=" + width + " maxW=" + maxWidth + " layouts=" + layouts.size() + " cells=" + cells.size());
         if (width <= 0) {
             if (maxWidth > 0) {
                 // 流式修复: 首测直接使用 TextView 可用宽度, 与 draw 阶段 spanWidth 一致,
@@ -296,6 +297,7 @@ public class RoundedTableRowSpan extends ReplacementSpan {
 
         final int borderWidth = theme.tableBorderWidth(paint);
         final boolean drawBorder = borderWidth > 0;
+        android.util.Log.i("TabDbg", "draw bg=" + Integer.toHexString(paint.getColor()) + " border=" + borderWidth + " w=" + width + " spanW=" + spanWidth + " layouts=" + layouts.size());
 
         final int heightDiff = (bottom - top - height) / 4;
 

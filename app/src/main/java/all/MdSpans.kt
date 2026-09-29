@@ -28,7 +28,7 @@ import org.commonmark.ext.gfm.tables.TableRow
 import org.json.JSONArray
 
 /** 文本区间样式类型 */
-enum class MdSpanType { BOLD, ITALIC, INLINE_CODE, STRIKETHROUGH, LINK, CODE_BLOCK, HEADING, TABLE_ROW, TABLE_BLOCK }
+enum class MdSpanType { BOLD, ITALIC, INLINE_CODE, STRIKETHROUGH, LINK, CODE_BLOCK, HEADING, QUOTE, TABLE_ROW, TABLE_BLOCK, HR }
 
 /** 单个样式区间: [start,end) 左闭右开, 作用于 displayText */
 data class MdSpan(val start: Int, val end: Int, val type: MdSpanType, val extra: String? = null)
@@ -114,13 +114,26 @@ object MdToSpans {
                 spans += MdSpan(start, sb.length - 1, MdSpanType.CODE_BLOCK)
             }
             is BlockQuote -> {
+                if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
+                val qStart = sb.length
                 walkChildren(node, sb, spans)
+                val qEnd = sb.length
+                if (qEnd > qStart) {
+                    spans += MdSpan(qStart, qEnd, MdSpanType.QUOTE)
+                    android.util.Log.i("TabDbg", "QUOTE span " + qStart + ".." + qEnd + " text=" + sb.substring(qStart, qEnd.coerceAtMost(qStart + 30)).replace("\n", "|"))
+                }
+                sb.append("\n\n")
             }
             is ThematicBreak -> {
-                if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
-                sb.append("---\n\n")
+                if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
+                val hrStart = sb.length
+                sb.append("\u200B") // 零宽占位, 由 HrSpan 替换为分割线
+                val hrEnd = sb.length
+                spans += MdSpan(hrStart, hrEnd, MdSpanType.HR)
+                sb.append("\n\n")
             }
             is TableBlock -> {
+                android.util.Log.i("TabDbg", "TBLOCK hit")
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
                 val tableStart = sb.length
                 var c = node.firstChild
@@ -157,6 +170,7 @@ object MdToSpans {
                                     cellsArr.put(cArr)
                                 }
                                 arr.put(cellsArr)
+                                android.util.Log.i("TabDbg", "TROW-enc header=" + (if (isHeader) 1 else 0) + " odd=" + (if (odd) 1 else 0) + " cells=" + cells.size + " range=" + lineStart + ".." + (sb.length - 1))
                                 spans += MdSpan(lineStart, (sb.length - 1).coerceAtLeast(lineStart), MdSpanType.TABLE_ROW, arr.toString())
                                 if (!isHeader) dataRowIdx++
                             }

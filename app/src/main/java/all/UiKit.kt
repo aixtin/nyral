@@ -122,17 +122,23 @@ fun roundedBitmap(src: Bitmap, radius: Int): Bitmap {
     return out
 }
 
-/** 圆角背景 Drawable（按 radius+color 缓存复用：气泡滚动重绑/流式高频创建时避免每帧 new drawable） */
-private val sRoundedCache = object : android.util.LruCache<String, GradientDrawable>(96) {
-    override fun sizeOf(key: String, value: GradientDrawable): Int = 1
+/** 圆角背景 Drawable：缓存 ConstantState 模板，每次返回独立 mutate 副本；
+ *  根治多 View 共享同一实例 setBounds 互踩圆角、动画 setColor 污染同 key 缓存变色。 */
+private val sRoundedCache = object : android.util.LruCache<String, android.graphics.drawable.Drawable.ConstantState>(96) {
+    override fun sizeOf(key: String, value: android.graphics.drawable.Drawable.ConstantState): Int = 1
 }
 fun rounded(radius: Int, color: Int): GradientDrawable {
     val k = radius.toString() + "_" + color
-    sRoundedCache.get(k)?.let { return it }
-    return GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = radius.toFloat()
-    }.also { sRoundedCache.put(k, it) }
+    var tpl = sRoundedCache.get(k)
+    if (tpl == null) {
+        val g = GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius.toFloat()
+        }
+        tpl = g.constantState
+        sRoundedCache.put(k, tpl)
+    }
+    return tpl.newDrawable().mutate() as GradientDrawable
 }
 
 /** 文件卡片文件名省略参考宽度(px): 首条参照文件名(连接卡_记忆库读写.md) 的渲染宽度。
