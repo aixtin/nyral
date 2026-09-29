@@ -581,7 +581,7 @@ internal class BrowserPage(private val act: MainActivity) {
             }
             addView(thinkAll, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = act.dp(12)
+                topMargin = act.dp(36)
             })
         }
         return thinkWrap

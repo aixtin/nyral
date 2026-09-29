@@ -25,7 +25,10 @@
     <application
         android:label="Nyral"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@android:style/Theme.Material.Light" android:networkSecurityConfig="@xml/network_security_config">
+        android:theme="@android:style/Theme.Material.Light"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
 
         <!-- 首启引导页作为 launcher：全新安装先看引导，点"开始授权"后进主界面 -->
         <activity
@@ -57,6 +60,12 @@
         <!-- 任务执行前台服务: AI 处理任务期间防止进程被回收, dataSync 类型 -->
         <service
             android:name=".TaskService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- DebugServer 保活前台服务: 退后台防进程冻结, 仅 debug 构建启用 -->
+        <service
+            android:name=".DebugService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

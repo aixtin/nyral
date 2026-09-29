@@ -656,7 +656,7 @@ object DebugServer {
         if (act == null) { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
         val result = JSONObject()
         // root 系统级按键最可靠, 优先; 失败(无 root/未授权)再回退 app 内 View 注入
-        val action = o.optString("action", "back")
+        val action = o.optString("action", "keycode") // 防呆: 缺省走 keycode, 避免误触发 back 退出应用
         val code = o.optInt("code", KeyEvent.KEYCODE_ENTER)
         val cmd = when (action) {
             "back" -> "input keyevent 4"
