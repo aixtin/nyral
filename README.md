@@ -86,7 +86,6 @@ android-agent-app/
 
 - 对话、记忆、Token 统计、SSH 配置（加密存储）全部仅存本机
 - 不采集任何遥测；唯一外部请求是启动时检查 GitHub Release 更新（可忽略 404）
-- 记忆云端同步（规划中）将完全走你自己服务器的 SSH 通道
 
 ## 路线图
 
@@ -100,7 +99,6 @@ android-agent-app/
 - [x] 工作目录批量工具（grep/head/stats，40 轮工具上限）
 - [x] 浏览器模块（自研 Agent 浏览器：整屏接管 + AI 高亮 + 验证码交还）
 - [x] GitHub Release 发布（v1.3/v2.0 正式签名包，应用内更新弹窗生效）
-- [ ] 记忆经 SSH 同步到自托管 VPS（复用 assistant 记忆库协议）
 - [ ] 对话上下文分级管理进一步优化
 
 ## 版本记录
