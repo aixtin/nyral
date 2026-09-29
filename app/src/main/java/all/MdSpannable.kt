@@ -72,12 +72,23 @@ object MdSpannable {
                     sb.setSpan(RelativeSizeSpan(scale), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     sb.setSpan(ForegroundColorSpan(HEADING_COLOR), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
+                MdSpanType.QUOTE -> {
+                    // 引用块: 左侧竖线+缩进(系统 QuoteSpan 竖线在流式 TextView 不绘制, 自绘 QuoteBarSpan)
+                    val qColor = 0xFF0D47A1.toInt()
+                    android.util.Log.i("TabDbg", "QUOTE-app " + s + ".." + e)
+                    sb.setSpan(QuoteBarSpan(qColor, (3f * density).toInt(), (12f * density).toInt()), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
                 MdSpanType.TABLE_ROW -> {
                     val theme = tableTheme
+                    android.util.Log.i("TabDbg", "TROW-app theme=" + (theme != null) + " extra=" + sp.extra + " range=" + s + ".." + e + " len=" + sb.length)
                     if (theme != null) addTableRow(sb, theme, sp.extra, s, e)
                 }
                 MdSpanType.TABLE_BLOCK -> {
                     sb.setSpan(TableSpan(), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                MdSpanType.HR -> {
+                    // 分割线: 零宽占位由 HrSpan 替换为横线(占满可用宽度, 与表格同机制)
+                    sb.setSpan(HrSpan(density), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
             }
         }
@@ -108,8 +119,8 @@ object MdSpannable {
                 RoundedTableRowSpan(theme, cells, header, odd, density, tableMaxWidth),
                 s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
             )
-        } catch (_: Exception) {
-            // 解析失败退化纯文本, 不崩
+        } catch (ex: Exception) {
+            android.util.Log.e("TabDbg", "addTableRow fail extra=" + extra + " range=" + s + ".." + e, ex)
         }
     }
 }
