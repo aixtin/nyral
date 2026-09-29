@@ -248,14 +248,24 @@ object MdToSpans {
         else -> 0
     }
 
-    /** 收集 cell 内全部 Text 字面量(不含 MD 标记), 供表格行 span 复用 markwon 视觉 */
+    /** 收集 cell 内全部文本(含 Code/Emphasis/Link 等内联子节点), 供表格行 span 复用 markwon 视觉 */
     private fun collectCellText(cell: TableCell): String {
         val t = StringBuilder()
-        var n: Node? = cell.firstChild
-        while (n != null) {
-            if (n is Text) t.append(n.literal)
-            n = n.next
-        }
+        digText(cell.firstChild, t)
         return t.toString()
+    }
+
+    /** 递归下钻取纯文本: 认 Code/软硬换行, 其余节点继续下钻(修表格含行内代码整格空白) */
+    private fun digText(n: Node?, t: StringBuilder) {
+        var x = n
+        while (x != null) {
+            when (x) {
+                is Text -> t.append(x.literal)
+                is Code -> t.append(x.literal)
+                is SoftLineBreak, is HardLineBreak -> t.append(' ')
+                else -> digText(x.firstChild, t)
+            }
+            x = x.next
+        }
     }
 }
