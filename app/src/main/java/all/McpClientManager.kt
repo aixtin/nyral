@@ -165,15 +165,17 @@ object McpClientManager {
         val out = mutableListOf<McpTool>()
         for (i in 0 until tools.length()) {
             val t = tools.getJSONObject(i)
+            val rawName = t.optString("name")
+            if (rawName.isBlank()) continue  // 防御: 空工具名会导致前缀拼接产生不可调用工具名, 直接跳过
             val schema = t.optJSONObject("inputSchema") ?: JSONObject()
             out.add(McpTool(
-                name = t.optString("name"),
+                name = rawName,
                 description = t.optString("description", ""),
                 schema = schema,
                 serverName = "",
                 serverUrl = url,
                 serverToken = token,
-                origName = t.optString("name")
+                origName = rawName
             ))
         }
         return out
