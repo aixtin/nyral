@@ -276,9 +276,10 @@ Android 10+ 无存储权限时文件访问必须显式申请"所有文件访问"
 ### 背景
 Markdown 表格在消息流内多方案渲染均不理想：Markwon 原生表格流式收尾才排版、无法实时；窄屏横向滚动体验差；气泡内嵌套渲染在双模式（聊天/Agent）下样式与单元格内容不稳定。反编译对比 DeepSeek、Kimi 等第三方客户端的表格渲染后，确定在气泡内做原生表格块。
 
-### 方案演进（A → B → C）
+### 方案演进（2026-09-29 → 10-02：A → B → C）
+- **前期迭代（09-29 ~ 10-01，span 体系内演进）**：首列整格空白修复（collectCellText 递归 digText 覆盖 Code/内联节点，commit 669dea9）→ 横滑 v3 公共版（TableScrollWrap 统一包裹全部渲染点，naturalMode 自然宽测量）→ 整表统一列宽（v7 colMaxChars 预扫描全表列宽）→ 样式系列（框线改 PRIMARY、最低宽对齐正文气泡、顶边封顶、单元格内边距）→ 方案 B 边框修复（availW 扣除内边距、按 colWidths 画列竖线、行线调浅）
 - **方案 A**：Markwon 原生表格 + 样式覆盖——流式期间无法实时排版，窄屏横向滚动体验差
-- **方案 B**：气泡内独立 TableView 块化（初版）——块化思路成立，但行容器未处理垂直对齐、collectCellText 漏 Code/内联节点，含行内代码的整格渲染空白
+- **方案 B**：气泡内独立 TableView 块化（初版）——块化思路成立，但行容器未处理垂直对齐、collectCellText 漏 Code/内联节点，含行内代码的整格渲染空白；列宽压缩无保底导致右半段消失待修复
 - **方案 C（最终）**：MdTableView 重写，气泡内独立 TableView 块化：
   - 表格块与流式渲染管线解耦：完整块走缓存，尾部未完成块轻量 parse（衔接 D 路线 MdBlocks/MdStreamRenderer）
   - 行容器 LinearLayout 显式 `gravity=CENTER_VERTICAL`，单元格垂直居中（聊天/Agent 双模式一致）
@@ -292,6 +293,29 @@ Markdown 表格在消息流内多方案渲染均不理想：Markwon 原生表格
 
 ### 结论
 以"commonmark 解析 + 气泡内独立 TableView 块化"收敛消息流表格渲染；后续表格视觉细节（间距/对齐/线位/留白）按真机实测迭代。
+
+---
+
+## ADR-015 消息渲染结果落库：mdCache → rendered → 现场渲染三级读取
+
+- **状态**：已采纳
+- **日期**：2026-09-28（阶段1 落地，衔接 D 路线渲染管线）
+
+### 背景
+D 路线实时 Markdown 渲染落地后，历史消息重载/恢复需重新走 markwon 解析（CPU 开销 + 偶发并发风险），且流式期间完成的富文本渲染结果未持久化，重启即失。
+
+### 方案（阶段1）
+- **存储**：`session_msgs` 加 `rendered TEXT` + `rendered_version INTEGER DEFAULT 0`（onOpen 幂等补齐），`updateRendered(sid,seq,json,ver)` 增量写回
+- **序列化**：新增 `RenderedCodec.kt`（Spanned ↔ JSON，VERSION=1），覆盖系统 span（Style/RelativeSize/ForegroundColor/BackgroundColor/Strikethrough/URL/Typeface/Bullet/LeadingMargin）+ 项目自绘 span（RoundedCodeBlock/RoundedBlockBg/RoundedTableRow/Table），只存结构化 span 不含布局态
+- **读取链**：`setMarkdownCached` 三级读取——`mdCache` 命中 → `rendered` 反序列化命中 → 现场渲染；四渲染出口统一 `writeBackRendered()` 写内存 + DB
+- **单段判定**：`contentEvts <= 1 && contentSegs.size <= 1` 才写回（多段 content 的 span 区间不匹配，按设计强制现场渲染，合法跳过）
+
+### 取舍
+- 收益：历史重载免 markwon 解析（真机 71 条消息 33 条落库，重开直接反序列化命中）；渲染结果与原文解耦，滚动懒写回逐步覆盖
+- 代价：序列化格式自研维护，需随 span 类型演进升级 VERSION
+
+### 结论
+以"渲染结果结构化落库 + 三级读取"收敛历史恢复性能；阶段 2-5 按渲染管线演进迭代。
 
 ---
 
@@ -311,6 +335,7 @@ Markdown 表格在消息流内多方案渲染均不理想：Markwon 原生表格
 | 012 | `AITerminal.kt` + `AITerminalService.kt`（悬浮窗 + 前台服务）/ `MainActivity.kt`（7 处事件转发） |
 | 013 | `AndroidManifest.xml`（`MANAGE_EXTERNAL_STORAGE`）/ `WorkDir.kt` |
 | 014 | `MdTableView.kt`（气泡内独立 TableView 块化渲染）/ `MdSpans.kt` / `MdBlocks.kt` / `MdStreamRenderer.kt`（D 路线流式管线衔接） |
+| 015 | `MemoryDb.kt`（rendered 列）/ `RenderedCodec.kt`（Spanned↔JSON）/ `MainActivity.kt`（三级读取 + writeBackRendered） |
 
 ## 附：模块实现锚点（附件解码链路）
 

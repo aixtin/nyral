@@ -105,8 +105,8 @@ android-agent-app/
 ## 版本记录
 
 - **v2.1.1（2026-10-02，versionCode 34）**：表格单元格垂直居中修复（MdTableView 行容器垂直居中，聊天/Agent 双模式一致）；慢放迁移调试弹窗；浏览器面板按钮；聊天模式气泡宽度恢复对称到头像内侧。
-- **v2.1（2026-10-02，versionCode 33）**：消息流 Markdown 表格渲染方案 C 落地（MdTableView 重写：气泡内独立 TableView 块化、表格块 WRAP_CONTENT 自适应）；修复含行内代码单元格整格空白；清理方案 C 废弃的旧表格类。
-- **v2.0（2026-09-29 维护，versionCode 32）**：targetSdk/compileSdk 升至 36（AGP 8.13.0 + Gradle 8.13，为 Android 16 Live Updates API 接入准备）；D 路线实时 Markdown 渲染（MdSpans/MdBlocks/MdStreamRenderer）；消息列表滑动丝滑优化（RecyclerView 形态池化 + AiRich 容器池化 + flush 分批 + 漂移补偿）；行动轨道原型 + 慢放体系；工具自热度排序（ToolHotStore）+ root 自动补齐自身权限（versionCode 31）；开源前安全加固与清理。
+- **v2.1（2026-10-02，versionCode 33）**：消息流 Markdown 表格渲染方案 C 落地（MdTableView 重写：气泡内独立 TableView 块化、表格块 WRAP_CONTENT 自适应）；修复含行内代码单元格整格空白；表格右半段消失修复（列宽压缩保底 + 表格内部横滑）；文字竖排根因修复（列宽按文字需求压缩，放不下走内部横滑绝不竖排）+ 连续表格间距修复；三项 UI 修复（AI 正文全屏气泡、AI 侧长按复制恢复、浏览器双击开/关）；清理方案 C 废弃的旧表格类。
+- **v2.0（2026-09-29 维护，versionCode 32）**：targetSdk/compileSdk 升至 36（AGP 8.13.0 + Gradle 8.13，为 Android 16 Live Updates API 接入准备）；D 路线实时 Markdown 渲染（MdSpans/MdBlocks/MdStreamRenderer）+ 引用块竖线/分割线渲染（QuoteBarSpan/HrSpan）+ rendered 落库基建（mdCache→rendered→现场渲染三级读取，ADR-015）；状态行覆盖式下拉面板（窗帘式挂 chatArea，ScrollView + 动画代际 token 防连点竞态）；思考气泡空气泡根治（协议前缀三处兜底）+ 时间线圆点对齐/图标化；首启闪退修复（markwon 并发锁）+ 消息列表滑动丝滑优化（RecyclerView 形态池化 + AiRich 容器池化 + flush 分批 + 漂移补偿 + watcher 去重）；表格横滑公共版（TableScrollWrap）+ 整表统一列宽（colMaxChars）；行动轨道原型 + 慢放体系；工具自热度排序（ToolHotStore）+ root 自动补齐自身权限（versionCode 31）；开源前安全加固与清理。
 - **v2.0（2026-09-13）**：正式签名发布（自建 keystore 经 keystore.properties 读取，release 挂 signingConfig，密钥已异地备份）；版本号动态化 + 启动自动检查更新修复；settings.gradle 镜像注释补全（versionCode 30）
 - **v1.3（2026-09-11）**：MainActivity 系列拆分（MediaPreviews/AiBubbleHolder/AttachmentSender/TerminalGate 等）+ 协程统一铺开 + UI 文案外置 i18n + 代码体检优化（Bitmap 采样解码、明文流量白名单）+ 首启授权/引导页 + 开发者文档与 ADR（versionCode 23）
 - **v1.1（2026-09-04）**：修复 SSE 流式连接/流句柄泄漏（统一移入 finally 释放，取消/异常不泄漏）；makeCopyable 非空断言防御加固；versionCode 19→20 / versionName 1.1；SSE 消息与 streamOnce 全文日志由 Log.i 降为 Log.v 防刷屏。

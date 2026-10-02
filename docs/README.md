@@ -6,7 +6,7 @@
 
 | 文档 | 内容 | 适用读者 |
 |------|------|---------|
-| [架构决策记录（ADR）](./ADR-架构决策记录.md) | 13 条关键架构决策：背景 → 方案 → 取舍 → 结论 | 想理解"为什么这么设计"的开发者 |
+| [架构决策记录（ADR）](./ADR-架构决策记录.md) | 15 条关键架构决策：背景 → 方案 → 取舍 → 结论 | 想理解"为什么这么设计"的开发者 |
 | 本文档 | 工程结构、构建与发布流程、模块清单 | 想动手改代码/构建/发版的开发者 |
 
 ---
@@ -23,7 +23,7 @@
 | `MainActivity.kt` | 聊天主界面：气泡渲染、录音、附件收发、事件分发、会话管理（约 2552 行，拆分后的主体） |
 | `MainUi.kt` / `UiKit.kt` / `BubbleSpans.kt` / `Typewriter.kt` | UI 构建与动效、气泡 span、打字机动效 |
 | `ModeConfig.kt` | 聊天 / Agent 双模式开关与分派 |
-| `MdTableView.kt` | 消息流 Markdown 表格渲染（方案 C：气泡内独立 TableView 块化 + 单元格垂直居中） |
+| `MdTableView.kt` | 消息流 Markdown 表格渲染（方案 C：气泡内独立 TableView 块化 + 单元格垂直居中 + 列宽按文字需求压缩/内部横滑） |
 
 ### 模型配置
 
@@ -36,7 +36,7 @@
 
 | 载体 | 职责 |
 |------|------|
-| `MemoryDb.kt` | SQLite 存储：会话、消息（seq 窗口化）、记忆、Token 统计 |
+| `MemoryDb.kt` | SQLite 存储：会话、消息（seq 窗口化、rendered 渲染结果落库）、记忆、Token 统计 |
 | `MemoryKeeper.kt` | 记忆归档/摘要/消费事务（pending 队列 + 原子消费） |
 | `MemoryEmbedder.kt` / `BertTokenizer.kt` | bge-small ONNX 端内语义向量 |
 | `MemorySummaryActivity.kt` | 中期摘要 / 记忆管理入口 |
@@ -143,7 +143,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 架构决策摘要
 
-完整的「背景 → 方案 → 取舍 → 结论」见 [架构决策记录（ADR）](./ADR-架构决策记录.md)，当前 14 条：
+完整的「背景 → 方案 → 取舍 → 结论」见 [架构决策记录（ADR）](./ADR-架构决策记录.md)，当前 15 条：
 
 | # | 决策 | 状态 |
 |---|------|------|
@@ -161,3 +161,4 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 012 | 过程可视化：透明悬浮迷你终端 | 已采纳 |
 | 013 | 数据存储访问：Android 作用域存储适配 | 已采纳 |
 | 014 | 消息流表格渲染：气泡内独立 TableView 块化（方案 C） | 已采纳 |
+| 015 | 消息渲染结果落库：mdCache → rendered → 现场渲染三级读取 | 已采纳 |
