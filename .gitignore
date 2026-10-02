@@ -30,3 +30,6 @@ keystore.properties
 # 阶段备份(打补丁前快照, 不入库)
 *.pre_*
 backups/
+
+# 阶段备份目录(不入库)
+io.github.aixtin.nyral_bak_tablefix_*/
