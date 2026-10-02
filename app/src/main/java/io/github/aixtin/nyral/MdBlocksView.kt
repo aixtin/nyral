@@ -40,6 +40,25 @@ internal class MdBlocksView(context: Context) : LinearLayout(context) {
         this.headerBg = headerBg
     }
 
+    /**
+     * 2026-10-02 表格气泡宽度修复: 父链给 AT_MOST(全屏可用宽) 时按渲染上下文 maxW 封顶,
+     * 与正文气泡 chatMaxW() 同宽(聊天模式=屏宽-120dp); 内容不足 maxW 时仍贴合内容宽。
+     * (本环境 android.jar 的 View 层无 setMaxWidth, 只能 override onMeasure 限制测量 spec)
+     */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        var wSpec = widthMeasureSpec
+        if (maxW > 0) {
+            val mode = android.view.View.MeasureSpec.getMode(widthMeasureSpec)
+            val size = android.view.View.MeasureSpec.getSize(widthMeasureSpec)
+            if (mode == android.view.View.MeasureSpec.AT_MOST || mode == android.view.View.MeasureSpec.UNSPECIFIED) {
+                if (size > maxW || mode == android.view.View.MeasureSpec.UNSPECIFIED) {
+                    wSpec = android.view.View.MeasureSpec.makeMeasureSpec(maxW, android.view.View.MeasureSpec.AT_MOST)
+                }
+            }
+        }
+        super.onMeasure(wSpec, heightMeasureSpec)
+    }
+
     /** 渲染块列表(幂等): 每次绑定前清空旧子块, 避免池化复用残留 */
     fun bindBlocks(blocks: List<MdRenderBlock>?) {
         removeAllViews()

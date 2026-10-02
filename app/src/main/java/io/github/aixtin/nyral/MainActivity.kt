@@ -693,6 +693,8 @@ class MainActivity : Activity() {
     private lateinit var browserBar: LinearLayout
     private lateinit var browserBarStatus: TextView
     private lateinit var browserBarTakeover: TextView
+    // 浏览器控制条面板入口按钮: 展开汉堡面板(引擎管理/登录数据/URL), 悬浮模式替代已删除的右缘左滑手势
+    private lateinit var browserBarPanel: TextView
     // 浏览器控制条折叠: 输入框上方 ⌃ 手柄(默认收起), 点开展开控制条(状态+接管按钮)
     private lateinit var browserBarToggle: ImageView
     private var browserBarExpanded = false
@@ -1612,6 +1614,29 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         browserBar.addView(browserBarStatus)
+        browserBarPanel = TextView(this).apply {
+            text = "面板"
+            textSize = 13f
+            setTextColor(Ui.PRIMARY)
+            gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(Ui.INPUT_BG)
+                cornerRadius = dp(20).toFloat()
+            }
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            setOnClickListener { toggleBrowserPanel() }
+            Ui.press(this)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { rightMargin = dp(8) }
+        }.apply {
+            val d = getDrawable(R.drawable.ic_menu)?.mutate()
+            d?.setTint(Ui.PRIMARY)
+            setCompoundDrawablesWithIntrinsicBounds(d, null, null, null)
+            compoundDrawablePadding = dp(5)
+        }
+        browserBar.addView(browserBarPanel)
         browserBarTakeover = TextView(this).apply {
             text = "接管"
             textSize = 13f
@@ -2694,6 +2719,22 @@ class MainActivity : Activity() {
     /** 底栏交互入口: 输入框文字变化时刷新三形态布局 */
     internal fun updateInputMode() {
         applyInputMode()
+    }
+
+    /** 面板入口按钮: 展开右侧汉堡面板(引擎管理/登录数据/URL); 浏览器未开先开再展开, 已开直接展开, 已展开则收起 */
+    internal fun toggleBrowserPanel() {
+        if (browserPage.hamburgerOpen) {
+            browserPage.collapseHamburger()
+            return
+        }
+        // 控制条展开时先收起, 避免与汉堡面板/遮罩叠加
+        if (browserBarExpanded) toggleBrowserBar()
+        if (!browserPage.open) {
+            browserPage.open()
+            browserBar.postDelayed({ browserPage.expandHamburger() }, 320L)
+        } else {
+            browserPage.expandHamburger()
+        }
     }
 
     /** 折叠手柄点按: 展开/收起控制条(接管按钮+状态), 手柄 ⌃→⌄ 旋转 */
