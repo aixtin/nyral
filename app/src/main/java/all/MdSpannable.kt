@@ -10,15 +10,13 @@ import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.text.style.URLSpan
-import io.noties.markwon.ext.tables.TableRowSpan
-import io.noties.markwon.ext.tables.TableSpan
 import io.noties.markwon.ext.tables.TableTheme
 import org.json.JSONArray
 
 /**
  * MdSpans -> SpannableStringBuilder (D路线第4步).
  * TextView 系渲染载体, 与 Compose AnnotatedString 等价的区间样式映射。
- * 全程流式(2026-09-22): 表格直接复用 RoundedTableRowSpan(与 markwon 收尾同款视觉),
+ * 流式(2026-09-22): 文本区间样式映射; 方案B(2026-10-01)表格改走块化 MdBlocksView, 不再构造表格 span
  * 标题按 level 分级倍率对齐 markwon headingTextSizeMultipliers, 代码块整块圆角背景。
  */
 object MdSpannable {
@@ -75,17 +73,10 @@ object MdSpannable {
                 MdSpanType.QUOTE -> {
                     // 引用块: 左侧竖线+缩进(系统 QuoteSpan 竖线在流式 TextView 不绘制, 自绘 QuoteBarSpan)
                     val qColor = 0xFF0D47A1.toInt()
-                    android.util.Log.i("TabDbg", "QUOTE-app " + s + ".." + e)
                     sb.setSpan(QuoteBarSpan(qColor, (3f * density).toInt(), (12f * density).toInt()), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                MdSpanType.TABLE_ROW -> {
-                    val theme = tableTheme
-                    android.util.Log.i("TabDbg", "TROW-app theme=" + (theme != null) + " extra=" + sp.extra + " range=" + s + ".." + e + " len=" + sb.length)
-                    if (theme != null) addTableRow(sb, theme, sp.extra, s, e)
-                }
-                MdSpanType.TABLE_BLOCK -> {
-                    sb.setSpan(TableSpan(), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
+                MdSpanType.TABLE_ROW -> { /* 方案B(2026-10-01): 表格已块化, 行 span 残留直接跳过(文本流内不再构造表格) */ }
+                MdSpanType.TABLE_BLOCK -> { /* 方案B(2026-10-01): 表格块区间由 MdToBlocks 切出, 文本流内不再设 TableSpan */ }
                 MdSpanType.HR -> {
                     // 分割线: 零宽占位由 HrSpan 替换为横线(占满可用宽度, 与表格同机制)
                     sb.setSpan(HrSpan(density), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -95,32 +86,4 @@ object MdSpannable {
         return sb
     }
 
-    /** 表格行: 解析 extra 编码([header,odd,[[align,text],...]]) 构造 RoundedTableRowSpan */
-    private fun addTableRow(
-        sb: SpannableStringBuilder,
-        theme: TableTheme,
-        extra: String?,
-        s: Int,
-        e: Int
-    ) {
-        if (extra == null) return
-        try {
-            val arr = JSONArray(extra)
-            val header = arr.getInt(0) == 1
-            val odd = arr.getInt(1) == 1
-            val cellsArr = arr.getJSONArray(2)
-            val cells = ArrayList<TableRowSpan.Cell>(cellsArr.length())
-            for (i in 0 until cellsArr.length()) {
-                val c = cellsArr.getJSONArray(i)
-                cells.add(TableRowSpan.Cell(c.getInt(0), c.getString(1)))
-            }
-            if (cells.isEmpty()) return
-            sb.setSpan(
-                RoundedTableRowSpan(theme, cells, header, odd, density, tableMaxWidth),
-                s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        } catch (ex: Exception) {
-            android.util.Log.e("TabDbg", "addTableRow fail extra=" + extra + " range=" + s + ".." + e, ex)
-        }
-    }
 }

@@ -17,6 +17,8 @@ class HrSpan(
     /** 上下留白(dp) */
     private val padV = (9f * density).toInt()
 
+    fun getDensity(): Float = density
+
     override fun getSize(
         paint: Paint,
         text: CharSequence?,

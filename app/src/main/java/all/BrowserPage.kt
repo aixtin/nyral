@@ -1571,8 +1571,9 @@ internal class BrowserHighlightView(context: Context) : View(context) {
 
 /**
  * 浏览器页右侧跟手滑出手势控制器（镜像 DrawerDragController）：
- * - 关闭态: 右缘 EDGE_DP 内按下左滑 -> 整页从右往左推入（translationX: +screenW -> 0）
- * - 打开态: 页面内左缘 EDGE_DP 内按下右滑 -> 整页往右推回（0 -> +screenW）
+ * - 关闭态: 双击屏幕右缘 EDGE_DP 内 -> 整页从右往左推入（translationX: +screenW -> 0）
+ * - 打开态: 双击屏幕右缘 EDGE_DP 内 -> 整页往右推回（0 -> +screenW）
+ *   (2026-10-02 展开/关闭均由右缘左滑改为双击右缘, 避免与表格横滑手势冲突)
  * 与左抽屉(左缘右滑)区域/方向互补, 互不冲突
  */
 internal class BrowserSlideController(private val act: MainActivity) {
@@ -1580,6 +1581,7 @@ internal class BrowserSlideController(private val act: MainActivity) {
         const val EDGE_DP = 48          // 触发区宽度
         const val FLING_VX = 500f       // 吸附速度阈值(px/s)
         const val SNAP_FRAC = 0.5f      // 吸附位置阈值
+        const val TAP_MS = 300L         // 双击判定时间窗(ms)
     }
     private val slop = android.view.ViewConfiguration.get(act).scaledTouchSlop
     private var tracker: android.view.VelocityTracker? = null
@@ -1589,6 +1591,10 @@ internal class BrowserSlideController(private val act: MainActivity) {
     private var downY = 0f
     private var startTrans = 0f
     private val w get() = act.browserPage.root.translationX.coerceAtLeast(0f)
+    // 双击右缘展开(2026-10-02): 取代关闭态右缘左滑, 避免与表格横滑手势冲突
+    private var lastTapTime = 0L
+    private var lastTapX = 0f
+    private var lastTapY = 0f
 
     private fun panel() = act.browserPage.root
 
@@ -1606,7 +1612,8 @@ internal class BrowserSlideController(private val act: MainActivity) {
                 val openNow = act.browserPage.open
                 val sw = act.resources.displayMetrics.widthPixels
                 // 展开态全屏可滑: 汉堡/浏览器展开后任意位置横滑跟手收(方向不限, 斜率判定保竖滑);
-                // 关闭态保持分区触发: 右缘左滑开浏览器/展开汉堡, 浏览器开时右缘左滑仍保留展开汉堡入口
+                // 关闭态不再右缘左滑开浏览器(2026-10-02 改双击右缘), 避免与表格横滑冲突;
+                // 浏览器开时右缘左滑仍保留展开汉堡入口
                 val rightThird = sw * 2f / 3f
                 mode = when {
                     act.tokenMask.visibility == View.VISIBLE -> 0
@@ -1618,9 +1625,24 @@ internal class BrowserSlideController(private val act: MainActivity) {
                     openNow && ev.rawX >= rightThird -> 3
                     // 浏览器展开: 全屏任意方向跟手收
                     openNow -> 2
-                    // 浏览器关闭态: 右缘左滑展开
-                    !openNow && ev.rawX >= rightThird -> 1
                     else -> 0
+                }
+                // 双击屏幕右缘: 关闭态=展开浏览器, 展开态=关闭浏览器(取代右缘左滑, 避免与表格横滑冲突)
+                if (ev.rawX >= sw - EDGE_DP &&
+                    act.tokenMask.visibility != View.VISIBLE && !act.drawerOpen && !act.browserPage.hamburgerOpen &&
+                    (mode == 0 || openNow)) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val tapSlop = slop * 2
+                    if (now - lastTapTime in 1..TAP_MS &&
+                        abs(ev.rawX - lastTapX) < tapSlop && abs(ev.rawY - lastTapY) < tapSlop) {
+                        lastTapTime = 0   // 消费本次双击, 避免连续触发
+                        dragging = true
+                        if (openNow) act.browserPage.close() else act.browserPage.open()
+                        return true       // 拦截第二击, 不传给页面
+                    }
+                    lastTapTime = now
+                    lastTapX = ev.rawX
+                    lastTapY = ev.rawY
                 }
                 startTrans = if (mode == 3 || mode == 4) act.browserPage.hamburgerPanel.translationX
                               else panel().translationX
@@ -1631,7 +1653,7 @@ internal class BrowserSlideController(private val act: MainActivity) {
                     val dy = ev.rawY - downY
                     // 方向锁定: 未开=左滑展开, 已开=右滑收回(反方向, 同向滑动不接管)
                     val dirOk = when (mode) {
-                        1, 3 -> dx < 0
+                        3 -> dx < 0
                         2, 4 -> dx > 0
                         else -> false
                     }

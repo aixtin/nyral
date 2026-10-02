@@ -16,6 +16,10 @@ class QuoteBarSpan(
     private val gapWidth: Int
 ) : LeadingMarginSpan {
 
+    fun getColor(): Int = color
+    fun getStripeWidth(): Int = stripeWidth
+    fun getGapWidth(): Int = gapWidth
+
     override fun getLeadingMargin(first: Boolean): Int = stripeWidth + gapWidth
 
     override fun drawLeadingMargin(

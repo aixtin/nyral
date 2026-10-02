@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.text.TextUtils
 import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +19,7 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextSwitcher
@@ -206,8 +208,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var lastRenderNs = 0L          // 上次真正 setText 渲染的时间戳(批量渲染节流, 消除蹦迪)
         val streamRenderer = MdStreamRenderer()  // D路线: 流式 MD 渲染(块缓存+截断尾部)
         // 静默分层(阶段4): 正文输出期不上屏, 排版与 UI 解耦——封段/收尾生成成品暂存, 收尾原位显现
-        var renderedSilent = false              // 是否已在静默期排版暂存(pendingSpanned)
-        var pendingSpanned: CharSequence? = null // 排版产物暂存(收尾直接上屏, 不再二次排版)
+        var renderedSilent = false              // 是否已在静默期排版暂存(pendingBlocks)
+        var pendingBlocks: List<MdRenderBlock>? = null // 方案B 块化排版产物暂存(收尾直接上屏, 不再二次排版)
+        var blocksView: MdBlocksView? = null    // 方案B 块化成品视图(表格/文本独立子块)
+        var pendingSpanned: CharSequence? = null // 旧路径排版产物暂存(附件 att:// 用, 收尾直接上屏)
         var revealed = false                    // 收尾显现动画已执行(三点淡出+文字淡入)
         var maxShownW = 0              // 本段气泡历史最大测量宽度(px): 单向性约束, 文本变短只扩不缩防跳动
         var dimmed = false             // 输出中暗色态: 打字期间气泡+文字调暗, 完成后渐亮
@@ -1051,7 +1055,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         b.shownLen = b.text.length   // 占位即全文: 封段段收尾不再有打字节奏(打字机已让位)
     }
 
-    /** 静默排版: 完整文本排版一次暂存(pendingSpanned), 收尾直接上屏不再二次排版;
+    /** 静默排版(方案B 块化): 完整文本块化解析一次暂存(pendingBlocks), 收尾直接上屏不再二次排版;
      *  含附件(att://)因卡片挂载依赖视图, 推迟到收尾由 finishTypeRender 走 markwon */
     private fun renderSilent(b: ContentBlock) {
         if (b.renderedSilent || b.text.isBlank()) return
@@ -1060,25 +1064,37 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val stripped = ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim()
         if (stripped.isEmpty()) return
         if (stripped.contains("att://")) return   // 附件走收尾 markwon(需视图挂卡片)
-        val tv = b.view ?: return
-        MdSpannable.tableMaxWidth = tv.maxWidth
-        b.pendingSpanned = b.streamRenderer.render(stripped)
+        // 方案B: 文本流统一转块列表(文本块/表格块), 表格不再走 RoundedTableRowSpan 自绘
+        b.pendingBlocks = MdToBlocks.render(stripped)
     }
 
     /** 收尾显现: 段成品原位上屏(占位淡出+文字淡入), 每段只执行一次;
-     *  有静默暂存(pendingSpanned)由本函数动画上屏; 无暂存段(att:///异常)由
-     *  finishTypeRender 先上屏, 本函数兜底直接可见(无闪帧) */
+     *  方案B 块化: pendingBlocks 非空 -> 占位淡出后挂 MdBlocksView 成品(块化布局),
+     *  无块化(att:///异常)由 finishTypeRender 先上屏, 本函数兜底直接可见(无闪帧) */
     private fun revealContent(b: ContentBlock) {
         if (b.revealed) return
         b.revealed = true
         val tv = b.view ?: return
-        val spanned = b.pendingSpanned
-        if (spanned != null) {
-            // 封段/静默暂存段: 空占位(alpha 1, 无内容)淡出 -> 成品淡入原位切换
+        val blocks = b.pendingBlocks
+        if (blocks != null) {
+            // 块化成品: 空占位(alpha 1, 无内容)淡出 -> 块容器淡入原位切换
+            android.util.Log.i("NyralTbl", "reveal blocks=" + blocks.size + " tvAttached=" + tv.isAttachedToWindow + " tvAlpha=" + tv.alpha)
+            val fadeOut = tv.animate().alpha(0f).setDuration(120).setInterpolator(DecelerateInterpolator())
+            fadeOut.withEndAction {
+                android.util.Log.i("NyralTbl", "fadeEnd start replace")
+                val bv = ensureBlocksView(b, tv)
+                bv.bindBlocks(blocks)
+                keepBubbleWidth(b, bv)
+                bv.animate().alpha(1f).setDuration(140).setInterpolator(AccelerateInterpolator()).start()
+                android.util.Log.i("NyralTbl", "fadeEnd done bvAlpha=" + bv.alpha + " bvAttached=" + bv.isAttachedToWindow)
+            }
+            fadeOut.start()
+        } else if (b.pendingSpanned != null) {
+            // 旧路径暂存(att:// 走 markwon 等): 占位淡出 -> 成品淡入
+            val spanned = b.pendingSpanned
             val fadeOut = tv.animate().alpha(0f).setDuration(120).setInterpolator(DecelerateInterpolator())
             fadeOut.withEndAction {
                 tv.text = spanned
-                RoundedTablePlugin.attachInvalidators(tv)
                 keepBubbleWidth(b, tv)
                 tv.animate().alpha(1f).setDuration(140).setInterpolator(AccelerateInterpolator()).start()
             }
@@ -1090,12 +1106,61 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         removeBodyDots()
     }
 
+    /** 方案B: 把当前占位 TextView 原位替换为 MdBlocksView 块容器(气泡外壳与占位一致),
+     *  已创建则直接复用(幂等); 边框/表头底色与 mdTableTheme 同源(Ui.PRIMARY/Ui.INPUT_BG) */
+    private fun ensureBlocksView(b: ContentBlock, tv: TextView): MdBlocksView {
+        b.blocksView?.let { return it }
+        val bv = MdBlocksView(host).apply {
+            if (ModeConfig.actionTrack()) {
+                // 行动轨道(方案A): 正文无框文本轨道, 块容器缩进与占位一致
+                setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+                layoutParams = tv.layoutParams
+            } else {
+                setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+                background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
+                layoutParams = tv.layoutParams
+            }
+        }
+        // 替换: 占位淡出后摘除原 TextView, 在原位挂块容器(保持气泡顺序/边距)
+        val parent = tv.parent as? ViewGroup
+        android.util.Log.i("NyralTbl", "ensureBV parent=" + (parent?.javaClass?.simpleName ?: "NULL") + " tvAttached=" + tv.isAttachedToWindow + " hasBv=" + (b.blocksView != null))
+        if (parent != null) {
+            val idx = parent.indexOfChild(tv)
+            parent.removeView(tv)
+            parent.addView(bv, idx)
+            android.util.Log.i("NyralTbl", "REPLACED idx=" + idx + " bvAttached=" + bv.isAttachedToWindow + " bvAlpha=" + bv.alpha)
+        } else {
+            android.util.Log.i("NyralTbl", "PARENT_NULL skipReplace")
+        }
+        // 可用宽 = 占位 maxWidth - 块容器自身左右 padding(表格实际可摆放空间,
+        // 否则表格按未减 padding 的宽度计算 -> 恒超宽被横滑裁剪, 右边框缺失)
+        val padH = if (ModeConfig.actionTrack()) host.dp(8) else host.dp(24)
+        bv.setRenderContext(tv.maxWidth, tv.maxWidth - padH, BUBBLE_AI_TEXT, Ui.PRIMARY, Ui.INPUT_BG)
+        // 长按复制(2026-10-02): 块容器取代占位 TextView 后原 makeCopyable 监听随 TextView 摘除,
+        // 需在块容器上重建长按入口(与用户侧一致弹原文本对话框)
+        val rawB = ModeConfig.stripChatProtocolPrefix(b.text.toString())
+        bv.setOnLongClickListener {
+            if (host.aiTypewriting()) return@setOnLongClickListener false
+            host.openRawText(rawB)
+            true
+        }
+        bv.isLongClickable = true
+        b.blocksView = bv
+        return bv
+    }
+
     /** 静默分层正文快照(持久化用): 富文本上屏前取其文本, 收尾显现后直接取成品文本 */
     fun contentSnapshot(): String {
         val sb = StringBuilder()
         for (b in contentBlocks) {
             if (b.text.isBlank()) continue
             if (sb.isNotEmpty()) sb.append('\n')
+            // 方案B: 块化段成品在 blocksView, 原占位已摘除(无 text), 直接取原始 MD(所见即原文);
+            // 未块化段沿用旧逻辑(成品 text 优先)
+            if (b.blocksView != null) {
+                sb.append(ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim())
+                continue
+            }
             val v = b.view   // 局部捕获: 成员 var 不能智能转换
             if (v != null && b.revealed) {
                 sb.append(v.text?.toString() ?: b.text.toString())
@@ -1106,9 +1171,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return sb.toString()
     }
 
-    /** 静默分层成品快照(写回 rendered 用): 与 finishTypeRender 同一排版路径, 保证落库=所见 */
+    /** 静默分层成品快照(写回 rendered 用): 与 finishTypeRender 同一排版路径, 保证落库=所见;
+     *  方案B: 含表格段块化渲染, span 快照无意义 -> 落原始 MD(恢复时重新块化);
+     *  无表格段保持 markwon/streamRenderer 富文本快照(恢复零解析) */
     fun renderedSnapshot(): CharSequence? {
         if (ModeConfig.chatPlainText()) return null
+        // 方案B 收尾(10-02): 块化渲染段(TextBlock/TableBlock)无法 span 序列化,
+        // 落原始 MD 会在重建时 decode 回显源码 -> 统一不写回, 重建走块化路径
+        if (contentBlocks.any { it.pendingBlocks != null }) return null
         var any = false
         val sb = SpannableStringBuilder()
         for (b in contentBlocks) {
@@ -1116,10 +1186,16 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             any = true
             val stripped = ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim()
             if (stripped.isEmpty()) continue
+            if (stripped.contains("att://") || b.pendingBlocks?.any { it is MdRenderBlock.TableBlock } == true) {
+                // 附件走 markwon 卡片快照? 附件不可复用(att:// 路径渲染依赖视图), 兜底纯文本;
+                // 含表格段: 块化成品 -> 落原始 MD, 恢复时重新块化
+                if (sb.isNotEmpty()) sb.append('\n')
+                sb.append(stripped)
+                continue
+            }
             val tv = b.view
             val spanned = when {
-                tv != null && b.revealed && b.pendingSpanned != null -> b.pendingSpanned
-                tv != null && !b.revealed && !stripped.contains("att://") -> {
+                tv != null && !b.revealed -> {
                     MdSpannable.tableMaxWidth = tv.maxWidth
                     b.streamRenderer.render(stripped)
                 }
@@ -1155,7 +1231,6 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 // 09-28 后渲染: 打字期间纯文本(含卡片/表情占位), markdown 富文本收尾一次到位
                 tv.text = suppressCards(b.text.toString())
                 keepBubbleWidth(b, tv)
-                RoundedTablePlugin.attachInvalidators(tv)
             }
             if (b.done) {
                 finishTypeRender(b)
@@ -1212,7 +1287,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 气泡宽度单向性: 文本更新后布局完成时测量真实宽度, 记忆本段历史最大宽(不超过 chatMaxW 封顶),
      *  后续文本变短(排版变化/静默重渲染/append 变窄)时保持 minimumWidth 不缩, 避免 AI 输出长短变化
      *  导致气泡整体放大放小左右跳动; 只在变宽时更新, 窄了不动 */
-    private fun keepBubbleWidth(b: ContentBlock, tv: TextView) {
+    private fun keepBubbleWidth(b: ContentBlock, tv: View) {
         tv.post {
             val w = tv.width
             if (w > b.maxShownW) {
@@ -1413,19 +1488,19 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 // 含附件(att://): 卡片挂载依赖视图, 静默期未排版, 收尾走 markwon 渲染真实卡片
                 b.streamRenderer.clearCache()
                 host.markwon.setMarkdown(tv, stripped)
+                host.makeCopyable(tv) { ModeConfig.stripChatProtocolPrefix(b.text.toString()) }
+                keepBubbleWidth(b, tv)
             } else {
-                // 静默分层(阶段4): 静默期已排版暂存(pendingSpanned)直接上屏——同一渲染路径,
-                // 收尾零二次排版; 未暂存(异常/无视图)现场渲染兜底
-                val spanned = b.pendingSpanned ?: run {
-                    MdSpannable.tableMaxWidth = tv.maxWidth
-                    b.streamRenderer.render(stripped)
-                }
-                tv.text = spanned
+                // 方案B 块化主路径: 静默期已块化暂存(pendingBlocks)直接上屏, 未暂存现场渲染兜底;
+                // 块容器替换占位(内部文本块/表格块独立), 不再走 span 自绘表格
+                val blocks = b.pendingBlocks ?: MdToBlocks.render(stripped)
+                val bv = ensureBlocksView(b, tv)
+                bv.bindBlocks(blocks)
+                keepBubbleWidth(b, bv)
             }
-            keepBubbleWidth(b, tv)
-            RoundedTablePlugin.attachInvalidators(tv)
-            // 输出完成渐亮: 暗色态(打字中)段在此亮起, 恢复渲染/从未暗色的段不受影响
-            if (b.dimmed) brightenBlock(b, tv)
+            // 输出完成渐亮: 暗色态(打字中)段在此亮起, 恢复渲染/从未暗色的段不受影响;
+            // 块化路径 blocksView 全亮新建(暗色仅打字占位), 无需再渐亮
+            if (b.dimmed && b.blocksView == null) brightenBlock(b, tv)
             // 收尾贴底已去除(2026-09-23): 输出完成后不再强制滚动, 用户自由阅读
         }
     }

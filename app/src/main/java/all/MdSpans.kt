@@ -7,6 +7,7 @@ import org.commonmark.node.Document
 import org.commonmark.node.Emphasis
 import org.commonmark.node.FencedCodeBlock
 import org.commonmark.node.HardLineBreak
+import org.commonmark.node.HtmlBlock
 import org.commonmark.node.Heading
 import org.commonmark.node.Image
 import org.commonmark.node.IndentedCodeBlock
@@ -45,16 +46,24 @@ class MdSpans(val displayText: String, val spans: List<MdSpan>) {
 /** CommonMark Node -> MdSpans 转换器 (D路线第2步: spans 中间层) */
 object MdToSpans {
 
-    /** 完整解析入口: 解析 MD 文本并转成 spans (带 GFM 扩展) */
-    fun parse(md: String): MdSpans {
-        val parser = org.commonmark.parser.Parser.builder()
+    /** 表格单列字符上限: 与 RoundedTableRowSpan.MAX_CELL_CHARS 对齐, 超长折行 */
+    private const val MAX_TABLE_CELL_CHARS = 16
+
+    /** 脚注引用形如 [^1], commonmark 0.13 无脚注扩展时被解析为 link reference, 需降级为纯文本 */
+    private val FOOTNOTE_REF = Regex("""\^\d+$""")
+
+    /** 复用 Parser 实例: commonmark Parser 线程安全可复用, 避免每次 parse 重复 build */
+    private val parser: org.commonmark.parser.Parser by lazy {
+        org.commonmark.parser.Parser.builder()
             .extensions(listOf(
                 org.commonmark.ext.gfm.tables.TablesExtension.create(),
                 org.commonmark.ext.gfm.strikethrough.StrikethroughExtension.create()
             ))
             .build()
-        return convert(parser.parse(md))
     }
+
+    /** 完整解析入口: 解析 MD 文本并转成 spans (带 GFM 扩展) */
+    fun parse(md: String): MdSpans = convert(parser.parse(md))
 
     /** 已有 Document 节点树 -> spans */
     fun convert(doc: Node): MdSpans {
@@ -70,7 +79,8 @@ object MdToSpans {
         sb: StringBuilder,
         spans: MutableList<MdSpan>,
         blockStart: Boolean,
-        listPrefix: String?
+        listPrefix: String?,
+        indentLevel: Int = 0
     ) {
         when (node) {
             is Document -> {
@@ -87,21 +97,39 @@ object MdToSpans {
             is Paragraph -> {
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
                 walkChildren(node, sb, spans)
-                sb.append("\n")
+                // 段落以空行结束: 保证相邻段落/后续块级元素之间有标准空行分隔
+                sb.append("\n\n")
             }
             is BulletList -> {
                 var c = node.firstChild
-                while (c != null) { walk(c, sb, spans, blockStart = true, listPrefix = "- "); c = c.next }
+                while (c != null) { walk(c, sb, spans, blockStart = true, listPrefix = "- ", indentLevel = indentLevel); c = c.next }
             }
             is OrderedList -> {
                 var c = node.firstChild
                 var idx = node.startNumber
-                while (c != null) { walk(c, sb, spans, blockStart = true, listPrefix = "$idx. "); c = c.next; idx++ }
+                while (c != null) { walk(c, sb, spans, blockStart = true, listPrefix = "$idx. ", indentLevel = indentLevel); c = c.next; idx++ }
             }
             is ListItem -> {
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
-                if (listPrefix != null) sb.append(listPrefix)
-                walkChildren(node, sb, spans)
+                if (listPrefix != null) sb.append("  ".repeat(indentLevel)).append(listPrefix)
+                // 列表项内容直下钻: 项内段落紧跟前缀(不触发块级空行逻辑), 嵌套列表缩进一级
+                var c = node.firstChild
+                while (c != null) {
+                    if (c is Paragraph) {
+                        val box = taskBoxMarker(c)
+                        if (box != null) {
+                            // GFM 任务列表: [x] 已完成 -> ☑, [ ] 待办 -> ☐
+                            sb.append(box).append(' ')
+                            walkChildrenSkip(c, sb, spans, 4)
+                        } else {
+                            walkChildren(c, sb, spans)
+                        }
+                        sb.append("\n")
+                    } else {
+                        walk(c, sb, spans, blockStart = false, listPrefix = listPrefix, indentLevel = indentLevel + 1)
+                    }
+                    c = c.next
+                }
                 sb.append("\n")
             }
             is FencedCodeBlock, is IndentedCodeBlock -> {
@@ -120,9 +148,16 @@ object MdToSpans {
                 val qEnd = sb.length
                 if (qEnd > qStart) {
                     spans += MdSpan(qStart, qEnd, MdSpanType.QUOTE)
-                    android.util.Log.i("TabDbg", "QUOTE span " + qStart + ".." + qEnd + " text=" + sb.substring(qStart, qEnd.coerceAtMost(qStart + 30)).replace("\n", "|"))
                 }
                 sb.append("\n\n")
+            }
+            is HtmlBlock -> {
+                if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
+                val text = stripHtmlTags(node.literal)
+                if (text.isNotBlank()) {
+                    sb.append(text)
+                    sb.append("\n\n")
+                }
             }
             is ThematicBreak -> {
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
@@ -133,9 +168,34 @@ object MdToSpans {
                 sb.append("\n\n")
             }
             is TableBlock -> {
-                android.util.Log.i("TabDbg", "TBLOCK hit")
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n\n")
                 val tableStart = sb.length
+                // 预扫描: 收集整表所有行文本, 计算每列最大字符数(封顶16), 供各行统一列宽,
+                // 修复"每行各自长短不一像积木"——各行 span 独立算宽导致外框不统一
+                val colMaxChars = ArrayList<Int>()
+                var scan = node.firstChild
+                while (scan != null) {
+                    if (scan is TableHead || scan is TableBody) {
+                        var srow = scan.firstChild
+                        while (srow != null) {
+                            if (srow is TableRow) {
+                                var idx = 0
+                                var scell = srow.firstChild
+                                while (scell != null) {
+                                    if (scell is TableCell) {
+                                        val t = collectCellText(scell)
+                                        while (colMaxChars.size <= idx) colMaxChars.add(0)
+                                        colMaxChars[idx] = maxOf(colMaxChars[idx], minOf(t.length, MAX_TABLE_CELL_CHARS))
+                                        idx++
+                                    }
+                                    scell = scell.next
+                                }
+                            }
+                            srow = srow.next
+                        }
+                    }
+                    scan = scan.next
+                }
                 var c = node.firstChild
                 var dataRowIdx = 0
                 while (c != null) {
@@ -170,7 +230,10 @@ object MdToSpans {
                                     cellsArr.put(cArr)
                                 }
                                 arr.put(cellsArr)
-                                android.util.Log.i("TabDbg", "TROW-enc header=" + (if (isHeader) 1 else 0) + " odd=" + (if (odd) 1 else 0) + " cells=" + cells.size + " range=" + lineStart + ".." + (sb.length - 1))
+                                // 第4项: 整表统一列宽(每列最大字符数), 供渲染端所有行共享同一表格宽
+                                val colArr = JSONArray()
+                                colMaxChars.forEach { colArr.put(it) }
+                                arr.put(colArr)
                                 spans += MdSpan(lineStart, (sb.length - 1).coerceAtLeast(lineStart), MdSpanType.TABLE_ROW, arr.toString())
                                 if (!isHeader) dataRowIdx++
                             }
@@ -180,7 +243,7 @@ object MdToSpans {
                     c = c.next
                 }
                 spans += MdSpan(tableStart, (sb.length - 1).coerceAtLeast(tableStart), MdSpanType.TABLE_BLOCK)
-                sb.append("\n")
+                sb.append("\n\n")
             }
             is StrongEmphasis -> {
                 val start = sb.length
@@ -203,9 +266,16 @@ object MdToSpans {
                     // Nyral 附件卡: 流式阶段轻量占位, 收尾 markwon 渲染真实卡片
                     sb.append("\uD83D\uDCCE 附件")
                 } else {
-                    val start = sb.length
-                    walkChildren(node, sb, spans)
-                    spans += MdSpan(start, sb.length, MdSpanType.LINK, node.destination)
+                    // 脚注引用 [^n] 无脚注扩展时被解析成 link reference: 降级为纯文本, 不渲染成链接
+                    val label = StringBuilder()
+                    digText(node.firstChild, label)
+                    if (label.isNotEmpty() && FOOTNOTE_REF.matches(label) && !dest.contains("://")) {
+                        sb.append(label)
+                    } else {
+                        val start = sb.length
+                        walkChildren(node, sb, spans)
+                        spans += MdSpan(start, sb.length, MdSpanType.LINK, node.destination)
+                    }
                 }
             }
             is Image -> {
@@ -221,7 +291,7 @@ object MdToSpans {
                         t.toString()
                     } ?: ""
                     sb.append("[图片").append(if (alt.isNotBlank()) ":$alt" else "").append("]")
-                    spans += MdSpan(start, sb.length, MdSpanType.LINK, node.destination)
+                    // 占位文本不可点击跳转: 不加 LINK span
                 }
             }
             is Code -> {
@@ -239,6 +309,50 @@ object MdToSpans {
     private fun walkChildren(node: Node, sb: StringBuilder, spans: MutableList<MdSpan>) {
         var c = node.firstChild
         while (c != null) { walk(c, sb, spans, blockStart = false, listPrefix = null); c = c.next }
+    }
+
+    /** 任务列表标记检测: 段落文本以 [x] / [X] / [ ] + 空格开头则返回对应 checkbox 字符 */
+    private fun taskBoxMarker(p: Paragraph): Char? {
+        val t = StringBuilder()
+        var c: Node? = p.firstChild
+        while (c != null) { if (c is Text) t.append(c.literal); c = c.next }
+        val s = t.toString()
+        return when {
+            s.startsWith("[x] ") || s.startsWith("[X] ") -> '\u2611'
+            s.startsWith("[ ] ") -> '\u2610'
+            else -> null
+        }
+    }
+
+    /** 遍历子节点但跳过前 skipChars 个字符(用于任务列表吃掉 [x] 前缀), 其余同 walkChildren */
+    private fun walkChildrenSkip(node: Node, sb: StringBuilder, spans: MutableList<MdSpan>, skipChars: Int) {
+        var c: Node? = node.firstChild
+        var remain = skipChars
+        while (c != null) {
+            if (c is Text) {
+                val lit = c.literal
+                if (remain > 0) {
+                    if (lit.length <= remain) {
+                        remain -= lit.length
+                    } else {
+                        sb.append(lit.substring(remain))
+                        remain = 0
+                    }
+                } else {
+                    sb.append(lit)
+                }
+            } else {
+                walk(c, sb, spans, blockStart = false, listPrefix = null)
+            }
+            c = c.next
+        }
+    }
+
+    /** HTML 块降级: 剥离标签与注释, 保留纯文本(避免整块消失) */
+    private fun stripHtmlTags(html: String): String {
+        val noComments = html.replace(Regex("""(?s)<!--.*?-->"""), "")
+        val noTags = noComments.replace(Regex("""<[^>]*>"""), "")
+        return noTags.replace(Regex("""(?m)^[ \t]+$"""), "").trim()
     }
 
     /** TableCell.Alignment -> RoundedTableRowSpan.ALIGN_* */
