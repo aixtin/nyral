@@ -186,7 +186,7 @@ class MainActivity : Activity() {
     private var lastModeValue = -1
     internal val messages = mutableListOf<MemoryDb.SessionMsg>()
     /** 超长会话内存瘦身: 仅最近 WINDOW 条消息载入内存渲染, 更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担 */
-    private val MEM_WINDOW = 150
+    internal val MEM_WINDOW = 150
     /** 单附件本地解析文本注入上限(字符): 超过截断防单条请求 token 突增 */
     internal val MAX_ATTACH_TEXT = 40000
     /** 单次提交全部附件解析文本总量上限(字符): 超过部分丢弃防上下文炸裂 */
@@ -610,7 +610,7 @@ class MainActivity : Activity() {
     }
 
     /** 会话打开后后台预编译历史 AI 消息(含 AiRich 分片), 上翻浏览时 bind 直接命中缓存 */
-    private fun prewarmMdCache() {
+    internal fun prewarmMdCache() {
         // 纯文本模式不渲染 Markdown, 预热纯烧 CPU 还加剧会话切换卡顿
         if (ModeConfig.chatPlainText()) return
         val aiMsgs = messages.mapIndexedNotNull { i, m ->
@@ -776,7 +776,7 @@ class MainActivity : Activity() {
     internal fun browserOpen(): Boolean = browserPageReady() && browserPage.open
     /** 浏览器页右侧跟手滑入控制器(镜像抽屉): 右缘左滑整页推入, 左缘右滑/✕/返回键推回 */
     private lateinit var browserSlide: BrowserSlideController
-    private var summary: String? = null
+    internal var summary: String? = null
     internal lateinit var db: MemoryDb
     // AI 忙标记已抽离至 ChatSessionState
     /** 调试服务 SSE 事件转发(事件名, 数据): 由 DebugServer 挂载, continueSend 各回调处触发 */
@@ -2447,7 +2447,7 @@ class MainActivity : Activity() {
 
     /** 取消当前 AI 请求(切会话/新会话调用): 代际自增使迟到回调全部失效, 立即恢复输入态,
      *  不依赖迟到 onDone/onError 清理状态(阶段2 流式竞态治理) */
-    private fun cancelActiveRequest() {
+    internal fun cancelActiveRequest() {
         // 丢弃流式行引用(无论 AI 是否还在输出): 防止全量重建(切模式/开会话/新会话)时
         // buildRowsFromMessages 兜底把已收尾的 Streaming 行再次塞回 → 跨模式串写/AI回复重复
         session.resetStreamUi()
@@ -2460,106 +2460,6 @@ class MainActivity : Activity() {
         updateInputMode()
         stopBtn.visibility = View.GONE
         LogStore.i(LogStore.MAIN, "切会话取消进行中请求, 代际=${session.epoch}")
-    }
-
-    internal fun startNewSession() {
-        // AI 正在输出时切会话: 取消引擎 + 失效代际, 防止其把未完成的回复写进新会话历史
-        cancelActiveRequest()
-        maybeSaveCurrent()
-        messages.clear()
-        sessionBaseSeq = 0
-        chatRows.clear(); chatAdapter.notifyDataSetChanged()
-        currentSaved = true
-        currentSessionId = null
-        currentSessionTitle = null
-        summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
-        appendWelcomeIntro()
-        refreshSessionList()
-        closeDrawer()
-    }
-
-    internal fun openSession(id: Long, locateSeq: Int? = null) {
-        // AI 正在输出时切会话: 取消引擎 + 失效代际, 防止其把未完成的回复写进新会话历史
-        cancelActiveRequest()
-        maybeSaveCurrent()
-        // 超长会话内存瘦身: 消息数 > MEM_WINDOW 时仅载入最近窗口(更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担)
-        val total = db.countSessionMessages(id)
-        val msgs = if (total > MEM_WINDOW) {
-            sessionBaseSeq = total - MEM_WINDOW
-            db.loadSessionMessagesTail(id, MEM_WINDOW)
-        } else {
-            sessionBaseSeq = 0
-            db.loadSessionMessages(id)
-        }
-        if (msgs.isEmpty()) {
-            Toast.makeText(this, R.string.toast_no_messages, Toast.LENGTH_SHORT).show()
-            return
-        }
-        // 切会话: 旧会话表情帧动画实例立即统一终结(不等 detach 看门狗 10s), 名额立即归还,
-        // 否则切回会话 10s 内新表情 attach 被旧实例占满 MAX_ACTIVE -> 全部降级缩略图不动(09-19 反馈)
-        EmojiFrameAnimator.sActive.toList().forEach { c -> try { c.killSelf() } catch (_: Throwable) {} }
-        messages.clear()
-        // 阶段5 池化清理: 切会话即清形态 View 池, 旧会话 View 树(含文本/rendered Spanned)不滞留复用,
-        // 避免串会话内容残留与内存驻留; 会话内全量重建(头像刷新/窗口外回退)不清池, 保留复用收益
-        chatAdapter.clearPool()
-        // 09-28 第五波: AiRich 分片/头像/wrap 三池一并清空——切会话后池中旧会话 View 树若被新会话复用,
-        // 残留 KEY_RENDER_MD tag 会命中幂等跳过渲染(内容相同时)或滞留旧会话 Spanned 引用
-        aiRichSegPool.clear()
-        aiAvatarPool.clear()
-        aiRichWrapPool.clear()
-        messages.addAll(msgs)
-        currentSaved = true
-        currentSessionId = id
-        currentSessionTitle = db.sessionTitleOf(id)
-        // 吸底修复: 切会话重置用户滚动标记(旧会话的"正在阅读"不应带入新会话), 新会话默认追底
-        scrollUserScrolled = false
-        activeAiHolder?.resumeTypewriter()   // 切会话: 恢复慢打(09-25)
-        session.resetStreamUi()
-        updateJumpFab()
-        // 滚动时机修复: ListAdapter.submitList 为异步 diff, 滚动必须等 diff 提交后执行,
-        // 否则 itemCount 仍是旧会话值→滚到错误位置/直接不滚(表现为"切会话后不在最新, 像自己滚动")
-        var scrolled = false
-        val scrollAfterCommit = scrollAfterCommit@{
-            if (scrolled) return@scrollAfterCommit
-            scrolled = true
-            if (locateSeq != null) {
-                // 定位到命中消息(搜索/跳转): RecyclerView 直接滚到该行 + 短暂高亮
-                chatRec.post {
-                    if (locateSeq < sessionBaseSeq) {
-                        Toast.makeText(this, R.string.toast_loaded_far_history, Toast.LENGTH_LONG).show()
-                        // 窗口外命中: 临时全量加载该会话(仅本次, 定位后恢复窗口)
-                        sessionBaseSeq = 0
-                        val full = db.loadSessionMessages(id)
-                        messages.clear(); messages.addAll(full)
-                        buildRowsFromMessages()
-                        val idx = locateSeq.coerceIn(0, chatRows.lastIndex)
-                        chatRec.scrollToPosition(idx)
-                        chatRec.post { chatAdapter.highlightRow(chatRows.getOrNull(idx)) }
-                    } else {
-                        val idx = (locateSeq - sessionBaseSeq).coerceIn(0, chatRows.lastIndex)
-                        chatRec.scrollToPosition(idx)
-                        chatRec.post { chatAdapter.highlightRow(chatRows.getOrNull(idx)) }
-                    }
-                }
-            } else {
-                // 吸底修复: AsyncListDiffer 的 onCommitted 可能迟到(用户切会话后已开始上翻),
-                // 用户已触摸列表就让位, 不再拉底打断阅读(不触摸则正常定位底部)
-                Log.d("SCROLLDBG", "openSession commit id=" + id + " scrolled=" + scrolled + " uScroll=" + scrollUserScrolled + " itemCount=" + chatAdapter.itemCount + " attached=" + chatRec.isAttachedToWindow + " h=" + chatRec.height)
-                if (!scrollUserScrolled) scrollToBottom()
-            }
-        }
-        buildRowsFromMessages {
-            if (sessionBaseSeq > 0) {
-                // 窗口化提示行插入到历史消息头部(与旧 ScrollView 行为一致: 提示在顶部), 其 diff 提交后再滚动
-                chatAdapter.insert(0, ChatRow.Sys(nextTempRowId(), getString(R.string.ma_sys_window_hint, MEM_WINDOW))) { scrollAfterCommit() }
-            } else {
-                scrollAfterCommit()
-            }
-        }
-        // 长气泡吸底跳跃修复: 后台预编译本会话历史 AI 消息的 markdown, 上翻浏览时 bind 直接命中缓存零解析
-        prewarmMdCache()
-        refreshSessionList()
-        closeDrawer()
     }
 
     /** 换头像后刷新当前会话旧气泡: 头像版本戳变化时按 messages 重建 chatRows(RecyclerView), 保留滚动位置 */
@@ -2575,66 +2475,6 @@ class MainActivity : Activity() {
         chatRec.post { lm?.scrollToPosition(pos) }
     }
 
-    internal fun maybeSaveCurrent(mode: Int = ModeConfig.modeValue()) {
-        if (!currentSaved && messages.isNotEmpty()) {
-            val title = messages.firstOrNull { it.role == "user" }?.content
-                ?.replace("\n", " ")?.take(20) ?: getString(R.string.ma_unnamed_session)
-            val sid = currentSessionId
-            if (sid != null) {
-                db.updateSession(sid, title, messages, mode, sessionBaseSeq)
-            } else {
-                currentSessionId = db.saveSession(title, messages, mode)
-            }
-            currentSessionTitle = title
-            currentSaved = true
-        }
-    }
-
-    internal fun refreshSessionList() {
-        sessionList.removeAllViews()
-        val list = db.listSessions(20, ModeConfig.modeValue())
-        if (list.isEmpty()) {
-            sessionList.addView(TextView(this).apply {
-                text = getString(R.string.ma_no_sessions)
-                textSize = 12f
-                setTextColor(Ui.SUB)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(24), 0, dp(24))
-            })
-            return
-        }
-        list.forEach { s ->
-            sessionList.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(12), dp(20), dp(12))
-                isClickable = true
-                setOnClickListener { openSession(s.id) }
-                isLongClickable = true
-                setOnLongClickListener {
-                    showSessionMenu(s)
-                    true
-                }
-                addView(TextView(this@MainActivity).apply {
-                    text = (if (s.pinned) "📌 " else "") + s.title
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                    textSize = 14f
-                    setTextColor(Ui.TEXT)
-                })
-                addView(TextView(this@MainActivity).apply {
-                    text = (if (s.pinned) getString(R.string.ma_pinned_prefix) else "") + fmtTime(s.updatedAt)
-                    textSize = 11f
-                    setTextColor(Ui.SUB)
-                    setPadding(0, dp(2), 0, 0)
-                })
-            })
-            sessionList.addView(View(this).apply {
-                setBackgroundColor(Ui.DIVIDER)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
-            })
-        }
-    }
 
 
     override fun onBackPressed() {
@@ -2920,7 +2760,7 @@ class MainActivity : Activity() {
     }
 
     /** 新会话开场介绍卡片：首启/新建会话时展示（文案集中在 strings.xml 便于迭代，预留可进化接口） */
-    private fun appendWelcomeIntro() {
+    internal fun appendWelcomeIntro() {
         chatAdapter.add(ChatRow.Welcome(nextTempRowId())) { scrollToBottom() }
     }
 
@@ -2929,9 +2769,9 @@ class MainActivity : Activity() {
     // 气泡定位标记：chatWrap 容器内唯一标识气泡 View（User/Ai 池化行使用）
     private val POOLED_BUBBLE_TAG = "nyral_pooled_bubble_" + System.identityHashCode(this)
     // ===== 滑动丝滑优化（09-28 第二波）：AiRich 行内部池化 =====
-    private val aiRichSegPool = ArrayList<TextView>()      // AiRich 正文分片 TextView 池
-    private val aiRichWrapPool = ArrayList<LinearLayout>() // AiRich chatWrap(横向容器)池
-    private val aiAvatarPool = ArrayList<View>()           // AiRich chatWrap 的 AI 头像池
+    internal val aiRichSegPool = ArrayList<TextView>()      // AiRich 正文分片 TextView 池
+    internal val aiRichWrapPool = ArrayList<LinearLayout>() // AiRich chatWrap(横向容器)池
+    internal val aiAvatarPool = ArrayList<View>()           // AiRich chatWrap 的 AI 头像池
     // 行形态稳定且创建成本高的纯文本类行进入形态池：滚出滚回复用同一 View 树，bind 只 setText
     private fun chatRowPoolType(row: ChatRow): Int = when (row) {
         is ChatRow.User -> if (isPoolableUserText(row.content)) ChatAdapter.PT_USER_TEXT else ChatAdapter.PT_NONE
