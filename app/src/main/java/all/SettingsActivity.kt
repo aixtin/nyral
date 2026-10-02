@@ -143,10 +143,6 @@ class SettingsActivity : Activity() {
             addView(settingsItem(getString(R.string.settings_debug), DebugServer.statusText(this@SettingsActivity), R.drawable.ic_settings_debug, 11, {
                 showDebugDialog()
             }) { debugSubtitle = it })
-            addView(Ui.divider(this@SettingsActivity))
-            addView(buildAnimScaleRow())
-            addView(Ui.divider(this@SettingsActivity))
-            addView(buildSlowBallRow())
         }
         debugBox.visibility = if (DebugServer.unlocked(this)) View.VISIBLE else View.GONE
         cardAbout.addView(debugBox)
@@ -385,6 +381,12 @@ class SettingsActivity : Activity() {
                 }))
             })
         })
+
+        // 动画慢放 + 悬浮慢放球（2026-10-02 从设置页移入调试弹窗）
+        box.addView(Ui.divider(ctx))
+        box.addView(buildAnimScaleRow())
+        box.addView(Ui.divider(ctx))
+        box.addView(buildSlowBallRow())
 
         fun syncState() {
             if (debuggable) {

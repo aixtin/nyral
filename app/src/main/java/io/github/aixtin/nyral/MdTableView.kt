@@ -139,7 +139,7 @@ internal class MdTableView(context: Context) : HorizontalScrollView(context) {
 
         // 表头行(补齐到整表最大列数, 缺列补空 cell, 保证竖线贯穿结构完整)
         if (data.header.isNotEmpty() || cols > 0) {
-            val tr = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+            val tr = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             for (i in 0 until cols) {
                 val cell = data.header.getOrNull(i) ?: MdCell("", 0)
                 val w = colWidths.getOrElse(i) { colWidths.lastOrNull() ?: dp(40f).toInt() }
@@ -150,7 +150,7 @@ internal class MdTableView(context: Context) : HorizontalScrollView(context) {
         // 数据行(同样补齐到整表最大列数), 行与行之间插入 1px 行线 View
         val rowCount = data.rows.size
         for (r in 0 until rowCount) {
-            val tr = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+            val tr = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             for (i in 0 until cols) {
                 val cell = data.rows[r].getOrNull(i) ?: MdCell("", 0)
                 val w = colWidths.getOrElse(i) { colWidths.lastOrNull() ?: dp(40f).toInt() }
