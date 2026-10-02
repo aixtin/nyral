@@ -130,9 +130,9 @@ class MainActivity : Activity() {
         private const val KEY_RENDER_MD = 0x4E594D44  // "NYMD"
     }
 
-    private val TAG = "Nyral"
+    internal val TAG = "Nyral"
     /** 流式会话状态机(2026-10-03 MainActivity 拆分试点): 代际/阶段/跟随/流式行/表情掩码/AI忙 集中管理 */
-    private val session = ChatSessionState()
+    internal val session = ChatSessionState()
     /** 兼容外部文件只读访问(DebugServer/MainActivityVoice 扩展函数); 新代码请直接使用 session.aiBusy */
     internal val aiBusy: Boolean get() = session.aiBusy
     internal val executor = Executors.newSingleThreadExecutor()
@@ -188,20 +188,20 @@ class MainActivity : Activity() {
     /** 超长会话内存瘦身: 仅最近 WINDOW 条消息载入内存渲染, 更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担 */
     private val MEM_WINDOW = 150
     /** 单附件本地解析文本注入上限(字符): 超过截断防单条请求 token 突增 */
-    private val MAX_ATTACH_TEXT = 40000
+    internal val MAX_ATTACH_TEXT = 40000
     /** 单次提交全部附件解析文本总量上限(字符): 超过部分丢弃防上下文炸裂 */
-    private val MAX_DOC_TOTAL = 120000
+    internal val MAX_DOC_TOTAL = 120000
     /** 单条消息注入 history 的长度上限(字符): 超长单条消息(如超长回答/粘贴)截断 */
     private val MAX_MSG_HISTORY = 8000
     /** 当前会话窗口化加载时, 窗口起点在 DB 中的全局 seq(=总条数-窗口条数); 非窗口化时为 0, 保存时据此保留窗口外旧消息 */
-    private var sessionBaseSeq = 0
+    internal var sessionBaseSeq = 0
     /** 上次检测的头像版本戳, 换头像返回时比对变化以刷新旧气泡 */
     private var lastAvatarStamp = 0L
-    private val chatRows = ArrayList<ChatRow>()
-    private lateinit var chatAdapter: ChatAdapter
+    internal val chatRows = ArrayList<ChatRow>()
+    internal lateinit var chatAdapter: ChatAdapter
     lateinit var chatRec: RecyclerView
     // 流式状态机(代际/阶段/跟随/流式行/表情掩码/AI忙)已抽离至 ChatSessionState
-    private var scrollUserScrolled = false   // 用户手动上翻/交互接管后不再自动拉底(不打扰阅读)
+    internal var scrollUserScrolled = false   // 用户手动上翻/交互接管后不再自动拉底(不打扰阅读)
     // 占位→渲染替换异步在途计数(09-27 修复2): 渲染未完成时列表高度偏小,
     // canScrollVertically(1) 会长时间"伪贴底", 二次确认照样通过 → 误解除守卫,
     // 渲染完成瞬间自动追底猛推 = 录屏末尾"静止→瞬移→底部结论"跳变;
@@ -218,7 +218,7 @@ class MainActivity : Activity() {
     private val touchSlopPx by lazy { android.view.ViewConfiguration.get(this).scaledTouchSlop }
     // AI 输出阶段/正文跟随模式已抽离至 ChatSessionState
     private var jumpFab: android.widget.TextView? = null
-    private var activeAiHolder: AiBubbleHolder? = null   // 当前流式会话的 AiBubbleHolder: scrollToBottom 打字期滚动分支判据
+    internal var activeAiHolder: AiBubbleHolder? = null   // 当前流式会话的 AiBubbleHolder: scrollToBottom 打字期滚动分支判据
     private var pendingAlign = 0             // scrollToBottom 的 preDraw 对齐待执行计数(防重复注册泄漏)
     private var lastAutoScrollTs = 0L        // 流式追底去抖时间戳
 
@@ -495,7 +495,7 @@ class MainActivity : Activity() {
 
     /** 阶段1: 渲染完成写回 rendered —— 内存 messages(下次落库携带) + DB 增量(防中途退出丢失)。
      *  ChatRow.id = sessionBaseSeq + msgIdx, msgIdx 与 messages 索引一一对应(全空消息同样占位) */
-    private fun writeBackRendered(seq: Long, spanned: Spanned) {
+    internal fun writeBackRendered(seq: Long, spanned: Spanned) {
         val json = RenderedCodec.encode(spanned)
         if (json == null) { android.util.Log.w(TAG, "writeback encode null seq=$seq len=${spanned.length}"); return }
         if (json.isBlank()) return
@@ -701,7 +701,7 @@ class MainActivity : Activity() {
     internal lateinit var input: EditText
     internal lateinit var modelBtn: Button
     internal lateinit var attachBtn: Button
-    private lateinit var attachBtn2: Button   // 槽A(语音槽内)的附件按钮, 输入文字时显示
+    internal lateinit var attachBtn2: Button   // 槽A(语音槽内)的附件按钮, 输入文字时显示
     private lateinit var attachWrap: FrameLayout
     // 附件预览条: 选中附件先进入输入框上方预览, 补文字后一并发送(仿主流IM)
     internal lateinit var attachPreviewWrap: HorizontalScrollView
@@ -715,7 +715,7 @@ class MainActivity : Activity() {
     private val REQ_AUDIO = 1003
     private val REQ_VIDEO = 1004
     internal val REQ_RECORD = 1005
-    private val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
+    internal val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
     private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
     internal val REQ_EMOJI_PICK = 1008  // 表情库选图: 结果存表情库而非聊天发送
     // 图片压缩上限: 最长边/质量
@@ -749,7 +749,7 @@ class MainActivity : Activity() {
     internal var attachPopup: PopupWindow? = null
     internal var attachClosing = false  // 附件弹窗收起动画进行中, 防重复触发
     internal lateinit var sendBtn: ImageView
-    private lateinit var stopBtn: ImageView
+    internal lateinit var stopBtn: ImageView
     internal lateinit var drawerPanel: LinearLayout
     internal lateinit var drawerMask: View
     internal lateinit var sessionList: LinearLayout
@@ -783,12 +783,12 @@ class MainActivity : Activity() {
     @Volatile internal var debugSseSink: ((String, String) -> Unit)? = null
     /** 调试请求完成回调(整条链路结束, 含成功/失败/取消) */
     @Volatile internal var debugChatDone: (() -> Unit)? = null
-    private var currentSaved = false
+    internal var currentSaved = false
     internal var currentSessionId: Long? = null
     /** 当前会话标题(随切会话/保存更新), 供记忆落库时快照会话名 */
     internal var currentSessionTitle: String? = null
     /** 本轮 AI 请求所属的会话 id(发起时快照), 回调落地时若已切走则不写入新会话历史 */
-    private var replySessionId: Long? = null
+    internal var replySessionId: Long? = null
     /** 聊天页标题栏右侧 Token 统计下拉面板 */
     internal var tokenPanel: LinearLayout? = null
     /** Token 面板展开时覆盖全屏的透明点击遮罩: 点空白处收起面板 */
@@ -2575,7 +2575,7 @@ class MainActivity : Activity() {
         chatRec.post { lm?.scrollToPosition(pos) }
     }
 
-    private fun maybeSaveCurrent(mode: Int = ModeConfig.modeValue()) {
+    internal fun maybeSaveCurrent(mode: Int = ModeConfig.modeValue()) {
         if (!currentSaved && messages.isNotEmpty()) {
             val title = messages.firstOrNull { it.role == "user" }?.content
                 ?.replace("\n", " ")?.take(20) ?: getString(R.string.ma_unnamed_session)
@@ -2802,353 +2802,18 @@ class MainActivity : Activity() {
         }
     }
 
-    internal fun doSend(attachments: List<LocalEngine.Attachment>) {
-        val text = input.text.toString().trim()
-        android.util.Log.i("Nyral", "onSend text=[$text] aiBusy=${session.aiBusy} attachments=${attachments.size}")
-        if (text.isEmpty() && attachments.isEmpty()) return
-        if (session.aiBusy) {
-            Toast.makeText(this, R.string.toast_ai_typing, Toast.LENGTH_SHORT).show()
-            return
-        }
-        // 会话维度 Token 统计: 引擎 record 时读取
-        TokenStore.currentSessionId = currentSessionId
-        // 发起新请求前清掉可能残留的取消标记(如切会话时 requestCancel 但引擎未在跑)
-        LocalEngine.cancelRequested = false
-        // 立即占住 AI 忙碌态: 附件路径走后台异步, 若不提前置位, 用户快速连发时第二个请求会穿透检查
-        session.markBusy()   // 占住 AI 忙碌态(防连发穿透); 代际推进在 continueSend
-        LogStore.i(LogStore.MAIN, "发送消息 len=${text.length} 附件=${attachments.size} 会话=$currentSessionId")
-        // 前置轻量 UI 清理: 清空输入与附件预览(与耗时逻辑无关, 先做保证手感)
-        input.setText("")
-        pendingAttachments.clear()
-        attachPreviewRow.removeAllViews()
-        attachPreviewWrap.visibility = View.GONE
-        // fix6: 发送后自动收起键盘(用户提议): 流式追底期间键盘高度全程稳定, 消除收回竞态
-        // fix7: 原这里有"发送后主动弹回键盘"逻辑, 与收键盘意图相反造成"缩一下又弹出像重启", 已删
-        // 收起时必须 clearFocus, 否则焦点残留时 IME 会在 layout 变化后自动弹回
-        if (!voiceMode) {
-            input.post {
-                val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
-                imm?.hideSoftInputFromWindow(input.windowToken, 0)
-                if (input.isFocused) input.clearFocus()
-            }
-        }
-        // 前台服务+通知保活: 尽早启动(主线程此刻最空闲), 避免后续附件落盘/历史构建等重活
-        // 阻塞主线程导致 startForegroundService 后约5s内未 startForeground, 触发
-        // ForegroundServiceDidNotStartInTimeException 闪退; Android 13+ 先请求通知权限
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIF)
-        }
-        try {
-            TaskService.start(this)
-        } catch (e: Exception) {
-            LogStore.e(LogStore.MAIN, "前台服务启动失败: ${e.message}")
-        }
-        // 附件落盘持久化(私有目录)移入后台线程: Base64 解码+写盘在大文件下很耗时,
-        // 若留在主线程会阻塞 Service 的 startForeground 处理, 是闪退主因之一
-        val doSave = {
-            // 显示文本: 附件落盘后转可点击占位标记, 无文本时仅显示附件标记
-            // 显示气泡: 附件与文字拆成两条独立气泡(图片/附件一条, 说明文字一条), 无文字时仅一条附件气泡
-            val dispList = if (attachments.isEmpty()) listOf(text) else {
-                // PDF 扫描件页图(pdfSourceName 非空)仅作发送附件, 不参与气泡显示, 避免多图网格"一通到底"
-                val showAtts = attachments.filter { it.pdfSourceName == null }
-                val marks = showAtts.map { a ->
-                    val fileName = try {
-                        // 已落库附件(stored): base64 为空, 直接以落库引用 key 做 att:// 链接, 不重复落盘
-                        if (a.stored) a.name
-                        else AttachmentStore.save(this@MainActivity, a.name, a.mime, Base64.decode(a.base64, Base64.NO_WRAP))
-                    } catch (e: Exception) {
-                        null
-                    }
-                    val link = if (fileName != null) "(att://$fileName)" else ""
-                    // 落库附件取 meta 原名(文件名含时间戳/UUID 前缀), 非落库直接用原名
-                    val dispName = if (a.stored) AttachmentStore.displayName(this@MainActivity, a.name) else a.name
-                    when {
-                        a.isEmoji -> "[表情:$dispName]$link"             // 表情库项: 独立表情气泡(96dp小图, 动图循环)
-                        a.mime.startsWith("image/") -> "[图片]$link"
-                        a.isVoice -> "[音频]$link"                       // 本地录音: 保留语音气泡形态
-                        a.mime.startsWith("audio/") -> "[文件:$dispName]$link"  // 上传音频文件: 按文件卡片展示
-                        a.mime.startsWith("video/") -> "[视频:$dispName]$link"
-                        else -> "[文件:$dispName]$link"
-                    }
-                }
-                // 每个附件独立成一张卡片气泡(含纯图片多图: 已废弃 3 列网格合并)
-                val bubbles = marks
-                if (text.isEmpty()) bubbles else bubbles + listOf(text)
-            }
-            dispList
-        }
-        // 无附件: 直接主线程走完; 有附件: 后台线程落盘后回主线程继续, 避免大附件阻塞主线程
-        if (attachments.isEmpty()) {
-            continueSend(text, listOf(text), attachments)
-        } else {
-            executor.execute {
-                val dispList = doSave()
-                uiScope.launch { continueSend(text, dispList, attachments) }
-            }
-        }
-    }
+    /** 会话流控制器(2026-10-03 自 MainActivity 抽出): 发送/流式回调/收尾编排见 ChatFlowController */
+    private val chatFlow by lazy { ChatFlowController(this, session, uiScope, executor) }
 
-    /**
-     * doSend 的后半段: 渲染气泡 + 落库 + 构建历史 + 发起 AI 请求。
-     * 拆出来以支持"附件后台落盘后回主线程继续"这一流程。
-     */
-    private fun continueSend(text: String, dispList: List<String>, attachments: List<LocalEngine.Attachment>) {
-        // 09-24 追底回填: 发送即重置用户接管——上翻阅读旧消息的状态不带入新回复, 本轮流式恢复追底;
-        // 发送后用户再上滑, RV onTouch(ACTION_DOWN)重新置位, 守卫即恢复生效
-        scrollUserScrolled = false
-        activeAiHolder?.resumeTypewriter()   // 发送: 恢复慢打(09-25)
-        for (d in dispList) {
-            appendUser(d)
-            messages.add(MemoryDb.SessionMsg("user", d, "", "", "", System.currentTimeMillis()))
-            MemoryKeeper.push("user", d)
-        }
-        currentSaved = false
-        // 即时落库: 不依赖 onStop 兜底, 防止发送后进程被杀(force-stop/划掉后台)导致最后一条消息丢失
-        maybeSaveCurrent()
+    internal fun doSend(attachments: List<LocalEngine.Attachment>) = chatFlow.doSend(attachments)
 
-        // 文档类附件本地解析文本: 预算闸门(定稿六.1): 估算 token = 字符数/3, 单轮 ≤2000 直进, 超限走索引卡
-        // 直进路径保留原字符级兜底(MAX_ATTACH_TEXT / MAX_DOC_TOTAL); 超预算路径全文落盘, history 只放索引卡
-        val ATT_BUDGET = 2000
-        val docParts = ArrayList<String>()
-        var docTotal = 0
-        val docAtts = attachments.filter { !(it.text ?: "").isBlank() }
-        val estTokens = docAtts.sumOf { (it.text?.length ?: 0) / 3 }
-        if (estTokens <= ATT_BUDGET) {
-            for (a in docAtts) {
-                val t = a.text ?: ""
-                val part = if (t.length > MAX_ATTACH_TEXT) {
-                    "[附件 ${a.name} 本地解析文本(已截断, 原件${t.length}字符)]\n${t.take(MAX_ATTACH_TEXT)}"
-                } else {
-                    "[附件 ${a.name} 本地解析文本]\n$t"
-                }
-                if (docTotal + part.length > MAX_DOC_TOTAL) {
-                    docParts.add("[附件及其他] (已超总量上限, 其余内容跳过)")
-                    break
-                }
-                docTotal += part.length
-                docParts.add(part)
-            }
-        } else {
-            // 超预算: 全文落盘 attachments/*.txt, history 只放索引卡(约300字预览), 需细节时调 attach_read 分块读取
-            for (a in docAtts) {
-                val t = a.text ?: ""
-                val txtFile = try {
-                    AttachmentStore.save(this, a.name + ".txt", "text/plain", t.toByteArray(Charsets.UTF_8))
-                } catch (e: Exception) { null }
-                val loc = if (txtFile != null) "att://$txtFile" else "落盘失败"
-                docParts.add("[附件 ${a.name} | ${a.mime} | 解析文本${t.length}字符 | 全文已落盘, 需要细节时调 attach_read 按 offset/limit 分块读取 | 存储 $loc]\n[摘要预览]\n${t.take(300)}")
-            }
-        }
-        val docTexts = docParts.joinToString("\n")
-        val history = if (docTexts.isBlank()) buildHistory() else buildHistory() + "\n$docTexts\n"
-        val epoch = session.beginRequest()   // 占忙+推进代际: 上一轮迟到回调(若存在)全部失效
-        replySessionId = currentSessionId  // 快照: 回调回来时若已切会话, 拒绝写入
-        attachBtn2.visibility = View.GONE
-        attachBtn.visibility = View.GONE
-        sendBtn.visibility = View.GONE
-        stopBtn.visibility = View.VISIBLE
-        stopBtn.isEnabled = true
-        executor.execute {
-            val holder = AiBubbleHolder(this@MainActivity)
-            activeAiHolder = holder
-            uiScope.launch {
-                // 流式行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器
-                val row = ChatRow.Streaming(nextTempRowId(), holder)
-                session.attachStreaming(row)
-                chatAdapter.add(row) { scrollToBottom(true) }
-                val box = holder.createStreamingBox()
-                row.bubbleBox = box
-                chatAdapter.attachStreaming(chatRows.size - 1)
-                holder.showLoading()
-            }
-            LocalEngine.chat(this@MainActivity, history, object : LocalEngine.Callback {
-                override fun onThinkingStart() {
-                    LogStore.i(LogStore.MAIN, "开始思考")
-                    debugSseSink?.invoke("thinking_start", "")
-                    uiScope.launch {
-                        if (!session.isCurrent(epoch)) return@launch
-                        session.setAiStage(1)
-                        updateJumpFab()
-                        TaskService.updateStage(this@MainActivity, getString(R.string.ts_stage_thinking))
-                        AITerminal.push("thinking", "开始思考…")
-                        holder.showThinking()
-                    }
-                }
-                override fun onThinkingDelta(text: String) {
-                    debugSseSink?.invoke("thinking", text)
-                    uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.appendThinking(text) }
-                }
-                override fun onThinkingEnd() {
-                    AITerminal.push("thinking", "思考结束，进入作答")
-                    debugSseSink?.invoke("thinking_end", "")
-                    uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.collapseThinking() }
-                }
-                override fun onTool(name: String, arg: String) {
-                    LogStore.i(LogStore.MAIN, "调用工具: $name")
-                    debugSseSink?.invoke("tool", "$name|$arg")
-                    uiScope.launch {
-                        if (!session.isCurrent(epoch)) return@launch
-                        session.setAiStage(2)
-                        updateJumpFab()
-                        TaskService.updateStage(this@MainActivity, getString(R.string.ts_stage_tool))
-                        AITerminal.push("tool", "$name $arg")
-                        holder.showTool(name, arg)
-                        // 进入工具调用即表示本段思考已结束: 折叠思考区, 避免一直停在"思考中"
-                        holder.collapseThinking()
-                    }
-                }
-                override fun onToolResult(name: String, result: String) {
-                    LogStore.i(LogStore.MAIN, "工具结果: $name")
-                    AITerminal.push("tool_result", "$name → ${result.trim()}")
-                    debugSseSink?.invoke("tool_result", "$name|$result")
-                    uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.setToolResult(name, result) }
-                }
-                override fun onDelta(text: String) {
-                    android.util.Log.i("Nyral", "onDelta=[$text]")
-                    AITerminal.push("delta", text)
-                    debugSseSink?.invoke("delta", text)
-                    // AI 表情标记流式掩码: 完整/半截 [表情:名] 均不直接暴露(显示〔表情〕占位),
-                    // onDone 收尾拆分落库重建为独立表情气泡
-                    val masked = maskAiEmojiMarks(text)
-                    uiScope.launch {
-                        if (!session.isCurrent(epoch)) return@launch
-                        // 正文块开始(首个 token): 阶段推进, 正文默认停滚(视口停留, 一键到底按钮接管)
-                        if (session.aiStage != 3) {
-                            session.setAiStage(3)
-                            session.setContentFollow(false)
-                            updateJumpFab()
-                        }
-                        holder.appendContent(masked)
-                        // 正文阶段停滚: 视口停留不跟随, 新内容在屏外增长;
-                        // FAB 显隐随内容增长刷新(无滚动帧, onScrolled 兜底覆盖不到)
-                        if (session.aiStage == 3 && !session.contentFollow) {
-                            updateJumpFab()
-                        }
-                    }
-                }
-                override fun onDone(reply: String) {
-                    android.util.Log.i("Nyral", "onDone len=${reply.length}")
-                    if (LocalEngine.cancelRequested) {
-                        LogStore.w(LogStore.MAIN, "用户停止输出")
-                        AITerminal.push("stop", "已停止")
-                    } else {
-                        LogStore.i(LogStore.MAIN, "回复完成 len=${reply.length} 会话=$replySessionId")
-                        AITerminal.push("done", "回复完成 len=${reply.length}")
-                    }
-                    uiScope.launch {
-                        // 代际校验(阶段2): 切会话/新请求已接管, 迟到回调直接丢弃, 不碰 holder/不写库/不动状态
-                        if (!session.isCurrent(epoch)) return@launch
-                        session.setAiStage(0)
-                        session.setContentFollow(false)
-                        updateJumpFab()
-                        // 阶段4 增量落库索引: 正文首条在 messages 中的位置(写回 rendered 用);
-                        // 声明在最外层供 finishContent 后写回使用; 取消/无正文保持 -1 不写
-                        var contentIdx = -1
-                        if (LocalEngine.cancelRequested) {
-                            // 用户主动停止: 不写入对话/记忆
-                            holder.appendContent("\n(已停止)")
-                            LocalEngine.cancelRequested = false
-                        } else {
-                            // 思考内容随回复一起持久化, 切回会话可恢复思考区
-                            // 竞态防护: 回调排队期间用户可能已切会话, 不能把回复写进新会话历史
-                            if (replySessionId == currentSessionId) {
-                                // AI 表情气泡(2026-09-20): 按 [表情:名] 白名单标记把回复拆为 正文+独立表情气泡 多条消息;
-                                // 第一条(通常正文)挂 thinking/tools 快照, 表情行独立无快照
-                                val replyParts = splitAiEmojiReply(reply)
-                                contentIdx = if (replyParts.isEmpty()) -1 else messages.size
-                                for ((pi, p) in replyParts.withIndex()) {
-                                    val snap = if (pi == 0) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
-                                    messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))
-                                    MemoryKeeper.push("assistant", p)
-                                }
-                                currentSaved = false
-                                // 回复完成即时落库, 防止进程被杀丢失最后一条回复
-                                maybeSaveCurrent()
-                                // 兜底: 引擎重试后仍无正文时给出明确提示, 避免"思考了但没输出"静默空白
-                                // 仅在仍是原会话时追加, 防止切会话后提示写入新会话
-                                if (reply.isBlank()) appendSys(getString(R.string.ma_sys_no_reply))
-                            }
-                        }
-                        holder.finishContent()
-                        // 阶段4 增量落库: 正文首条写回 rendered(排版产物所见即所得, 与 finishTypeRender
-                        // 同一渲染路径), 防重启/重进二次渲染跳变; 取消(cancel)分支不落库不写回
-                        if (contentIdx >= 0 && !LocalEngine.cancelRequested) {
-                            val spanned = holder.renderedSnapshot()
-                            if (spanned != null && spanned.isNotBlank()) {
-                                try { writeBackRendered((sessionBaseSeq + contentIdx).toLong(), spanned as android.text.Spanned) }
-                                catch (e: Exception) { android.util.Log.w(TAG, "silent writeback fail", e) }
-                            }
-                        }
-                        activeAiHolder = null
-                        // 流式行收尾: 已完成回复内容已落库至 messages, 移除 Streaming 行并重建为静态 AI 行;
-                        // 不清理的话, 切模式/开会话全量重建时该行会被 buildRowsFromMessages 兜底再次塞回,
-                        // 表现为"切 Agent 串消息 / 切回聊天 AI 回复变两条"(重启进程 streamingRow 归零即恢复)
-                        val doneRow = session.detachStreaming()
-                        if (!LocalEngine.cancelRequested && doneRow != null) {
-                            chatAdapter.remove(doneRow)
-                            // 流式行移除后重建为静态 AI 行(挂快照); 重建提交(布局稳定)后未上翻
-                            // 则统一精确贴底一次到位(09-25: 消除收尾帧中间态补偿造成的两段式抬升;
-                            // 键盘收起同样追底——用户复现场景 imeShown=false 时旧条件直接跳过)
-                            buildRowsFromMessages(onCommitted = {
-                                android.util.Log.i("NyralIme", "onDone.rebuild scroll=$scrollUserScrolled itemCount=${chatAdapter.itemCount} imeShown=$imeShown")
-                                if (!scrollUserScrolled) scrollToBottom(auto = true, force = true)
-                                // 收尾渲染延迟增高(09-25): rebuild 后 markwon 静态渲染/收尾排版可能在
-                                // align 之后才使气泡变高, pendingAlign 已扣到 0 不再补; 延迟再对齐一次
-                                // 覆盖最终高度, 防最后几行被输入框遮住(用户现场: 末两行在输入框下边)
-                                chatRec.postDelayed({
-                                    if (!scrollUserScrolled) scrollToBottom(auto = true, force = true)
-                                }, 150)
-                            })
-                        }
-                        session.endRequest()
-                        TaskService.stop(this@MainActivity)
-                        updateInputMode()
-                        stopBtn.visibility = View.GONE
-                    }
-                    debugSseSink?.invoke("done", reply)
-                    debugChatDone?.invoke()
-                }
-                override fun onError(msg: String) {
-                    LogStore.e(LogStore.MAIN, "错误: $msg")
-                    AITerminal.push("error", msg)
-                    uiScope.launch {
-                        if (!session.isCurrent(epoch)) return@launch
-                        holder.showError(getString(R.string.ma_error_fmt, msg))
-                        // 错误行收尾: 移除流式行, 错误提示以系统行保留(避免重建时僵尸行重复渲染)
-                        val errRow = session.detachStreaming()
-                        if (errRow != null) chatAdapter.remove(errRow)
-                        appendSys(getString(R.string.ma_error_fmt, msg))
-                        LocalEngine.cancelRequested = false
-                        session.endRequest()
-                        TaskService.stop(this@MainActivity)
-                        updateInputMode()
-                        stopBtn.visibility = View.GONE
-                    }
-                    debugSseSink?.invoke("error", msg)
-                    debugChatDone?.invoke()
-                }
-            }, attachments)
-        }
-    }
+    internal fun submitDebugChat(text: String, attachments: List<LocalEngine.Attachment> = emptyList(), onDone: () -> Unit): Boolean =
+        chatFlow.submitDebugChat(text, attachments, onDone)
 
-    /**
-     * 调试服务入口: 由 DebugServer(/v1/chat) 调用, 走与真实发送一致的完整链路
-     * (渲染气泡 -> 落库 -> 构建历史 -> LocalEngine 工具循环 -> SSE 事件转发)。
-     * 必须在主线程调用。返回 false 表示 AI 正忙, 请求被拒绝。
-     */
-    internal fun submitDebugChat(text: String, attachments: List<LocalEngine.Attachment> = emptyList(), onDone: () -> Unit): Boolean {
-        if (session.aiBusy) return false
-        debugChatDone = onDone
-        TokenStore.currentSessionId = currentSessionId
-        LocalEngine.cancelRequested = false
-        session.markBusy()
-        continueSend(text, listOf(text), attachments)
-        return true
-    }
+
 
     /** 中期摘要(每次实时读库, 辅助AI后台可能已更新) + 短期最近 KEEP 条; 每条消息携带时间戳(如 user[23:05]: ...)让模型建立时间观念 */
-    private fun buildHistory(): String {
+    internal fun buildHistory(): String {
         summary = db.loadSummary() ?: summary
         val sb = StringBuilder()
         // 首轮/无历史时也提供时间锚点, 让模型始终有时间观念
@@ -3175,7 +2840,7 @@ class MainActivity : Activity() {
     }
 
     /** AI 表情标记流式掩码: 完整 [表情:名] 显示为〔表情〕占位; 跨 delta 分片的半截标记缓冲到 emojiMaskTail */
-    private fun maskAiEmojiMarks(delta: String): String {
+    internal fun maskAiEmojiMarks(delta: String): String {
         val full = session.emojiMaskTail + delta
         var tail = ""
         val lastOpen = full.lastIndexOf('[')
@@ -3189,7 +2854,7 @@ class MainActivity : Activity() {
     }
 
     /** AI 回复拆分: [表情:名] 命中表情库白名单则拆为独立表情气泡消息; 未命中/Agent 模式(emojiEnabled=false)保留原文 */
-    private fun splitAiEmojiReply(reply: String): List<String> {
+    internal fun splitAiEmojiReply(reply: String): List<String> {
         if (!ModeConfig.emojiEnabled() || !reply.contains("[表情:")) return listOf(reply)
         val nameToFile = try {
             val a = org.json.JSONArray(getSharedPreferences("emoji_drawer", android.content.Context.MODE_PRIVATE).getString("lib_items", "[]") ?: "[]")
@@ -3226,7 +2891,7 @@ class MainActivity : Activity() {
         v.post { v.alpha = 1f; v.translationY = 0f }
     }
 
-    private fun appendUser(content: String) {
+    internal fun appendUser(content: String) {
         // 阶段4 时间标签: 首条消息或距上条消息 >=30 分钟时, 先插分组标签(appendUser 前 messages 已含本条)
         val last = messages.getOrNull(messages.size - 2)
         val ts = System.currentTimeMillis()
@@ -3242,7 +2907,7 @@ class MainActivity : Activity() {
     }
 
     /** 一键到底按钮显隐: 正文阶段(未跟随)且可向下滚动时显示 */
-    private fun updateJumpFab() {
+    internal fun updateJumpFab() {
         val fab = jumpFab ?: return
         // 09-24 定稿: AI 输出中隐藏(跟随=看打字动画不是读消息, 输出中滚到底只是瞄进度,
         // 无按钮语义); 仅静态显示"跳到最新", 点击一次性回底, 无跟随
@@ -3250,7 +2915,7 @@ class MainActivity : Activity() {
         fab.visibility = if (show) View.VISIBLE else View.GONE
     }
 
-    private fun appendSys(content: String) {
+    internal fun appendSys(content: String) {
         chatAdapter.add(ChatRow.Sys(nextTempRowId(), content)) { scrollToBottom(true) }
     }
 
@@ -3337,7 +3002,7 @@ class MainActivity : Activity() {
     }
 
     /** 按当前 messages 重建 chatRows 并整体提交给 RecyclerView(会话打开/头像刷新/窗口外回退共用) */
-    private fun buildRowsFromMessages(onCommitted: (() -> Unit)? = null) {
+    internal fun buildRowsFromMessages(onCommitted: (() -> Unit)? = null) {
         chatRows.clear()
         var lastTs = 0L
         var msgIdx = 0
@@ -3395,7 +3060,7 @@ class MainActivity : Activity() {
 
     /** 运行期新行临时 id: 负数递减, 与 DB 全局 seq(历史行 id=sessionBaseSeq+i)不冲突 */
     private var tempRowSeq = 0L
-    private fun nextTempRowId(): Long { tempRowSeq--; return tempRowSeq }
+    internal fun nextTempRowId(): Long { tempRowSeq--; return tempRowSeq }
 
     /** 阶段4 时间标签分组阈值: 消息间隔 >=30 分钟视为新时间段, 插入时间标签 */
     private val TIME_TAG_GAP = 30L * 60L * 1000L
