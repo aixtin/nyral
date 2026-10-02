@@ -5288,10 +5288,15 @@ class MainActivity : Activity() {
 
     internal fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-    /** 气泡最大宽度: 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐); Agent 模式=屏幕*0.78(原样) */
+    /** 气泡最大宽度: 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐); Agent 模式=全屏宽 */
     internal fun chatMaxW(): Int {
-        // 全屏宽(2026-10-02): 正文气泡全屏, 聊天模式不再收窄到头像内侧(左右对称留白取消)
-        return resources.displayMetrics.widthPixels
+        // 聊天模式: 屏幕宽-聊天框padding(12*2)-头像(40*2)-间距(8*2)=w-120dp, 气泡右缘停在对头像内侧(左右对称);
+        // Agent 模式: 全屏宽 w (2026-10-02 起 Agent 模式全屏, 聊天模式恢复对称收窄)
+        return if (ModeConfig.chatMode()) {
+            (resources.displayMetrics.widthPixels - dp(120)).coerceAtLeast(dp(100))
+        } else {
+            resources.displayMetrics.widthPixels
+        }
     }
 
 
