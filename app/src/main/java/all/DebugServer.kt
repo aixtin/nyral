@@ -43,7 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * 安全底线:
  *  - 默认关闭(设置开关), 非 debuggable 构建(release)直接拒绝启动
- *  - Token 鉴权: 请求头 X-Auth-Token 或 query 参数 token
+ *  - Token 鉴权: 仅请求头 X-Auth-Token（query 参数 token 已移除, 防日志泄露）
  *  - 默认仅绑定 127.0.0.1(本机/adb forward 可访问); 设置开启"局域网访问"后绑定 0.0.0.0
  */
 object DebugServer {
@@ -235,9 +235,9 @@ object DebugServer {
                     String(buf, 0, read, Charsets.UTF_8)
                 } else ""
 
-                // 鉴权: header 优先, query token 兜底; 失败直接关连接(防暴力扫描挂长连接)
+                // 鉴权: 仅 header X-Auth-Token; query token 已移除(避免经代理/日志泄露)
                 val expect = token(c)
-                val got = authToken ?: queryParam(query, "token")
+                val got = authToken
                 if (got != expect) {
                     writeJson(out, 401, JSONObject().put("error", "unauthorized"), false)
                     break
