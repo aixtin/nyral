@@ -23,6 +23,7 @@
 | `MainActivity.kt` | 聊天主界面：气泡渲染、录音、附件收发、事件分发、会话管理（约 2552 行，拆分后的主体） |
 | `MainUi.kt` / `UiKit.kt` / `BubbleSpans.kt` / `Typewriter.kt` | UI 构建与动效、气泡 span、打字机动效 |
 | `ModeConfig.kt` | 聊天 / Agent 双模式开关与分派 |
+| `MdTableView.kt` | 消息流 Markdown 表格渲染（方案 C：气泡内独立 TableView 块化 + 单元格垂直居中） |
 
 ### 模型配置
 
@@ -108,7 +109,7 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.0 / versionCode 32）。
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.1.1 / versionCode 34）。
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 
 ### 装机
@@ -142,7 +143,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 架构决策摘要
 
-完整的「背景 → 方案 → 取舍 → 结论」见 [架构决策记录（ADR）](./ADR-架构决策记录.md)，当前 13 条：
+完整的「背景 → 方案 → 取舍 → 结论」见 [架构决策记录（ADR）](./ADR-架构决策记录.md)，当前 14 条：
 
 | # | 决策 | 状态 |
 |---|------|------|
@@ -159,3 +160,4 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 011 | 开发者调试通道：内置 HTTP 调试服务 | 已采纳 |
 | 012 | 过程可视化：透明悬浮迷你终端 | 已采纳 |
 | 013 | 数据存储访问：Android 作用域存储适配 | 已采纳 |
+| 014 | 消息流表格渲染：气泡内独立 TableView 块化（方案 C） | 已采纳 |

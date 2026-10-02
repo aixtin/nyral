@@ -268,6 +268,33 @@ Android 10+ 无存储权限时文件访问必须显式申请"所有文件访问"
 
 ---
 
+## ADR-014 消息流表格渲染：气泡内独立 TableView 块化（方案 C）
+
+- **状态**：已采纳
+- **日期**：2026-10-02（v2.1 落地）
+
+### 背景
+Markdown 表格在消息流内多方案渲染均不理想：Markwon 原生表格流式收尾才排版、无法实时；窄屏横向滚动体验差；气泡内嵌套渲染在双模式（聊天/Agent）下样式与单元格内容不稳定。反编译对比 DeepSeek、Kimi 等第三方客户端的表格渲染后，确定在气泡内做原生表格块。
+
+### 方案演进（A → B → C）
+- **方案 A**：Markwon 原生表格 + 样式覆盖——流式期间无法实时排版，窄屏横向滚动体验差
+- **方案 B**：气泡内独立 TableView 块化（初版）——块化思路成立，但行容器未处理垂直对齐、collectCellText 漏 Code/内联节点，含行内代码的整格渲染空白
+- **方案 C（最终）**：MdTableView 重写，气泡内独立 TableView 块化：
+  - 表格块与流式渲染管线解耦：完整块走缓存，尾部未完成块轻量 parse（衔接 D 路线 MdBlocks/MdStreamRenderer）
+  - 行容器 LinearLayout 显式 `gravity=CENTER_VERTICAL`，单元格垂直居中（聊天/Agent 双模式一致）
+  - `collectCellText` 覆盖 Code/内联节点，杜绝含行内代码单元格整格空白
+  - 表格块 `WRAP_CONTENT` 自适应；聊天模式气泡宽度恢复对称到头像内侧、Agent 模式保持全屏
+  - 方案 C 落地后清理废弃的旧表格类，阶段备份目录入 .gitignore
+
+### 取舍
+- 收益：表格流式实时渲染、单元格样式稳定、双模式一致、无 WebView 开销
+- 代价：表格渲染逻辑自研维护，语法兼容范围由 commonmark 解析器兜底
+
+### 结论
+以"commonmark 解析 + 气泡内独立 TableView 块化"收敛消息流表格渲染；后续表格视觉细节（间距/对齐/线位/留白）按真机实测迭代。
+
+---
+
 ## 附：ADR 对应源码锚点（供后续补充链接指向）
 
 | ADR | 主要载体 |
@@ -283,6 +310,7 @@ Android 10+ 无存储权限时文件访问必须显式申请"所有文件访问"
 | 011 | `DebugServer.kt`（object，ServerSocket + SSE）/ `LocalEngine.kt`（`toolList`）/ `MainActivity.kt`（SSE 转发） |
 | 012 | `AITerminal.kt` + `AITerminalService.kt`（悬浮窗 + 前台服务）/ `MainActivity.kt`（7 处事件转发） |
 | 013 | `AndroidManifest.xml`（`MANAGE_EXTERNAL_STORAGE`）/ `WorkDir.kt` |
+| 014 | `MdTableView.kt`（气泡内独立 TableView 块化渲染）/ `MdSpans.kt` / `MdBlocks.kt` / `MdStreamRenderer.kt`（D 路线流式管线衔接） |
 
 ## 附：模块实现锚点（附件解码链路）
 
