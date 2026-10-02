@@ -19,9 +19,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # runner 预装 Android SDK，缺失组件由 AGP 自动下载（licenses 已预接受）
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
