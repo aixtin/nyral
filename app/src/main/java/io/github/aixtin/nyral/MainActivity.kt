@@ -140,9 +140,9 @@ class MainActivity : Activity() {
     /** 全程流式: 流式渲染器与 markwon 收尾共用的表格主题(圆角+斑马纹+居中) */
     internal val mdTableTheme by lazy {
         TableTheme.buildWithDefaults(this)
-            .tableCellPadding((10 * resources.displayMetrics.density).toInt())
+            .tableCellPadding((7.5f * resources.displayMetrics.scaledDensity).toInt()) // 2026-09-30 老板: 单元格内边距改半个字
             .tableBorderWidth((1 * resources.displayMetrics.density).toInt())
-            .tableBorderColor(Ui.DIVIDER)
+            .tableBorderColor(Ui.PRIMARY)
             .tableHeaderRowBackgroundColor(Ui.INPUT_BG)
             .tableOddRowBackgroundColor(Ui.INPUT_BG)
             .build()
@@ -176,7 +176,6 @@ class MainActivity : Activity() {
                 }
             })
             .usePlugin(StrikethroughPlugin.create())
-            .usePlugin(RoundedTablePlugin.create(mdTableTheme, resources.displayMetrics.density))
             .build()
     }
     // role, content, thinking(assistant 思考内容, 持久化到会话以便切回时恢复思考区), tools(工具调用序列 JSON)
@@ -318,7 +317,11 @@ class MainActivity : Activity() {
 
     /** 历史气泡渲染统一入口: 命中预编译缓存直接 set(主线程零解析), 未命中同步渲染(旧路径)并回填缓存;
      *  所有路径挂高度漂移补偿, 抵御 Markwon 表格 span 布局后二次测量 */
+
     internal fun setMarkdownCached(tv: TextView, md: String, rendered: String? = null, writeback: ((Spanned) -> Unit)? = null) {
+        // 方案B(2026-10-01): 历史渲染统一块化, 本入口只应收无表格文本;
+        // 若仍收到表格语法说明有渲染点漏走块化预判 -> 告警便于发现(表格会退化为 span 旧路径)
+        if (containsTableSyntax(md)) android.util.Log.w("NyralTbl", "setMarkdownCached got table md len=" + md.length)
         // 高度漂移补偿: 表格/复杂 span 的二次测量发生在首次布局之后(post 同文本再 setText),
         // 高度突增推挤视口内容 = 上翻"突然加速"; watcher 每帧 draw 前反向补偿钉住阅读位置
         // 09-27 修复: watcher 必须在文本设置之后注册——若先注册, 基线记的是 RV 复用残留的旧内容
@@ -339,7 +342,13 @@ class MainActivity : Activity() {
                 resources.displayMetrics.density,
                 renderW
             )
-            if (dec != null) { mdCache.put(md, dec); android.util.Log.i("DbgMd", "decode mdLen=" + md.length + " decLen=" + dec.length) }
+            if (dec != null) {
+                // 坏数据防护(10-02): 块化段落库 rendered 是"源码纯文本 JSON"(无 span 且 text==md),
+                // decode 回显源码会覆盖正常渲染 -> 识别并忽略, 走现场 markwon 渲染
+                val decPlain = dec.getSpans(0, dec.length, Any::class.java).isEmpty() && dec.toString().trim() == md.trim()
+                if (!decPlain) { mdCache.put(md, dec); android.util.Log.i("DbgMd", "decode mdLen=" + md.length + " decLen=" + dec.length) }
+                else android.util.Log.i("DbgMd", "decode bad mdLen=" + md.length + " ignore")
+            }
         }
         mdCache.get(md)?.let {
             // 阶段5 bind 幂等: 池化复用同内容行时 tv 已上屏同 md 成品(非占位), 跳过重复 setParsedMarkdown
@@ -363,7 +372,6 @@ class MainActivity : Activity() {
                 pendingMdReplacements.add {
                     if (tv.text?.toString() == ph) {
                         markwon.setParsedMarkdown(tv, it)
-                        val _t1 = it; tv.post { android.util.Log.i("DbgMd", "bind tvLen=" + tv.text.length + " h=" + tv.height + " layH=" + (tv.layout?.height ?: -1) + " mdLen=" + _t1.length) }
                         tv.setTag(KEY_RENDER_MD, md)
                     }
                     tryResumeBottomIfTrueBottom()
@@ -3317,7 +3325,10 @@ class MainActivity : Activity() {
                     m.role == "user" -> ChatRow.User(sessionBaseSeq + msgIdx.toLong(), m.content)
                     m.thinking.isNotBlank() || m.tools.isNotBlank() || m.timeline.isNotBlank() ->
                         ChatRow.AiRich(sessionBaseSeq + msgIdx.toLong(), m.thinking, m.content, m.tools, m.timeline, m.rendered)
-                    else -> ChatRow.Ai(sessionBaseSeq + msgIdx.toLong(), m.content, m.rendered)
+                    else -> if (containsTableSyntax(ModeConfig.stripChatProtocolPrefix(m.content)))
+                        // 方案B(2026-10-01): 无 thinking/tools 的纯正文消息若含表格, 路由到 AiRich 走块化渲染
+                        ChatRow.AiRich(sessionBaseSeq + msgIdx.toLong(), "", m.content, "", "", m.rendered)
+                    else ChatRow.Ai(sessionBaseSeq + msgIdx.toLong(), m.content, m.rendered)
                 })
             msgIdx++
         }
@@ -4438,34 +4449,76 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 轻量预判 Markdown 表格语法(竖线表): 首行含 |, 次行为分隔行(|---|) */
+    private fun containsTableSyntax(md: String): Boolean {
+        val lines = md.split('\n')
+        if (lines.size < 2) return false
+        for (i in 0 until lines.size - 1) {
+            val l0 = lines[i].trim()
+            if (l0.startsWith("|") && l0.count { it == '|' } >= 2) {
+                val l1 = lines[i + 1].trim()
+                if (l1.startsWith("|") && l1.count { it == '|' } >= 2 &&
+                    l1.filter { it != '|' && it != '-' && it != ':' && it != ' ' }.isEmpty()) return true
+            }
+        }
+        return false
+    }
+
     /** AiRich 容器原地填充（原 aiBubbleWithThinking apply 体）：分片 TextView/AI 头像/chatWrap 从池取用 */
     private fun fillAiRich(container: LinearLayout, thinking: String, content: String, toolsJson: String, timelineJson: String, rendered: String = "", writeback: ((Spanned) -> Unit)? = null) {
         // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
-        fun obtainSeg(seg: String, segRendered: String = "", segWriteback: ((Spanned) -> Unit)? = null): TextView? {
+        // 方案B(2026-10-01): 含表格的消息走块化(独立 MdTableView), 不再走 markwon span 表格
+        /** 历史正文 TextView 池化获取(含池复用清理) */
+        fun obtainSegTv(): TextView = aiRichSegPool.removeLastOrNull() ?: TextView(this@MainActivity).apply {
+            textSize = 15f
+            setLineSpacing(dp(3).toFloat(), 1f)
+            includeFontPadding = false
+            setTextColor(BUBBLE_AI_TEXT)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            maxWidth = chatMaxW()
+            background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(4)
+            }
+        }
+        fun obtainSeg(seg: String, segRendered: String = "", segWriteback: ((Spanned) -> Unit)? = null): View? {
             val renderContent = ModeConfig.stripChatProtocolPrefix(seg)
             if (renderContent.isBlank()) return null   // 空气泡兜底(09-25): 纯协议前缀段不建视图
-            val tv = aiRichSegPool.removeLastOrNull() ?: TextView(this@MainActivity).apply {
-                textSize = 15f
-                setLineSpacing(dp(3).toFloat(), 1f)
-                includeFontPadding = false
-                setTextColor(BUBBLE_AI_TEXT)
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                maxWidth = chatMaxW()
-            }
-            tv.background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
-            if (tv.layoutParams !is LinearLayout.LayoutParams) {
-                tv.layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(6)
-                    bottomMargin = dp(4)
-                }
-            }
             if (ModeConfig.chatPlainText()) {
+                val tv = obtainSegTv()
                 tv.text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
-            } else {
-                // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
-                setMarkdownCached(tv, renderContent, segRendered, segWriteback)
+                makeCopyable(tv) { seg }
+                return tv
             }
+            if (!renderContent.contains("att://")) {
+                // 方案B 块化历史恢复: 表格独立 TableView, 边框/底色与流式块化一致
+                val blocks = MdToBlocks.render(renderContent)
+                if (blocks.isEmpty()) return null
+                val bv = MdBlocksView(this@MainActivity).apply {
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(6)
+                        bottomMargin = dp(4)
+                    }
+                    // 长按复制(2026-10-02): 与流式块化一致, 长按弹原文本对话框
+                    setOnLongClickListener {
+                        if (activeAiHolder?.hasActiveTypewriter() == true) return@setOnLongClickListener false
+                        openRawText(seg)
+                        true
+                    }
+                    isLongClickable = true
+                }
+                bv.setRenderContext(chatMaxW(), chatMaxW() - dp(24), BUBBLE_AI_TEXT, Ui.PRIMARY, Ui.INPUT_BG)
+                bv.bindBlocks(blocks)
+                return bv
+            }
+            val tv = obtainSegTv()
+            // 先设基础字号再渲染 Markdown, 保证 HeadingSpan 的倍率基于正确 textSize 生效
+            setMarkdownCached(tv, renderContent, segRendered, segWriteback)
             makeCopyable(tv) { seg }
             return tv
         }
@@ -4963,6 +5016,9 @@ class MainActivity : Activity() {
         }, 200)
     }
 
+    /** AI 是否正在打字输出: 供块容器长按复制守卫(与 makeCopyable 打字中不弹窗一致, 2026-10-02) */
+    internal fun aiTypewriting(): Boolean = activeAiHolder?.hasActiveTypewriter() == true
+
     /** 长按进入"原文本模式": 弹窗展示该条消息的原始文本, 在该模式下自由选择/复制全文或片段;
      *  AI 输出(打字机活跃)期间长按不弹窗(09-25): 打字中长按多为"想按住暂停/滑动阅读",
      *  复制窗抢占触摸会打断滚动让位; 静态(输出完成)后再放行长按复制 */
@@ -5234,9 +5290,8 @@ class MainActivity : Activity() {
 
     /** 气泡最大宽度: 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐); Agent 模式=屏幕*0.78(原样) */
     internal fun chatMaxW(): Int {
-        val w = resources.displayMetrics.widthPixels
-        // Agent 模式=全屏宽; 聊天模式=到对方头像内侧(屏幕宽-两侧padding/头像/间距, 左右对称对齐)
-        return if (ModeConfig.chatMode()) (w - dp(120)).coerceAtLeast(dp(100)) else w
+        // 全屏宽(2026-10-02): 正文气泡全屏, 聊天模式不再收窄到头像内侧(左右对称留白取消)
+        return resources.displayMetrics.widthPixels
     }
 
 
