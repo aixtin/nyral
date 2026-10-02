@@ -9,6 +9,7 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 **对话与模型**
 - 多供应商按需切换：MiMo 全模态 / DeepSeek / GLM / 任意 OpenAI 兼容端点，支持自定义模型与按模型勾选能力
 - 流式输出：思考段打字机 + 正文流式 Markdown 渲染（Markwon），思考/工具调用过程可折叠展开
+- 消息流 Markdown 表格渲染（方案 C）：气泡内独立 TableView 块化渲染，流式期间实时排版、单元格垂直居中，聊天/Agent 双模式一致
 - 思考强度分档：按供应商能力展示 自动/开关/低中高，不支持的档位不出现
 - 语音输入：长按说话、上滑取消、60 秒上限自动发送；语音气泡微信式交互（AudioRecord 采 PCM 封 WAV，兼容主流多模态 API）
 
@@ -103,6 +104,8 @@ android-agent-app/
 
 ## 版本记录
 
+- **v2.1.1（2026-10-02，versionCode 34）**：表格单元格垂直居中修复（MdTableView 行容器垂直居中，聊天/Agent 双模式一致）；慢放迁移调试弹窗；浏览器面板按钮；聊天模式气泡宽度恢复对称到头像内侧。
+- **v2.1（2026-10-02，versionCode 33）**：消息流 Markdown 表格渲染方案 C 落地（MdTableView 重写：气泡内独立 TableView 块化、表格块 WRAP_CONTENT 自适应）；修复含行内代码单元格整格空白；清理方案 C 废弃的旧表格类。
 - **v2.0（2026-09-29 维护，versionCode 32）**：targetSdk/compileSdk 升至 36（AGP 8.13.0 + Gradle 8.13，为 Android 16 Live Updates API 接入准备）；D 路线实时 Markdown 渲染（MdSpans/MdBlocks/MdStreamRenderer）；消息列表滑动丝滑优化（RecyclerView 形态池化 + AiRich 容器池化 + flush 分批 + 漂移补偿）；行动轨道原型 + 慢放体系；工具自热度排序（ToolHotStore）+ root 自动补齐自身权限（versionCode 31）；开源前安全加固与清理。
 - **v2.0（2026-09-13）**：正式签名发布（自建 keystore 经 keystore.properties 读取，release 挂 signingConfig，密钥已异地备份）；版本号动态化 + 启动自动检查更新修复；settings.gradle 镜像注释补全（versionCode 30）
 - **v1.3（2026-09-11）**：MainActivity 系列拆分（MediaPreviews/AiBubbleHolder/AttachmentSender/TerminalGate 等）+ 协程统一铺开 + UI 文案外置 i18n + 代码体检优化（Bitmap 采样解码、明文流量白名单）+ 首启授权/引导页 + 开发者文档与 ADR（versionCode 23）
