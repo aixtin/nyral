@@ -2507,53 +2507,9 @@ class MainActivity : Activity() {
 
     // ===================== 发送与引擎 =====================
 
-    private fun onSend() = doSend(pendingAttachments.toList())
-
     /** 当前模型是否支持语音输入: 预设=内置能力表, 手动=用户配置勾选(与附件弹窗能力判断同一来源) */
     internal fun currentModelSupportsVoice(): Boolean =
         ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_AUDIO)
-
-    /** 统一刷新底栏三形态布局(槽位固定/输入框左右宽距恒不动):
-     * 支持语音模型: 无字→槽A=语音 槽B=附件(+); 有字→槽A=附件(+) 槽B=发送
-     * 不支持语音模型: 无论有无文字→槽A=附件(+) 槽B=发送 (语音槽由附件接管, 不留空白)
-     * AI输出/语音模式期间不切换 */
-    private fun applyInputMode() {
-        if (session.aiBusy || voiceMode) return
-        val hasText = input.text.isNotBlank()
-        if (!currentModelSupportsVoice()) {
-            // 不支持语音: 恒为 [附件(槽A)][发送(槽B)]
-            micBtn.visibility = View.GONE
-            attachBtn2.visibility = View.VISIBLE
-            attachBtn.visibility = View.GONE
-            sendBtn.visibility = View.VISIBLE
-            return
-        }
-        // 槽A(micWrap): 有字→附件按钮; 无字→让语音按钮显示
-        attachBtn2.visibility = if (hasText) View.VISIBLE else View.GONE
-        // 槽B(attachWrap): 有字→发送; 无字→附件按钮
-        attachBtn.visibility = if (hasText) View.GONE else View.VISIBLE
-        sendBtn.visibility = if (hasText) View.VISIBLE else View.GONE
-        // 有字时语音按钮 INVISIBLE 占位防槽塌陷(槽A由附件按钮接管), 无字显示
-        micBtn.visibility = if (hasText) View.INVISIBLE else View.VISIBLE
-    }
-
-    /** 刷新语音切换按钮及底栏: 仅当当前模型支持语音时展示语音; 不支持时隐藏并强制退回文字输入 */
-    internal fun refreshVoiceButton() {
-        if (!currentModelSupportsVoice()) {
-            if (voiceMode) {
-                voiceMode = false
-                input.visibility = View.VISIBLE
-                speakBar.visibility = View.GONE
-                micBtn.background = micIconBg(false, density = resources.displayMetrics.density)
-            }
-        }
-        applyInputMode()
-    }
-
-    /** 底栏交互入口: 输入框文字变化时刷新三形态布局 */
-    internal fun updateInputMode() {
-        applyInputMode()
-    }
 
     /** 面板入口按钮: 展开右侧汉堡面板(引擎管理/登录数据/URL); 浏览器未开先开再展开, 已开直接展开, 已展开则收起 */
     internal fun toggleBrowserPanel() {
