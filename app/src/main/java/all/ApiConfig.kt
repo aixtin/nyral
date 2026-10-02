@@ -163,7 +163,19 @@ object ApiConfig {
         val raw = prefs()?.getString(K_PROVIDERS, null)
         if (!raw.isNullOrEmpty()) {
             try {
-                val arr = JSONArray(raw)
+                // 安全加固: Key 落盘加密; 兼容旧明文自动迁移
+                var plain: String? = null
+                var migrated = false
+                val appCtx = app
+                if (appCtx != null) {
+                    plain = Secrets.decrypt(appCtx, raw)
+                    if (plain == null) {
+                        JSONArray(raw) // 旧明文仅校验格式
+                        plain = raw
+                        migrated = true
+                    }
+                } else plain = raw
+                val arr = JSONArray(plain)
                 val out = mutableListOf<Provider>()
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
@@ -189,7 +201,10 @@ object ApiConfig {
                         o.optString("authHeader", "Authorization")
                     ))
                 }
-                if (out.isNotEmpty()) return out
+                if (out.isNotEmpty()) {
+                    if (migrated) saveProviders(out) // 旧明文迁移为加密存储
+                    return out
+                }
             } catch (_: Exception) {}
         }
         // 兼容旧版单配置字段：旧版保存过 deepseek 配置则合并进预设
@@ -232,7 +247,7 @@ object ApiConfig {
                 put("authHeader", p.authHeader)
             })
         }
-        prefs()?.edit()?.putString(K_PROVIDERS, arr.toString())?.apply()
+        prefs()?.edit()?.putString(K_PROVIDERS, app?.let { Secrets.encrypt(it, arr.toString()) } ?: arr.toString())?.apply()
     }
 
     /** 解析 Provider 配置中的 capabilities JSONArray */

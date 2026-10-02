@@ -436,10 +436,10 @@ internal class BrowserPage(private val act: MainActivity) {
             settings.domStorageEnabled = true
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
-            settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.mediaPlaybackRequiresUserGesture = false
-            settings.allowFileAccess = true
-            settings.allowContentAccess = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val u = request?.url?.toString() ?: return false
@@ -875,15 +875,30 @@ internal class BrowserPage(private val act: MainActivity) {
             }
         }
 
+        /** 本地欢迎页专用: 仅允许 file:///android_asset/ 本地页调用跳转能力, 阻断任意网页经桥强制跳转 */
+        private fun localPageOnly(): Boolean {
+            val holder = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+            val latch = CountDownLatch(1)
+            act.runOnUiThread {
+                try {
+                    val u = web.url
+                    holder.set(u?.startsWith("file:///android_asset/") == true)
+                } catch (e: Exception) { holder.set(false) }
+                latch.countDown()
+            }
+            try { latch.await(2, java.util.concurrent.TimeUnit.SECONDS) } catch (e: InterruptedException) {}
+            return holder.get() == true
+        }
+
         @android.webkit.JavascriptInterface
         fun homeSearch(q: String) {
-            if (!sourceOk()) return
+            if (!localPageOnly()) return
             act.runOnUiThread { open(q) }
         }
 
         @android.webkit.JavascriptInterface
         fun homeOpen(url: String) {
-            if (!sourceOk()) return
+            if (!localPageOnly()) return
             act.runOnUiThread { web.loadUrl(url); paintStatus(act.getString(R.string.br_opened, url)) }
         }
     }
