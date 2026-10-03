@@ -651,7 +651,7 @@ object LocalEngine {
             if (cancelRequested) throw CancellationException("cancelled by user")
             val rd = reader ?: break
             val line = rd.readLine() ?: break
-            android.util.Log.v("Nyral", "SSE: $line")
+            android.util.Log.v("Nyral", "SSE chunk len=${line.length}")
             if (!line.startsWith("data:")) continue
             val data = line.substring(5).trim()
             if (data == "[DONE]") break
@@ -875,7 +875,7 @@ object LocalEngine {
             }
             nativeCalls.clear()
         }
-        android.util.Log.v("Nyral", "streamOnce done acc=[$accumulated] toolCalls=$toolCalls")
+        android.util.Log.v("Nyral", "streamOnce done accLen=${accumulated.length} toolCalls=$toolCalls")
         // 思考段自然结束
         if (toolCalls.isEmpty() && mode == MODE_THINKING) cb.onThinkingEnd()
         // token 统计
@@ -1283,8 +1283,8 @@ object LocalEngine {
     /** H3(2026-10-03): 危险工具确认名单: 工具名 或 工具:action; 命中即需用户确认 */
     private val DANGER_CONFIRM_TOOLS = setOf(
         "ssh_run", "sh_run", "js_run", "web_download",
-        "file:write", "workdir:write",
-        "browser:click", "browser:type", "browser:upload", "browser:clear_cache",
+        "file:write", "file:upload", "workdir:write",
+        "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
         "app:click", "app:text", "app:tap", "app:launch",
         "security_set"
     )

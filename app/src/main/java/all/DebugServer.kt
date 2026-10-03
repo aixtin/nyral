@@ -301,10 +301,13 @@ object DebugServer {
     /** M4: 只读文件端点(白名单: app filesDir 私有目录或公共工作目录), base64 返回, 上限 5MB */
     private fun fileRead(c: Context, query: String): JSONObject {
         val p = queryParam(query, "path") ?: return JSONObject().put("error", "path required")
-        val private = File(c.filesDir, "").absolutePath
+        // N1(2026-10-03): canonicalPath 规范化后再校验, 防 filesDir/../ 穿越
+        val private = try { File(c.filesDir, "").canonicalPath } catch (e: Exception) { File(c.filesDir, "").absolutePath }
         val work = WorkDir.displayPath
-        val abs = File(p).absolutePath
-        if (!abs.startsWith(private) && !abs.startsWith(work)) return JSONObject().put("error", "path not allowed")
+        val abs = try { File(p).canonicalPath } catch (e: Exception) { File(p).absolutePath }
+        val inPrivate = abs == private || abs.startsWith(private + File.separator)
+        val inWork = abs == work || abs.startsWith(work + File.separator)
+        if (!inPrivate && !inWork) return JSONObject().put("error", "path not allowed")
         val f = File(abs)
         if (!f.isFile) return JSONObject().put("error", "not a file")
         if (f.length() > 5L * 1024 * 1024) return JSONObject().put("error", "too large")

@@ -68,6 +68,8 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
 
   build-release:
+    # N2(2026-10-03): 仅 push 触发签名 job, PR 不暴露签名 secrets
+    if: github.event_name == 'push'
     name: Build Signed Release APK
     runs-on: ubuntu-latest
     steps:
