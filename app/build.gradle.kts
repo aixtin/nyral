@@ -29,8 +29,8 @@ android {
         applicationId = "io.github.aixtin.nyral"
         minSdk = 24
         targetSdk = 36
-        versionCode = 37
-        versionName = "2.3.1"
+        versionCode = 38
+        versionName = "2.3.2"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -38,7 +38,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 安全审查修复(2026-10-03): release 开启 R8 压缩+混淆+优化
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -68,23 +74,25 @@ android {
 }
 
 dependencies {
-    implementation("com.github.mwiede:jsch:0.2.17")
-    implementation("org.apache.commons:commons-compress:1.27.1")
-    implementation("org.tukaani:xz:1.9")
+    // 安全审查修复(2026-10-03): 安全相关库升级到最新稳定版(jsch/commons-compress/bcprov/xz 均有 CVE 历史)
+    implementation("com.github.mwiede:jsch:0.2.26")
+    implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("org.tukaani:xz:1.10")
     implementation("com.github.junrar:junrar:7.5.5")
-    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
-    implementation("org.mozilla:rhino:1.7.14")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.2")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.82")
+    implementation("org.mozilla:rhino:1.7.15")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.26.0")
     implementation("io.noties.markwon:core:4.6.2")
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.core:core-ktx:1.17.0")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
     implementation("com.atlassian.commonmark:commonmark:0.13.0")
     implementation("com.atlassian.commonmark:commonmark-ext-gfm-tables:0.13.0")
     implementation("com.atlassian.commonmark:commonmark-ext-gfm-strikethrough:0.13.0")
-    implementation("androidx.recyclerview:recyclerview:1.3.0")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
+    // coroutines 1.10+ 需 Kotlin 2.x 编译器, 项目为 1.9, 保持 1.8.1 兼容
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     testImplementation(files(
