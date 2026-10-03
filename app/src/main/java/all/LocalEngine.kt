@@ -1285,7 +1285,8 @@ object LocalEngine {
         "ssh_run", "sh_run", "js_run", "web_download",
         "file:write", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache",
-        "app:click", "app:text", "app:tap", "app:launch"
+        "app:click", "app:text", "app:tap", "app:launch",
+        "security_set"
     )
 
     /** H3 确认指纹: sha256(工具名+参数) 前12位; 参数变更则指纹失效需重新确认 */
@@ -1316,20 +1317,24 @@ object LocalEngine {
         if (toolRegistry.any { it.name == n } || McpClientManager.spec(n) != null) {
             ToolHotStore.recordHit(context, n)
         }
-        // H3 安全门禁(2026-10-03): 危险工具确认开关(默认开) + 一次性指纹二次放行
-        // 命中危险工具且参数未携带匹配指纹时返回待确认提示, 由上层用 ask_user 弹窗或对话确认后,
-        // 携带 confirm=<指纹> 重试放行; 参数变更则指纹失效需重新确认。
+        // H3 硬门禁(2026-10-03): 危险工具确认开关(默认开) + 用户亲手批准的票据放行
+        // 模型无法自行放行: 命中危险工具时弹出系统确认框, 用户点"允许"才签发一次性票据;
+        // 模型重试时门禁自动消费票据(5分钟有效, 绑定工具+参数), 参数变更票据失效。
         if (SecurityConfig.dangerConfirm(context)) {
             val jo0 = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
             val act0 = jo0?.optString("action", "").orEmpty()
             val key0 = if (act0.isNotEmpty()) "$n:$act0" else n
             if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
-                val fp = dangerFingerprint(n, arg)
-                val got = jo0?.optString("confirm", "").orEmpty()
-                if (got != fp) {
-                    return "【安全确认】工具 [$n] 属于危险操作(可能修改系统/文件/远程主机)。请先向用户展示下列操作并征得同意：\n" +
-                        "- 工具: $n\n- 参数摘要: ${arg.take(300)}\n- 确认指纹: $fp\n" +
-                        "用户同意后, 在重新调用时携带 confirm=\"$fp\" 参数即可放行(或调用 ask_user 弹窗让用户点选确认后再重试)。"
+                if (SecurityConfig.hasTicket(context, n, arg)) {
+                    if (!SecurityConfig.consumeTicket(context, n, arg)) {
+                        return "【安全确认】票据已失效(过期或已被使用), 已重新弹出确认框, 请再次确认后重试。"
+                    }
+                } else {
+                    val popped = SecurityUi.requestConfirm(context, n, arg)
+                    return "【安全确认】工具 [$n] 属于危险操作(可能修改系统/文件/远程主机)，已弹出确认框等待你亲手批准。\n" +
+                        "- 工具: $n\n- 参数摘要: ${arg.take(300)}\n" +
+                        (if (popped) "请在手机弹窗点击“允许执行”（票据 5 分钟有效，仅本次参数可用），确认后重试本调用即可放行。"
+                         else "当前无前台界面可弹确认框，请在前台打开 App 后重试本调用。")
                 }
             }
         }

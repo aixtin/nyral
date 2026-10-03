@@ -49,4 +49,55 @@ object SecurityConfig {
         }
         return sb.toString().ifEmpty { "security_set 需指定至少一项: danger_confirm / root_auto_grant / ssh_trust" }
     }
+
+    // ===== 硬门禁: 一次性票据 + 审计(2026-10-03) =====
+    private val tickets = java.util.concurrent.ConcurrentHashMap<String, Long>() // key -> expireAtMs
+    private const val TICKET_TTL_MS = 5 * 60 * 1000L
+    private const val AUDIT_FILE = "nyral_security_audit.log"
+
+    private fun ticketKey(name: String, arg: String): String = "$name|${sha256(name, arg)}"
+
+    private fun sha256(name: String, arg: String): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val d = md.digest("$name\n$arg".toByteArray(Charsets.UTF_8))
+        return d.joinToString("") { "%02x".format(it) }
+    }
+
+    /** 用户允许后签发一次性票据(5分钟有效, 绑定工具+参数) */
+    fun grantTicket(ctx: Context, name: String, arg: String) {
+        tickets[ticketKey(name, arg)] = System.currentTimeMillis() + TICKET_TTL_MS
+    }
+
+    /** 门禁放行前检查票据是否存在且未过期(不消耗) */
+    fun hasTicket(ctx: Context, name: String, arg: String): Boolean {
+        val exp = tickets[ticketKey(name, arg)] ?: return false
+        return exp > System.currentTimeMillis()
+    }
+
+    /** 消费一次性票据: 存在且未过期则删除并放行 */
+    fun consumeTicket(ctx: Context, name: String, arg: String): Boolean {
+        val key = ticketKey(name, arg)
+        val exp = tickets.remove(key) ?: return false
+        if (exp <= System.currentTimeMillis()) return false
+        audit(ctx, name, arg, "ticket")
+        return true
+    }
+
+    /** 审计日志: 追加到 filesDir/nyral_security_audit.log (JSON 行) */
+    fun audit(ctx: Context, name: String, arg: String, approvedBy: String) {
+        try {
+            val f = java.io.File(ctx.filesDir, AUDIT_FILE)
+            val line = org.json.JSONObject()
+                .put("ts", System.currentTimeMillis())
+                .put("tool", name)
+                .put("argHash", sha256(name, arg).take(12))
+                .put("arg", arg.take(200))
+                .put("approvedBy", approvedBy)
+                .toString() + "\n"
+            f.appendText(line)
+        } catch (e: Exception) { /* 审计失败不阻塞主流程 */ }
+    }
+
+    /** 审计文件路径(供设置页/导出查看) */
+    fun auditFile(ctx: Context): java.io.File = java.io.File(ctx.filesDir, AUDIT_FILE)
 }

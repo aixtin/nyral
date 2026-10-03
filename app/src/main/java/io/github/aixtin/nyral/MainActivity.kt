@@ -916,6 +916,7 @@ class MainActivity : Activity() {
         // window.decorView.post { runFirstRunPermissionGuide() }
         // 悬浮终端显隐门控: DA 前台(应用内)隐藏悬浮窗, 切到其他 APP/回桌面自动显示
         TerminalGate.register(application)
+        SecurityUi.register(this)
         // 启动自动检查更新（同一天仅一次，静默；真实更新源开源后替换 UPDATE_URL 即可）
         UpdateChecker.check(this, false)
         // 键盘模式: 全局 adjustNothing, 窗口永不被键盘压缩;
