@@ -25,12 +25,22 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 - 可配置独立"辅助 AI"做记忆索引，不占用主对话模型
 - pending 队列落盘 + 原子消费事务：进程被杀不丢消息、不重复归档
 
-**工具调用（40 轮上限）**
-- 联网：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
+**工具调用（40 轮上限，20 个内置工具挂在 8 个公共底座上）**
+- 网络底座：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
+- SSH 底座：ssh_run / file（远端文件读写/上传/下载），支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
+- 执行底座：js_run（沙箱执行 JS，ClassShutter 限制类访问）/ sh_run（本机 Shell，危险命令拦截 + root 提权）
+- 设备底座：app（第三方 App 无障碍控制）
+- 文件底座：workdir（本地工作目录 Download/Nyral_work：list/read/write/grep/head/stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义）
+- 附件底座：attach_read（附件读取）/ video_frame（视频抽帧）/ file_export（文件导出）
+- 记忆底座：memory_search（语义检索本地记忆）/ get_time / calc（Rhino 解释模式）
+- 安全底座：security_set（门禁 / root 补权 / SSH 信任开关）
 - 浏览器（自研 Agent 浏览器雏形）：整屏 WebView 接管，AI 步骤播报 + 页面高亮圈 + 验证码一键交还用户
-- SSH/SFTP：ssh_run / file_list / file_read / file_info / file_write / ssh_upload / ssh_download / ssh_ls，支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
-- 本地工作目录（Download/Nyral_work）：workdir_list / read / write / grep（批量全文搜索）/ head（防上下文爆炸）/ stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义
-- 其他：get_time / calc（Rhino 解释模式）/ memory_search
+- 元工具：ask_user（交互澄清）/ tool_detail（工具说明）
+
+**安全**
+- 危险工具阻塞式硬门禁：先确认后执行，同参数 5 分钟窗口期复用免确认，拒绝立即停止并回执，超时自动拒绝；审计三态（允许/拒绝/超时）落库可追踪
+- SSRF 拦截（web_fetch/web_download 重定向目标校验）+ 日志脱敏（API 非 2xx 响应体、SSH 私钥内容不落明文日志）
+- 沙箱执行（js_run ClassShutter）+ 危险命令拦截（sh_run）+ SSH 主机密钥校验（未知主机拒绝连接）
 
 **界面**
 - 多会话管理（置顶/删除/搜索定位）、会话全文搜索（正文+思考内容，相关性打分）
@@ -69,17 +79,25 @@ gradle assembleDebug
 
 ```
 android-agent-app/
-├── app/src/main/java/io/github/aixtin/nyral 注: 源码实际位于 java/all/ (包名 io.github.aixtin.nyral)
-│   ├── MainActivity.kt        # 聊天主界面/气泡渲染/录音/附件
-│   ├── MainUi.kt / Ui.kt / UiKit.kt / BubbleSpans.kt / Typewriter.kt  # UI 构建与动效
-│   ├── LocalEngine.kt         # 两步式路由 + SSE 流式解析 + 工具调用循环
-│   ├── ApiConfig.kt / MemoryApiConfig.kt  # 供应商与模型能力表
-│   ├── MemoryDb.kt / MemoryKeeper.kt / MemoryEmbedder.kt / BertTokenizer.kt  # 记忆三级体系
-│   ├── SshTools.kt / SshConfigStore.kt / FileTools.kt / WorkDir.kt / WorkTools.kt  # SSH/SFTP/工作目录
-│   ├── WebTools.kt            # 搜索（四引擎轮换）/抓取/下载/site_auth
-│   ├── BrowserPage.kt         # 自研 Agent 浏览器（整屏 WebView + AI 接管/高亮/接管验证码）
-│   ├── AttachmentStore.kt / DocTextExtractor.kt / PdfTextExtractor.kt / VideoCompressor.kt  # 附件链路
-│   └── SettingsActivity.kt / ModelEditActivity.kt / ...  # 各配置页
+├── app/src/main/java/io/github/aixtin/nyral/   # 主包：入口 + 会话/渲染核心
+│   ├── MainActivity.kt          # 聊天主界面（约 4800 行，功能域拆分后的主体）
+│   ├── ChatSessionState.kt      # 会话状态机（流式字段收编）
+│   ├── ChatFlowController.kt    # 发送/流式回调控制
+│   ├── StreamUiBridge.kt        # 流式行创建 + LocalEngine 回调桥
+│   ├── MdTableView.kt / MdBlocksView.kt / MdBlocksRender.kt  # 消息流表格渲染（方案 C）
+│   └── RoundedTablePlugin.java / RoundedTableRowSpan.java / RoundedCodeBlockSpan.java  # Markwon 表格插件
+└── app/src/main/java/io/github/aixtin/nyral/all/   # 功能模块（98 个 Kotlin 文件）
+    ├── LocalEngine.kt           # 引擎：工具注册表 + 分发 + 对话循环（约 1650 行）
+    ├── MainActivityVoice.kt / MainActivitySession.kt / MainActivityInputBar.kt  # MainActivity 功能域拆分
+    ├── SecurityConfig.kt / SecurityUi.kt   # 安全硬门禁（阻塞式确认 + 窗口期复用）
+    ├── MainUi.kt / UiKit.kt / BubbleSpans.kt / Typewriter.kt  # UI 构建与动效
+    ├── ApiConfig.kt / MemoryApiConfig.kt   # 供应商与模型能力表
+    ├── MemoryDb.kt / MemoryKeeper.kt / MemoryEmbedder.kt / BertTokenizer.kt / MemoryTools.kt  # 记忆体系
+    ├── SshTools.kt / SshConfigStore.kt / FileTools.kt / WorkDir.kt / WorkTools.kt  # SSH/SFTP/工作目录
+    ├── WebTools.kt / ScriptEngine.kt / UiControlService.kt  # 联网 / 沙箱执行 / 设备控制
+    ├── BrowserPage.kt           # 自研 Agent 浏览器（整屏 WebView + AI 接管/高亮/接管验证码）
+    ├── AttachmentStore.kt / DocTextExtractor.kt / PdfTextExtractor.kt / VideoCompressor.kt  # 附件链路
+    └── SettingsActivity.kt / ModelEditActivity.kt / McpConfigActivity.kt / ...  # 配置页
 └── app/src/main/assets/mem_model/   # bge-small 量化 ONNX 模型 + vocab
 ```
 
