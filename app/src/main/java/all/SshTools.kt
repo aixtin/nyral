@@ -251,7 +251,8 @@ object SshTools {
         // H2(2026-10-03): 主机密钥白名单校验(指纹存 SharedPreferences), 未知主机拒绝连接
         jsch.hostKeyRepository = PrefsHostKeyRepository(context)
         if (!cfg.privateKey.isNullOrEmpty()) {
-            Log.i(tag, "addIdentity target key len=" + cfg.privateKey.length + " head=" + cfg.privateKey.take(27).replace("\n", "|"))
+            // 安全审查修复(2026-10-03): 移除私钥内容前缀日志, 仅保留长度(不落盘敏感内容)
+            Log.i(tag, "addIdentity: key len=" + cfg.privateKey.length)
             jsch.addIdentity("cfg_key", cfg.privateKey.toByteArray(), null,
                 cfg.passphrase?.toByteArray())
         }

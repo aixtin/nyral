@@ -152,6 +152,10 @@ object DebugServer {
             serverSocket = ss
             running.set(true)
             Log.i("Nyral", "DebugServer 启动: ${if (lan) "0.0.0.0" else "127.0.0.1"}:$p")
+            if (lan) {
+                // 安全审查加固(2026-10-03): 局域网模式醒目告警
+                Log.w("Nyral", "DebugServer: 局域网模式已启用, 服务暴露于 0.0.0.0:$p, 同网段任意设备可访问; 仅应在可信网络下使用, 所有请求均需 X-Auth-Token 鉴权")
+            }
             val t = Thread {
                 while (running.get()) {
                     try {
@@ -179,6 +183,11 @@ object DebugServer {
     private fun handle(s: Socket, c: Context) {
         try {
             s.soTimeout = 180_000
+            // 安全审查加固(2026-10-03): 非本机来源连接打醒目告警(局域网模式暴露提示, 请求仍需 X-Auth-Token 鉴权)
+            val peer = s.remoteSocketAddress?.toString() ?: "?"
+            if (!peer.startsWith("/127.0.0.1") && !peer.startsWith("/::1") && peer != "?") {
+                Log.w("Nyral", "DebugServer: 收到非本机连接 ${peer}; 若未启用局域网模式请检查网络暴露面, 所有请求均需 X-Auth-Token 鉴权")
+            }
             val input = s.getInputStream()
             val out = s.getOutputStream()
             val readLine = fun(): String? {
@@ -280,7 +289,7 @@ object DebugServer {
                     method == "POST" && path == "/v1/app/installed" -> appInstalled(out)
                     method == "POST" && path == "/v1/app/tap" -> appTap(out, body)
                     method == "GET" && path == "/v1/app/screenshot" -> appScreenshot(out)
-                    method == "POST" && path == "/v1/js/run" -> jsRun(out, body)
+                    method == "POST" && path == "/v1/js/run" -> jsRun(c, out, body)
                     method == "POST" && path == "/v1/sh/run" -> shRun(c, out, body)
                     method == "GET" && path == "/v1/status" -> writeJson(out, 200, statusJson(c))
                     method == "GET" && path == "/v1/file/read" -> writeJson(out, 200, fileRead(c, query), reuse)
@@ -907,17 +916,25 @@ object DebugServer {
         writeJson(out, 200, JSONObject().put("ok", true).put("result", UiControlService.screenshot()))
     }
 
-    private fun jsRun(out: OutputStream, body: String) {
+    private fun jsRun(c: Context, out: OutputStream, body: String) {
         val o = try { JSONObject(body) } catch (e: Exception) { null }
         val code = o?.optString("code", "").orEmpty()
         val timeout = o?.optLong("timeoutMs", 8000L) ?: 8000L
         if (code.isBlank()) { writeJson(out, 400, JSONObject().put("error", "code required")); return }
+        // 安全审查修复(2026-10-03): DebugServer 直调 js_run 也过 H3 硬门禁(与 executeTool 同款确认+票据)
+        if (SecurityConfig.dangerConfirm(c) && !SecurityConfig.hasTicket(c, "js_run", body)) {
+            when (SecurityUi.requestConfirm(c, "js_run", body)) {
+                true -> { /* 票据已签发 */ }
+                false -> { writeJson(out, 403, JSONObject().put("error", "用户拒绝执行 js_run, 已停止")); return }
+                null -> { writeJson(out, 503, JSONObject().put("error", "无前台界面可弹出确认框, 请在前台打开 App 后重试")); return }
+            }
+        }
         writeJson(out, 200, JSONObject().put("ok", true).put("result", ScriptEngine.runJs(code, timeout)))
     }
 
-    /** /v1/sh/run: 就地执行 Shell 脚本(与 LocalEngine.sh_run 工具同源) */
+    /** /v1/sh/run: 就地执行 Shell 脚本(与 LocalEngine.sh_run 工具同源, 含黑名单+H3 门禁) */
     private fun shRun(c: Context, out: OutputStream, body: String) {
-        val r = ScriptEngine.runSh(c, body)
+        val r = ScriptEngine.runShConfirmed(c, body)
         writeJson(out, 200, JSONObject().put("result", r))
     }
 

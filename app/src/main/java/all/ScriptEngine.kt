@@ -107,7 +107,10 @@ object ScriptEngine {
         ">/dev/sd", ">/dev/mmcblk", ">/dev/disk", ">/dev/mapper", ">/dev/loop", ">/boot", ">/proc",
         "format/", "wipe", "reboot", "poweroff", "shutdown", "halt",
         ":{(", "chmod-r777/", "chown-r/", "kill-91", "kill-90",
-        "fdisk", "blkdiscard", "parted", "mkswap", "cryptsetup", "pvcreate", "vgremove"
+        "fdisk", "blkdiscard", "parted", "mkswap", "cryptsetup", "pvcreate", "vgremove",
+        // 安全审查补强(2026-10-03): 命令替换/解释器/解码/进程替换构造绕过面
+        "eval", "$(", "xargs", "busybox", "base64", "xxd", "nce", "printf",
+        "/dev/fd", "python", "perl"
     )
 
     /** H4: 脚本规范化(去空白/反斜杠/引号, 转小写), 用于防绕过匹配 */
@@ -125,15 +128,44 @@ object ScriptEngine {
     fun runSh(context: android.content.Context, argRaw: String): String {
         val script = parseScript(argRaw)
         if (script.isBlank()) return "脚本为空: 请提供 script"
-        // 危险命令拦截(整脚本拒绝, 防止 root 下破坏)
+        val blocked = blockReason(script)
+        if (blocked != null) return blocked
+        return doRunSh(context, argRaw, script)
+    }
+
+    /**
+     * 带 H3 硬门禁的 SH 执行(2026-10-03 安全审查修复): 供 executeTool / DebugServer 等外部入口调用。
+     * 先过黑名单(命中永远拒绝, 无窗口期豁免), 再走 SecurityConfig 用户确认(与 executeTool 同款票据机制)。
+     */
+    fun runShConfirmed(context: android.content.Context, argRaw: String): String {
+        val script = parseScript(argRaw)
+        if (script.isBlank()) return "脚本为空: 请提供 script"
+        val blocked = blockReason(script)
+        if (blocked != null) return blocked
+        if (SecurityConfig.dangerConfirm(context) && !SecurityConfig.hasTicket(context, "sh_run", argRaw)) {
+            when (SecurityUi.requestConfirm(context, "sh_run", argRaw)) {
+                true -> { /* 允许: 票据已签发, 继续执行 */ }
+                false -> return "【安全确认】用户拒绝了工具 [sh_run] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
+                null -> return "【安全确认】当前无前台界面可弹出确认框，请在前台打开 App 后重试本调用。"
+            }
+        }
+        return doRunSh(context, argRaw, script)
+    }
+
+    /** 危险命令拦截判定: 原始子串 + 规范化双重匹配, 命中返回拦截消息, 未命中返回 null */
+    private fun blockReason(script: String): String? {
         for (w in DANGER_WORDS) {
             if (script.contains(w)) return "已拦截: 脚本命中危险命令[$w], 拒绝执行(如需保留可拆分脚本绕过)"
         }
-        // H4 加固: 规范化匹配, 防空白/转义变体绕过
         val norm = normalizeDanger(script)
         for (w in DANGER_NORMALIZED) {
             if (norm.contains(w)) return "已拦截: 脚本命中危险命令(规范化)[$w], 拒绝执行(如需保留可拆分脚本绕过)"
         }
+        return null
+    }
+
+    /** 执行主体: 黑名单已通过后的实际就地执行 */
+    private fun doRunSh(context: android.content.Context, argRaw: String, script: String): String {
         val timeoutMs = parseTimeout(argRaw)
         val dir = File(context.filesDir, "scripts")
         if (!dir.exists()) dir.mkdirs()

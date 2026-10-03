@@ -1465,7 +1465,7 @@ object LocalEngine {
                 val timeout = jo?.optLong("timeoutMs", 8000L) ?: 8000L
                 if (code.isBlank()) "请指定 code(要执行的 JS 脚本)" else ScriptEngine.runJs(code, timeout)
             }
-            "sh_run" -> ScriptEngine.runSh(context, arg)
+            "sh_run" -> ScriptEngine.runShConfirmed(context, arg)
             "security_set" -> SecurityConfig.set(context, arg)
             "tool_detail" -> {
                 val tName = try { JSONObject(arg.trim()).optString("name", "").trim() } catch (e: Exception) { "" }
@@ -1478,8 +1478,21 @@ object LocalEngine {
             }
             else -> {
                 // MCP 动态工具: 已注册则分发到对应服务, 未注册报未知
-                if (McpClientManager.spec(name) != null) McpClientManager.callTool(context, name, arg)
-                else "未知工具: $name"
+                if (McpClientManager.spec(name) != null) {
+                    // 安全审查修复(2026-10-03): MCP 工具纳入 H3 硬门禁, 与内置危险工具同款确认+票据机制
+                    if (SecurityConfig.dangerConfirm(context)) {
+                        val mcpKey = "mcp:$name"
+                        if (SecurityConfig.hasTicket(context, mcpKey, arg)) {
+                            McpClientManager.callTool(context, name, arg)
+                        } else when (SecurityUi.requestConfirm(context, mcpKey, arg)) {
+                            true -> McpClientManager.callTool(context, name, arg)
+                            false -> "【安全确认】用户拒绝了工具 [$name] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
+                            null -> "【安全确认】当前无前台界面可弹出确认框，请在前台打开 App 后重试本调用。"
+                        }
+                    } else {
+                        McpClientManager.callTool(context, name, arg)
+                    }
+                } else "未知工具: $name"
             }
         }
     }
