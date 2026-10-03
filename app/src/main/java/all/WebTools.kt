@@ -7,6 +7,8 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.SocketException
 import java.net.URL
 import java.net.URLEncoder
@@ -422,19 +424,91 @@ object WebTools {
      * 下载 URL 内容并保存到手机工作目录 Download/Nyral_work/(二进制安全)。
      * 未指定 name 时从 URL 末尾或 Content-Disposition 推断文件名。
      */
-    /** SSRF 防护: 拒绝回环/内网/云元数据地址, 防止被诱导访问本机或内网服务; 命中返回原因, 否则 null */
+    /** 返回该地址的不安全类型描述, null 表示安全。
+     *  注意: Java 的 isSiteLocalAddress 不识别 IPv6 ULA(fc00::/7), 需手动补判(类似 RFC1918 私网)。 */
+    private fun unsafeAddress(addr: InetAddress): String? {
+        return when {
+            addr.isLoopbackAddress -> "回环地址"
+            addr.isLinkLocalAddress -> "链路本地地址"
+            addr.isAnyLocalAddress -> "任意地址"
+            addr.isSiteLocalAddress -> "站点本地地址"
+            addr is Inet6Address && (addr.address[0].toInt() and 0xfe) == 0xfc -> "IPv6 ULA地址"
+            else -> null
+        }
+    }
+
+    /** SSRF 防护: 解析 host 得到全部 InetAddress 后逐项校验, 拒绝回环/链路本地/站点本地/任意地址/IPv6 ULA。
+     *  基于字面量正则的旧实现会被 IPv6 / IP 编码(十进制/十六进制/八进制) / 0.0.0.0 变体 /
+     *  DNS 重绑定(解析即内网) 绕过, 解析后校验可全部覆盖。命中返回原因, 否则 null。 */
     private fun ssrfBlocked(url: String): String? {
         if (!url.startsWith("http://") && !url.startsWith("https://")) return "URL必须以http://或https://开头"
-        val host = runCatching { java.net.URI(url).host }.getOrNull()
-        if (host == null || host.equals("localhost", true) || host == "0.0.0.0" ||
-            Regex("^127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
-            Regex("^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
-            Regex("^192\\.168\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
-            Regex("^172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host) ||
-            Regex("^169\\.254\\.\\d{1,3}\\.\\d{1,3}$").containsMatchIn(host)) {
-            return "不允许下载内网/回环地址 ($host)"
+        val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return "无法解析URL中的host"
+        val rawHost = host.removePrefix("[").removeSuffix("]")
+        val addresses = try {
+            InetAddress.getAllByName(rawHost)
+        } catch (e: Exception) {
+            // 解析失败保守拦截: 连接阶段同样会失败, 同时避免攻击者利用解析失败开重绑定窗口
+            return "DNS解析失败, 已拦截: ${e.message}"
+        }
+        for (addr in addresses) {
+            val kind = unsafeAddress(addr) ?: continue
+            return "不允许访问$kind ($host → ${addr.hostAddress})"
         }
         return null
+    }
+
+    /** 解析并校验后的连接目标 */
+    private data class PinnedTarget(
+        val scheme: String,    // http / https
+        val origHost: String,  // 原 host(IPv6 带括号)
+        val port: Int,
+        val ipHost: String,    // 可放入 URL 的已校验 IP(IPv6 带括号)
+    )
+
+    /** 解析+校验, 返回可 pin 的连接目标; 非法/被拦截返回 null */
+    private fun resolvePinned(url: String): PinnedTarget? {
+        val u = try { java.net.URI(url) } catch (e: Exception) { return null }
+        val host = u.host ?: return null
+        val scheme = u.scheme
+        val rawHost = host.removePrefix("[").removeSuffix("]")
+        val port = if (u.port != -1) u.port else if (scheme.equals("https", true)) 443 else 80
+        val addresses = try { InetAddress.getAllByName(rawHost) } catch (e: Exception) { return null }
+        val ip = addresses.firstOrNull() ?: return null
+        for (a in addresses) {
+            if (unsafeAddress(a) != null) return null
+        }
+        val ipHost = if (ip is Inet6Address) "[${ip.hostAddress}]" else ip.hostAddress
+        return PinnedTarget(scheme, host, port, ipHost)
+    }
+
+    /** 将 URL 的 host 原样替换为新 host(保留端口/路径/查询) */
+    private fun replaceHost(url: String, newHost: String): String {
+        val u = java.net.URI(url)
+        val start = url.indexOf("://") + 3
+        val hostEnd = start + (u.host?.length ?: 0)
+        return url.substring(0, start) + newHost + url.substring(hostEnd)
+    }
+
+    /** 打开到目标 URL 的连接: 先解析并校验全部地址;
+     *  HTTP 用已校验 IP 直连并保留原 Host 头(锁 IP, 消除 DNS 重绑定 TOCTOU 窗口);
+     *  HTTPS 校验后用原 URL 连接(TLS 证书校验天然削弱重绑定, 原生 HttpURLConnection 不支持自定义 Dns, 无法全 pin)。
+     *  返回 null 表示被 SSRF 拦截或 URL 非法。 */
+    private fun openPinnedConnection(url: String): HttpURLConnection? {
+        val t = resolvePinned(url) ?: return null
+        val conn = if (t.scheme.equals("http", true)) {
+            val pinnedUrl = replaceHost(url, t.ipHost)
+            try { URL(pinnedUrl).openConnection() as HttpURLConnection } catch (e: Exception) { return null }
+        } else {
+            try { URL(url).openConnection() as HttpURLConnection } catch (e: Exception) { return null }
+        }
+        if (t.scheme.equals("http", true)) {
+            val hostHeader = buildString {
+                append(t.origHost)
+                if (t.port != 80 && t.port != 443) append(':').append(t.port)
+            }
+            try { conn.setRequestProperty("Host", hostHeader) } catch (_: Exception) {}
+        }
+        return conn
     }
 
     fun save(context: Context, arg: String): String {
@@ -470,11 +544,8 @@ object WebTools {
         var hs = headers
         var redirects = 0
         while (redirects <= 5) {
-            val conn = try {
-                URL(current).openConnection() as HttpURLConnection
-            } catch (e: Exception) {
-                return DlResult(false, e.message ?: "打开连接失败")
-            }
+            val conn = openPinnedConnection(current)
+                ?: return DlResult(false, ssrfBlocked(current)?.let { "目标被 SSRF 拦截: $it" } ?: "打开连接失败(URL非法或解析失败)")
             try {
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("User-Agent", UA)
