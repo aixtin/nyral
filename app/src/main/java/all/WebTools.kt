@@ -203,6 +203,7 @@ object WebTools {
             val headers = mergeHeaders(context, url, parseHeaders(json))
             val raw = download(url, UA, headers)
                 ?: return "错误: 下载失败(超时或网络不可用)"
+            if (raw.startsWith("错误: ")) return raw
             val text = extractText(raw)
             val cleaned = text.replace(Regex("\\s+"), " ").trim()
             if (cleaned.isEmpty()) return "网页无可见文本(可能是JS渲染页面, 建议用浏览器查看)"
@@ -554,7 +555,7 @@ object WebTools {
                     URL(base, loc).toString()
                 }
                 // SSRF 加固: 重定向目标同样检查
-                if (ssrfBlocked(current) != null) return null
+                if (ssrfBlocked(current) != null) return "错误: 重定向目标被 SSRF 拦截: $current"
                 // Cookie 跨域防护: 重定向到非同域时丢弃显式 Cookie, 防止跨域泄漏
                 hs = dropCookieIfCrossDomain(prev, current, hs)
                 redirects++
