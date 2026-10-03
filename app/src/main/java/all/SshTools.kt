@@ -68,7 +68,13 @@ object SshTools {
      */
     fun trustHost(context: Context, nameOrHost: String): String {
         val p = pendingHostKey ?: return "当前没有待确认的主机密钥(需先触发一次 SSH 连接产生安全告警)"
+        // 校验传入连接名与待确认主机一致(防串信任): 名字必须匹配配置且 host 一致
+        val match = SshConfigStore.load(context).firstOrNull { it.name == nameOrHost }
+            ?: return "未找到连接名 [$nameOrHost]，请确认 SSH 配置中的连接名"
         val host = p.first
+        if (match.host != host) {
+            return "连接 [$nameOrHost] 的主机地址(${match.host}) 与待确认主机($host) 不一致，已拒绝信任"
+        }
         val fp = p.second.getFingerPrint(JSch())
         val cur = (context.getSharedPreferences("ssh_known_hosts", Context.MODE_PRIVATE)
             .getStringSet("trusted", emptySet()) ?: emptySet()).toMutableSet()
@@ -131,7 +137,7 @@ object SshTools {
     fun runOn(context: Context, cfg: SshConfigStore.SshConfig, command: String): String {
         val tag = "SshTools"
         Log.i(tag, "runOn: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
-                " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmd=" + command)
+                " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmdLen=" + command.length)
         // 断线自动重连: 连接/执行异常时自动重连重试一次, 用户无感(与 LocalEngine 请求级重连配套)
         return try {
             execOnce(context, cfg, command)
@@ -154,7 +160,7 @@ object SshTools {
     private fun execOnce(context: Context, cfg: SshConfigStore.SshConfig, command: String): String {
         val tag = "SshTools"
         Log.i(tag, "execOnce: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
-                " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmd=" + command)
+                " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmdLen=" + command.length)
         try {
             val session = connect(context, cfg)
             val channel = session.openChannel("exec") as ChannelExec
