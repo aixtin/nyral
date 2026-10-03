@@ -34,11 +34,26 @@ object MemoryApiConfig {
 
     fun load(): Config {
         val p = prefs() ?: return Config(false, "", "", "", "")
+        val rawKey = p.getString(K_KEY, "") ?: ""
+        // 安全加固: 辅助模型 Key 加密落盘; 旧明文兼容(解密失败按明文, 并迁移为加密)
+        val decrypted = app?.let { Secrets.decrypt(it, rawKey) }
+        val key = if (rawKey.isEmpty()) "" else decrypted ?: rawKey
+        if (rawKey.isNotEmpty() && decrypted == null) {
+            runCatching {
+                save(Config(
+                    p.getBoolean(K_ENABLED, false),
+                    p.getString(K_LABEL, "") ?: "",
+                    p.getString(K_BASE, "") ?: "",
+                    key,
+                    p.getString(K_MODEL, "") ?: ""
+                ))
+            }
+        }
         return Config(
             p.getBoolean(K_ENABLED, false),
             p.getString(K_LABEL, "") ?: "",
             p.getString(K_BASE, "") ?: "",
-            p.getString(K_KEY, "") ?: "",
+            key,
             p.getString(K_MODEL, "") ?: ""
         )
     }
@@ -48,7 +63,7 @@ object MemoryApiConfig {
             putBoolean(K_ENABLED, c.enabled)
             putString(K_LABEL, c.label)
             putString(K_BASE, c.base)
-            putString(K_KEY, c.key)
+            putString(K_KEY, app?.let { Secrets.encrypt(it, c.key) } ?: c.key)
             putString(K_MODEL, c.model)
         }?.apply()
     }

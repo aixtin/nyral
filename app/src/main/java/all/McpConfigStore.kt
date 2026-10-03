@@ -21,9 +21,12 @@ object McpConfigStore {
     fun load(context: Context): List<McpServer> {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val raw = prefs.getString("servers_json", null) ?: return emptyList()
+        // 安全加固: Token 含 MCP 服务密钥, 加密落盘; 旧明文兼容(解密失败按明文解析, 并迁移为加密)
+        val plain = Secrets.decrypt(context, raw) ?: raw
+        if (plain == raw && !raw.trimStart().startsWith("[")) return emptyList()
         return try {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
+            val arr = JSONArray(plain)
+            val list = (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 McpServer(
                     name = o.optString("name", ""),
@@ -31,6 +34,8 @@ object McpConfigStore {
                     token = o.optString("token", "").ifEmpty { null }
                 )
             }
+            if (plain == raw) runCatching { save(context, list) } // 明文 -> 加密迁移
+            list
         } catch (e: Exception) {
             emptyList()
         }
@@ -46,6 +51,6 @@ object McpConfigStore {
             })
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString("servers_json", arr.toString()).apply()
+            .edit().putString("servers_json", Secrets.encrypt(context, arr.toString())).apply()
     }
 }

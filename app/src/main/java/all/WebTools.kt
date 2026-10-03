@@ -380,6 +380,18 @@ object WebTools {
         return extra
     }
 
+    /**
+     * Cookie 跨域防护: 重定向后目标域与原域非同域(含子域/父域)时, 丢弃显式注入的 Cookie,
+     * 防止登录态随重定向泄漏到第三方域名。
+     */
+    private fun dropCookieIfCrossDomain(prev: String, next: String, headers: Map<String, String>): Map<String, String> {
+        if (!headers.keys.any { it.equals("Cookie", true) }) return headers
+        val a = runCatching { URL(prev).host }.getOrNull() ?: return headers
+        val b = runCatching { URL(next).host }.getOrNull() ?: return headers
+        if (a == b || a.endsWith(".$b") || b.endsWith(".$a")) return headers
+        return headers.filterKeys { !it.equals("Cookie", true) }
+    }
+
     /** 脱敏显示 Cookie: 只保留前若干字符 */
     private fun maskCookie(cookie: String): String {
         if (cookie.length <= 12) return "***"
@@ -453,60 +465,82 @@ object WebTools {
     private data class DlResult(val success: Boolean, val msg: String, val retryable: Boolean = false)
 
     private fun saveOnce(context: Context, url: String, givenName: String, headers: Map<String, String>): DlResult {
-        val conn = try {
-            URL(url).openConnection() as HttpURLConnection
-        } catch (e: Exception) {
-            return DlResult(false, e.message ?: "打开连接失败")
-        }
-        try {
-            conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", UA)
-            conn.setRequestProperty("Accept", "*/*")
-            for ((k, v) in headers) conn.setRequestProperty(k, v)
-            conn.connectTimeout = CONNECT_TIMEOUT
-            conn.readTimeout = READ_TIMEOUT * 2
-            conn.instanceFollowRedirects = true
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                return DlResult(false, "HTTP $code")
+        var current = url
+        var hs = headers
+        var redirects = 0
+        while (redirects <= 5) {
+            val conn = try {
+                URL(current).openConnection() as HttpURLConnection
+            } catch (e: Exception) {
+                return DlResult(false, e.message ?: "打开连接失败")
             }
-            val disposition = conn.getHeaderField("Content-Disposition")
-            var name = givenName
-            if (name.isEmpty()) {
-                // 依次尝试: Content-Disposition filename -> URL 路径末段
-                name = Regex("filename\\*?=(?:UTF-8'')?\"?([^\";]+)\"?").find(disposition.orEmpty())
-                    ?.groupValues?.get(1)?.trim()
-                    ?: url.substringAfterLast('/').substringBefore('?').ifEmpty { "download" }
-            }
-            name = WorkDir.sanitize(name).ifEmpty { "download" }
-            val contentLen = conn.getHeaderFieldLong("Content-Length", -1)
-            if (contentLen > 100L * 1024 * 1024) return DlResult(false, "文件超过 100MB 上限 (${contentLen} 字节)")
-            val bytes = try {
-                conn.inputStream.use { it.readBytes() }
+            try {
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("User-Agent", UA)
+                conn.setRequestProperty("Accept", "*/*")
+                for ((k, v) in hs) conn.setRequestProperty(k, v)
+                conn.connectTimeout = CONNECT_TIMEOUT
+                conn.readTimeout = READ_TIMEOUT * 2
+                // 手动跟随重定向: 每跳做 SSRF 复查 + Cookie 跨域防护
+                conn.instanceFollowRedirects = false
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val loc = conn.getHeaderField("Location") ?: return DlResult(false, "重定向无 Location")
+                    val prev = current
+                    current = if (loc.startsWith("http")) loc else {
+                        runCatching { URL(URL(prev), loc).toString() }.getOrNull()
+                            ?: return DlResult(false, "重定向目标解析失败")
+                    }
+                    // SSRF 加固: 重定向目标同样复查
+                    if (ssrfBlocked(current) != null) return DlResult(false, "重定向目标被 SSRF 拦截: $current")
+                    // Cookie 跨域防护: 跨域丢弃原 Cookie, 并按 site_auth 为新域重新注入
+                    hs = mergeHeaders(context, current, dropCookieIfCrossDomain(prev, current, hs))
+                    redirects++
+                    continue
+                }
+                if (code !in 200..299) {
+                    return DlResult(false, "HTTP $code")
+                }
+                val disposition = conn.getHeaderField("Content-Disposition")
+                var name = givenName
+                if (name.isEmpty()) {
+                    // 依次尝试: Content-Disposition filename -> URL 路径末段
+                    name = Regex("filename\\*?=(?:UTF-8'')?\"?([^\";]+)\"?").find(disposition.orEmpty())
+                        ?.groupValues?.get(1)?.trim()
+                        ?: current.substringAfterLast('/').substringBefore('?').ifEmpty { "download" }
+                }
+                name = WorkDir.sanitize(name).ifEmpty { "download" }
+                val contentLen = conn.getHeaderFieldLong("Content-Length", -1)
+                if (contentLen > 100L * 1024 * 1024) return DlResult(false, "文件超过 100MB 上限 (${contentLen} 字节)")
+                val bytes = try {
+                    conn.inputStream.use { it.readBytes() }
+                } catch (e: SocketException) {
+                    return DlResult(false, "下载被服务器中断(${e.message})，可能文件过大或防护墙拦截，已自动重试一次", retryable = true)
+                }
+                if (bytes.size > 100 * 1024 * 1024) return DlResult(false, "文件超过 100MB 上限")
+                if (!WorkDir.write(context, name, bytes, WorkDir.SUB_DIR_DOWNLOADS)) return DlResult(false, "写入工作目录失败: $name")
+                return DlResult(true, "下载成功: ${WorkDir.displaySubPath(WorkDir.SUB_DIR_DOWNLOADS)}$name (${bytes.size} 字节)")
             } catch (e: SocketException) {
-                return DlResult(false, "下载被服务器中断(${e.message})，可能文件过大或防护墙拦截，已自动重试一次", retryable = true)
+                return DlResult(false, "下载被服务器中断(${e.message})", retryable = true)
+            } catch (e: Exception) {
+                return DlResult(false, e.message ?: "未知错误")
+            } finally {
+                try { conn.disconnect() } catch (_: Exception) {}
             }
-            if (bytes.size > 100 * 1024 * 1024) return DlResult(false, "文件超过 100MB 上限")
-            if (!WorkDir.write(context, name, bytes, WorkDir.SUB_DIR_DOWNLOADS)) return DlResult(false, "写入工作目录失败: $name")
-            return DlResult(true, "下载成功: ${WorkDir.displaySubPath(WorkDir.SUB_DIR_DOWNLOADS)}$name (${bytes.size} 字节)")
-        } catch (e: SocketException) {
-            return DlResult(false, "下载被服务器中断(${e.message})", retryable = true)
-        } catch (e: Exception) {
-            return DlResult(false, e.message ?: "未知错误")
-        } finally {
-            try { conn.disconnect() } catch (_: Exception) {}
         }
+        return DlResult(false, "重定向次数过多")
     }
 
     private fun download(url: String, ua: String = UA, extraHeaders: Map<String, String> = emptyMap()): String? {
         var current = url
+        var hs = extraHeaders
         var redirects = 0
         while (redirects <= 5) {
             val conn = URL(current).openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("User-Agent", ua)
             conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
-            for ((k, v) in extraHeaders) conn.setRequestProperty(k, v)
+            for ((k, v) in hs) conn.setRequestProperty(k, v)
             conn.connectTimeout = CONNECT_TIMEOUT
             conn.readTimeout = READ_TIMEOUT
             conn.instanceFollowRedirects = false
@@ -514,12 +548,15 @@ object WebTools {
             if (code in 300..399) {
                 val loc = conn.getHeaderField("Location") ?: return null
                 conn.disconnect()
+                val prev = current
                 current = if (loc.startsWith("http")) loc else {
-                    val base = URL(current)
+                    val base = URL(prev)
                     URL(base, loc).toString()
                 }
                 // SSRF 加固: 重定向目标同样检查
                 if (ssrfBlocked(current) != null) return null
+                // Cookie 跨域防护: 重定向到非同域时丢弃显式 Cookie, 防止跨域泄漏
+                hs = dropCookieIfCrossDomain(prev, current, hs)
                 redirects++
                 continue
             }
