@@ -74,13 +74,14 @@ object SecurityConfig {
         return exp > System.currentTimeMillis()
     }
 
-    /** 消费一次性票据: 存在且未过期则删除并放行 */
-    fun consumeTicket(ctx: Context, name: String, arg: String): Boolean {
-        val key = ticketKey(name, arg)
-        val exp = tickets.remove(key) ?: return false
-        if (exp <= System.currentTimeMillis()) return false
-        audit(ctx, name, arg, "ticket")
-        return true
+    /**
+     * 窗口期复用校验(v2, 2026-10-03): 存在且未过期即放行, 不删除票据。
+     * 用户允许后 5 分钟内同参数再次调用直接放行, 不再重复弹窗;
+     * 票据绑定工具+参数 hash, 参数变更或超时需重新确认。
+     */
+    fun validateTicket(ctx: Context, name: String, arg: String): Boolean {
+        val exp = tickets[ticketKey(name, arg)] ?: return false
+        return exp > System.currentTimeMillis()
     }
 
     /** 审计日志: 追加到 filesDir/nyral_security_audit.log (JSON 行) */

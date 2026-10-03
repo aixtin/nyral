@@ -1317,24 +1317,24 @@ object LocalEngine {
         if (toolRegistry.any { it.name == n } || McpClientManager.spec(n) != null) {
             ToolHotStore.recordHit(context, n)
         }
-        // H3 硬门禁(2026-10-03): 危险工具确认开关(默认开) + 用户亲手批准的票据放行
-        // 模型无法自行放行: 命中危险工具时弹出系统确认框, 用户点"允许"才签发一次性票据;
-        // 模型重试时门禁自动消费票据(5分钟有效, 绑定工具+参数), 参数变更票据失效。
+        // H3 硬门禁 v2(2026-10-03): 危险工具确认开关(默认开) + 阻塞式用户决策
+        // 命中危险工具时本线程在此挂起: 弹系统确认框等待用户决策——
+        // 用户允许 → 签发票据并继续执行本调用; 用户拒绝 → 立即返回拒绝, 不执行工具。
+        // 票据为窗口期复用(5分钟, 绑定工具+参数): 窗口期内同参数再次调用直接放行, 不重复弹窗。
         if (SecurityConfig.dangerConfirm(context)) {
             val jo0 = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
             val act0 = jo0?.optString("action", "").orEmpty()
             val key0 = if (act0.isNotEmpty()) "$n:$act0" else n
             if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
                 if (SecurityConfig.hasTicket(context, n, arg)) {
-                    if (!SecurityConfig.consumeTicket(context, n, arg)) {
-                        return "【安全确认】票据已失效(过期或已被使用), 已重新弹出确认框, 请再次确认后重试。"
-                    }
+                    // 窗口期内同参数直接放行, 不重复弹窗
                 } else {
-                    val popped = SecurityUi.requestConfirm(context, n, arg)
-                    return "【安全确认】工具 [$n] 属于危险操作(可能修改系统/文件/远程主机)，已弹出确认框等待你亲手批准。\n" +
-                        "- 工具: $n\n- 参数摘要: ${arg.take(300)}\n" +
-                        (if (popped) "请在手机弹窗点击“允许执行”（票据 5 分钟有效，仅本次参数可用），确认后重试本调用即可放行。"
-                         else "当前无前台界面可弹确认框，请在前台打开 App 后重试本调用。")
+                    // 阻塞式确认: 弹窗期间本线程挂起, 用户决策后才继续
+                    when (SecurityUi.requestConfirm(context, n, arg)) {
+                        true -> { /* 允许: 票据已在弹窗回调中签发, 继续执行本调用 */ }
+                        false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
+                        null -> return "【安全确认】当前无前台界面可弹出确认框，请在前台打开 App 后重试本调用。"
+                    }
                 }
             }
         }
