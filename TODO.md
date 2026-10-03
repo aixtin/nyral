@@ -20,7 +20,7 @@
 - [x] UpdateChecker NPE 修复（2026-09-13，commit af7135a：更新检查空指针防护）
 - [x] 发视频 OOM 修复（2026-09-13：MediaFileUtils.readAll 改 8KB 分块流式 + MAX_VIDEO_BYTES 大小上限 + VideoCompressor 转码降内存）
 - [ ] 真机验证待确认（2026-09-13 记录）：workdir_grep/head/stats 真机行为、site_auth Cookie 回灌、中文搜索弹窗、ssh_upload/download、开源许可证扫描
-- 2026-09-14: 工具自热度排序落地（用户拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
+- 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
 - 2026-10-02: v2.1.1 发布（versionCode 34，GitHub Release v2.1.1 附正式签名 APK）：表格单元格垂直居中修复（聊天/Agent 双模式一致）+ 慢放迁移调试弹窗 + 浏览器面板按钮 + 聊天模式气泡宽度恢复对称
