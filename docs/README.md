@@ -13,17 +13,29 @@
 
 ## 工程结构
 
-代码全部位于 `app/src/main/java/all/`（包名 `io.github.aixtin.nyral`），共 68 个 Kotlin 源文件、约 2 万行。按职责分簇如下：
+源码按两个包路径组织（均属包 `io.github.aixtin.nyral`）：主包 `app/src/main/java/io/github/aixtin/nyral/` 放入口与会话/渲染核心，功能模块集中在 `all/` 子目录，共 100+ 个 Kotlin/Java 源文件、约 2 万行。按职责分簇如下：
 
 ### 引擎与对话
 
 | 载体 | 职责 |
 |------|------|
-| `LocalEngine.kt` | 核心引擎：工具注册表 + 两步式路由（tool_choice）+ 原生 function calling + SSE 流式解析 + 工具调用循环（40 轮上限）+ 上下文组装 |
-| `MainActivity.kt` | 聊天主界面：气泡渲染、录音、附件收发、事件分发、会话管理（约 2552 行，拆分后的主体） |
+| `LocalEngine.kt` | 核心引擎：工具注册表（约 1650 行，20 工具 8 底座）+ 两步式路由（tool_choice）+ 原生 function calling + SSE 流式解析 + 工具调用循环（40 轮上限）+ 上下文组装 + MCP 工具合并 |
+| `MainActivity.kt` | 聊天主界面：气泡渲染、录音、附件收发、事件分发、会话管理（约 4800 行，功能域拆分后的主体） |
+| `ChatSessionState.kt` | 会话状态机：收编思考/工具/delta 等 6 个流式字段 |
+| `ChatFlowController.kt` | 发送/流式回调控制（executor 编排 + 代际失效） |
+| `StreamUiBridge.kt` | 流式行创建 + LocalEngine 回调簇桥接（思考/工具/正文/收尾/错误全分支） |
+| `MainActivityVoice.kt` / `MainActivitySession.kt` / `MainActivityInputBar.kt` | MainActivity 功能域横向拆分（录音域 / 会话域 / 附件域输入栏） |
 | `MainUi.kt` / `UiKit.kt` / `BubbleSpans.kt` / `Typewriter.kt` | UI 构建与动效、气泡 span、打字机动效 |
 | `ModeConfig.kt` | 聊天 / Agent 双模式开关与分派 |
-| `MdTableView.kt` | 消息流 Markdown 表格渲染（方案 C：气泡内独立 TableView 块化 + 单元格垂直居中 + 列宽按文字需求压缩/内部横滑） |
+| `MdTableView.kt` / `MdBlocksView.kt` / `MdBlocksRender.kt` | 消息流 Markdown 表格渲染（方案 C：气泡内独立 TableView 块化 + 单元格垂直居中 + 列宽按文字需求压缩/内部横滑） |
+
+### 安全
+
+| 载体 | 职责 |
+|------|------|
+| `SecurityConfig.kt` | 安全配置 + 危险工具门禁（票据窗口期复用：绑定工具名+参数摘要，5 分钟免确认；unknown 主机拒绝 SSH） |
+| `SecurityUi.kt` | 阻塞式确认 UI（CountDownLatch 挂起调用线程，2 分钟超时自动拒绝，三态：允许/拒绝/超时） |
+| `ScriptEngine.kt` | 执行底座：js_run（沙箱 + ClassShutter）/ sh_run（本机 Shell + 危险命令拦截 + root 提权） |
 
 ### 模型配置
 
@@ -143,7 +155,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 架构决策摘要
 
-完整的「背景 → 方案 → 取舍 → 结论」见 [架构决策记录（ADR）](./ADR-架构决策记录.md)，当前 15 条：
+完整的「背景 → 方案 → 取舍 → 结论」见 [架构决策记录（ADR）](./ADR-架构决策记录.md)，当前 17 条：
 
 | # | 决策 | 状态 |
 |---|------|------|
