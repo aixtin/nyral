@@ -319,6 +319,63 @@ D 路线实时 Markdown 渲染落地后，历史消息重载/恢复需重新走 
 
 ---
 
+## ADR-016 MainActivity 功能域横向拆分：状态机 → 控制器 → UI 桥 → 域模块
+
+- **状态**：已采纳
+- **日期**：2026-10-03（纵向三级 + 横向四刀分两天闭环）
+
+### 背景
+ADR-005 已按"功能簇"竖向切出 MediaPreviews/AiBubbleHolder 等，但 MainActivity 仍保留 5000+ 行，会话/录音/附件三大功能域的流式字段与回调逻辑与 Activity 强耦合：一处改 UI 逻辑要动整个巨型文件，JVM 测试无法覆盖。
+
+### 方案（2026-10-03 分步落地）
+- **纵向三级**（对话流链路）：
+  1. `ChatSessionState.kt`（92 行）：会话状态机，收编思考/工具/delta 等 6 个流式字段，MainActivity 首刀瘦身 344 行
+  2. `ChatFlowController.kt`（195 行）：发送/流式回调控制，executor 编排 + 代际失效（切会话不串写）
+  3. `StreamUiBridge.kt`（200 行）：流式行创建 + LocalEngine 回调簇桥接，ChatFlowController 再减 174 行
+- **横向四刀**（功能域模块，扩展函数模式）：
+  4. `MainActivitySession.kt`（173 行）：会话列表抽屉/新建/切换/保存
+  5. `MainActivityInputBar.kt`（51 行）：输入栏粘合行为（onSend/输入模式/语音按钮）
+  6. `MainActivityVoice.kt`（327 行）：录音域（ADR-008 产物）
+  7. MainActivity 5002 → 4799 行（-203，累计瘦身约 700 行）
+- 依赖处理：private 成员按需放宽 internal（8 个），顶层扩展函数内用 `val act = this` 别名访问成员
+
+### 取舍
+- 收益：MainActivity 可逐步被 JVM 测试覆盖；改动输入栏/会话不再碰核心循环；为后续"输入栏整体抽类"铺路
+- 代价：扩展函数模式要求成员可见性放宽（private → internal），跨文件符号跳转略增心智负担
+
+### 结论
+以"纵向三级 + 横向域模块"把巨型 Activity 拆到可维护粒度；附件域 UI 创建块（attachPreviewWrap/attachBtn2/attachWrap）留待输入栏整体抽类。
+
+---
+
+## ADR-017 安全硬门禁 v2：阻塞式确认 + 票据窗口期复用
+
+- **状态**：已采纳
+- **日期**：2026-10-03（初版 dfc33ce → v2 0107f6a，已推 main）
+
+### 背景
+硬门禁初版基于 SecurityConfig 票据消费制（consumeTicket）：每次工具调用生成一次性票据，允许后即焚。用户指出两项体验缺陷：
+1. 同参数二次调用仍弹窗——"即用即焚"导致高频重复工具（如 get_battery）弹窗疲劳
+2. 弹窗时 AI 已跑完——门禁在工具执行后校验，先执行后确认，起不到拦截作用
+
+### 方案（v2）
+- `SecurityConfig.kt`：consumeTicket → validateTicket。票据不再消费即焚，改为窗口期复用：绑定（工具名+参数摘要）键，5 分钟有效期内同参数重发直接放行；超窗/换参数才重新弹确认
+- `SecurityUi.kt`：requestConfirm 改阻塞式确认。CountDownLatch 挂起调用线程，UI 弹窗 await 用户点按；true/false/null 三态返回（允许/拒绝/超时），2 分钟超时兜底自动拒绝；单例防叠加，避免多工具并发弹多层窗
+- `LocalEngine.kt`：工具调用前挂起在门禁上（阻塞式）；允许 → 继续执行；拒绝 → 立即停止并回"用户拒绝了工具调用，本次调用已停止"；无确认界面环境（无 UI）→ 直接放行不阻塞（兜底）
+
+### 线程模型依据
+chat() 运行在 executor 工作线程，请求处理在独立线程，UI 事件在主线程——工作线程阻塞等待主线程 UI 确认不产生死锁，这是阻塞式门禁可安全实施的前提。
+
+### 真机三态验证（DebugServer 8765，token droid-eecd3e1858cc）
+1. 阻塞确认态：含危险工具的请求挂起 + 弹窗出现；点"允许"后继续执行，审计 approvedBy=user
+2. 窗口期复用态：同参数二次发送不再弹窗直接放行
+3. 拒绝路径：点"拒绝"立即返回"用户拒绝了工具调用"，审计 approvedBy=rejected
+
+### 结论
+硬门禁 v2 达成"先确认后执行 + 窗口期复用"双目标；审计三态（user/rejected/超时）落库可追踪。
+
+---
+
 ## 附：ADR 对应源码锚点（供后续补充链接指向）
 
 | ADR | 主要载体 |
@@ -336,6 +393,8 @@ D 路线实时 Markdown 渲染落地后，历史消息重载/恢复需重新走 
 | 013 | `AndroidManifest.xml`（`MANAGE_EXTERNAL_STORAGE`）/ `WorkDir.kt` |
 | 014 | `MdTableView.kt`（气泡内独立 TableView 块化渲染）/ `MdSpans.kt` / `MdBlocks.kt` / `MdStreamRenderer.kt`（D 路线流式管线衔接） |
 | 015 | `MemoryDb.kt`（rendered 列）/ `RenderedCodec.kt`（Spanned↔JSON）/ `MainActivity.kt`（三级读取 + writeBackRendered） |
+| 016 | `ChatSessionState.kt` / `ChatFlowController.kt` / `StreamUiBridge.kt` / `MainActivitySession.kt` / `MainActivityInputBar.kt` / `MainActivityVoice.kt` |
+| 017 | `SecurityConfig.kt` / `SecurityUi.kt` / `LocalEngine.kt`（调用前挂起门禁） |
 
 ## 附：模块实现锚点（附件解码链路）
 
