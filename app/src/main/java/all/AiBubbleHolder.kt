@@ -260,6 +260,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private var lastSnippet: String? = null     // 当前展示片段(相同不重切, 避免动画空转)
     private var lastThinkChars = 0              // 思考封段时的字数(完成→收尾间计数过渡展示)
     private var statusSealed = false            // 收尾定格后不再轮播
+    private var waitStartMs = 0L                // 等待计时起点(思考/工具态), 0=未激活
+    private var waitStage = ""                  // 等待阶段名("思考"/"工具"), 非空=计时激活
 
     // 输出中暗色态(解决闪感): AI 流式输出期间气泡背景+文字亮度压低(暗色降低逐字刷新感知),
     // 输出完成(finishTypeRender)后渐亮回原始色, 视觉上"安静打字 -> 完成后亮起";
@@ -418,6 +420,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         sealCurrentContent()   // 先冻结当前正文段, 后续正文新起气泡(思考/工具与正文交错时正文拆段)
         removeStatus()
         stopLoading()
+        waitStage = "思考"
+        waitStartMs = System.currentTimeMillis()
         statusSealed = false
         var b = activeThinking
         if (b == null || b.collapsed) {
@@ -719,6 +723,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             carouselRunnable = null
             if (statusSealed) return@Runnable
             showSnippet()
+            updateStatusCounter()   // 等待时长实时刷新(思考/工具态)
             driveCarousel()
         }
         carouselRunnable = r
@@ -747,7 +752,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         else if (toolBlocks.isNotEmpty()) "工具 ${toolBlocks.size}"
         else if (lastThinkChars > 0) "已思考${lastThinkChars}字"
         else null
-        if (t != null) { tv.text = t; tv.visibility = View.VISIBLE } else tv.visibility = View.GONE
+        if (t != null) {
+            val wait = if (waitStage.isNotEmpty() && waitStartMs > 0) {
+                val sec = (System.currentTimeMillis() - waitStartMs) / 1000
+                " · ${waitStage} ${sec}s"
+            } else ""
+            tv.text = t + wait
+            tv.visibility = View.VISIBLE
+        } else tv.visibility = View.GONE
     }
 
     /** 状态行展开/收起动画时长(ms): 跟随全局慢放倍数, 慢放时时间线展开同步变慢(09-24) */
@@ -874,6 +886,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         removeStatus()
         stopLoading()
         statusSealed = false
+        waitStage = "工具"
+        waitStartMs = System.currentTimeMillis()
         val b = ToolBlock(name, arg)
         toolBlocks.add(b)
         timelineEvents.add(b)
@@ -929,6 +943,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     }
 
     fun appendContent(text: String) {
+        waitStage = ""   // 正文开始输出: 等待计时结束
         removeStatus()
         // 静默分层(阶段4): 正文输出期不停止三点占位——内容静默累积后台排版,
         // 用户视野保持"正在输入"; 占位在收尾原位切换成真实气泡+打字显现
@@ -1566,6 +1581,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     }
 
     fun finishContent() {
+        waitStage = ""   // 收尾: 等待计时结束
+        waitStartMs = 0L
         done = true
         stopLoading()
         if (contentBlocks.isEmpty() && toolBlocks.isEmpty() && thinkingBlocks.isEmpty()) {
@@ -1689,6 +1706,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     }
 
     fun showError(msg: String) {
+        waitStage = ""   // 错误: 等待计时结束
+        waitStartMs = 0L
         removeStatus()
         stopLoading()
         removeStatusRow()   // 出错: 状态行(轮播/计数)整体移除, 不再残留活动指示
