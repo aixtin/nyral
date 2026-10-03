@@ -428,6 +428,8 @@ object LocalEngine {
                     messages.put(JSONObject().put("role", "assistant").put("content", capOut(res.accumulated.trimEnd())))
                     messages.put(JSONObject().put("role", "user").put("content",
                         "你刚才的回答因网络中断未能完整输出。请严格从断点继续完整输出剩余内容，不要重复已输出的部分。"))
+                    // 指数退避: 与零输出重连对齐(1s/2s/4s), 给弱网恢复窗口
+                    try { Thread.sleep((1000L shl (attempt - 1))) } catch (_: InterruptedException) {}
                     continue
                 }
                 val toolCalls = res.toolCalls
@@ -910,6 +912,10 @@ object LocalEngine {
         val promptTokens = if (usedPrompt > 0) usedPrompt else promptEst.toLong()
         val completionTokens = if (usedCompletion > 0) usedCompletion else accumulated.length / 3L
         TokenStore.record(context, promptTokens.toInt().coerceAtLeast(0), completionTokens.toInt().coerceAtLeast(0))
+        } catch (e: IOException) {
+            // 连接阶段失败(网络不可达/DNS/连接超时): 与读取阶段中断同等对待, 转可重试
+            android.util.Log.w("Nyral", "SSE connect failed: ${e.message}")
+            throw RetryableException("模型连接失败(网络不可达): ${e.message}")
         } finally {
             try { reader?.close() } catch (_: Throwable) {}
             try { conn.disconnect() } catch (_: Throwable) {}
