@@ -33,7 +33,7 @@
 
 | 载体 | 职责 |
 |------|------|
-| `SecurityConfig.kt` | 安全配置 + 危险工具门禁（票据窗口期复用：绑定工具名+参数摘要，5 分钟免确认；unknown 主机拒绝 SSH） |
+| `SecurityConfig.kt` | 安全配置 + 危险操作确认（同参数 5 分钟免重复确认；unknown 主机拒绝 SSH） |
 | `SecurityUi.kt` | 阻塞式确认 UI（CountDownLatch 挂起调用线程，2 分钟超时自动拒绝，三态：允许/拒绝/超时） |
 | `ScriptEngine.kt` | 执行底座：js_run（沙箱 + ClassShutter）/ sh_run（本机 Shell + 危险命令拦截 + root 提权） |
 

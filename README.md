@@ -33,12 +33,12 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 - 文件底座：workdir（本地工作目录 Download/Nyral_work：list/read/write/grep/head/stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义）
 - 附件底座：attach_read（附件读取）/ video_frame（视频抽帧）/ file_export（文件导出）
 - 记忆底座：memory_search（语义检索本地记忆）/ get_time / calc（Rhino 解释模式）
-- 安全底座：security_set（门禁 / root 补权 / SSH 信任开关）
+- 安全底座：security_set（危险操作确认 / root 补权 / SSH 信任开关）
 - 浏览器（自研 Agent 浏览器雏形）：整屏 WebView 接管，AI 步骤播报 + 页面高亮圈 + 验证码一键交还用户
 - 元工具：ask_user（交互澄清）/ tool_detail（工具说明）
 
 **安全**
-- 危险工具阻塞式硬门禁：先确认后执行，同参数 5 分钟窗口期复用免确认，拒绝立即停止并回执，超时自动拒绝；审计三态（允许/拒绝/超时）落库可追踪
+- 危险操作二次确认：先确认后执行，同参数 5 分钟内免重复确认，拒绝立即停止并回执，超时自动拒绝；操作审计（允许/拒绝/超时）落库可追踪
 - SSRF 拦截（web_fetch/web_download 重定向目标校验）+ 日志脱敏（API 非 2xx 响应体、SSH 私钥内容不落明文日志）
 - 沙箱执行（js_run ClassShutter）+ 危险命令拦截（sh_run）+ SSH 主机密钥校验（未知主机拒绝连接）
 
@@ -89,7 +89,7 @@ android-agent-app/
 └── app/src/main/java/io/github/aixtin/nyral/all/   # 功能模块（98 个 Kotlin 文件）
     ├── LocalEngine.kt           # 引擎：工具注册表 + 分发 + 对话循环（约 1650 行）
     ├── MainActivityVoice.kt / MainActivitySession.kt / MainActivityInputBar.kt  # MainActivity 功能域拆分
-    ├── SecurityConfig.kt / SecurityUi.kt   # 安全硬门禁（阻塞式确认 + 窗口期复用）
+    ├── SecurityConfig.kt / SecurityUi.kt   # 安全确认（危险操作二次确认）
     ├── MainUi.kt / UiKit.kt / BubbleSpans.kt / Typewriter.kt  # UI 构建与动效
     ├── ApiConfig.kt / MemoryApiConfig.kt   # 供应商与模型能力表
     ├── MemoryDb.kt / MemoryKeeper.kt / MemoryEmbedder.kt / BertTokenizer.kt / MemoryTools.kt  # 记忆体系
