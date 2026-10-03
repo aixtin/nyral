@@ -1,5 +1,6 @@
 package io.github.aixtin.nyral
 
+import org.mozilla.javascript.ClassShutter
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.ScriptableObject
 import org.mozilla.javascript.Undefined
@@ -21,6 +22,24 @@ import java.util.concurrent.TimeoutException
 object ScriptEngine {
 
     /**
+     * 构建受限 JS 作用域(H1 安全修复, 2026-10-03):
+     * 1) ClassShutter 全拒: 阻止任何 Java 类经 LiveConnect 暴露给脚本;
+     * 2) 删除顶层 Java 访问对象: Packages/java/javax/org/com/JavaImporter/JavaAdapter/getClass。
+     * 脚本仅剩纯 JS 能力(计算/字符串/数组/JSON), 无法反射调用 Runtime.exec 等逃逸。
+     * 内部函数: MemoryTools.calc 复用同一安全底座。
+     */
+    internal fun secureScope(cx: Context): ScriptableObject {
+        cx.setClassShutter(object : ClassShutter {
+            override fun visibleToScripts(fullClassName: String?): Boolean = false
+        })
+        val scope = cx.initStandardObjects()
+        for (p in listOf("Packages", "java", "javax", "org", "com", "JavaImporter", "JavaAdapter", "getClass")) {
+            runCatching { ScriptableObject.deleteProperty(scope, p) }
+        }
+        return scope
+    }
+
+    /**
      * 执行 JS 脚本(应用内就地)
      * @param code  JS 脚本
      * @param timeoutMs 超时毫秒, 默认 8000; 防死循环卡死
@@ -32,7 +51,7 @@ object ScriptEngine {
             val cx = Context.enter()
             try {
                 cx.optimizationLevel = -1
-                val scope = cx.initStandardObjects()
+                val scope = secureScope(cx)
                 val res = cx.evaluateString(scope, code, "js_run", 1, null)
                 // 结果 JSON 序列化: 利用 Rhino 内置 JSON.stringify(版本无关, 支持对象/数组/字符串/数字)
                 if (res == null || res is Undefined) {
@@ -73,8 +92,27 @@ object ScriptEngine {
         "mkfs", "dd if=/dev/zero", "dd of=/dev/",
         "> /dev/sd", "> /dev/mmcblk", "format /", "wipe",
         "reboot", "poweroff", "shutdown", "halt",
-        ":(){ :|:& };:", "chmod -R 777 /"
+        ":(){ :|:& };:", "chmod -R 777 /",
+        // H4 加固(2026-10-03): 扩充破坏性命令/设备操作
+        "fdisk", "blkdiscard", "parted", "mkswap", "cryptsetup", "pvcreate", "vgremove",
+        "kill -9 1", "kill -9 0", "chown -R /", "chmod -R 777 /boot",
+        "> /dev/disk", "> /dev/mapper", "> /dev/loop", "> /boot", "> /proc"
     )
+
+    /** H4 规范化危险模式(2026-10-03): 去空白/反斜杠/引号后匹配, 防黑名单绕过
+     *  (如 "rm -rf  /" / "r\m -rf /" / "dd if=/dev/ze ro" 等变体) */
+    private val DANGER_NORMALIZED = listOf(
+        "rm-rf/", "rm-fr/", "rm-rf/*",
+        "mkfs", "ddiv=/dev/zero", "ddof=/dev/", "if=/dev/", "of=/dev/",
+        ">/dev/sd", ">/dev/mmcblk", ">/dev/disk", ">/dev/mapper", ">/dev/loop", ">/boot", ">/proc",
+        "format/", "wipe", "reboot", "poweroff", "shutdown", "halt",
+        ":{(", "chmod-r777/", "chown-r/", "kill-91", "kill-90",
+        "fdisk", "blkdiscard", "parted", "mkswap", "cryptsetup", "pvcreate", "vgremove"
+    )
+
+    /** H4: 脚本规范化(去空白/反斜杠/引号, 转小写), 用于防绕过匹配 */
+    private fun normalizeDanger(s: String): String =
+        s.filterNot { it.isWhitespace() || it == '\\' || it == '\'' || it == '"' }.lowercase()
 
     /** 输出截断上限(保留头尾, 中段折叠) */
     private const val OUT_CAP = 20000
@@ -90,6 +128,11 @@ object ScriptEngine {
         // 危险命令拦截(整脚本拒绝, 防止 root 下破坏)
         for (w in DANGER_WORDS) {
             if (script.contains(w)) return "已拦截: 脚本命中危险命令[$w], 拒绝执行(如需保留可拆分脚本绕过)"
+        }
+        // H4 加固: 规范化匹配, 防空白/转义变体绕过
+        val norm = normalizeDanger(script)
+        for (w in DANGER_NORMALIZED) {
+            if (norm.contains(w)) return "已拦截: 脚本命中危险命令(规范化)[$w], 拒绝执行(如需保留可拆分脚本绕过)"
         }
         val timeoutMs = parseTimeout(argRaw)
         val dir = File(context.filesDir, "scripts")

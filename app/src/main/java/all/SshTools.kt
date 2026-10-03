@@ -6,9 +6,13 @@ import com.jcraft.jsch.Channel
 import com.jcraft.jsch.ChannelDirectTCPIP
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
+import com.jcraft.jsch.HostKey
+import com.jcraft.jsch.HostKeyRepository
 import com.jcraft.jsch.JSch
+import com.jcraft.jsch.JSchException
 import com.jcraft.jsch.Proxy
 import com.jcraft.jsch.Session
+import com.jcraft.jsch.UserInfo
 import org.json.JSONObject
 import java.util.Vector
 
@@ -22,6 +26,66 @@ object SshTools {
             }
         } catch (_: Exception) {
         }
+    }
+
+    /** H2(2026-10-03): 待确认主机密钥缓存(check 回调写入, trustHost 消费) */
+    @Volatile private var pendingHostKey: Pair<String, HostKey>? = null
+
+    /** H2: 指纹白名单主机密钥仓库: 未知主机返回 NOT_INCLUDED(拒绝连接), 防中间人 */
+    private class PrefsHostKeyRepository(private val ctx: Context) : HostKeyRepository {
+        private val prefs = ctx.getSharedPreferences("ssh_known_hosts", Context.MODE_PRIVATE)
+        private val jschFp = JSch()
+        override fun getKnownHostsRepositoryID(): String = "nyral-prefs"
+        private fun trusted(): Set<String> = prefs.getStringSet("trusted", emptySet()) ?: emptySet()
+        override fun getHostKey(): Array<HostKey> = emptyArray()
+        override fun getHostKey(host: String, type: String): Array<HostKey> = emptyArray()
+        override fun check(host: String, key: ByteArray): Int {
+            val hk = HostKey(host, key)
+            pendingHostKey = host to hk
+            return if (trusted().contains("$host ${hk.getFingerPrint(jschFp)}")) HostKeyRepository.OK else HostKeyRepository.NOT_INCLUDED
+        }
+        override fun add(hostkey: HostKey, ui: UserInfo?) {
+            val cur = trusted().toMutableSet()
+            cur.add("${hostkey.host} ${hostkey.getFingerPrint(jschFp)}")
+            prefs.edit().putStringSet("trusted", cur).apply()
+        }
+        override fun remove(host: String, type: String) {
+            val cur = trusted().filterNot { it.startsWith("$host ") }.toMutableSet()
+            prefs.edit().putStringSet("trusted", cur).apply()
+        }
+        override fun remove(host: String, type: String, key: ByteArray?) {
+            if (key == null) { remove(host, type); return }
+            val hk = HostKey(host, key)
+            val cur = trusted().filterNot { it == "$host ${hk.getFingerPrint(jschFp)}" }.toMutableSet()
+            prefs.edit().putStringSet("trusted", cur).apply()
+        }
+    }
+
+    /**
+     * H2: 信任待确认主机(把 pending 主机密钥指纹写入白名单); 返回结果描述。
+     * 触发路径: 首次连接未知主机 -> SSH 安全告警 -> 用户确认 -> security_set {"ssh_trust":"连接名"}
+     */
+    fun trustHost(context: Context, nameOrHost: String): String {
+        val p = pendingHostKey ?: return "当前没有待确认的主机密钥(需先触发一次 SSH 连接产生安全告警)"
+        val host = p.first
+        val fp = p.second.getFingerPrint(JSch())
+        val cur = (context.getSharedPreferences("ssh_known_hosts", Context.MODE_PRIVATE)
+            .getStringSet("trusted", emptySet()) ?: emptySet()).toMutableSet()
+        cur.add("$host $fp")
+        context.getSharedPreferences("ssh_known_hosts", Context.MODE_PRIVATE)
+            .edit().putStringSet("trusted", cur).apply()
+        pendingHostKey = null
+        return "已信任主机 $host (指纹 $fp), 请重新执行原 SSH 命令"
+    }
+
+    /** H2: 未知主机密钥安全告警提示(含指纹) */
+    private fun unknownHostPrompt(context: Context, cfg: SshConfigStore.SshConfig, e: Exception): String {
+        val fp = Regex("fingerprint is ([0-9a-f:]+)").find(e.message ?: "")?.groupValues?.get(1)
+            ?: pendingHostKey?.second?.getFingerPrint(JSch())
+            ?: "未知"
+        return "SSH 安全告警: 主机 [${cfg.host}:${cfg.port}] 不在信任列表, 已拒绝连接(防中间人攻击)。" +
+            "主机密钥指纹: $fp\n" +
+            "若确认是可信主机, 请回复「信任主机 ${cfg.name}」或调用 security_set {\"ssh_trust\":\"${cfg.name}\"} 完成信任后重试。"
     }
 
     /** 从配置存储读取, 若命令含连接名则优先匹配; 匹配失败返回可用列表, 绝不静默连第一个 */
@@ -38,7 +102,7 @@ object SshTools {
         val realCmd = if (command.contains(":")) command.substringAfter(":").trim()
         else if (command.contains(" ")) command.substringAfter(" ").trim()
         else ""
-        val body = runOn(cfg, realCmd.ifEmpty { "echo no-command" })
+        val body = runOn(context, cfg, realCmd.ifEmpty { "echo no-command" })
         // 结果头部带实际连接目标, 让模型能如实回答"连的哪个IP"
         val target = "[${cfg.name}: ${cfg.user}@${cfg.host}:${cfg.port}" +
             (if (cfg.hasProxy) " 经跳板 ${cfg.proxyHost}:${cfg.proxyPort}" else "") + "]"
@@ -63,17 +127,21 @@ object SshTools {
             ?: normalized.firstOrNull { name.startsWith(it.second) }?.first
     }
 
-    fun runOn(cfg: SshConfigStore.SshConfig, command: String): String {
+    fun runOn(context: Context, cfg: SshConfigStore.SshConfig, command: String): String {
         val tag = "SshTools"
         Log.i(tag, "runOn: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
                 " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmd=" + command)
         // 断线自动重连: 连接/执行异常时自动重连重试一次, 用户无感(与 LocalEngine 请求级重连配套)
         return try {
-            execOnce(cfg, command)
+            execOnce(context, cfg, command)
         } catch (e: Exception) {
-            Log.w(tag, "runOn attempt1 FAILED, auto-reconnect once: " + e.message)
+            val msg = e.message ?: ""
+            if (e is JSchException && msg.contains("UnknownHostKey")) {
+                return unknownHostPrompt(context, cfg, e)
+            }
+            Log.w(tag, "runOn attempt1 FAILED, auto-reconnect once: " + msg)
             try {
-                execOnce(cfg, command)
+                execOnce(context, cfg, command)
             } catch (e2: Exception) {
                 Log.e(tag, "runOn FAILED after retry", e2)
                 "SSH 错误: ${e2.message}"
@@ -82,12 +150,12 @@ object SshTools {
     }
 
     /** 单次 SSH 执行, 失败抛异常由 runOn 决定是否重连重试 */
-    private fun execOnce(cfg: SshConfigStore.SshConfig, command: String): String {
+    private fun execOnce(context: Context, cfg: SshConfigStore.SshConfig, command: String): String {
         val tag = "SshTools"
         Log.i(tag, "execOnce: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
                 " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmd=" + command)
         try {
-            val session = connect(cfg)
+            val session = connect(context, cfg)
             val channel = session.openChannel("exec") as ChannelExec
             channel.setCommand(command)
             channel.setInputStream(null)
@@ -170,9 +238,11 @@ object SshTools {
     }
 
     /** 建立已连接的 Session(含跳板机隧道), 供 exec/SFTP 复用 */
-    private fun connect(cfg: SshConfigStore.SshConfig): Session {
+    private fun connect(context: Context, cfg: SshConfigStore.SshConfig): Session {
         val tag = "SshTools"
         val jsch = JSch()
+        // H2(2026-10-03): 主机密钥白名单校验(指纹存 SharedPreferences), 未知主机拒绝连接
+        jsch.hostKeyRepository = PrefsHostKeyRepository(context)
         if (!cfg.privateKey.isNullOrEmpty()) {
             Log.i(tag, "addIdentity target key len=" + cfg.privateKey.length + " head=" + cfg.privateKey.take(27).replace("\n", "|"))
             jsch.addIdentity("cfg_key", cfg.privateKey.toByteArray(), null,
@@ -180,7 +250,7 @@ object SshTools {
         }
         val session: Session = jsch.getSession(cfg.user, cfg.host, cfg.port)
         if (!cfg.password.isNullOrEmpty()) session.setPassword(cfg.password)
-        session.setConfig("StrictHostKeyChecking", "no")
+        session.setConfig("StrictHostKeyChecking", "yes")
         if (cfg.hasProxy) {
             // 经跳板机: 先连跳板机, 再通过 direct-tcpip 隧道连目标
             if (cfg.proxyPrivateKey.isNullOrEmpty() && cfg.proxyPassword.isNullOrEmpty() &&
@@ -188,7 +258,7 @@ object SshTools {
                 Log.e(tag, "proxy credential missing: 跳板机与目标机均未配置凭据")
                 throw IllegalStateException("SSH 错误: 跳板机与目标机均未配置私钥/密码, 请填写跳板机私钥/密码(或目标机私钥/密码与跳板共用)")
             }
-            session.setProxy(JschProxyJump(cfg))
+            session.setProxy(JschProxyJump(context, cfg))
         }
         session.setTimeout(20000)
         // SSH 保活: 每 30s 发一次存活探针, 连续 3 次无响应才判定断线,
@@ -230,7 +300,7 @@ object SshTools {
         if (bytes.size > 200 * 1024 * 1024) return "错误: 文件超过 200MB 上限"
         val tag = "SshTools"
         return try {
-            val session = connect(cfg)
+            val session = connect(context, cfg)
             val sftp = session.openChannel("sftp") as ChannelSftp
             sftp.connect(15000)
             try {
@@ -264,7 +334,7 @@ object SshTools {
             remote.substringAfterLast('/').ifEmpty { "download.bin" }
         val tag = "SshTools"
         return try {
-            val session = connect(cfg)
+            val session = connect(context, cfg)
             val sftp = session.openChannel("sftp") as ChannelSftp
             sftp.connect(15000)
             val out = java.io.ByteArrayOutputStream()
@@ -299,7 +369,7 @@ object SshTools {
             ?: return "未找到连接: $conn"
         val tag = "SshTools"
         return try {
-            val session = connect(cfg)
+            val session = connect(context, cfg)
             val sftp = session.openChannel("sftp") as ChannelSftp
             sftp.connect(15000)
             val sb = StringBuilder("[$cfg.name: $path]\n")
@@ -337,6 +407,7 @@ object SshTools {
      * 目标机的 SSH 协议流量经该隧道传输。
      */
     private class JschProxyJump(
+        private val ctx: Context,
         private val cfg: SshConfigStore.SshConfig
     ) : Proxy {
         private var session: Session? = null
@@ -349,6 +420,8 @@ object SshTools {
         override fun connect(socketFactory: com.jcraft.jsch.SocketFactory?, host: String, port: Int, timeout: Int) {
             Log.i("SshTools", "proxy connect: proxy=" + cfg.proxyHost + ":" + cfg.proxyPort + " -> target=" + host + ":" + port)
             val jsch = JSch()
+            // H2: 跳板机同样做主机密钥白名单校验
+            jsch.hostKeyRepository = PrefsHostKeyRepository(ctx)
             // 跳板机凭据优先用跳板专属字段; 跳板字段未填时回退复用目标机凭据(常见: 跳板与目标同一把钥匙/同一密码)
             val proxyKey = cfg.proxyPrivateKey
             val proxyPw = cfg.proxyPassword
@@ -365,7 +438,7 @@ object SshTools {
             }
             val s = jsch.getSession(proxyUser, cfg.proxyHost, cfg.proxyPort)
             if (!effPw.isNullOrEmpty()) s.setPassword(effPw)
-            s.setConfig("StrictHostKeyChecking", "no")
+            s.setConfig("StrictHostKeyChecking", "yes")
             s.setTimeout(if (timeout > 0) timeout else 15000)
             s.connect(if (timeout > 0) timeout else 15000)
             val ch = s.openChannel("direct-tcpip") as ChannelDirectTCPIP

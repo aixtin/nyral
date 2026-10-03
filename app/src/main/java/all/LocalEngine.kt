@@ -116,7 +116,8 @@ object LocalEngine {
         ToolSpec("tool_detail", "查询未在回调列表中列出的工具的完整规格(描述+参数格式)并临时激活; 激活后该工具会加入本轮回调列表, 可直接 function calling 调用。当你想用 system 索引里看到但不在回调列表中的工具时, 先调本工具获取规格。", "JSON: {\"name\":\"工具名\"}"),
         ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
         ToolSpec("video_frame", "从已落盘附件视频抽指定时间点画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(默认0)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(超预算大视频)。", "JSON: {\"name\":\"att://xxx.mp4\",\"timeMs\":10000}"),
-        ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}")
+        ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}"),
+        ToolSpec("security_set", "安全管理开关(2026-10-03): 配置危险操作确认与root自动补权。参数JSON: {\"danger_confirm\":true/false} 开启/关闭危险工具确认门禁(默认开); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}")
     )
 
     /**
@@ -140,7 +141,8 @@ object LocalEngine {
         "js_run" to "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 断网可用)",
         "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)",
         "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
-        "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)"
+        "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)",
+        "security_set" to "安全管理开关: 危险操作确认门禁/root自动补权/SSH主机密钥信任"
     )
 
     // ===== Top N 动态装载(2026-09-16): 白名单+热度常驻, 冷门工具经 tool_detail 按需激活 =====
@@ -150,7 +152,7 @@ object LocalEngine {
     /** 跨场景核心工具白名单: 永远注入完整 schema, 防冷启动雪藏 */
     private val TOOL_WHITELIST = setOf(
         "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
-        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export"
+        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export", "security_set"
     )
 
     interface Callback {
@@ -1278,6 +1280,21 @@ object LocalEngine {
         "ssh_ls" to ("file" to "ls")
     )
 
+    /** H3(2026-10-03): 危险工具确认名单: 工具名 或 工具:action; 命中即需用户确认 */
+    private val DANGER_CONFIRM_TOOLS = setOf(
+        "ssh_run", "sh_run", "js_run", "web_download",
+        "file:write", "workdir:write",
+        "browser:click", "browser:type", "browser:upload", "browser:clear_cache",
+        "app:click", "app:text", "app:tap", "app:launch"
+    )
+
+    /** H3 确认指纹: sha256(工具名+参数) 前12位; 参数变更则指纹失效需重新确认 */
+    private fun dangerFingerprint(name: String, arg: String): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val d = md.digest("$name\n$arg".toByteArray(Charsets.UTF_8))
+        return d.joinToString("") { "%02x".format(it) }.take(12)
+    }
+
     private fun executeTool(context: Context, name: String, argRaw: String, hotLoaded: MutableSet<String>): String {
         val arg0 = normalizeArgs(name, argRaw)
         // 旧工具名兼容: 映射到新复合工具并注入 action
@@ -1298,6 +1315,23 @@ object LocalEngine {
         // 自热度统计(2026-09-14): 有效工具执行即 +1(含 MCP 动态工具), 纯本地不上云
         if (toolRegistry.any { it.name == n } || McpClientManager.spec(n) != null) {
             ToolHotStore.recordHit(context, n)
+        }
+        // H3 安全门禁(2026-10-03): 危险工具确认开关(默认开) + 一次性指纹二次放行
+        // 命中危险工具且参数未携带匹配指纹时返回待确认提示, 由上层用 ask_user 弹窗或对话确认后,
+        // 携带 confirm=<指纹> 重试放行; 参数变更则指纹失效需重新确认。
+        if (SecurityConfig.dangerConfirm(context)) {
+            val jo0 = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+            val act0 = jo0?.optString("action", "").orEmpty()
+            val key0 = if (act0.isNotEmpty()) "$n:$act0" else n
+            if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
+                val fp = dangerFingerprint(n, arg)
+                val got = jo0?.optString("confirm", "").orEmpty()
+                if (got != fp) {
+                    return "【安全确认】工具 [$n] 属于危险操作(可能修改系统/文件/远程主机)。请先向用户展示下列操作并征得同意：\n" +
+                        "- 工具: $n\n- 参数摘要: ${arg.take(300)}\n- 确认指纹: $fp\n" +
+                        "用户同意后, 在重新调用时携带 confirm=\"$fp\" 参数即可放行(或调用 ask_user 弹窗让用户点选确认后再重试)。"
+                }
+            }
         }
         return when (n) {
             "get_time" -> MemoryTools.getTime()
@@ -1427,6 +1461,7 @@ object LocalEngine {
                 if (code.isBlank()) "请指定 code(要执行的 JS 脚本)" else ScriptEngine.runJs(code, timeout)
             }
             "sh_run" -> ScriptEngine.runSh(context, arg)
+            "security_set" -> SecurityConfig.set(context, arg)
             "tool_detail" -> {
                 val tName = try { JSONObject(arg.trim()).optString("name", "").trim() } catch (e: Exception) { "" }
                 if (tName.isEmpty()) return "请指定要查询的工具名 name(可参考 system 中的工具索引)"
@@ -1512,6 +1547,8 @@ object LocalEngine {
         val local = j.optString("local", "").trim()
         if (local.isBlank()) return "请指定要上传的工作目录文件名(local)"
         if (!WorkDir.exists(context, local)) return "工作目录不存在该文件: $local (可先用 workdir_list 查看可上传文件)"
+        // M3 修复(2026-10-03): 上传前过敏感文件名规则, 防止 key/凭证等泄露到浏览器
+        if (WorkDir.isSensitiveName(local)) return "已拦截: 文件名 [$local] 命中敏感文件规则(key/pem/凭证等), 禁止上传到浏览器, 防止泄露"
         val cb = onBrowserUpload ?: return "浏览器桥接未初始化"
         return cb(idx, local)
     }
