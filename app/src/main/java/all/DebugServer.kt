@@ -303,7 +303,7 @@ object DebugServer {
         val p = queryParam(query, "path") ?: return JSONObject().put("error", "path required")
         // N1(2026-10-03): canonicalPath 规范化后再校验, 防 filesDir/../ 穿越
         val private = try { File(c.filesDir, "").canonicalPath } catch (e: Exception) { File(c.filesDir, "").absolutePath }
-        val work = WorkDir.displayPath
+        val work = try { File(WorkDir.displayPath).canonicalPath } catch (e: Exception) { WorkDir.displayPath.trimEnd('/') }
         val abs = try { File(p).canonicalPath } catch (e: Exception) { File(p).absolutePath }
         val inPrivate = abs == private || abs.startsWith(private + File.separator)
         val inWork = abs == work || abs.startsWith(work + File.separator)
