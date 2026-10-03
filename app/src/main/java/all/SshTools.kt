@@ -38,11 +38,12 @@ object SshTools {
         override fun getKnownHostsRepositoryID(): String = "nyral-prefs"
         private fun trusted(): Set<String> = prefs.getStringSet("trusted", emptySet()) ?: emptySet()
         override fun getHostKey(): Array<HostKey> = emptyArray()
-        override fun getHostKey(host: String, type: String): Array<HostKey> = emptyArray()
-        override fun check(host: String, key: ByteArray): Int {
-            val hk = HostKey(host, key)
-            pendingHostKey = host to hk
-            return if (trusted().contains("$host ${hk.getFingerPrint(jschFp)}")) HostKeyRepository.OK else HostKeyRepository.NOT_INCLUDED
+        override fun getHostKey(host: String?, type: String?): Array<HostKey> = emptyArray()
+        override fun check(host: String?, key: ByteArray): Int {
+            val h = host ?: return HostKeyRepository.NOT_INCLUDED
+            val hk = HostKey(h, key)
+            pendingHostKey = h to hk
+            return if (trusted().contains("$h ${hk.getFingerPrint(jschFp)}")) HostKeyRepository.OK else HostKeyRepository.NOT_INCLUDED
         }
         override fun add(hostkey: HostKey, ui: UserInfo?) {
             val cur = trusted().toMutableSet()
