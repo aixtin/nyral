@@ -33,8 +33,9 @@ object LocalEngine {
     // 40: 适配扫描项目/批量检索类长任务(40 次足够覆盖 workdir_grep->head->read->write->upload 全链路)
     private const val MAX_TOOL_CALLS = 40
 
-    // 请求级断线自动重连: 模型请求因网络中断零输出时自动重发一次(共 2 次尝试), 无需用户手动"继续"
-    private const val MAX_NET_RETRY = 2
+    // 请求级断线自动重连: 模型请求因网络中断零输出时自动重发(共 3 次尝试, 指数退避), 无需用户手动"继续";
+    // 弱网场景: 有输出后断线也走"续跑重连"(携带已输出内容续写), 避免半截回复莫名停止
+    private const val MAX_NET_RETRY = 3
 
     // 单次完整回复输出上限(字符): 防模型超长输出/多轮 tool 累积导致上下文顶爆窗口; 超限截断并提示
     private const val MAX_OUTPUT_CHARS = 60000
@@ -415,6 +416,20 @@ object LocalEngine {
                     return
                 }
                 val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded)
+                // 弱网续跑: 流中断但已有部分输出 -> 携带已输出内容让模型从断点续写, 不重来不静默
+                if (res.interrupted && res.accumulated.isNotBlank()) {
+                    attempt++
+                    if (attempt >= MAX_NET_RETRY) {
+                        cb.onError("网络连接中断，已自动重试多次仍失败，请检查网络后重试")
+                        return
+                    }
+                    full.append(capOut(res.accumulated))
+                    cb.onDelta("\n\n[网络中断，正在续跑…]")
+                    messages.put(JSONObject().put("role", "assistant").put("content", capOut(res.accumulated.trimEnd())))
+                    messages.put(JSONObject().put("role", "user").put("content",
+                        "你刚才的回答因网络中断未能完整输出。请严格从断点继续完整输出剩余内容，不要重复已输出的部分。"))
+                    continue
+                }
                 val toolCalls = res.toolCalls
                 if (toolCalls.isNotEmpty()) {
                     if (toolCount >= MAX_TOOL_CALLS) {
@@ -518,11 +533,13 @@ object LocalEngine {
             attempt++
             if (attempt >= MAX_NET_RETRY) {
                 android.util.Log.e("Nyral", "chat network retry exhausted", e)
-                cb.onError(e.message ?: "模型连接中断(网络波动)，请重试")
+                cb.onError(e.message ?: "网络连接中断，请检查网络后重试")
                 return
             }
             android.util.Log.w("Nyral", "chat network interrupted, auto-retry #$attempt: ${e.message}")
             cb.onDelta("\n\n[网络波动，已自动重连一次]")
+            // 指数退避: 1s/2s/4s, 给弱网恢复窗口
+            try { Thread.sleep((1000L shl (attempt - 1))) } catch (_: InterruptedException) {}
             continue
         } catch (e: Exception) {
             if (cancelRequested) {
@@ -618,6 +635,8 @@ object LocalEngine {
         // DSML 泄漏原文(解析成功时捕获, 供主循环判定走文本回填链; 需声明在 try 外, return 要用)
         var dsmlRaw: String? = null
         var reader: BufferedReader? = null
+        /** 流中断(连接断开/EOF)但已有部分输出: 主循环据此续跑重连(声明在 try 外, return 要用) */
+        var interruptedOut = false
         try {
         conn.outputStream.use { it.write(body.toString().toByteArray()) }
 
@@ -642,6 +661,8 @@ object LocalEngine {
         var dsmlBuf: StringBuilder? = null
         var mode = MODE_NONE
         var aborted = false
+        var seenDone = false   // 收到 [DONE] 才算服务端正常结束
+        var eofAborted = false // readLine null(连接被服务端/网关关闭)视为异常中断
         // 原生 function calling 增量累积: index -> (id, name, arguments)
         val nativeCalls = HashMap<Int, NativeCallAcc>()
         var finishedByToolCalls = false
@@ -650,11 +671,12 @@ object LocalEngine {
         while (true) {
             if (cancelRequested) throw CancellationException("cancelled by user")
             val rd = reader ?: break
-            val line = rd.readLine() ?: break
+            val line = rd.readLine()
+            if (line == null) { eofAborted = true; break }
             android.util.Log.v("Nyral", "SSE chunk len=${line.length}")
             if (!line.startsWith("data:")) continue
             val data = line.substring(5).trim()
-            if (data == "[DONE]") break
+            if (data == "[DONE]") { seenDone = true; break }
             val parsed = try { JSONObject(data) } catch (e: Exception) { null } ?: continue
             val choices = parsed.optJSONArray("choices")
             val usage = parsed.optJSONObject("usage")
@@ -806,6 +828,11 @@ object LocalEngine {
             aborted = true
             android.util.Log.w("Nyral", "SSE read error: ${e.message}")
         }
+        // EOF 无 [DONE] 视为中断: 服务端/网关提前关闭连接(运营商 NAT 掐断/弱网断流), 不再静默当正常结束
+        if (eofAborted && !seenDone) {
+            aborted = true
+            android.util.Log.w("Nyral", "SSE EOF without [DONE] (connection closed by server/gateway)")
+        }
         // 连接中断收尾
         if (aborted) {
             if (mode == MODE_THINKING) cb.onThinkingEnd()
@@ -813,7 +840,8 @@ object LocalEngine {
                 throw RetryableException("模型连接中断(网络波动)")
             }
             if (toolCalls.isEmpty() && nativeCalls.isEmpty() && accumulated.isNotBlank()) {
-                cb.onDelta("\n\n[连接中断，以上内容已保留]")
+                // 有输出断线: 不在此追加提示, 主循环按 interrupted 续跑重连(统一提示, 不静默不丢内容)
+                interruptedOut = true
             }
         }
         android.util.Log.i("Nyral", "EOF lineBuf=[$lineBuf] mode=$mode nativeCalls=${nativeCalls.size} toolCalls=${toolCalls.size} aborted=$aborted")
@@ -887,7 +915,8 @@ object LocalEngine {
             try { conn.disconnect() } catch (_: Throwable) {}
             activeConn = null
         }
-        return StreamResult(accumulated.toString(), toolCalls, restartOut.firstOrNull(), toolCallIds, dsmlRaw)
+        return StreamResult(accumulated.toString(), toolCalls, restartOut.firstOrNull(), toolCallIds, dsmlRaw,
+            interrupted = interruptedOut)
     }
 
     /** 判断 4xx 响应是否疑似"不支持 tools" */
@@ -1651,7 +1680,9 @@ object LocalEngine {
         /** 与 toolCalls 按序一一对应的 tool_call_id(并行同名工具各自独立) */
         val toolCallIds: List<String> = emptyList(),
         /** 非 null 表示本轮工具调用来自 DSML 泄漏拦截(content 通道文本解析), 回填需走文本链 */
-        val dsmlRaw: String? = null
+        val dsmlRaw: String? = null,
+        /** 流被中断(连接断开/EOF)但已有部分输出: 主循环据此续跑重连 */
+        val interrupted: Boolean = false
     ) {
         fun idAt(idx: Int): String? = toolCallIds.getOrNull(idx)
     }
