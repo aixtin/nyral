@@ -73,7 +73,7 @@ internal class StreamUiBridge(
                 uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.setToolResult(name, result) }
             }
             override fun onDelta(text: String) {
-                android.util.Log.i("Nyral", "onDelta=[$text]")
+                android.util.Log.i("Nyral", "onDelta len=${text.length} (M6 脱敏)")
                 AITerminal.push("delta", text)
                 activity.debugSseSink?.invoke("delta", text)
                 // AI 表情标记流式掩码: 完整/半截 [表情:名] 均不直接暴露(显示〔表情〕占位),

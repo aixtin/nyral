@@ -47,7 +47,7 @@ internal object MdToBlocks {
     private fun renderInner(md: String): List<MdRenderBlock> {
         if (md.isBlank()) return emptyList()
         val parsed = MdToSpans.parse(md)
-        android.util.Log.i("NyralTbl", "parseOK text=[" + parsed.displayText.take(60) + "] spans=" + parsed.spans.joinToString(",") { it.type.name }) 
+        android.util.Log.i("NyralTbl", "parseOK textLen=" + parsed.displayText.length + " spans=" + parsed.spans.joinToString(",") { it.type.name } + " (M6 脱敏)") 
         val tables = parsed.spans.filter { it.type == MdSpanType.TABLE_BLOCK }.sortedBy { it.start }
         if (tables.isEmpty()) {
             val spanned = MdSpannable.toSpannable(parsed)

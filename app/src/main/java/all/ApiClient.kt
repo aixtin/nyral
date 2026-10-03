@@ -88,7 +88,7 @@ object ApiClient {
             val resp = if (stream != null) BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).readText() else ""
             Log.w(TAG, "$method $url -> $code")
             if (code !in 200..299) {
-                Log.w(TAG, "  非2xx body: ${resp.take(500)}")
+                Log.w(TAG, "  非2xx body len=${resp.length} (M6 脱敏)")
                 return Result.failure(HttpError(code, resp))
             }
             try {

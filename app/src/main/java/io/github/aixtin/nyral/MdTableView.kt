@@ -133,8 +133,8 @@ internal class MdTableView(context: Context) : HorizontalScrollView(context) {
         }
         tableWidthPx = naturalW
         android.util.Log.d("TableFix", "density=$density scaled=$scaledDensity padH=$cellPadH padV=$cellPadV outer=$outerPad availW=$availW availInner=$availInner naturalW=$naturalW cols=$cols")
-        android.util.Log.d("TableFix", "rawWs=${rawWs.joinToString(",")} colWidths=${colWidths.joinToString(",")} header=${data.header.joinToString("/"){it.text}}")
-        android.util.Log.d("TableFix", "rows=${data.rows.joinToString("|"){r -> r.joinToString("/"){it.text}}}")
+        android.util.Log.d("TableFix", "rawWs=${rawWs.joinToString(",")} colWidths=${colWidths.joinToString(",")} headerRows=${data.header.size} (M6 脱敏)")
+        android.util.Log.d("TableFix", "rows=${data.rows.size} (M6 脱敏)")
         tableLayout.setPadding(outerPad, outerPad, outerPad, outerPad)
 
         // 表头行(补齐到整表最大列数, 缺列补空 cell, 保证竖线贯穿结构完整)

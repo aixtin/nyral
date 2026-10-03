@@ -47,7 +47,7 @@ class UiControlService : AccessibilityService() {
         /** 坐标注入点击(免节点树, 供视觉兜底: 空树/自绘页面直接按屏幕坐标点) */
         fun tap(x: Int, y: Int): String = instance?.tapAt(x, y) ?: NOT_READY
 
-        /** 截图当前屏幕保存到工作目录(Download/Nyral_work), 返回文件路径; 供视觉模型识别页面元素 */
+        /** 截图当前屏幕保存到 app 私有目录(filesDir/截图), 返回文件路径; 供视觉模型识别页面元素(M4 私有化) */
         fun screenshot(): String = instance?.captureScreen() ?: NOT_READY
 
         /** 点击第 index 个可操作元素(索引来自 app_scan) */
@@ -214,7 +214,7 @@ class UiControlService : AccessibilityService() {
         val bmp = Bitmap.wrapHardwareBuffer(r.hardwareBuffer, r.colorSpace)
             ?: run { r.hardwareBuffer.close(); return "截图解码失败" }
         try {
-            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Nyral_work/${WorkDir.SUB_DIR_SHOTS}")
+            val dir = File(filesDir, WorkDir.SUB_DIR_SHOTS) // M4: 截图私有化, 存 app 私有目录
             dir.mkdirs()
             val f = File(dir, "app_screenshot_${System.currentTimeMillis()}.png")
             FileOutputStream(f).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
