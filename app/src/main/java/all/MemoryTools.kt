@@ -42,7 +42,7 @@ object MemoryTools {
             try {
                 // Android 上 Rhino 必须用解释模式(-1), 否则动态字节码生成报"无法加载类文件"
                 cx.optimizationLevel = -1
-                val scope = cx.initStandardObjects()
+                val scope = ScriptEngine.secureScope(cx)
                 cx.evaluateString(scope, cleaned, "calc", 1, null).toString()
             } finally {
                 Context.exit()

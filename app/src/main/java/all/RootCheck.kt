@@ -61,7 +61,9 @@ object RootCheck {
      * 逐项容错: 单个失败不影响其他, 已授权项幂等无副作用; 全程静默不抛错。
      * 调用方须放后台线程(每项一次 su 子进程).
      */
-    fun grantSelf(context: Context) {
+    fun grantSelf(context: Context): Boolean {
+        // H4 修复(2026-10-03): root 静默自动补权需显式开关(默认关), 关闭时拒绝静默补权, 走手动授权
+        if (!SecurityConfig.rootAutoGrant(context)) return false
         val pkg = context.packageName
         // 运行时权限(dangerous): 需在 Manifest 声明, pm grant 直接写权限库
         val runtimePerms = listOf(
@@ -80,6 +82,7 @@ object RootCheck {
         appOps.forEach { op ->
             runCmd("su", "-c", "appops set $pkg $op allow")
         }
+        return true
     }
 
     /** 静默执行一条 root 命令, 单项失败忽略, 最长等待 timeoutMs */
