@@ -16,6 +16,7 @@ import android.view.MotionEvent
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
 import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
@@ -44,6 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 安全底线:
  *  - 默认关闭(设置开关), 非 debuggable 构建(release)直接拒绝启动
  *  - Token 鉴权: 仅请求头 X-Auth-Token（query 参数 token 已移除, 防日志泄露）
+ *  - GET  /v1/file/read  path=<app私有filesDir或公共工作目录内绝对路径>  只读文件(base64, ≤5MB)(M4)
  *  - 默认仅绑定 127.0.0.1(本机/adb forward 可访问); 设置开启"局域网访问"后绑定 0.0.0.0
  */
 object DebugServer {
@@ -281,6 +283,7 @@ object DebugServer {
                     method == "POST" && path == "/v1/js/run" -> jsRun(out, body)
                     method == "POST" && path == "/v1/sh/run" -> shRun(c, out, body)
                     method == "GET" && path == "/v1/status" -> writeJson(out, 200, statusJson(c))
+                    method == "GET" && path == "/v1/file/read" -> writeJson(out, 200, fileRead(c, query), reuse)
                     else -> {
                         writeJson(out, 404, JSONObject().put("error", "not found"), false)
                         keepAlive = false
@@ -293,6 +296,23 @@ object DebugServer {
         } finally {
             try { s.close() } catch (e: Exception) {}
         }
+    }
+
+    /** M4: 只读文件端点(白名单: app filesDir 私有目录或公共工作目录), base64 返回, 上限 5MB */
+    private fun fileRead(c: Context, query: String): JSONObject {
+        val p = queryParam(query, "path") ?: return JSONObject().put("error", "path required")
+        val private = File(c.filesDir, "").absolutePath
+        val work = WorkDir.displayPath
+        val abs = File(p).absolutePath
+        if (!abs.startsWith(private) && !abs.startsWith(work)) return JSONObject().put("error", "path not allowed")
+        val f = File(abs)
+        if (!f.isFile) return JSONObject().put("error", "not a file")
+        if (f.length() > 5L * 1024 * 1024) return JSONObject().put("error", "too large")
+        return try {
+            val bytes = f.readBytes()
+            JSONObject().put("ok", true).put("name", f.name).put("size", bytes.size)
+                .put("base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+        } catch (e: Exception) { JSONObject().put("error", e.message ?: "read failed") }
     }
 
     private fun queryParam(query: String, key: String): String? {
