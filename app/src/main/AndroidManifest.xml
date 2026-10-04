@@ -53,6 +53,25 @@
             android:name=".TaskDismissReceiver"
             android:exported="false" />
 
+        <!-- 安全确认通知通道接收器(2026-10-04): 处理后台通知的允许/拒绝 Action -->
+        <receiver
+            android:name="all.SecurityConfirmReceiver"
+            android:exported="false" />
+
+        <!-- 安全审计历史页(2026-10-04): 顶栏入口, 展示 filesDir/nyral_security_audit.log -->
+        <activity
+            android:name=".AuditActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        </activity>
+
+        <!-- 安全中心(2026-10-04): 三档门禁切换 + 审计历史入口 -->
+        <activity
+            android:name=".SecurityCenterActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        </activity>
+
         <receiver
             android:name=".TaskControlReceiver"
             android:exported="false" />

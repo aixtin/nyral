@@ -19,6 +19,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.ScrollView
@@ -136,6 +137,39 @@ import android.widget.Toast
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
         })
+        // 安全中心入口(2026-10-04): 三档门禁切换 + 审计历史
+        drawerPanel.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            setBackgroundColor(Ui.BG)
+            isClickable = true
+            setOnClickListener {
+                closeDrawer()
+                startActivity(Intent(this@buildDrawer, SecurityCenterActivity::class.java))
+            }
+            Ui.press(this)
+            addView(ImageView(this@buildDrawer).apply {
+                setImageResource(R.drawable.ic_settings_security)
+                setColorFilter(Ui.TEXT)
+                setPadding(0, 0, dp(10), 0)
+            })
+            addView(TextView(this@buildDrawer).apply {
+                text = "安全中心"
+                textSize = 15f
+                setTextColor(Ui.TEXT)
+            })
+            addView(TextView(this@buildDrawer).apply {
+                text = SecurityConfig.modeText(SecurityConfig.dangerMode(this@buildDrawer))
+                textSize = 11f
+                setTextColor(Ui.SUB)
+                gravity = Gravity.END
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(dp(12), 0, 0, 0)
+                }
+            })
+        })
+
         // 右下角设置入口
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL

@@ -142,8 +142,8 @@ object ScriptEngine {
         if (script.isBlank()) return "脚本为空: 请提供 script"
         val blocked = blockReason(script)
         if (blocked != null) return blocked
-        if (SecurityConfig.dangerConfirm(context) && !SecurityConfig.hasTicket(context, "sh_run", argRaw)) {
-            when (SecurityUi.requestConfirm(context, "sh_run", argRaw)) {
+        if (SecurityConfig.needsConfirm(context, "sh_run", argRaw)) {
+            when (SecurityUi.requestConfirm(context, "sh_run", argRaw, SecurityConfig.riskOf("sh_run"))) {
                 true -> { /* 允许: 票据已签发, 继续执行 */ }
                 false -> return "【安全确认】用户拒绝了工具 [sh_run] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
                 null -> return "【安全确认】当前无前台界面可弹出确认框，请在前台打开 App 后重试本调用。"

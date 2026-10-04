@@ -29,8 +29,8 @@ android {
         applicationId = "io.github.aixtin.nyral"
         minSdk = 24
         targetSdk = 36
-        versionCode = 38
-        versionName = "2.3.2"
+        versionCode = 39
+        versionName = "2.3.3"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

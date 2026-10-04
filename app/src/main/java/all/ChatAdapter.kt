@@ -26,6 +26,15 @@ internal sealed class ChatRow(val id: Long) {
     class Streaming(val rowId: Long, val holder: AiBubbleHolder) : ChatRow(rowId) {
         var bubbleBox: View? = null
     }
+    /** 危险工具安全确认行(2026-10-04): 待确认申请的气泡行; 决策后留态(已允许/已拒绝/超时拒绝) */
+    data class SecurityConfirm(
+        val rowId: Long,
+        val requestId: String,
+        val tool: String,
+        val arg: String,
+        val status: String,   // PENDING / ALLOWED / REJECTED / TIMEOUT
+        val risk: String = "HIGH"
+    ) : ChatRow(rowId)
 }
 
 /**
@@ -57,6 +66,7 @@ internal class ChatAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         return VH(LinearLayout(parent.context).apply {
             orientation = LinearLayout.VERTICAL
+            clipChildren = false   // 行内气泡阴影不被裁剪
             layoutParams = RecyclerView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT)

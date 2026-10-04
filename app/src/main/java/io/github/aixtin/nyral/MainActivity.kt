@@ -686,6 +686,8 @@ class MainActivity : Activity() {
     internal var lastImeStableAt = 0L  // 键盘 insets 最近一次稳定弹到位时间戳: onPrepare 据此判断 animStartImeH 是否满高
     // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
     private lateinit var chatArea: FrameLayout
+    /** 安全确认微暗遮罩(2026-10-04): 有待确认申请时聊天区背景暗化提示 */
+    private lateinit var securityDim: View
     private lateinit var inputBar: LinearLayout
     // 浏览器控制条(输入框上方): 悬浮聊天时显示欢迎文字+接管按钮
     private lateinit var browserBar: LinearLayout
@@ -917,6 +919,10 @@ class MainActivity : Activity() {
         // 悬浮终端显隐门控: DA 前台(应用内)隐藏悬浮窗, 切到其他 APP/回桌面自动显示
         TerminalGate.register(application)
         SecurityUi.register(this)
+        // 安全确认队列回调(2026-10-04): 气泡行同步 + 聊天区背景微暗
+        SecurityUi.onQueueChanged = { list ->
+            chatRec?.post { syncSecurityRows(list) }
+        }
         // 启动自动检查更新（同一天仅一次，静默；真实更新源开源后替换 UPDATE_URL 即可）
         UpdateChecker.check(this, false)
         // 键盘模式: 全局 adjustNothing, 窗口永不被键盘压缩;
@@ -1161,6 +1167,7 @@ class MainActivity : Activity() {
             adapter = chatAdapter
             setPadding(dp(12), dp(10), dp(12), dp(30))
             clipToPadding = false
+            clipChildren = false   // item 气泡阴影不被列表裁剪
             overScrollMode = View.OVER_SCROLL_ALWAYS
             // 修复1: 关闭 item 变化动画(流式中气泡高度增长触发重排动画=跳动) + 加大离屏缓存
             itemAnimator = null
@@ -1292,6 +1299,13 @@ class MainActivity : Activity() {
         // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
         chatArea = FrameLayout(this)
         chatArea.addView(chatRec, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // 安全确认微暗遮罩: 盖在消息区上(低于输入框), 有待确认申请时可见
+        securityDim = View(this).apply {
+            setBackgroundColor(Color.argb(70, 15, 15, 20))
+            visibility = View.GONE
+        }
+        chatArea.addView(securityDim, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         bodyWrap.addView(chatArea, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -2738,6 +2752,7 @@ class MainActivity : Activity() {
         is ChatRow.TimeTag -> ChatAdapter.PT_TAG
         is ChatRow.Welcome -> ChatAdapter.PT_WELCOME
         is ChatRow.AiRich -> ChatAdapter.PT_AI_RICH
+        is ChatRow.SecurityConfirm -> ChatAdapter.PT_NONE
         else -> ChatAdapter.PT_NONE
     }
 
@@ -2776,6 +2791,123 @@ class MainActivity : Activity() {
         }
     }
 
+    // ===== 安全确认气泡行(2026-10-04): 红色警示头 + 工具/参数摘要 + ✔/✘ 决策按钮 =====
+    private fun buildSecurityRow(row: ChatRow.SecurityConfirm): View {
+        val maxW = chatMaxW()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = Ui.rounded(0xFFFDF0F0.toInt(), 14, this@MainActivity)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4); bottomMargin = dp(4)
+            }
+        }
+        // 头部: 红色三角警示 + 标题 + 状态徽标
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_warn_triangle)
+            setColorFilter(0xFFD32F2F.toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(6) }
+        })
+        head.addView(TextView(this).apply {
+            text = "安全确认"
+            textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(0xFFD32F2F.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        head.addView(securityStatusBadge(row.status))
+        box.addView(head)
+        // 工具名
+        box.addView(TextView(this).apply {
+            text = "工具: ${row.tool}"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(0xFF1A1A1A.toInt())
+            setPadding(0, dp(6), 0, 0)
+        })
+        // 参数摘要
+        val argText = row.arg.trim().ifBlank { "(无参数)" }
+        box.addView(TextView(this).apply {
+            text = if (argText.length > 120) argText.take(120) + "…" else argText
+            textSize = 12f
+            setTextColor(0xFF666666.toInt())
+            maxLines = 4
+            setPadding(0, dp(2), 0, 0)
+        })
+        // 决策按钮(PENDING 才显示)
+        if (row.status == "PENDING") {
+            val btnRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                setPadding(0, dp(10), 0, 0)
+            }
+            btnRow.addView(TextView(this).apply {
+                text = "✘ 拒绝"
+                textSize = 14f
+                setTextColor(0xFFD32F2F.toInt())
+                gravity = Gravity.CENTER
+                background = Ui.rounded(0xFFFFE3E3.toInt(), 10, this@MainActivity)
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                Ui.press(this)
+                setOnClickListener { SecurityUi.decide(this@MainActivity, row.requestId, false) }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                rightMargin = dp(8)
+            })
+            btnRow.addView(TextView(this).apply {
+                text = "✔ 允许执行"
+                textSize = 14f
+                setTextColor(android.graphics.Color.WHITE)
+                gravity = Gravity.CENTER
+                background = Ui.rounded(0xFF2E8B57.toInt(), 10, this@MainActivity)
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                Ui.press(this)
+                setOnClickListener { SecurityUi.decide(this@MainActivity, row.requestId, true) }
+            })
+            box.addView(btnRow)
+        }
+        return box
+    }
+
+    private fun securityStatusBadge(status: String): TextView = TextView(this).apply {
+        val (txt, color, bg) = when (status) {
+            "PENDING" -> Triple("待确认", 0xFFB26A00.toInt(), 0xFFFFF3D6.toInt())
+            "ALLOWED" -> Triple("已允许", 0xFF2E8B57.toInt(), 0xFFE3F2E5.toInt())
+            "REJECTED" -> Triple("已拒绝", 0xFFD32F2F.toInt(), 0xFFFFE3E3.toInt())
+            "TIMEOUT" -> Triple("超时拒绝", 0xFFD32F2F.toInt(), 0xFFFFE3E3.toInt())
+            else -> Triple(status, 0xFF666666.toInt(), 0xFFEEEEEE.toInt())
+        }
+        text = txt
+        textSize = 11f
+        setTextColor(color)
+        setPadding(dp(8), dp(2), dp(8), dp(2))
+        background = Ui.rounded(bg, 8, this@MainActivity)
+    }
+
+    /** 安全确认队列同步(2026-10-04): 全量重建 SecurityConfirm 行(移除旧行, 按 FIFO 重建), 并控制微暗遮罩 */
+    private fun syncSecurityRows(list: List<SecurityUi.PendingRequest>) {
+        chatRows.removeAll { it is ChatRow.SecurityConfirm }
+        list.forEach { req ->
+            chatRows.add(ChatRow.SecurityConfirm(
+                rowId = nextTempRowId(),
+                requestId = req.requestId,
+                tool = req.tool,
+                arg = req.arg,
+                status = req.status,
+                risk = req.risk.name
+            ))
+        }
+        if (chatRows.isNotEmpty()) chatAdapter.submit(chatRows.toList())
+        if (::securityDim.isInitialized) {
+            securityDim.visibility = if (list.any { it.status == "PENDING" }) View.VISIBLE else View.GONE
+        }
+        if (list.isNotEmpty()) scrollToBottom()
+    }
+
     internal fun buildRowView(row: ChatRow): View = when (row) {
         is ChatRow.User -> chatWrap(bubble(row.content, isUser = true).also { it.tag = POOLED_BUBBLE_TAG }, true)
         is ChatRow.Ai -> chatWrap(bubble(row.content, isUser = false, rendered = row.rendered, writeback = { spanned -> writeBackRendered(row.id, spanned) }).also { it.tag = POOLED_BUBBLE_TAG }, false)
@@ -2786,6 +2918,22 @@ class MainActivity : Activity() {
             setTextColor(SYS_TEXT)
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, dp(6))
+        }
+        is ChatRow.SecurityConfirm -> buildSecurityRow(row).let { v ->
+            if (ModeConfig.chatMode()) {
+                // 聊天模式: 与普通 AI 气泡左缘对齐(头像40dp+间距8dp占位), 不带头像
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    isBaselineAligned = false
+                    gravity = Gravity.START or Gravity.TOP
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        gravity = Gravity.START
+                    }
+                    addView(View(this@MainActivity).apply { layoutParams = LinearLayout.LayoutParams(dp(48), 0) })
+                    addView(v)
+                }
+            } else v
         }
         is ChatRow.Welcome -> welcomeCardView()
         is ChatRow.TimeTag -> TextView(this).apply {
@@ -2895,6 +3043,61 @@ class MainActivity : Activity() {
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 synchronized(markwonRenderLock) { markwon.setMarkdown(this, getString(R.string.welcome_intro_body)) }
             })
+            // ===== 危险操作门禁三档快捷切换(2026-10-04): 新会话开场即可切档, 写审计 channel=welcome_card =====
+            addView(TextView(this@MainActivity).apply {
+                text = "危险操作门禁"
+                textSize = 12f
+                setTextColor(Ui.SUB)
+                typeface = Typeface.DEFAULT_BOLD
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(12)
+                bottomMargin = dp(6)
+            })
+            val modeBtns = LinkedHashMap<String, TextView>()
+            var currentMode = SecurityConfig.dangerMode(this@MainActivity)
+            fun refreshModeBtns() {
+                modeBtns.forEach { (k, b) ->
+                    val sel = k == currentMode
+                    b.setTextColor(if (sel) Color.WHITE else Ui.PRIMARY)
+                    b.background = if (sel) Ui.rounded(Ui.PRIMARY, 10, this@MainActivity)
+                    else Ui.rounded(Ui.PRIMARY_LIGHT, 10, this@MainActivity)
+                }
+            }
+            fun applyMode(m: String) {
+                SecurityConfig.setDangerMode(this@MainActivity, m)
+                SecurityConfig.audit(this@MainActivity, "security_mode", m, "ui_user", "welcome_card")
+                currentMode = m
+                refreshModeBtns()
+            }
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                val modes = listOf("strict" to "严格", "auto" to "自动", "off" to "放行")
+                modes.forEachIndexed { i, (key, label) ->
+                    val b = TextView(this@MainActivity).apply {
+                        text = label
+                        textSize = 13f
+                        gravity = Gravity.CENTER
+                        isClickable = true
+                        setPadding(dp(0), dp(9), dp(0), dp(9))
+                        Ui.press(this)
+                        setOnClickListener {
+                            val target = key
+                            if (target == currentMode) return@setOnClickListener
+                            if (target == "off") {
+                                SecurityUi.confirmDisableGate(this@MainActivity, onConfirm = { applyMode("off") })
+                            } else {
+                                applyMode(target)
+                            }
+                        }
+                    }
+                    modeBtns[key] = b
+                    addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (i > 0) leftMargin = dp(6)
+                    })
+                }
+                refreshModeBtns()
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         inner.layoutParams = LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT)
         return chatWrap(inner, false)
@@ -3010,6 +3213,7 @@ class MainActivity : Activity() {
             }
             // 纯图/纯视频气泡: 背景改透明, 气泡形态完全由图片圆角(dp14)体现, 彻底消除四角蓝色边线
             background = if (edgeImage) null else rounded(dp(14), floatBubbleColor(if (isUser) BUBBLE_USER else BUBBLE_AI))
+            if (!edgeImage) elevation = dp(3).toFloat()   // 历史气泡阴影(媒体气泡无背景不投影)
             maxWidth = if (isUser) userMaxW else maxW
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -3859,6 +4063,8 @@ class MainActivity : Activity() {
         if (!ModeConfig.chatMode()) return content
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            // 气泡阴影溢出不被行容器裁剪
+            clipChildren = false
             // 禁用 baseline 对齐: 气泡与头像均为 TextView, 默认会按文字基线对齐,
             // 导致无文本头像被下推, 短气泡时头像底部超出行边界被裁剪(下边缺角)
             isBaselineAligned = false
@@ -3894,6 +4100,7 @@ class MainActivity : Activity() {
     private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = "", rendered: String = "", writeback: ((Spanned) -> Unit)? = null): LinearLayout {
         val container = LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
+            clipChildren = false   // 气泡阴影不被容器裁剪
             // Agent 模式不要头像(仅聊天模式并排头像); 聊天模式头像由 chatWrap 负责
             // 独立气泡容器: 不包裹大气泡背景, 思考/工具/正文各自成气泡, 与流式 attach() 一致
             layoutParams = LinearLayout.LayoutParams(
@@ -3971,6 +4178,7 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(10), dp(12), dp(10))
             maxWidth = chatMaxW()
             background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
+            elevation = dp(3).toFloat()   // 历史 AiRich 气泡/表格块阴影(3dp 主级)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(6)
@@ -3993,6 +4201,7 @@ class MainActivity : Activity() {
                 val bv = MdBlocksView(this@MainActivity).apply {
                     setPadding(dp(12), dp(10), dp(12), dp(10))
                     background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
+                    elevation = dp(3).toFloat()   // 历史 AiRich 表格块阴影(3dp 主级)
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                         topMargin = dp(6)

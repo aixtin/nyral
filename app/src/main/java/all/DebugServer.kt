@@ -921,12 +921,12 @@ object DebugServer {
         val code = o?.optString("code", "").orEmpty()
         val timeout = o?.optLong("timeoutMs", 8000L) ?: 8000L
         if (code.isBlank()) { writeJson(out, 400, JSONObject().put("error", "code required")); return }
-        // 安全审查修复(2026-10-03): DebugServer 直调 js_run 也过 H3 硬门禁(与 executeTool 同款确认+票据)
-        if (SecurityConfig.dangerConfirm(c) && !SecurityConfig.hasTicket(c, "js_run", body)) {
-            when (SecurityUi.requestConfirm(c, "js_run", body)) {
+        // 硬门禁 v3(2026-10-04): DebugServer 直调 js_run 也过三档门禁(与 executeTool 同款队列确认)
+        if (SecurityConfig.needsConfirm(c, "js_run", body)) {
+            when (SecurityUi.requestConfirm(c, "js_run", body, SecurityConfig.riskOf("js_run"))) {
                 true -> { /* 票据已签发 */ }
                 false -> { writeJson(out, 403, JSONObject().put("error", "用户拒绝执行 js_run, 已停止")); return }
-                null -> { writeJson(out, 503, JSONObject().put("error", "无前台界面可弹出确认框, 请在前台打开 App 后重试")); return }
+                null -> { writeJson(out, 503, JSONObject().put("error", "确认通道不可用(应用不在前台且通知被禁用), 请打开 App 后重试")); return }
             }
         }
         writeJson(out, 200, JSONObject().put("ok", true).put("result", ScriptEngine.runJs(code, timeout)))

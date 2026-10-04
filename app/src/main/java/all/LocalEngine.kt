@@ -118,7 +118,7 @@ object LocalEngine {
         ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
         ToolSpec("video_frame", "从已落盘附件视频抽指定时间点画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(默认0)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(超预算大视频)。", "JSON: {\"name\":\"att://xxx.mp4\",\"timeMs\":10000}"),
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}"),
-        ToolSpec("security_set", "安全管理开关(2026-10-03): 配置危险操作确认与root自动补权。参数JSON: {\"danger_confirm\":true/false} 开启/关闭危险工具确认门禁(默认开); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}")
+        ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}")
     )
 
     /**
@@ -143,7 +143,7 @@ object LocalEngine {
         "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)",
         "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
         "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)",
-        "security_set" to "安全管理开关: 危险操作确认门禁/root自动补权/SSH主机密钥信任"
+        "security_set" to "安全管理开关: 门禁三档(strict/auto/off)/root自动补权/SSH主机密钥信任"
     )
 
     // ===== Top N 动态装载(2026-09-16): 白名单+热度常驻, 冷门工具经 tool_detail 按需激活 =====
@@ -1352,24 +1352,20 @@ object LocalEngine {
         if (toolRegistry.any { it.name == n } || McpClientManager.spec(n) != null) {
             ToolHotStore.recordHit(context, n)
         }
-        // H3 硬门禁 v2(2026-10-03): 危险工具确认开关(默认开) + 阻塞式用户决策
-        // 命中危险工具时本线程在此挂起: 弹系统确认框等待用户决策——
-        // 用户允许 → 签发票据并继续执行本调用; 用户拒绝 → 立即返回拒绝, 不执行工具。
-        // 票据为窗口期复用(5分钟, 绑定工具+参数): 窗口期内同参数再次调用直接放行, 不重复弹窗。
-        if (SecurityConfig.dangerConfirm(context)) {
+        // 硬门禁 v3(2026-10-04): 三档(strict/auto/off) + 双通道(气泡/通知) + 并发队列
+        // 命中危险工具时本线程在此挂起: 等待用户决策——
+        // 用户允许 → 签发票据并继续执行本调用; 用户拒绝 → 立即返回拒绝, 不执行工具;
+        // 超时(2分钟) → 自动拒绝。strict 档每次确认(无窗口期), auto 档窗口期票据复用(5分钟)。
+        if (SecurityConfig.needsConfirm(context, n, arg)) {
             val jo0 = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
             val act0 = jo0?.optString("action", "").orEmpty()
             val key0 = if (act0.isNotEmpty()) "$n:$act0" else n
             if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
-                if (SecurityConfig.hasTicket(context, n, arg)) {
-                    // 窗口期内同参数直接放行, 不重复弹窗
-                } else {
-                    // 阻塞式确认: 弹窗期间本线程挂起, 用户决策后才继续
-                    when (SecurityUi.requestConfirm(context, n, arg)) {
-                        true -> { /* 允许: 票据已在弹窗回调中签发, 继续执行本调用 */ }
-                        false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
-                        null -> return "【安全确认】当前无前台界面可弹出确认框，请在前台打开 App 后重试本调用。"
-                    }
+                val risk = SecurityConfig.riskOf(n)
+                when (SecurityUi.requestConfirm(context, n, arg, risk)) {
+                    true -> { /* 允许: 票据已在决策回调中签发, 继续执行本调用 */ }
+                    false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
+                    null -> return "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
                 }
             }
         }
@@ -1514,15 +1510,13 @@ object LocalEngine {
             else -> {
                 // MCP 动态工具: 已注册则分发到对应服务, 未注册报未知
                 if (McpClientManager.spec(name) != null) {
-                    // 安全审查修复(2026-10-03): MCP 工具纳入 H3 硬门禁, 与内置危险工具同款确认+票据机制
-                    if (SecurityConfig.dangerConfirm(context)) {
-                        val mcpKey = "mcp:$name"
-                        if (SecurityConfig.hasTicket(context, mcpKey, arg)) {
-                            McpClientManager.callTool(context, name, arg)
-                        } else when (SecurityUi.requestConfirm(context, mcpKey, arg)) {
+                    // 硬门禁 v3(2026-10-04): MCP 动态工具纳入门禁, 与内置危险工具同款三档+队列确认
+                    val mcpKey = "mcp:$name"
+                    if (SecurityConfig.needsConfirm(context, mcpKey, arg)) {
+                        when (SecurityUi.requestConfirm(context, mcpKey, arg, SecurityConfig.riskOf(mcpKey))) {
                             true -> McpClientManager.callTool(context, name, arg)
                             false -> "【安全确认】用户拒绝了工具 [$name] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
-                            null -> "【安全确认】当前无前台界面可弹出确认框，请在前台打开 App 后重试本调用。"
+                            null -> "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
                         }
                     } else {
                         McpClientManager.callTool(context, name, arg)

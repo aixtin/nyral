@@ -68,6 +68,7 @@ internal fun makeStatusShell(host: MainActivity): LinearLayout = LinearLayout(ho
     gravity = Gravity.CENTER_VERTICAL
     setPadding(host.dp(12), host.dp(8), host.dp(12), host.dp(8))
     background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
+    elevation = host.dp(2).toFloat()   // 状态块阴影(2dp 次级)
     layoutParams = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
         topMargin = host.dp(6)
@@ -94,6 +95,7 @@ internal fun buildStatusTimeline(
     val lineColor = (THINK_TEXT and 0x00FFFFFF) or (0x55 shl 24)   // 竖线: 文字色 1/3 透明度
     val box = LinearLayout(host).apply {
         orientation = LinearLayout.VERTICAL
+            clipChildren = false   // 气泡阴影不被父容器裁剪
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = host.dp(4)
@@ -130,6 +132,7 @@ internal fun buildStatusTimeline(
             maxWidth = host.chatMaxW()
             setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
             background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
+            elevation = host.dp(2).toFloat()   // 状态块阴影(2dp 次级)
             text = if (e.type == "think") {
                 if (e.text.isBlank()) "…" else e.text
             } else {
@@ -329,6 +332,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         // 独立气泡容器: 不再包裹大气泡背景, 思考/工具/正文各自成为独立气泡, 按真实顺序竖向排列
         val box = LinearLayout(host).apply {
             orientation = LinearLayout.VERTICAL
+            clipChildren = false   // 气泡阴影不被父容器裁剪
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 gravity = Gravity.START
@@ -569,6 +573,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             maxWidth = host.chatMaxW() - host.dp(24)
             setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
             background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
+            elevation = host.dp(2).toFloat()   // 状态块阴影(2dp 次级)
             text = detailText
             visibility = View.GONE
             setTextIsSelectable(true)
@@ -1013,6 +1018,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             } else {
                 setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
                 background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
+                elevation = host.dp(3).toFloat()   // AI 气泡/表格块阴影(3dp 主级)
                 maxWidth = maxW
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -1057,6 +1063,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             } else {
                 setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
                 background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
+                elevation = host.dp(3).toFloat()   // AI 气泡/表格块阴影(3dp 主级)
                 maxWidth = maxW
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -1133,6 +1140,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             } else {
                 setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
                 background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
+                elevation = host.dp(3).toFloat()   // AI 气泡/表格块阴影(3dp 主级)
                 layoutParams = tv.layoutParams
             }
         }
