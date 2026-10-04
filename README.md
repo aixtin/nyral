@@ -122,6 +122,7 @@ android-agent-app/
 
 ## 版本记录
 
+- **v2.3.4（2026-10-04，versionCode 40）**：修复门禁自动档复合危险动作漏确认——browser:click/type/upload、app:click/text/tap/launch、file:write/upload、workdir:write 等统一按 name:action 复合键判定（needsConfirm/riskOf/票据三处同步同 key），自动档恢复弹确认；新增门禁防回归单测（高危名单全条目风险评级断言 + 裸名保持低危语义）。
 - **v2.3.3（2026-10-04，versionCode 39）**：安全中心三档门禁（严格/自动/放行）UI 落地，AI 不再自切档位；欢迎卡片内嵌门禁快捷切档；新增审计页（AuditActivity）；放行二次确认弹窗主题化，与设置页视觉一致；修复安全中心取消二次确认时的重入弹窗。
 - **v2.3.2（2026-10-03，versionCode 38）**：安全审查修复版：高危操作（命令执行、脚本执行、动态工具调用）增加二次确认保护；DebugServer 局域网模式与非本机连接打醒目告警；危险命令黑名单补强（eval/$(/xargs/busybox/base64/printf/进程替换等）；移除 SSH 私钥前缀日志；release 开启 R8 混淆+资源收缩，新增 proguard-rules.pro；依赖升级（jsch 0.2.26 / bcprov 1.82 / commons-compress 1.28.0 / xz 1.10 / onnxruntime 1.26.0 / media3 1.5.1）。
 - **v2.3.1（2026-10-03，versionCode 37）**：安全加固版：SSRF 防护重写（host 字面量正则改为 InetAddress 解析后逐项校验，覆盖 DNS 重绑定、IPv6、IP 编码、0.0.0.0 变体四类绕过，HTTP 连接锁定已校验 IP 并保留原 Host 头）；日志脱敏补齐（SSE 流与 SSH 命令日志仅输出长度）；file/read 路径穿越修复（canonicalPath 白名单校验）；CI 签名 job 仅 push 触发；trustHost 增加连接名校验；危险操作确认名单补 file:upload / browser:save_cookies；workdir 白名单尾斜杠误拒修复。
