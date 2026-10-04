@@ -93,13 +93,16 @@ object ToolExecutor {
         // 命中危险工具时本线程在此挂起: 等待用户决策——
         // 用户允许 → 签发票据并继续执行本调用; 用户拒绝 → 立即返回拒绝, 不执行工具;
         // 超时(2分钟) → 自动拒绝。strict 档每次确认(无窗口期), auto 档窗口期票据复用(5分钟)。
-        if (SecurityConfig.needsConfirm(context, n, arg)) {
-            val jo0 = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
-            val act0 = jo0?.optString("action", "").orEmpty()
-            val key0 = if (act0.isNotEmpty()) "$n:$act0" else n
+        // R3-1 修复(2026-10-04): 门禁判定/风险评级/票据 key 统一用复合键 name:action(如 browser:click)。
+        // 原实现先用裸工具名(n=browser)判 needsConfirm → riskOf 匹配不上高危名单中的 browser:click,
+        // auto 档恒 MEDIUM 直接放行, 内层复合键检查不可达; 现在 key0 先算好再进判定, 票据同 key 闭环。
+        val jo0 = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+        val act0 = jo0?.optString("action", "").orEmpty()
+        val key0 = if (act0.isNotEmpty()) "$n:$act0" else n
+        if (SecurityConfig.needsConfirm(context, key0, arg)) {
             if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
-                val risk = SecurityConfig.riskOf(n)
-                when (SecurityUi.requestConfirm(context, n, arg, risk)) {
+                val risk = SecurityConfig.riskOf(key0)
+                when (SecurityUi.requestConfirm(context, key0, arg, risk)) {
                     true -> { /* 允许: 票据已在决策回调中签发, 继续执行本调用 */ }
                     false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
                     null -> return "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
