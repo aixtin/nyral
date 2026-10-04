@@ -890,7 +890,7 @@ class MainActivity : Activity() {
         bodyWrap.addView(chatArea, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
-        // assistant 式正文一键到底: 正文输出默认停滚(视口停留, 内容在屏外增长), 右下角悬浮按钮
+        // 竞品式正文一键到底: 正文输出默认停滚(视口停留, 内容在屏外增长), 右下角悬浮按钮
         // 提示"有新内容", 点击后跳到底部并恢复正文跟随(锚底接管原地生长), 上翻阅读再次让位
         jumpFab = android.widget.TextView(this).apply {
             text = "↓"
@@ -3901,7 +3901,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // ===== 打字机帧合并锚底(2026-09-23, 对齐 assistant/Kuikly 同帧 diff) =====
+    // ===== 打字机帧合并锚底(2026-09-23, 对齐竞品/Kuikly 同帧 diff) =====
     // 打字期间内容每帧增长(stepBlock setText), 本帧 preDraw(布局完成后、绘制前)里
     // scrollBy 补偿该帧增长量 -> 视口锚底, 视觉上内容在底部原地生长、无追滚滞后;
     // 用户上翻阅读(scrollUserScrolled)或打字结束自动停。

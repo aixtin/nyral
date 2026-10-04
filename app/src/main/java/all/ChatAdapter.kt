@@ -9,7 +9,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 
 /**
- * 消息行模型: id 为 DiffUtil item 稳定锚点(对齐 assistant 反编译结论)。
+ * 消息行模型: id 为 DiffUtil item 稳定锚点(对齐竞品反编译结论)。
  * 历史行 id=DB 全局 seq(sessionBaseSeq+i); 运行期新行用递减临时 id; 阶段2再拆分 content 分片。
  */
 internal sealed class ChatRow(val id: Long) {

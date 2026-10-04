@@ -195,7 +195,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private val timelineEvents = ArrayList<Any>()
     private var done = false
     private var loadingRow: View? = null   // 思考完成等待正文时的加载指示行(chatMode 下为 chatWrap 外层行)
-    private var loadingAnim: ValueAnimator? = null   // 三点呼吸灯动画(阶段3: 对齐 assistant isLoading 呼吸灯)
+    private var loadingAnim: ValueAnimator? = null   // 三点呼吸灯动画(阶段3: 对齐竞品 isLoading 呼吸灯)
     private var maxW = 0
     // 正文多段化: 思考/工具穿插时正文拆成多个独立气泡, 每段独立打字机(v9)
     // 打字机(游标+帧驱动): text 只累积不删除, shownLen 控制显示进度
@@ -1483,7 +1483,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return true
     }
 
-    /** 分级变速(参考 assistant SpeedTier): 短文本慢打有打字感, 长文本极速掠过 */
+    /** 分级变速(参考竞品 SpeedTier): 短文本慢打有打字感, 长文本极速掠过 */
     private fun typeSpeed(total: Int): Int = when {
         total <= 15 -> 80
         total <= 40 -> 160
