@@ -147,6 +147,15 @@ android-agent-app/
 - **v1.0**: Baseline feature release (versionCode 19).
 - **v1.1.1 (2026-09-04, versionCode 21)**: Video bubble frame-extraction failure changed from permanent abandonment to 20s cooldown auto-retry (recovers on next render/scroll/foreground); fixes video bubble degrading to file card.
 
+## Privacy
+
+Nyral is designed to keep your data local-first. Conversations, memories, attachments and logs are stored on your device. Text embedding runs fully on-device.
+
+For model responses, the App sends your message content to the model service provider configured in Settings (DeepSeek by default; Zhipu GLM, Xiaomi MiMo and custom endpoints are supported). The App does not operate its own cloud service and does not include analytics or advertising SDKs.
+
+See [PRIVACY.md](PRIVACY.md) for details.
+
+
 ## License
 
 MIT License, see [LICENSE](LICENSE).

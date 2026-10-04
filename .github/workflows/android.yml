@@ -124,3 +124,31 @@ jobs:
         with:
           name: signed-release-apk
           path: app/build/outputs/apk/release/*.apk
+
+  license-check:
+    name: Dependency License Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Set up Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      # 依赖坐标解析（无需编译；releaseRuntimeClasspath 即打包进 APK 的运行时依赖）
+      # build/ 已在 .gitignore 中，deps.txt 不会入库
+      - name: Resolve runtime dependencies
+        run: ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --console=plain > build/deps.txt 2>&1
+
+      # 抓取 POM 核对许可证白名单；任何不在白名单或无法识别许可证的依赖都会让 CI 失败
+      - name: Verify licenses against allowlist
+        run: python3 .github/ci/license-check.py build/deps.txt
