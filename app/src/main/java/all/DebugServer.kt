@@ -279,7 +279,7 @@ object DebugServer {
                     method == "POST" && path == "/v1/browser/highlight/xy" -> browserHighlightXY(out, body)
                     method == "POST" && path == "/v1/browser/click" -> browserClick(out, body)
                     method == "POST" && path == "/v1/browser/type" -> browserType(out, body)
-                    method == "POST" && path == "/v1/browser/eval" -> browserEval(out, body)
+                    method == "POST" && path == "/v1/browser/eval" -> browserEval(c, out, body)
                     method == "POST" && path == "/v1/app/scan" -> appScan(out)
                     method == "POST" && path == "/v1/app/click" -> appClick(out, body)
                     method == "POST" && path == "/v1/app/type" -> appType(out, body)
@@ -947,10 +947,18 @@ object DebugServer {
         return o
     }
 
-    private fun browserEval(out: OutputStream, body: String) {
+    private fun browserEval(c: Context, out: OutputStream, body: String) {
         val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
         val script = try { JSONObject(body).optString("script", "") } catch (e: Exception) { "" }
         if (script.isBlank()) { writeJson(out, 400, JSONObject().put("error", "script required")); return }
+        // R3-6(2026-10-04): /v1/browser/eval 任意 JS 求值同挂三档门禁(与 /v1/js/run 同款)
+        if (SecurityConfig.needsConfirm(c, "browser_eval", body)) {
+            when (SecurityUi.requestConfirm(c, "browser_eval", body, SecurityConfig.riskOf("browser_eval"))) {
+                true -> { /* 票据已签发 */ }
+                false -> { writeJson(out, 403, JSONObject().put("error", "用户拒绝执行 browser_eval, 已停止")); return }
+                null -> { writeJson(out, 503, JSONObject().put("error", "确认通道不可用(应用不在前台且通知被禁用), 请打开 App 后重试")); return }
+            }
+        }
         val latch = CountDownLatch(1); var msg = ""
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             if (act.browserPageReady()) act.browserPage.evalScript(script, latch) else latch.countDown()

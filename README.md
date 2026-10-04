@@ -122,6 +122,7 @@ android-agent-app/
 
 ## 版本记录
 
+- **v2.3.5（2026-10-04，versionCode 41）**：修复第三轮安全复评剩余条目——R3-2 通知确认 PendingIntent 改用全局自增 requestCode（杜绝并发 hashCode 碰撞串台，旧通知不再批准新操作）；R3-3 SSH 主机信任确认气泡直接展示待确认主机密钥指纹供核对后批准；R3-4 危险命令规范化增加去除短横线（nc -e / nc -l -e 等反向 Shell 构造面命中黑名单）；R3-6 DebugServer /v1/browser/eval 任意 JS 求值同挂三档门禁；新增 R3-4/R3-6 防回归单测。
 - **v2.3.4（2026-10-04，versionCode 40）**：修复门禁自动档复合危险动作漏确认——browser:click/type/upload、app:click/text/tap/launch、file:write/upload、workdir:write 等统一按 name:action 复合键判定（needsConfirm/riskOf/票据三处同步同 key），自动档恢复弹确认；新增门禁防回归单测（高危名单全条目风险评级断言 + 裸名保持低危语义）。
 - **v2.3.3（2026-10-04，versionCode 39）**：安全中心三档门禁（严格/自动/放行）UI 落地，AI 不再自切档位；欢迎卡片内嵌门禁快捷切档；新增审计页（AuditActivity）；放行二次确认弹窗主题化，与设置页视觉一致；修复安全中心取消二次确认时的重入弹窗。
 - **v2.3.2（2026-10-03，versionCode 38）**：安全审查修复版：高危操作（命令执行、脚本执行、动态工具调用）增加二次确认保护；DebugServer 局域网模式与非本机连接打醒目告警；危险命令黑名单补强（eval/$(/xargs/busybox/base64/printf/进程替换等）；移除 SSH 私钥前缀日志；release 开启 R8 混淆+资源收缩，新增 proguard-rules.pro；依赖升级（jsch 0.2.26 / bcprov 1.82 / commons-compress 1.28.0 / xz 1.10 / onnxruntime 1.26.0 / media3 1.5.1）。

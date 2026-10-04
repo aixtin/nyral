@@ -45,7 +45,7 @@ object SecurityConfig {
     // ===== 风险分级(自动档内两级, 预留多级扩展) =====
     private val CRITICAL_TOOLS = setOf("security_set")
     private val HIGH_TOOLS = setOf(
-        "ssh_run", "sh_run", "js_run", "web_download",
+        "ssh_run", "sh_run", "js_run", "browser_eval", "web_download",
         "file:write", "file:upload", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
         "app:click", "app:text", "app:tap", "app:launch"

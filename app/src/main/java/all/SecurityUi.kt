@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import android.graphics.Color
@@ -34,8 +35,10 @@ object SecurityUi {
 
     data class PendingRequest(
         val requestId: String,
+        val code: Int,
         val tool: String,
         val arg: String,
+        val display: String?,
         val risk: SecurityConfig.RiskLevel,
         val channel: String,            // "bubble" / "notification"
         val latch: CountDownLatch,
@@ -48,6 +51,9 @@ object SecurityUi {
     private val queue = ConcurrentLinkedQueue<PendingRequest>()
     private val pending = ConcurrentHashMap<String, PendingRequest>()
     private val counter = AtomicLong(0)
+
+    /** R3-2(2026-10-04): 通知通道 PendingIntent 唯一自增 requestCode(替代 requestId.hashCode(), 杜绝并发碰撞) */
+    private val piSeq = AtomicInteger(1)
 
     /** 主界面回调: 队列增删/状态变化时通知(消息流气泡行刷新 + 聊天区背景微暗) */
     @Volatile
@@ -69,11 +75,12 @@ object SecurityUi {
      * 返回: true=用户允许(票据已签发); false=用户拒绝/超时自动拒绝; null=无可用通道。
      */
     @JvmStatic
-    fun requestConfirm(ctx: Context, name: String, arg: String, risk: SecurityConfig.RiskLevel): Boolean? {
+    fun requestConfirm(ctx: Context, name: String, arg: String, risk: SecurityConfig.RiskLevel, display: String? = null): Boolean? {
         if (Looper.myLooper() == Looper.getMainLooper()) return null
         val req = PendingRequest(
             requestId = "${System.currentTimeMillis()}_${counter.incrementAndGet()}",
-            tool = name, arg = arg, risk = risk,
+            code = piSeq.getAndIncrement(),
+            tool = name, arg = arg, display = display, risk = risk,
             channel = if (activity != null) "bubble" else "notification",
             latch = CountDownLatch(1),
             result = AtomicReference(null),
@@ -131,27 +138,30 @@ object SecurityUi {
         val reject = Intent(ctx, SecurityConfirmReceiver::class.java)
             .setAction(SecurityConfirmReceiver.ACTION_REJECT)
             .putExtra("requestId", req.requestId)
+        // R3-2(2026-10-04): 每个 Action 独立自增 requestCode, 避免 hashCode 碰撞致旧通知批准新操作
+        val codeAllow = piSeq.getAndIncrement()
+        val codeReject = piSeq.getAndIncrement()
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        val piAllow = PendingIntent.getBroadcast(ctx, req.requestId.hashCode(), allow, flags)
-        val piReject = PendingIntent.getBroadcast(ctx, req.requestId.hashCode() + 1, reject, flags)
+        val piAllow = PendingIntent.getBroadcast(ctx, codeAllow, allow, flags)
+        val piReject = PendingIntent.getBroadcast(ctx, codeReject, reject, flags)
         val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("安全确认")
             .setContentText("工具 [${req.tool}] 请求执行, 请批准或拒绝")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "工具 [${req.tool}] 请求执行危险操作。\n\n参数摘要:\n${req.arg.take(300)}\n\n2 分钟内未操作将自动拒绝。"))
+                "工具 [${req.tool}] 请求执行危险操作。\n\n参数摘要:\n${(req.display ?: req.arg).take(300)}\n\n2 分钟内未操作将自动拒绝。"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ERROR)
             .setOngoing(true)
             .addAction(0, "允许执行", piAllow)
             .addAction(0, "拒绝", piReject)
             .build()
-        nm.notify(req.requestId.hashCode(), n)
+        nm.notify(req.code, n)
     }
 
     private fun cancelNotification(ctx: Context, req: PendingRequest) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.cancel(req.requestId.hashCode())
+        nm.cancel(req.code)
     }
     /** 放行档二次确认(2026-10-04): 安全中心与欢迎卡片共用, Ui.dialog 主题弹窗替代原始 AlertDialog */
     @JvmStatic

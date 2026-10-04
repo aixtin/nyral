@@ -2410,8 +2410,8 @@ class MainActivity : Activity() {
             setTextColor(0xFF1A1A1A.toInt())
             setPadding(0, dp(6), 0, 0)
         })
-        // 参数摘要
-        val argText = row.arg.trim().ifBlank { "(无参数)" }
+        // 参数摘要(R3-3: 有增强展示文本时优先展示, 如 ssh_trust 指纹核对)
+        val argText = (row.display ?: row.arg).trim().ifBlank { "(无参数)" }
         box.addView(TextView(this).apply {
             text = if (argText.length > 120) argText.take(120) + "…" else argText
             textSize = 12f
@@ -2477,6 +2477,7 @@ class MainActivity : Activity() {
                 requestId = req.requestId,
                 tool = req.tool,
                 arg = req.arg,
+                display = req.display,
                 status = req.status,
                 risk = req.risk.name
             ))

@@ -31,6 +31,9 @@ object SshTools {
     /** H2(2026-10-03): 待确认主机密钥缓存(check 回调写入, trustHost 消费) */
     @Volatile private var pendingHostKey: Pair<String, HostKey>? = null
 
+    /** R3-3(2026-10-04): 待确认主机指纹(确认 UI 展示用); 无待确认主机时返回 null */
+    fun pendingFingerprint(): String? = pendingHostKey?.second?.getFingerPrint(JSch())
+
     /** H2: 指纹白名单主机密钥仓库: 未知主机返回 NOT_INCLUDED(拒绝连接), 防中间人 */
     private class PrefsHostKeyRepository(private val ctx: Context) : HostKeyRepository {
         private val prefs = ctx.getSharedPreferences("ssh_known_hosts", Context.MODE_PRIVATE)

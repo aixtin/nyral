@@ -32,6 +32,7 @@ internal sealed class ChatRow(val id: Long) {
         val requestId: String,
         val tool: String,
         val arg: String,
+        val display: String?,
         val status: String,   // PENDING / ALLOWED / REJECTED / TIMEOUT
         val risk: String = "HIGH"
     ) : ChatRow(rowId)

@@ -96,26 +96,28 @@ object ScriptEngine {
         // H4 加固(2026-10-03): 扩充破坏性命令/设备操作
         "fdisk", "blkdiscard", "parted", "mkswap", "cryptsetup", "pvcreate", "vgremove",
         "kill -9 1", "kill -9 0", "chown -R /", "chmod -R 777 /boot",
-        "> /dev/disk", "> /dev/mapper", "> /dev/loop", "> /boot", "> /proc"
+        "> /dev/disk", "> /dev/mapper", "> /dev/loop", "> /boot", "> /proc",
+        // R3-4(2026-10-04): 反向 Shell 构造面(nc 原始层直接子串拦截, 规范化层靠 nce)
+        "nc -e", "nc -l -e", "nc -lvp", "nc -nlvp"
     )
 
     /** H4 规范化危险模式(2026-10-03): 去空白/反斜杠/引号后匹配, 防黑名单绕过
      *  (如 "rm -rf  /" / "r\m -rf /" / "dd if=/dev/ze ro" 等变体) */
     private val DANGER_NORMALIZED = listOf(
-        "rm-rf/", "rm-fr/", "rm-rf/*",
+        "rmrf/", "rmfr/", "rmrf/*",
         "mkfs", "ddiv=/dev/zero", "ddof=/dev/", "if=/dev/", "of=/dev/",
         ">/dev/sd", ">/dev/mmcblk", ">/dev/disk", ">/dev/mapper", ">/dev/loop", ">/boot", ">/proc",
         "format/", "wipe", "reboot", "poweroff", "shutdown", "halt",
-        ":{(", "chmod-r777/", "chown-r/", "kill-91", "kill-90",
+        ":{(", "chmodr777/", "chownr/", "kill91", "kill90",
         "fdisk", "blkdiscard", "parted", "mkswap", "cryptsetup", "pvcreate", "vgremove",
         // 安全审查补强(2026-10-03): 命令替换/解释器/解码/进程替换构造绕过面
         "eval", "$(", "xargs", "busybox", "base64", "xxd", "nce", "printf",
         "/dev/fd", "python", "perl"
     )
 
-    /** H4: 脚本规范化(去空白/反斜杠/引号, 转小写), 用于防绕过匹配 */
+    /** H4: 脚本规范化(去空白/反斜杠/引号/短横线, 转小写), 用于防绕过匹配; R3-4: 去 '-' 使 nc -e 命中 nce */
     private fun normalizeDanger(s: String): String =
-        s.filterNot { it.isWhitespace() || it == '\\' || it == '\'' || it == '"' }.lowercase()
+        s.filterNot { it.isWhitespace() || it == '\\' || it == '\'' || it == '"' || it == '-' }.lowercase()
 
     /** 输出截断上限(保留头尾, 中段折叠) */
     private const val OUT_CAP = 20000

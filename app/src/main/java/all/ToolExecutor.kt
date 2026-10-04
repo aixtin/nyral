@@ -102,7 +102,12 @@ object ToolExecutor {
         if (SecurityConfig.needsConfirm(context, key0, arg)) {
             if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
                 val risk = SecurityConfig.riskOf(key0)
-                when (SecurityUi.requestConfirm(context, key0, arg, risk)) {
+                // R3-3(2026-10-04): ssh_trust 信任类确认直接展示待确认主机指纹, 供用户核对后再批准
+                val displayArg = if (n == "security_set" && arg.contains("ssh_trust")) {
+                    val fp = SshTools.pendingFingerprint()
+                    if (fp != null) "$arg\n\n待信任主机密钥指纹: $fp\n请与 SSH 安全告警中的指纹核对一致后再批准。" else arg
+                } else null
+                when (SecurityUi.requestConfirm(context, key0, arg, risk, displayArg)) {
                     true -> { /* 允许: 票据已在决策回调中签发, 继续执行本调用 */ }
                     false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
                     null -> return "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
