@@ -104,7 +104,9 @@ android-agent-app/
 ## 数据与隐私
 
 - 对话、记忆、Token 统计、SSH 配置（加密存储）全部仅存本机
-- 不采集任何遥测；唯一外部请求是启动时检查 GitHub Release 更新（可忽略 404）
+- 不采集任何遥测；启动时唯一外部请求是 GitHub Release 更新检查（404 可忽略）
+- **注意**：对话消息与附件内容会发送到你配置的模型端点（OpenAI 兼容）；如需完全私密请自建端点
+- 权限清单与安全设计（DebugServer 防护 / 危险操作门禁 / 数据边界）见 [SECURITY.md](SECURITY.md)
 
 ## 路线图
 
