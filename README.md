@@ -150,19 +150,20 @@ android-agent-app/
 |---|---|---|
 | kotlin-stdlib | 1.9.22 | Apache-2.0 |
 | kotlinx-coroutines-android | 1.8.1 | Apache-2.0 |
-| androidx.media3（exoplayer/ui/common 等） | 1.4.1 | Apache-2.0 |
-| androidx.*（core/annotation/collection 等） | - | Apache-2.0 |
-| org.apache.commons:commons-compress / commons-io / commons-codec / commons-lang3 | 1.27.1+ | Apache-2.0 |
+| androidx.media3（exoplayer/ui 等） | 1.5.1 | Apache-2.0 |
+| androidx.*（core/recyclerview 等） | - | Apache-2.0 |
+| org.apache.commons:commons-compress | 1.28.0 | Apache-2.0 |
 | io.noties.markwon（core/ext-strikethrough/ext-tables） | 4.6.2 | Apache-2.0 |
-| com.atlassian.commonmark | 0.13.0 | BSD-2-Clause |
-| com.microsoft.onnxruntime:onnxruntime-android | 1.17.3 | MIT |
+| com.atlassian.commonmark（commonmark/ext-gfm-tables/ext-gfm-strikethrough） | 0.13.0 | BSD-2-Clause |
+| com.microsoft.onnxruntime:onnxruntime-android | 1.26.0 | MIT |
 | org.slf4j:slf4j-api | 1.7.36 | MIT |
 | com.android.tools（构建期，不打包进 APK） | - | Apache-2.0 |
-| org.bouncycastle:bcprov-jdk18on | 1.78.1 | Bouncy Castle Licence |
-| com.github.mwiede:jsch（含 jzlib/jbcrypt） | 0.2.17 | Revised BSD / ISC |
-| org.tukaani:xz | 1.9 | Public Domain |
-| org.mozilla:rhino | 1.7.14 | MPL-2.0 |
-| com.github.junrar:junrar | 7.5.5 | UnRAR freeware license |
+| org.bouncycastle:bcprov-jdk18on | 1.82 | Bouncy Castle Licence |
+| com.github.mwiede:jsch（含 jzlib/jbcrypt） | 0.2.26 | BSD-3-Clause / BSD / ISC |
+| org.tukaani:xz | 1.10 | Public Domain |
+| org.mozilla:rhino | 1.7.15 | MPL-2.0 |
+| com.github.junrar:junrar | 7.6.0 | UnRAR freeware license |
+| junit / org.json / hamcrest-core（测试期，不打包） | 4.13.2 / 20231013 / 1.3 | EPL-2.0 / JSON License / BSD-3-Clause |
 
 MPL-2.0（rhino）与 UnRAR license（junrar）的授权声明随依赖 jar 内嵌保留；junrar 按 UnRAR 授权仅用于解压，不用于构建 RAR 兼容压缩器。
 

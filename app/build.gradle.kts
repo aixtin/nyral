@@ -78,7 +78,7 @@ dependencies {
     implementation("com.github.mwiede:jsch:0.2.26")
     implementation("org.apache.commons:commons-compress:1.28.0")
     implementation("org.tukaani:xz:1.10")
-    implementation("com.github.junrar:junrar:7.5.5")
+    implementation("com.github.junrar:junrar:7.6.0") // CVE-2026-41245/CVE-2026-28208 修复
     implementation("org.bouncycastle:bcprov-jdk18on:1.82")
     implementation("org.mozilla:rhino:1.7.15")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.26.0")
@@ -95,9 +95,7 @@ dependencies {
     // coroutines 1.10+ 需 Kotlin 2.x 编译器, 项目为 1.9, 保持 1.8.1 兼容
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    testImplementation(files(
-        "$rootDir/local-test-libs/junit-4.13.2.jar",
-        "$rootDir/local-test-libs/json-20231013.jar",
-        "$rootDir/local-test-libs/hamcrest-core-1.3.jar"
-    ))
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20231013")
+    testImplementation("org.hamcrest:hamcrest-core:1.3")
 }
