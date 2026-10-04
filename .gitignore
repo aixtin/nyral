@@ -33,3 +33,7 @@ backups/
 
 # 阶段备份目录(不入库)
 io.github.aixtin.nyral_bak_tablefix_*/
+
+# 拆分/打补丁备份快照(不入库)
+backups_*/
+backups_split_*/
