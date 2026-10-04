@@ -366,7 +366,7 @@ ADR-005 已按"功能簇"竖向切出 MediaPreviews/AiBubbleHolder 等，但 Mai
 ### 线程模型依据
 chat() 运行在 executor 工作线程，请求处理在独立线程，UI 事件在主线程——工作线程阻塞等待主线程 UI 确认不产生死锁，这是阻塞式门禁可安全实施的前提。
 
-### 真机三态验证（DebugServer 8765，token <DEBUG_TOKEN>）
+### 真机三态验证（DebugServer，token <DEBUG_TOKEN>）
 1. 阻塞确认态：含危险工具的请求挂起 + 弹窗出现；点"允许"后继续执行，审计 approvedBy=user
 2. 窗口期复用态：同参数二次发送不再弹窗直接放行
 3. 拒绝路径：点"拒绝"立即返回"用户拒绝了工具调用"，审计 approvedBy=rejected

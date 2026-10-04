@@ -1,7 +1,7 @@
 # AGENTS.md — Nyral 工程协作说明书
 
-> 面向 AI 助手 / 接手的开发者：在 Nyral 仓库里安全干活的第一份文档。
-> 核心原则：**改源码前先备份，拆文件按套路走，四关验证必须全过。**
+> 面向接手的开发者：在 Nyral 仓库里安全干活的第一份文档。
+> 核心原则：**改源码前先备份，拆文件按套路走，验证流程必须全过。**
 
 ## 1. 工程概览
 
@@ -12,7 +12,7 @@
 
 ## 2. 构建与验证命令（四关）
 
-在工程根 `/home/ymz/Nyral/android-agent-app/` 执行：
+在工程根 `<PROJECT_ROOT>` 执行：
 
 ```bash
 # 关1 编译（最快，改完先跑这个）
@@ -28,7 +28,7 @@
 adb -s <DEVICE_SERIAL> install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-链路：云端沙箱 → ssh VPS <VPS_PUBLIC_IP> → 2222 隧道 → 188（<WG_188_IP>）。188 上 adb 直连真机 `<DEVICE_SERIAL>`（有线）；无线调试走 WireGuard `<WG_PHONE_IP>:5555`。
+链路：开发机 → ssh VPS <VPS_PUBLIC_IP> → 跳板 → 设备（<DEVICE_SERIAL>）。无线调试走 WireGuard `<WG_PHONE_IP>:5555`。
 
 ## 3. 上帝文件拆分规范（本工程核心工作流）
 
@@ -66,7 +66,7 @@ cp app/src/main/java/all/Xxx.kt backups_split_<刀名>_$(date +%s)/
 
 ### 3.4 进度参考
 
-BrowserPage 已按此模式拆 8 刀（1796 → 146 行），产物 12 个域文件（含 init 域/扫描域/JS 桥独立类），每刀四关全绿。备份目录 `backups_split_bp2_*` ~ `backups_split_bp8_*` 保留在工程根。
+BrowserPage 已按此模式拆 8 刀（1796 → 146 行），产物 12 个域文件（含 init 域/扫描域/JS 桥独立类），每刀四关全绿。备份目录按 §3.1 约定保留在工程根。
 
 ## 4. 装机链路速查
 
@@ -74,7 +74,7 @@ BrowserPage 已按此模式拆 8 刀（1796 → 146 行），产物 12 个域文
 |---|---|
 | 188 经 VPS 回连 | `ssh -i <SSH_KEY_188> -p 2222 <USER>@127.0.0.1` |
 | 有线真机 | `adb -s <DEVICE_SERIAL> install -r <apk>` |
-| 无线（188 局域网） | `~/adb-hotspot.sh` 自动探测后 `adb install` |
+| 无线（局域网） | `~/adb-hotspot.sh` 自动探测后 `adb install` |
 | 无线（WireGuard） | VPS 上 `adb connect <WG_PHONE_IP>:5555` 后 install |
 | 调试日志 | `adb logcat -d | tail -200`（统一走 VPS WireGuard） |
 
@@ -82,4 +82,4 @@ BrowserPage 已按此模式拆 8 刀（1796 → 146 行），产物 12 个域文
 
 - 系统路径、密钥文件、`.git` 等敏感内容不碰
 - 删除/覆盖前先备份；批量破坏性操作必须逐项确认
-- 记忆库连接卡（记忆读写）见仓库外文档，不在此重复
+- 敏感配置与凭据管理见仓库外文档，不在此重复

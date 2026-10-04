@@ -141,13 +141,13 @@ fun rounded(radius: Int, color: Int): GradientDrawable {
     return tpl.newDrawable().mutate() as GradientDrawable
 }
 
-/** 文件卡片文件名省略参考宽度(px): 首条参照文件名(连接卡_记忆库读写.md) 的渲染宽度。
+/** 文件卡片文件名省略参考宽度(px): 首条参照文件名(参考文件名示例.md) 的渲染宽度。
  *  短文件名(小于该宽)直接自适应气泡; 超长文件名在渲染时手动中间省略到该宽度(保留开头与后缀)。 */
 fun fileCardNameMaxWidth(scaledDensity: Float): Int {
     val fp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 15f * scaledDensity
     }
-    return fp.measureText("连接卡_记忆库读写.md").toInt()
+    return fp.measureText("参考文件名示例.md").toInt()
 }
 
 /** 附件图片采样解码为气泡缩略图(最长边 ~200dp), 失败返回 null */

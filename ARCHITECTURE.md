@@ -83,7 +83,7 @@ BrowserPageSync（同步域）
 1. **init 块（约 168-285 行）**：WebViewClient / ChromeClient 配置 + JS 桥注册，改动面大
 2. **injectScanner + JS 桥对象（约 374-555 行）**：Scanner 注入与桥对象本体，强依赖 WebView 上下文
 
-拆这两块需先梳理 JS 桥与 elements/高亮的完整依赖面，再按 AGENTS.md §3 套路走；属高改动风险区，建议单刀只拆一块、四关验证。
+拆这两块需先梳理 JS 桥与 elements/高亮的完整依赖面，再按 AGENTS.md §3 套路走；属高改动风险区，建议单刀只拆一块、走完整验证流程。
 
 ### 5.2 跨文件耦合
 
@@ -92,6 +92,6 @@ BrowserPageSync（同步域）
 
 ## 6. 运维速查
 
-- 装机链路：有线 `<DEVICE_SERIAL>`；无线 188 局域网 `~/adb-hotspot.sh`；WireGuard `<WG_PHONE_IP>:5555`
+- 装机链路：有线 `<DEVICE_SERIAL>`；无线局域网 `~/adb-hotspot.sh`；WireGuard `<WG_PHONE_IP>:5555`
 - 备份目录：工程根 `backups_split_*`（勿移入 `app/src/main/java`）
-- 四关验证：compileDebugKotlin → testDebugUnitTest → assembleDebug → 真机 install
+- 验证流程：compileDebugKotlin → testDebugUnitTest → assembleDebug → 真机 install

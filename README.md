@@ -65,7 +65,7 @@ gradle assembleDebug
 
 要求：JDK 17、Gradle 8.13、Android SDK 36。仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内构建快），海外网络可自行删除对应 `maven(...)` 行。
 
-> 注意：本项目无 gradle wrapper（`gradlew`），请使用本机 Gradle 8.13 直接构建。
+> 构建建议：仓库已内置 gradlew（锁定 Gradle 8.13），直接 `./gradlew assembleDebug`；本机已装 Gradle 8.13 也可用 `gradle assembleDebug`。
 > 正式签名包用 `gradle assembleRelease`（自建 keystore 经 `keystore.properties` 读取；keystore 与 properties 已入 .gitignore，需自行准备密钥）。
 
 ## 快速开始
@@ -80,7 +80,7 @@ gradle assembleDebug
 ```
 android-agent-app/
 ├── app/src/main/java/io/github/aixtin/nyral/   # 主包：入口 + 会话/渲染核心
-│   ├── MainActivity.kt          # 聊天主界面（约 4800 行，功能域拆分后的主体）
+│   ├── MainActivity.kt          # 聊天主界面（约 4470 行，功能域拆分后的主体）
 │   ├── ChatSessionState.kt      # 会话状态机（流式字段收编）
 │   ├── ChatFlowController.kt    # 发送/流式回调控制
 │   ├── StreamUiBridge.kt        # 流式行创建 + LocalEngine 回调桥

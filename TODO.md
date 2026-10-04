@@ -1,7 +1,5 @@
 # Nyral 待办
 
-> 由 assistant 记录，2026-08-24 添加
-
 ## 待办
 - [x] 文件/图片/视频发送功能（MiMo 多模态）：选附件 → 本地压缩 → 复制 cacheDir → Base64 发 MiMo → AI 生成描述占位进历史/记忆
       - 处理路径分类定案(2026-08-28)：文本/PDF 本地处理不走模型；图片/视频/音频 必须走模型（多模态）
@@ -10,7 +8,7 @@
 - [x] GitHub Release 发布（v1.3/v2.0 已发布，附正式签名 APK，更新弹窗已生效；2026-09-13）
 - [ ] UI 优化（聊天界面、SSH 配置界面视觉与交互）
 - [x] 整理上下文：对话上下文分级管理（短期滚动 / 中期摘要 / 长期按需检索），解决 token 无限累积（ADR-009 已落地）
-- [ ] 补充基础单元测试（零测试是最大隐患，修 A 坏 B 风险高；覆盖工具链/记忆/TokenStore 等核心逻辑，2026-08-31 列入）
+- [x] 补充基础单元测试（当前 10 个测试文件 49 用例全绿；2026-08-31 列入，已完成）
 - [ ] MainActivity 再拆分（已从 4241 行拆到 2552 行，仍偏大；进一步抽 UI/逻辑到独立文件，2026-08-31 列入）
 - [x] P0 消息列表 RecyclerView 改造（长会话卡顿根因：ScrollView 气泡渲染不回收，消息多时全量 Measure/布局；2026-09-27 以形态池化 + AiRich 容器池化 + flush 分批 + 漂移补偿落地，随 v2.0 发布）
 - [x] DebugServer chat 并发竞态修复（2026-09-13 压测发现并修复：chatLock CAS 互斥，多客户端同时 /v1/chat 不再串话，并发压测验证通过）
@@ -28,7 +26,7 @@
 - 2026-09-27: 首启闪退修复（markwon 并发 CME 加锁串行化）+ 上滑跳闪治理（watcher 去重 + 注册时机修正）+ 停止按钮 Lucide 化 + 全局死代码清理
 - 2026-09-28: rendered 落库基建阶段1（MemoryDb rendered 列 + RenderedCodec Spanned↔JSON + mdCache→rendered→现场渲染三级读取 + 全链路 writeback，ADR-015）
 - 2026-09-29: 引用块竖线/分割线渲染（QuoteBarSpan/HrSpan，commit 4b175bd 阶段6）+ 表格首列整格空白修复（collectCellText 递归，669dea9）+ 表格横滑 v3 公共版（TableScrollWrap）+ 整表统一列宽（colMaxChars v7）
-- 2026-09-30~10-01: 表格样式系列（框线 PRIMARY/最低宽对齐/顶边封顶/单元格内边距）+ 表格方案 B 边框修复（availW/列竖线/行线调浅）+ DebugServer 8765 直发验证链路（WireGuard 直连手机）
+- 2026-09-30~10-01: 表格样式系列（框线 PRIMARY/最低宽对齐/顶边封顶/单元格内边距）+ 表格方案 B 边框修复（availW/列竖线/行线调浅）+ DebugServer 直发验证链路（无线直连手机）
 - 2026-10-02: v2.1 表格渲染方案 C 落地（versionCode 33）：MdTableView 重写为气泡内独立 TableView 块化、WRAP_CONTENT 自适应、修复含行内代码单元格整格空白、清理旧表格类（ADR-014）
 - 2026-09-29: 开源收口（chore 安全加固与清理 9150c73）+ targetSdk/compileSdk 升 36（AGP 8.13.0 + Gradle 8.13，为 Android 16 Live Updates 接入准备，versionCode 32）
 - 2026-09-27/28: D 路线实时 Markdown 渲染落地（MdSpans/MdBlocks/MdStreamRenderer 第1-5步）+ 消息列表滑动丝滑优化（RecyclerView 形态池化/AiRich 容器池化/flush 分批/漂移补偿，池化回归修复多轮）+ 行动轨道原型 + 慢放体系 + 键盘/表情/输入框三层联动修复
