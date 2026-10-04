@@ -117,11 +117,16 @@ android-agent-app/
 - [x] 会话搜索 + Token 统计 + 前台服务保活
 - [x] 工作目录批量工具（grep/head/stats，40 轮工具上限）
 - [x] 浏览器模块（自研 Agent 浏览器：整屏接管 + AI 高亮 + 验证码交还）
-- [x] GitHub Release 发布（v1.3/v2.0 正式签名包，应用内更新弹窗生效）
+- [x] GitHub Release 发布（v2.0 起正式签名包，应用内更新弹窗生效）
 - [ ] 对话上下文分级管理进一步优化
 
 ## 版本记录
 
+- **v2.3.3（2026-10-04，versionCode 39）**：安全中心三档门禁（严格/自动/放行）UI 落地，AI 不再自切档位；欢迎卡片内嵌门禁快捷切档；新增审计页（AuditActivity）；放行二次确认弹窗主题化，与设置页视觉一致；修复安全中心取消二次确认时的重入弹窗。
+- **v2.3.2（2026-10-03，versionCode 38）**：安全审查修复版：高危操作（命令执行、脚本执行、动态工具调用）增加二次确认保护；DebugServer 局域网模式与非本机连接打醒目告警；危险命令黑名单补强（eval/$(/xargs/busybox/base64/printf/进程替换等）；移除 SSH 私钥前缀日志；release 开启 R8 混淆+资源收缩，新增 proguard-rules.pro；依赖升级（jsch 0.2.26 / bcprov 1.82 / commons-compress 1.28.0 / xz 1.10 / onnxruntime 1.26.0 / media3 1.5.1）。
+- **v2.3.1（2026-10-03，versionCode 37）**：安全加固版：SSRF 防护重写（host 字面量正则改为 InetAddress 解析后逐项校验，覆盖 DNS 重绑定、IPv6、IP 编码、0.0.0.0 变体四类绕过，HTTP 连接锁定已校验 IP 并保留原 Host 头）；日志脱敏补齐（SSE 流与 SSH 命令日志仅输出长度）；file/read 路径穿越修复（canonicalPath 白名单校验）；CI 签名 job 仅 push 触发；trustHost 增加连接名校验；危险操作确认名单补 file:upload / browser:save_cookies；workdir 白名单尾斜杠误拒修复。
+- **v2.3（2026-10-03，versionCode 36）**：修复 SSH 主机密钥空指针 NPE；SSRF 风险文案修正；M1/M2/M4/M5/M6 五项安全加固；CI 新增 build-release 签名 job（Secrets 管理签名）。
+- **v2.2（2026-10-02，versionCode 35）**：6 项安全审计修复（JS 桥全局注入收紧至本地资产页面、Cookie 与内容访问收紧、API Key 改 AndroidKeyStore AES/GCM 加密并兼容旧明文迁移、site_auth.json 加密存储+旧数据迁移、WebTools fetch/重定向复用 SSRF 黑名单检查、DebugServer 移除 query token 仅 header 鉴权）；CI 升级（push/PR 自动 assembleDebug 编译门、debug APK 产物上传、Gradle 依赖缓存）。
 - **v2.1.1（2026-10-02，versionCode 34）**：表格单元格垂直居中修复（MdTableView 行容器垂直居中，聊天/Agent 双模式一致）；慢放迁移调试弹窗；浏览器面板按钮；聊天模式气泡宽度恢复对称到头像内侧。
 - **v2.1（2026-10-02，versionCode 33）**：消息流 Markdown 表格渲染方案 C 落地（MdTableView 重写：气泡内独立 TableView 块化、表格块 WRAP_CONTENT 自适应）；修复含行内代码单元格整格空白；表格右半段消失修复（列宽压缩保底 + 表格内部横滑）；文字竖排根因修复（列宽按文字需求压缩，放不下走内部横滑绝不竖排）+ 连续表格间距修复；三项 UI 修复（AI 正文全屏气泡、AI 侧长按复制恢复、浏览器双击开/关）；清理方案 C 废弃的旧表格类。
 - **v2.0（2026-09-29 维护，versionCode 32）**：targetSdk/compileSdk 升至 36（AGP 8.13.0 + Gradle 8.13，为 Android 16 Live Updates API 接入准备）；D 路线实时 Markdown 渲染（MdSpans/MdBlocks/MdStreamRenderer）+ 引用块竖线/分割线渲染（QuoteBarSpan/HrSpan）+ rendered 落库基建（mdCache→rendered→现场渲染三级读取，ADR-015）；状态行覆盖式下拉面板（窗帘式挂 chatArea，ScrollView + 动画代际 token 防连点竞态）；思考气泡空气泡根治（协议前缀三处兜底）+ 时间线圆点对齐/图标化；首启闪退修复（markwon 并发锁）+ 消息列表滑动丝滑优化（RecyclerView 形态池化 + AiRich 容器池化 + flush 分批 + 漂移补偿 + watcher 去重）；表格横滑公共版（TableScrollWrap）+ 整表统一列宽（colMaxChars）；行动轨道原型 + 慢放体系；工具自热度排序（ToolHotStore）+ root 自动补齐自身权限（versionCode 31）；开源前安全加固与清理。
