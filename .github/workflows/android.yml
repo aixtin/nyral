@@ -177,11 +177,30 @@ jobs:
       # 依赖坐标解析（无需编译；releaseRuntimeClasspath 即打包进 APK 的运行时依赖）
       # build/ 已在 .gitignore 中，deps.txt 不会入库
       - name: Resolve runtime dependencies
-        run: ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --console=plain > build/deps.txt 2>&1
+        run: |
+          set +e
+          ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --console=plain > build/deps.txt 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -80 build/deps.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::gradle dependencies failed (rc=$rc), tail above"
+          fi
+          exit $rc
 
       # 抓取 POM 核对许可证白名单；任何不在白名单或无法识别许可证的依赖都会让 CI 失败
       - name: Verify licenses against allowlist
-        run: python3 .github/ci/license-check.py build/deps.txt
+        run: |
+          set +e
+          python3 .github/ci/license-check.py build/deps.txt
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            python3 .github/ci/license-check.py build/deps.txt 2>&1 | tail -40 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $rc
 
       # 保留依赖 dump 用于排查 license-check 失败（公开仓库可匿名下载）
       - name: Upload dependency dump
@@ -191,3 +210,4 @@ jobs:
           name: deps-dump
           path: build/deps.txt
           retention-days: 3
+          if-no-files-found: warn
