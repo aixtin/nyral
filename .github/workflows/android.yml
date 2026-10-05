@@ -182,3 +182,12 @@ jobs:
       # 抓取 POM 核对许可证白名单；任何不在白名单或无法识别许可证的依赖都会让 CI 失败
       - name: Verify licenses against allowlist
         run: python3 .github/ci/license-check.py build/deps.txt
+
+      # 保留依赖 dump 用于排查 license-check 失败（公开仓库可匿名下载）
+      - name: Upload dependency dump
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deps-dump
+          path: build/deps.txt
+          retention-days: 3
