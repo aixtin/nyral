@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("jacoco")
 }
 
 android {
@@ -54,6 +55,7 @@ android {
         baseline = file("lint-baseline.xml")
     }
 
+
     packaging {
         resources {
             excludes += setOf(
@@ -103,4 +105,18 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013")
     testImplementation("org.hamcrest:hamcrest-core:1.3")
+}
+
+tasks.register<JacocoReport>("jacocoTestReport") {
+    dependsOn("testDebugUnitTest")
+    group = "verification"
+    description = "Generate Jacoco HTML/XML report for pure-function classes (all package)"
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+        csv.required.set(false)
+    }
+    classDirectories.setFrom(files("$buildDir/tmp/kotlin-classes/debug"))
+    sourceDirectories.setFrom(files("src/main/java"))
+    executionData.setFrom(files("$buildDir/jacoco/testDebugUnitTest.exec"))
 }
