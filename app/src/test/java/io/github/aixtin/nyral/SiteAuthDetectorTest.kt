@@ -35,7 +35,7 @@ class SiteAuthDetectorTest {
         assertTrue(SiteAuthDetector.hasLoginCookies("BAIDUID=xx; bduss=reallogin"))
         assertTrue(SiteAuthDetector.hasLoginCookies("session=xyz; path=/"))
         assertTrue(SiteAuthDetector.hasLoginCookies("csrf_token=xyz"))
-        assertTrue(SiteAuthDetector.hasLoginCookies("username=assistant; logged_in=1"))
+        assertTrue(SiteAuthDetector.hasLoginCookies("username=guest; logged_in=1"))
     }
 
     @Test
