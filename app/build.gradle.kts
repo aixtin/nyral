@@ -49,6 +49,11 @@ android {
         }
     }
 
+    lint {
+        // 2026-10-06: 存量 lint error 冻结进 baseline, 仅新增问题使 CI 失败
+        baseline = file("lint-baseline.xml")
+    }
+
     packaging {
         resources {
             excludes += setOf(
