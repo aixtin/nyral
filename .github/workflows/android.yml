@@ -179,6 +179,7 @@ jobs:
       - name: Resolve runtime dependencies
         run: |
           set +e
+          mkdir -p build
           ./gradlew :app:dependencies --configuration releaseRuntimeClasspath --console=plain > build/deps.txt 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
