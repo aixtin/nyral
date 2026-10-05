@@ -38,6 +38,36 @@ jobs:
             app/build/reports/tests/
             app/build/test-results/
 
+
+  lint:
+    name: Android Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Set up Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      # 静态检查门: 潜在 bug/可用性/性能问题云端提前暴露
+      - name: Run lint
+        run: ./gradlew :app:lintDebug --console=plain
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
   build-debug:
     name: Build Debug APK
     runs-on: ubuntu-latest

@@ -56,7 +56,7 @@ internal fun BrowserPage.highlightIndex(n: Int) {
     setThink(act.getString(R.string.br_candidate, n + 1, elements.size, e.label, e.x, e.y, e.w, e.h))
 }
 
-/** 按坐标(doc 绝对)命中最近候选元素并高亮(供 /v1/browser/highlight/xy), 返回命中的元素描述 */
+/** 按坐标(视口)命中最近候选元素并高亮(供 /v1/browser/highlight/xy), 返回命中的元素描述 */
 internal fun BrowserPage.highlightNear(x: Int, y: Int): String {
     if (elements.isEmpty()) return "页面暂无可用元素"
     var best = -1; var bestDist = Int.MAX_VALUE

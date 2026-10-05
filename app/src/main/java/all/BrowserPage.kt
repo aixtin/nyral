@@ -52,7 +52,7 @@ internal class BrowserPage(internal val act: MainActivity) {
     internal var loaded = false     // 网页是否已加载(首个页面)
     internal var lastUrl = ""       // 最近一次 open 指定的地址(WebView.getUrl 加载完成前为空, 用于调试状态回显)
 
-    // 扫描到的高亮候选元素(doc 绝对坐标)
+    // 扫描到的高亮候选元素(视口坐标)
     internal val elements = mutableListOf<Element>()
     internal var textResult: String = ""
     internal var textLatch: CountDownLatch? = null

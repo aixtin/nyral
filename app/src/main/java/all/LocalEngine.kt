@@ -440,10 +440,11 @@ object LocalEngine {
                     }
                     // 正则化执行本轮全部工具(可能并行多 call), 结果逐条回填 role=tool
                     val execResults = ArrayList<Pair<String, String>>() // (自定义显示行, 工具结果文本)
+                    // 截断配对: 只执行额度内子集, 回填用同一子集保证 assistant tool_calls 与 tool 结果数量对齐
+                    val execCalls = ToolCallPairer.allowedSubset(toolCalls, toolCount, MAX_TOOL_CALLS)
+                    toolCount += execCalls.size
                     val schemaBlocks = StringBuilder()
-                    for ((name, arg) in toolCalls) {
-                        if (toolCount >= MAX_TOOL_CALLS) break
-                        toolCount++
+                    for ((name, arg) in execCalls) {
                         cb.onTool(name, arg)
                         val result = ToolExecutor.execute(context, name, arg, hotLoaded)
                         cb.onToolResult(name, result)
@@ -470,7 +471,7 @@ object LocalEngine {
                                 "[工具 $name 执行结果]\n" + capOut(clean)))
                         }
                     } else {
-                        messages.put(buildAssistantToolMessage(res, toolCalls))
+                        messages.put(buildAssistantToolMessage(res, execCalls))
                         for ((i, er) in execResults.withIndex()) {
                             // 按 toolCalls 序号取对应 id: 并行同名工具各自独立, 防回填重复 tool_call_id
                             val toolCallId = res.idAt(i) ?: "call_${er.first}_$toolCount"
@@ -599,7 +600,7 @@ object LocalEngine {
         // 原生 function calling: 请求携带 tools(模型支持时); probe 失败过则降级纯文本
         val useTools = !toolsUnsupported
         if (useTools) body.put("tools", buildToolsArray(context, hotLoaded))
-        // DeepSeek 支持流式返回真实 usage(最后一块); 其余厂商未知, 不加避免报错, 靠本地估算
+        // 默认厂商支持流式返回真实 usage(最后一块); 其余厂商未知, 不加避免报错, 靠本地估算
         if (ApiConfig.providerId() == "deepseek") {
             body.put("stream_options", JSONObject().put("include_usage", true))
         }
@@ -682,7 +683,7 @@ object LocalEngine {
             val parsed = try { JSONObject(data) } catch (e: Exception) { null } ?: continue
             val choices = parsed.optJSONArray("choices")
             val usage = parsed.optJSONObject("usage")
-            // 流式结束的 usage chunk: 携带真实 token 数(DeepSeek 在 finish_reason=stop 的块返回 usage)
+            // 流式结束的 usage chunk: 携带真实 token 数(默认厂商在 finish_reason=stop 的块返回 usage)
             if (usage != null && usage.optLong("prompt_tokens", 0) > 0) {
                 usedPrompt = usage.optLong("prompt_tokens", 0)
                 usedCompletion = usage.optLong("completion_tokens", 0)
@@ -929,7 +930,7 @@ object LocalEngine {
     private fun looksLikeToolsUnsupported(err: String): Boolean {
         val e = err.lowercase()
         // 回填构造缺陷(如重复 tool_call_id)是请求组装 bug 而非 provider 能力问题, 降级重试也无法恢复,
-        // 且会切换文本协议放大 DSML 泄漏, 必须排除(2026-09-18 实测 DeepSeek 该报错含 "invalid"+400 曾被误判)
+        // 且会切换文本协议放大 DSML 泄漏, 必须排除(2026-09-18 实测默认厂商该报错含 "invalid"+400 曾被误判)
         if (e.contains("tool_call_id")) return false
         return e.contains("tool") && (e.contains("not support") || e.contains("unsupported") ||
             e.contains("does not support") || e.contains("unknown parameter") || e.contains("extra parameter") ||

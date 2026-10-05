@@ -2,17 +2,23 @@ package io.github.aixtin.nyral
 
 /**
  * BrowserPage 扫描注入域(第二刀拆分, BP8):
- * - injectScanner: 页面加载后注入元素扫描器, 收集可见可交互元素(doc 绝对坐标)
+ * - injectScanner: 页面加载后注入元素扫描器, 收集可见可交互元素(视口坐标, 上报即当前屏幕所见)
+ * - 同一视觉块(矩形高度重叠+同文本)只保留面积最小的一份, 消除容器/叶子重复采集
+ * - 标签清洗: 剥离 "[object ...]" 字符串化伪影(站点把 JS 对象插值进 aria-label/正文), 剥空的候选直接弃采, 杜绝按垃圾标签匹配失败
+ * - 扫描不复位页面滚动, 保证"滚动->重扫"工作流不被打断
  * - 主类仅保留调用点(initWebViews 的 onPageFinished -> injectScanner())
  */
 internal fun BrowserPage.injectScanner() {
     web.evaluateJavascript(
         """(function(){
-          var out=[];
           var MAX=150;
-          function cleanTxt(t){ t=(t||'').trim(); return t.length>40?t.slice(0,40):t; }
-          function push(el,ox,oy){
-            if(out.length>=MAX) return;
+          var cands=[];
+          var seen=new Set();
+          function cleanTxt(t){ t=(t||'').replace(/\[object[^\]]*\]/g,'').trim(); return t.length>40?t.slice(0,40):t; }
+          function norm(t){ return (t||'').replace(/\s+/g,' ').trim(); }
+          function collect(el,ox,oy){
+            if(cands.length>=MAX) return;
+            if(seen.has(el)) return; seen.add(el);
             try{
               var r=el.getBoundingClientRect();
               if(r.width<24||r.height<24) return;
@@ -33,13 +39,14 @@ internal fun BrowserPage.injectScanner() {
               }
               txt=cleanTxt(txt);
               if(!txt) return;
-              el.setAttribute('data-scan',String(out.length));
-              out.push({x:Math.round(r.left+ox),y:Math.round(r.top+oy),
-                        w:Math.round(r.width),h:Math.round(r.height),t:txt});
+              // 视口坐标: 不加文档滚动偏移, 滚动后重扫即为新视口所见
+              cands.push({el:el,x:Math.round(r.left+ox),y:Math.round(r.top+oy),
+                          w:Math.round(r.width),h:Math.round(r.height),txt:txt});
             }catch(e){}
           }
-          function pushFrame(fr,ox,oy){
-            if(out.length>=MAX) return;
+          function collectFrame(fr,ox,oy){
+            if(cands.length>=MAX) return;
+            if(seen.has(fr)) return; seen.add(fr);
             try{
               var r=fr.getBoundingClientRect();
               if(r.width<24||r.height<24) return;
@@ -48,67 +55,146 @@ internal fun BrowserPage.injectScanner() {
               try{ host=src.match(/^https?:\/\/([^\/?#]+)/)[1]||''; }catch(e){}
               var txt=host?(host+' 内嵌页面'):'内嵌页面';
               if(src) txt=txt+' ['+src.slice(0,70)+']';
-              fr.setAttribute('data-scan',String(out.length));
-              out.push({x:Math.round(r.left+ox),y:Math.round(r.top+oy),
-                        w:Math.round(r.width),h:Math.round(r.height),t:txt});
+              cands.push({el:fr,x:Math.round(r.left+ox),y:Math.round(r.top+oy),
+                          w:Math.round(r.width),h:Math.round(r.height),txt:txt});
             }catch(e){}
           }
-          function scanDoc(doc,win,ox,oy){
-            if(!doc||out.length>=MAX) return;
+          function scanDoc(doc,ox,oy){
+            if(!doc||cands.length>=MAX) return;
             var sel='a,button,input,textarea,[role=button],[role=link],[role=tab],[role=menuitem],[contenteditable],[tabindex],[onclick],[data-action],[data-testid],[data-clickable],li';
-            try{ doc.querySelectorAll(sel).forEach(function(el){push(el,ox,oy);}); }catch(e){}
-            if(out.length<MAX){
+            try{ doc.querySelectorAll(sel).forEach(function(el){collect(el,ox,oy);}); }catch(e){}
+            if(cands.length<MAX){
               try{
                 doc.querySelectorAll('div,span').forEach(function(el){
-                  if(out.length>=MAX) return;
+                  if(cands.length>=MAX) return;
                   if(el.children.length>3) return;
                   var st=el.ownerDocument.defaultView.getComputedStyle(el);
-                  if(st.cursor!=='pointer') return;
-                  push(el,ox,oy);
+                  var clickable = st.cursor==='pointer' || el.onclick!=null || el.getAttribute('onclick')!=null || el.getAttribute('data-action')!=null;
+                  if(!clickable) return;
+                  collect(el,ox,oy);
                 });
               }catch(e){}
             }
-            // iframe 穿透
+            // iframe 穿透(内层坐标=iframe 在外层视口的位置 + 内层视口内偏移)
             try{
               doc.querySelectorAll('iframe').forEach(function(fr){
-                if(out.length>=MAX) return;
+                if(cands.length>=MAX) return;
                 var frr=fr.getBoundingClientRect();
-                var fxo=ox+frr.left+(win?win.scrollX:0);
-                var fyo=oy+frr.top+(win?win.scrollY:0);
+                var fxo=ox+frr.left, fyo=oy+frr.top;
                 var inner=null;
                 try{ inner=fr.contentDocument; }catch(e){ inner=null; }
                 if(inner&&inner!==doc){
-                  pushFrame(fr,fxo,fyo);
-                  scanDoc(inner,fr.contentWindow,fxo,fyo);
+                  collectFrame(fr,fxo,fyo);
+                  scanDoc(inner,fxo,fyo);
                 } else {
-                  pushFrame(fr,fxo,fyo);
+                  collectFrame(fr,fxo,fyo);
                 }
               });
             }catch(e){}
             // shadow DOM 穿透
             try{
               doc.querySelectorAll('*').forEach(function(el){
-                if(out.length>=MAX) return;
+                if(cands.length>=MAX) return;
                 if(el.shadowRoot){
                   var sr=el.getBoundingClientRect();
-                  scanDoc(el.shadowRoot,win,ox+sr.left+(win?win.scrollX:0),oy+sr.top+(win?win.scrollY:0));
+                  scanDoc(el.shadowRoot,ox+sr.left,oy+sr.top);
                 }
               });
             }catch(e){}
           }
-          function doScan(){
-            out=[];
-            scanDoc(document,window,0,0);
-            window.scrollTo(0,0);
+          // 视觉去重: 归一文本相同且重叠区占较小者面积>=0.8 视为同一视觉块,
+          // 只留面积最小(定位最精确)的一份; 面积相同保留先采集的一份
+          function dedup(){
+            var keep=[];
+            for(var i=0;i<cands.length;i++){
+              var a=cands[i], drop=false;
+              for(var j=0;j<cands.length&&!drop;j++){
+                if(i===j) continue;
+                var b=cands[j];
+                if(norm(a.txt)!==norm(b.txt)) continue;
+                var x1=Math.max(a.x,b.x), y1=Math.max(a.y,b.y);
+                var x2=Math.min(a.x+a.w,b.x+b.w), y2=Math.min(a.y+a.h,b.y+b.h);
+                if(x2<=x1||y2<=y1) continue;
+                var ov=(x2-x1)*(y2-y1);
+                var smaller=Math.min(a.w*a.h,b.w*b.h);
+                if(ov/smaller>=0.8){
+                  if(b.w*b.h<a.w*a.h) drop=true;
+                  else if(b.w*b.h===a.w*a.h&&j<i) drop=true;
+                }
+              }
+              if(!drop) keep.push(a);
+            }
+            return keep;
+          }
+          // 清除上次扫描残留的 data-scan 标记, 防止新旧索引错位
+          function clearMarks(doc){
+            try{
+              doc.querySelectorAll('[data-scan]').forEach(function(el){el.removeAttribute('data-scan');});
+              doc.querySelectorAll('iframe').forEach(function(fr){
+                try{ if(fr.contentDocument) clearMarks(fr.contentDocument); }catch(e){}
+              });
+              doc.querySelectorAll('*').forEach(function(el){
+                if(el.shadowRoot) clearMarks(el.shadowRoot);
+              });
+            }catch(e){}
+          }
+          // 可交互判定: 容器剔除时认定"叶子"用
+          function interactive(el){
+            var t=el.tagName;
+            return t==='A'||t==='BUTTON'||t==='INPUT'||t==='SELECT'||t==='TEXTAREA'||t==='OPTION'||
+                   el.hasAttribute('onclick')||/^(button|link|tab|menuitem)$/.test(el.getAttribute('role')||'');
+          }
+          // 容器剔除: 祖先块内含可交互叶子(叶子基本盖住祖先+叶子文本是祖先文本子串)时只留叶子,
+          // 消除"容器+叶子同列"造成的视觉序错乱与点击歧义
+          function dropContainers(list){
+            return list.filter(function(a){
+              for(var j=0;j<list.length;j++){
+                var b=list[j];
+                if(b===a||!a.el.contains(b.el)) continue;
+                if(!interactive(b.el)) continue;
+                var x1=Math.max(a.x,b.x), y1=Math.max(a.y,b.y);
+                var x2=Math.min(a.x+a.w,b.x+b.w), y2=Math.min(a.y+a.h,b.y+b.h);
+                if(x2<=x1||y2<=y1) continue;
+                if((x2-x1)*(y2-y1)/(a.w*a.h)<0.6) continue;
+                var at=norm(a.txt), bt=norm(b.txt);
+                if(bt&&at.indexOf(bt)>=0) return false;
+              }
+              return true;
+            });
+          }
+          // 布局就绪重试: SPA(onPageFinished 后仍异步渲染)首扫常为空, 空则每 300ms 重扫最多 6 次;
+          // 首次采集前等布局稳定(双 rAF + 高度连续不变), 防止加载/弹窗动画中被采到跨帧漂移坐标;
+          // 结果按 y 再 x 排序后编号, 索引顺序即视觉顺序, 消除 DOM 序与视觉序倒挂
+          var tries=0;
+          function collectAndReport(){
+            clearMarks(document);
+            var kept=dropContainers(dedup());
+            kept.sort(function(p,q){return p.y-q.y||p.x-q.x;});
+            var out=[];
+            for(var k=0;k<kept.length;k++){
+              kept[k].el.setAttribute('data-scan',String(k));
+              out.push({x:kept[k].x,y:kept[k].y,w:kept[k].w,h:kept[k].h,t:kept[k].txt});
+            }
             daBridge.onElements(JSON.stringify(out));
           }
-          var steps=0;
-          function warm(){
-            steps++;
-            window.scrollTo(0, document.body.scrollHeight);
-            if(steps<3){ setTimeout(warm, 200); }
-            else { window.scrollTo(0,0); setTimeout(doScan, 200); }
+          function doScan(){
+            cands=[]; seen=new Set();
+            scanDoc(document,0,0);
+            if(cands.length===0 && tries<6){ tries++; setTimeout(doScan, 300); return; }
+            collectAndReport();
           }
-          setTimeout(warm, 150);
+          function waitStable(){
+            var h0=-1, same=0, t0=Date.now();
+            function tick(){
+              var h=0; try{ h=document.body?document.body.clientHeight:0; }catch(e){}
+              if(h>0&&h===h0){ same++; } else { same=0; }
+              h0=h;
+              var el=Date.now()-t0;
+              if((same>=1&&el>=240)||el>800){ doScan(); return; }
+              setTimeout(tick,120);
+            }
+            requestAnimationFrame(function(){requestAnimationFrame(tick);});
+          }
+          setTimeout(waitStable, 200);
         })();""", null)
 }

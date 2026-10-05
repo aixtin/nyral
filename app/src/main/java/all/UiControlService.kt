@@ -123,6 +123,28 @@ class UiControlService : AccessibilityService() {
     private var lastNodes: List<AccessibilityNodeInfo> = emptyList()
 
     private fun collectElements(): String {
+        var result = collectElementsOnce()
+        // 加载瞬间可达树退化: 整屏只剩一个 WebView 节点判为页面加载中, 短暂等待后重采(最多 3 次)而非直接结案
+        var tries = 0
+        while (tries < 3 && isDegradedWebViewTree(result)) {
+            tries++
+            try { Thread.sleep(400) } catch (e: InterruptedException) { }
+            result = collectElementsOnce()
+        }
+        if (tries > 0 && isDegradedWebViewTree(result)) result += "\n(提示: 页面可能仍在加载, 可稍后重扫)"
+        return result
+    }
+
+    /** 判定采集结果是否退化: 只有一个元素且是 WebView(页面加载瞬间常见) */
+    private fun isDegradedWebViewTree(result: String): Boolean {
+        if (!result.startsWith("[0] ")) return false
+        if (result.contains("\n[1]")) return false
+        val nl = result.indexOf('\n')
+        val first = if (nl < 0) result else result.substring(0, nl)
+        return first.contains("WebView")
+    }
+
+    private fun collectElementsOnce(): String {
         val root = rootInActiveWindow ?: return "当前无前台窗口可读取(请确认已开启无障碍且停留在目标 App 页面)"
         val found = ArrayList<El>()
         walk(root, found, 0)
@@ -164,11 +186,14 @@ class UiControlService : AccessibilityService() {
                 cls == "EditText"
     }
 
-    /** 提取元素可读标签: 文本 > 内容描述 > viewId > 类名 */
+    /** "[object Object]"类字符串化伪影(站点把 JS 对象插值进 aria-label/正文, WebView 无障碍名按 aria-label 优先会原样透传) */
+    private val objectArtifact = Regex("\\[object[^\\]]*\\]")
+
+    /** 提取元素可读标签: 文本 > 内容描述 > viewId > 类名; 先剥伪影再判空, 防垃圾标签顶替真实文本 */
     private fun labelOf(n: AccessibilityNodeInfo): String {
-        val t = n.text?.toString()?.trim().orEmpty()
+        val t = n.text?.toString()?.replace(objectArtifact, "")?.trim().orEmpty()
         if (t.isNotBlank()) return t
-        val d = n.contentDescription?.toString()?.trim().orEmpty()
+        val d = n.contentDescription?.toString()?.replace(objectArtifact, "")?.trim().orEmpty()
         if (d.isNotBlank()) return d
         val id = n.viewIdResourceName?.substringAfterLast('/') ?: ""
         if (id.isNotBlank()) return id

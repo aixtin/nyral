@@ -440,7 +440,7 @@ object ApiConfig {
     }
 
     /** 某供应商/模型可见的思考强度档位（始终含"自动"；不支持的档位不展示）。
-     *  规则：DeepSeek/Qwen 支持开关 -> 自动/关闭/开启；OpenAI o 系支持强度 -> 自动/低/中/高；
+     *  规则：默认厂商/Qwen 支持开关 -> 自动/关闭/开启；OpenAI o 系支持强度 -> 自动/低/中/高；
      *  其它未知厂商 -> 仅自动（不传参）。 */
     fun thinkingLevelsOf(id: String, model: String): List<String> {
         val p = providerById(id)
@@ -479,7 +479,7 @@ object ApiConfig {
                 } ?: return null
                 JSONObject().put("reasoning_effort", v)
             }
-            // DeepSeek：thinking 为对象格式 {"type":"enabled"|"disabled"}（V3.1 起支持；低/中/高/超高统一视为开启）
+            // 默认厂商：thinking 为对象格式 {"type":"enabled"|"disabled"}（V3.1 起支持；低/中/高/超高统一视为开启）
             label.contains("deepseek") ->
                 JSONObject().put("thinking", JSONObject().put("type", if (effort == THINK_OFF) "disabled" else "enabled"))
             // Qwen（Qwen3 等）：enable_thinking 布尔

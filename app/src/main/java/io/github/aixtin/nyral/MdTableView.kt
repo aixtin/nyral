@@ -21,7 +21,7 @@ import android.widget.TextView
  *  - 行线: 相邻两行之间 1px View(最后一行不画, 底边由外框收口);
  *  - 表头底: 表头行 GradientDrawable 实心圆角(上边两角), 不再单独画线;
  *  - 外框: 整表 GradientDrawable stroke 圆角。
- *  - 列宽: Paint.measureText 实测文本宽 + 左右各 12dp 留白(DeepSeek 策略),
+ *  - 列宽: Paint.measureText 实测文本宽 + 左右各 12dp 留白(主流渲染器通行策略),
  *          保底 8dp、单列上限 240dp; 总宽超可用宽先等比压缩(每列保底 48dp),
  *          仍超则保留内部横滑。
  *  - 左右留白对称: 列宽由内容+固定留白决定, 表格总宽=Σ列宽, 无需手算 padding 修正。
@@ -84,7 +84,7 @@ internal class MdTableView(context: Context) : HorizontalScrollView(context) {
             data.header.size,
             data.rows.maxOfOrNull { it.size } ?: 0
         ).coerceAtLeast(1)
-        // 列宽: 按该列所有 cell 文本的真实测量宽度取最大(DeepSeek 同款策略),
+        // 列宽: 按该列所有 cell 文本的真实测量宽度取最大(主流渲染器同款策略),
         // 不再用字符数×估宽, 避免文字与边框脱节; 表头 bold / 正文 regular 分开测;
         // 文本封顶 16 字符(与 MAX_TABLE_CELL_CHARS 一致, 超长换行不撑爆列宽)。
         val measurePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 14f * scaledDensity }

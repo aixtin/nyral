@@ -279,6 +279,7 @@ object DebugServer {
                     method == "POST" && path == "/v1/browser/highlight/xy" -> browserHighlightXY(out, body)
                     method == "POST" && path == "/v1/browser/click" -> browserClick(out, body)
                     method == "POST" && path == "/v1/browser/type" -> browserType(out, body)
+                    method == "POST" && path == "/v1/browser/scroll" -> browserScroll(out, body)
                     method == "POST" && path == "/v1/browser/eval" -> browserEval(c, out, body)
                     method == "POST" && path == "/v1/app/scan" -> appScan(out)
                     method == "POST" && path == "/v1/app/click" -> appClick(out, body)
@@ -860,11 +861,11 @@ object DebugServer {
         val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
         val idx = try { JSONObject(body).optInt("index", -1) } catch (e: Exception) { -1 }
         val latch = CountDownLatch(1); var msg = ""
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
+        Thread {
             if (act.browserPageReady()) msg = act.browserPage.clickIndex(idx) else msg = "浏览器页未初始化"
             latch.countDown()
-        }
-        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        }.start()
+        try { latch.await(12, TimeUnit.SECONDS) } catch (e: Exception) {}
         writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
     }
 
@@ -978,7 +979,20 @@ object DebugServer {
             if (act.browserPageReady()) msg = act.browserPage.typeIndex(idx, text) else msg = "浏览器页未初始化"
             latch.countDown()
         }
-        try { latch.await(1, TimeUnit.SECONDS) } catch (e: Exception) {}
+        try { latch.await(1, TimeUnit.SECONDS) } catch (e: InterruptedException) {}
+        writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
+    }
+
+    /** /v1/browser/scroll: 容器感知滚动并同步回报实际滚动量, 供测试线直接回归 scroll 工具链路 */
+    private fun browserScroll(out: OutputStream, body: String) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        val delta = try { JSONObject(body).optInt("delta", 0) } catch (e: Exception) { 0 }
+        val latch = CountDownLatch(1); var msg = ""
+        Thread {
+            if (act.browserPageReady()) msg = act.browserPage.scrollBySync(delta) else msg = "浏览器页未初始化"
+            latch.countDown()
+        }.start()
+        try { latch.await(6, TimeUnit.SECONDS) } catch (e: InterruptedException) {}
         writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
     }
 

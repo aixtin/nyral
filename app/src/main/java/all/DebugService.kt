@@ -13,7 +13,7 @@ import android.os.IBinder
 
 /**
  * DebugServer 保活前台服务: 防止 App 退后台后进程被系统冻结(cached freezer),
- * 导致 DebugServer(8765) accept 线程停摆、云端 curl 连不上。
+ * 导致 DebugServer accept 线程停摆、云端 curl 连不上。
  * 仅 debug 构建且 DebugServer 启用时启动; release 构建不出现。
  */
 class DebugService : Service() {

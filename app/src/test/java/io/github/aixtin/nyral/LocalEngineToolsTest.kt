@@ -187,7 +187,7 @@ class LocalEngineToolsTest {
     @Test
     fun looksLikeToolsUnsupportedExcludesToolCallIdError() {
         val m = method("looksLikeToolsUnsupported", String::class.java)
-        // 2026-09-18 实测 DeepSeek 该报错含 invalid+400 曾被误判为 tools 不支持, 必须排除
+        // 2026-09-18 实测默认厂商该报错含 invalid+400 曾被误判为 tools 不支持, 必须排除
         val err = "HTTP 400: invalid tool_call_id, Duplicate tool_call_id"
         check(!(m.invoke(LocalEngine, err) as Boolean)) { "tool_call_id 相关错误不应降级(会放大 DSML 泄漏)" }
     }
@@ -197,5 +197,59 @@ class LocalEngineToolsTest {
         val m = method("looksLikeToolsUnsupported", String::class.java)
         check(!(m.invoke(LocalEngine, "401 Unauthorized") as Boolean)) { "401 不应识别为 tools 不支持" }
         check(!(m.invoke(LocalEngine, "context length exceeded") as Boolean)) { "超长错误不应误判" }
+    }
+    // ================= assistant tool_calls 回填配对(2026-10-05 400 修复) =================
+
+    private fun streamResultClass(): Class<*> =
+        LocalEngine::class.java.declaredClasses.first { it.simpleName == "StreamResult" }
+
+    private fun newStreamResult(calls: List<Pair<String, String>>, ids: List<String>): Any {
+        val cls = streamResultClass()
+        val ctor = cls.declaredConstructors.first { it.parameterCount == 6 }
+        ctor.isAccessible = true
+        return ctor.newInstance("", calls, null, ids, null, false)
+    }
+
+    private fun buildAssistantToolMessage(res: Any, calls: List<Pair<String, String>>): JSONObject {
+        val m = LocalEngine::class.java.getDeclaredMethod(
+            "buildAssistantToolMessage", streamResultClass(), List::class.java
+        )
+        m.isAccessible = true
+        return m.invoke(LocalEngine, res, calls) as JSONObject
+    }
+
+    @Test
+    fun assistantToolCallsMatchesAllExecuted() {
+        // 无截断: 回填数量 = 实际执行数量, id 与 StreamResult.toolCallIds 一一对应
+        val calls = listOf("scan" to "{}", "click" to "{\"index\":0}", "text" to "{}")
+        val ids = listOf("call_scan_1", "call_click_2", "call_text_3")
+        val msg = buildAssistantToolMessage(newStreamResult(calls, ids), calls)
+        val arr = msg.getJSONArray("tool_calls")
+        check(arr.length() == 3) { "无截断时回填 3 条, 实际 " + arr.length() }
+        for (i in 0 until 3) {
+            val tc = arr.getJSONObject(i)
+            check(tc.getString("id") == ids[i]) { "第 " + i + " 条 id 应 " + ids[i] + ", 实际 " + tc.getString("id") }
+            check(tc.getJSONObject("function").getString("name") == calls[i].first) { "第 " + i + " 条函数名不符" }
+        }
+    }
+
+    @Test
+    fun assistantToolCallsTruncatedToExecutedSubset() {
+        // 截断场景(400 bug 回归): 模型请求 5 个调用, 实际只执行前 2 个(额度耗尽),
+        // 回填必须只带 2 条 tool_calls, 不能回填全集 5 条(否则 tool 结果消息不足被拒)
+        val full = (0 until 5).map { "tool_" + it to "{}" }
+        val executed = full.take(2)
+        val ids = (0 until 5).map { "call_real_" + it }
+        val msg = buildAssistantToolMessage(newStreamResult(full, ids), executed)
+        val arr = msg.getJSONArray("tool_calls")
+        check(arr.length() == 2) { "截断后回填应只 2 条(实际执行数), 实际 " + arr.length() + "; 回填全集 5 条即 400 根因" }
+        check(arr.getJSONObject(0).getString("id") == "call_real_0") { "首条 id 应对应实际执行的第 0 个" }
+        check(arr.getJSONObject(1).getString("id") == "call_real_1") { "次条 id 应对应实际执行的第 1 个" }
+    }
+
+    @Test
+    fun assistantToolCallsEmptyWhenNoneExecuted() {
+        val msg = buildAssistantToolMessage(newStreamResult(emptyList(), emptyList()), emptyList())
+        check(msg.getJSONArray("tool_calls").length() == 0) { "无调用时 tool_calls 应为空数组" }
     }
 }

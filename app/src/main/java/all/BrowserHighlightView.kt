@@ -26,21 +26,26 @@ internal class BrowserHighlightView(context: Context) : View(context) {
     private var docH = 0
     private var viewH = 0
     private var scale = 1f
+    // 高亮时刻的滚动锚点: 视口坐标随高亮后的滚动增量平移, 实现滚动跟随
+    private var anchorSx = 0
+    private var anchorSy = 0
+    private var anchored = false
 
-    fun setTarget(r: RectF) { target = r; invalidate() }
+    fun setTarget(r: RectF) { target = r; anchored = false; setWillNotDraw(false); invalidate() }
     fun updateScroll(sx: Int, sy: Int, docHeight: Int, viewHeight: Int, s: Float) {
+        if (target != null && !anchored) { anchorSx = sx; anchorSy = sy; anchored = true }
         scrollX = sx; scrollY = sy; docH = docHeight; viewH = viewHeight; scale = s; invalidate()
     }
-    fun clearTarget() { target = null; invalidate() }
+    fun clearTarget() { target = null; setWillNotDraw(true); invalidate() }
 
     override fun onDraw(c: Canvas) {
         val t = target ?: return
-        // doc 坐标 -> 视口坐标（减滚动偏移, 实现滚动跟随）
+        // 视口坐标(高亮时刻) + 高亮后的滚动增量, 实现滚动跟随
         val s = scale
-        val top = t.top * s - scrollY
-        val bottom = t.bottom * s - scrollY
-        val left = t.left * s - scrollX
-        val right = t.right * s - scrollX
+        val top = t.top * s - (scrollY - anchorSy)
+        val bottom = t.bottom * s - (scrollY - anchorSy)
+        val left = t.left * s - (scrollX - anchorSx)
+        val right = t.right * s - (scrollX - anchorSx)
         // 超出视口的元素裁剪掉
         if (bottom < 0 || top > viewH) return
         val r = RectF(left, top, right, bottom)
@@ -61,6 +66,5 @@ internal class BrowserHighlightView(context: Context) : View(context) {
         c.drawLine(rr.right, rr.bottom, rr.right - L, rr.bottom, cornerPaint)
         c.drawLine(rr.left + L, rr.bottom, rr.left, rr.bottom, cornerPaint)
         c.drawLine(rr.left, rr.bottom, rr.left, rr.bottom - L, cornerPaint)
-        invalidate()
     }
 }
