@@ -10,6 +10,7 @@ the allowlist or no license can be determined.
 Usage: python3 .github/ci/license-check.py <dependencies-dump.txt>
 """
 import re
+import time
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -72,10 +73,19 @@ def pom_url(repo: str, group: str, artifact: str, version: str) -> str:
     return f"{repo}/{group.replace('.', '/')}/{artifact}/{version}/{artifact}-{version}.pom"
 
 
-def fetch(url: str) -> str:
+def fetch(url: str, tries: int = 3) -> str:
+    """Fetch with retries; CI to Maven Central/Google can be flaky."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    last_exc = None
+    for attempt in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < tries - 1:
+                time.sleep(1.5 * (attempt + 1))
+    raise last_exc or RuntimeError("unreachable")
 
 
 def fetch_pom(group: str, artifact: str, version: str):
