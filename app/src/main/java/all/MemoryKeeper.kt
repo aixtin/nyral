@@ -43,6 +43,7 @@ object MemoryKeeper {
         LogStore.init(appContext)
         MemoryApiConfig.init(appContext)   // 保证归档线程一定能读到独立辅助配置
         db = MemoryDb(appContext)
+        ModelUpdater.init(appContext)
         embedder = MemoryEmbedder(appContext)
         // 恢复残留队列: 若上次会话已结束则归档, 否则等新消息
         maybeArchive()
@@ -80,6 +81,12 @@ object MemoryKeeper {
 
     private fun archive() {
         try {
+            // 语义模型未就绪: 触发下载, 本次归档暂缓(pending 保留, 下载完成后下次触发再归档)
+            if (!embedder.isReady()) {
+                LogStore.i(LogStore.MEM, "语义模型未就绪, 触发下载, 归档暂缓")
+                ModelUpdater.ensureDownloaded()
+                return
+            }
             val batch = db.pendingAll()
             if (batch.isEmpty()) return
             // 每条消息带时间戳(如 user[09-02 14:30]: ...), 让原文记忆与主题索引都具备时间观念

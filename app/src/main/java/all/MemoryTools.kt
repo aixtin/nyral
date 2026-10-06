@@ -60,19 +60,23 @@ object MemoryTools {
             ensureInit(context)
             val e = embedder!!
             val d = db!!
-            val qv = e.embed(query)
-
-            val scored = d.all().map { mem ->
-                Triple(mem, e.cosine(qv, mem.embedding), mem.ts)
-            }.sortedWith(compareByDescending<Triple<MemoryDb.Mem, Float, Long>> { it.second }.thenByDescending { it.third })
-            val semanticHits = scored.take(3)
-
             val kwHits = d.searchKeyword(query.trim().take(10), 3)
 
             val seen = HashSet<Long>()
             val merged = ArrayList<MemoryDb.Mem>()
-            for ((mem, _, _) in semanticHits) {
-                if (seen.add(mem.id)) merged.add(mem)
+            // 语义召回仅当本地模型就绪; 未就绪自动降级为关键词召回(不阻塞记忆检索)
+            if (e.isReady()) {
+                try {
+                    val qv = e.embed(query)
+                    val scored = d.all().map { mem ->
+                        Triple(mem, e.cosine(qv, mem.embedding), mem.ts)
+                    }.sortedWith(compareByDescending<Triple<MemoryDb.Mem, Float, Long>> { it.second }.thenByDescending { it.third })
+                    for ((mem, _, _) in scored.take(3)) {
+                        if (seen.add(mem.id)) merged.add(mem)
+                    }
+                } catch (ex: Exception) {
+                    ModelUpdater.ensureDownloaded()
+                }
             }
             for (mem in kwHits) {
                 if (seen.add(mem.id)) merged.add(mem)

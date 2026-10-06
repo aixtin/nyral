@@ -34,6 +34,7 @@ class MemModelConfigActivity : Activity() {
     private lateinit var keyInput: EditText
     private lateinit var modelInput: EditText
     private lateinit var enableBox: TextView
+    private lateinit var modelFileStatus: TextView
     private var enabled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -132,6 +133,23 @@ class MemModelConfigActivity : Activity() {
 
         content.addView(card)
 
+        // ---- 语义模型文件(热更)状态卡 ----
+        val cardModelFile = Ui.card(this).apply { setPadding(dp(16), dp(8), dp(16), dp(16)) }
+        cardModelFile.addView(Ui.fieldLabel(this, "语义模型文件"))
+        modelFileStatus = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Ui.SUB)
+            setPadding(dp(2), dp(4), dp(2), dp(4))
+        }
+        cardModelFile.addView(modelFileStatus)
+        cardModelFile.addView(Ui.primaryBtn(this, "下载 / 重试") {
+            ModelUpdater.ensureDownloaded(force = true)
+            Toast.makeText(this@MemModelConfigActivity, "开始下载语义模型(约24MB)", Toast.LENGTH_SHORT).show()
+            renderModelFile()
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        content.addView(cardModelFile)
+        renderModelFile()
+
         // 底部说明
         content.addView(Ui.hint(this, getString(R.string.mmcfg_12)))
 
@@ -142,6 +160,10 @@ class MemModelConfigActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         setContentView(root)
+    }
+
+    private fun renderModelFile() {
+        modelFileStatus.text = ModelUpdater.statusText()
     }
 
     private fun renderEnable() {

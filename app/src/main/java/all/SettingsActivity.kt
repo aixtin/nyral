@@ -118,7 +118,7 @@ class SettingsActivity : Activity() {
             addView(Ui.arrow(this@SettingsActivity))
         })
         cardModel.addView(Ui.divider(this))
-        cardModel.addView(settingsItem(getString(R.string.settings_mem_model), getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()), R.drawable.ic_settings_mem_model, 6, {
+        cardModel.addView(settingsItem(getString(R.string.settings_mem_model), getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()) + " · " + ModelUpdater.statusText(), R.drawable.ic_settings_mem_model, 6, {
             startActivity(Intent(this@SettingsActivity, MemModelConfigActivity::class.java))
         }) { memModelSubtitle = it })
         content.addView(cardModel)
