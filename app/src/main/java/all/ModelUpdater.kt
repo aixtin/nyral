@@ -30,7 +30,7 @@ object ModelUpdater {
 
     private const val TAG = "ModelUpdater"
     private val MANIFEST_URLS = listOf(
-        "https://gitee.com/aixtin/nyral-models/raw/main/models/bge/v1/manifest.json",
+        "https://gitee.com/aixtin/nyral-models/releases/download/v1/manifest.json",
         "https://raw.githubusercontent.com/aixtin/nyral/main/models/bge/v1/manifest.json"
     )
     private const val PREF = "model_updater"
