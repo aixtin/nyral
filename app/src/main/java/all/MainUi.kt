@@ -543,6 +543,9 @@ import android.widget.Toast
     }
 
     internal fun MainActivity.hideTokenPanel() {
+        // 遮罩无条件立即撤：曾绑死在"面板可见+160ms 动画跑完"之后，面板先销毁时遮罩永久残留吞全屏触摸，
+        // 而点遮罩/返回键都走本函数又被入口 return 挡回，形成死结（2026-10-06 一路返回后界面卡死实锤）
+        tokenMask.visibility = View.GONE
         val p = tokenPanel ?: return
         if (p.visibility != View.VISIBLE) return
         p.animate().cancel()
@@ -551,7 +554,6 @@ import android.widget.Toast
             .setDuration(160)
             .withEndAction {
                 p.visibility = View.GONE
-                tokenMask.visibility = View.GONE
             }
             .start()
     }

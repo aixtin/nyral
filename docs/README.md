@@ -6,7 +6,7 @@
 
 | 文档 | 内容 | 适用读者 |
 |------|------|---------|
-| [架构决策记录（ADR）](./ADR-架构决策记录.md) | 15 条关键架构决策：背景 → 方案 → 取舍 → 结论 | 想理解"为什么这么设计"的开发者 |
+| [架构决策记录（ADR）](./ADR-架构决策记录.md) | 17 条关键架构决策：背景 → 方案 → 取舍 → 结论 | 想理解"为什么这么设计"的开发者 |
 | 本文档 | 工程结构、构建与发布流程、模块清单 | 想动手改代码/构建/发版的开发者 |
 
 ---
@@ -107,21 +107,21 @@
 | 项 | 要求 |
 |----|------|
 | JDK | 17 |
-| Gradle | 8.13（**无 wrapper，需本机系统 Gradle**） |
+| Gradle | 8.13（仓库已含 gradlew，也支持本机 Gradle 8.13） |
 | Android SDK | 36（compileSdk） |
-| 目标设备 | Android 7.0+（minSdk 24）、arm64-v8a |
+| 目标设备 | Android 10+（minSdk 29）、arm64-v8a |
 
 ### 构建命令
 
 ```bash
 git clone https://github.com/aixtin/nyral.git
-cd nyral/android-agent-app
+# 仓库根目录即工程目录，无需再 cd
 gradle assembleDebug
 # 产物: app/build/outputs/apk/debug/app-debug.apk
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.1.1 / versionCode 34）。
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.4.0 / versionCode 42）。
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 
 ### 装机

@@ -58,7 +58,7 @@ Nyral is an open-source AI agent assistant for Android: LLM chat, long-term loca
 
 ## Requirements
 
-- Android 7.0+ (minSdk 24); full features require Android 10+ (workdir uses MediaStore)
+- Android 10+ (minSdk 29)
 - arm64-v8a
 - At least one OpenAI-compatible API endpoint (self-hosted or cloud)
 
@@ -131,6 +131,7 @@ android-agent-app/
 
 ## Changelog
 
+- **v2.4.0 (2026-10-06, versionCode 42)**: minSdk raised to 29 (Android 10+); browser automation closed-loop fixes — interaction-element scan threshold lowered to 16px with no-text icon/menu fallbacks (narrow-screen desktop-style backends), contenteditable rich-text input via execCommand insertText (TipTap/ProseMirror editors), offscreen elements scrollIntoView / programmatic click fallback; token-mask stuck full-screen touch deadlock fixed.
 - **v2.3.5 (2026-10-04, versionCode 41)**: Third security review round fixes — R3-2 notification confirmation PendingIntent switched to globally-incrementing requestCode (eliminates concurrent hashCode collisions; stale notifications no longer approve new ops); R3-3 SSH host-trust confirmation bubble now shows the pending host-key fingerprint for review before approval; R3-4 dangerous-command normalization strips hyphens (reverse-shell constructions like `nc -e` / `nc -l -e` hit the blocklist); R3-6 DebugServer `/v1/browser/eval` arbitrary JS evaluation gated with the same three-tier confirmation; regression tests added for R3-4/R3-6.
 - **v2.3.4 (2026-10-04, versionCode 40)**: Fixed auto-tier missing confirmations for compound dangerous actions — browser:click/type/upload, app:click/text/tap/launch, file:write/upload, workdir:write unified under `name:action` composite keys (needsConfirm/riskOf/ticket synchronized); auto tier confirms again; gate regression tests added (risk-rating assertions for the full high-risk list).
 - **v2.3.3 (2026-10-04, versionCode 39)**: Three-tier security gate (strict/auto/permissive) UI shipped; the AI no longer switches tiers by itself; welcome card embeds quick gate switching; audit page (AuditActivity) added; permissive-mode second-confirmation dialog themed to match settings.

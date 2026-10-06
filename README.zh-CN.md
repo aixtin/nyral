@@ -58,7 +58,7 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 
 ## 系统要求
 
-- Android 7.0+（minSdk 24），完整功能需 Android 10+（工作目录走 MediaStore）
+- Android 10 及以上（minSdk 29）
 - arm64-v8a
 - 至少一个 OpenAI 兼容 API 端点（自建或云厂商均可）
 
@@ -66,8 +66,8 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 
 ```bash
 git clone https://github.com/aixtin/nyral.git
-cd nyral/android-agent-app
-gradle assembleDebug
+# 仓库根目录即工程目录，无需再 cd
+./gradlew assembleDebug
 # 产物: app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -132,6 +132,7 @@ android-agent-app/
 
 ## 版本记录
 
+- **v2.4.0（2026-10-06，versionCode 42）**：minSdk 升至 29（Android 10 及以上）；浏览器自动化闭环修复——交互元素扫描阈值放宽至 16px 且无文字图标/下拉菜单兜底（窄屏桌面式后台）、contenteditable 富文本输入改 execCommand insertText（TipTap/ProseMirror 等编辑器）、视口外元素 scrollIntoView/程序化点击兜底；修复 token 遮罩残留吞全屏触摸死锁。
 - **v2.3.5（2026-10-04，versionCode 41）**：修复第三轮安全复评剩余条目——R3-2 通知确认 PendingIntent 改用全局自增 requestCode（杜绝并发 hashCode 碰撞串台，旧通知不再批准新操作）；R3-3 SSH 主机信任确认气泡直接展示待确认主机密钥指纹供核对后批准；R3-4 危险命令规范化增加去除短横线（nc -e / nc -l -e 等反向 Shell 构造面命中黑名单）；R3-6 DebugServer /v1/browser/eval 任意 JS 求值同挂三档门禁；新增 R3-4/R3-6 防回归单测。
 - **v2.3.4（2026-10-04，versionCode 40）**：修复门禁自动档复合危险动作漏确认——browser:click/type/upload、app:click/text/tap/launch、file:write/upload、workdir:write 等统一按 name:action 复合键判定（needsConfirm/riskOf/票据三处同步同 key），自动档恢复弹确认；新增门禁防回归单测（高危名单全条目风险评级断言 + 裸名保持低危语义）。
 - **v2.3.3（2026-10-04，versionCode 39）**：安全中心三档门禁（严格/自动/放行）UI 落地，AI 不再自切档位；欢迎卡片内嵌门禁快捷切档；新增审计页（AuditActivity）；放行二次确认弹窗主题化，与设置页视觉一致；修复安全中心取消二次确认时的重入弹窗。

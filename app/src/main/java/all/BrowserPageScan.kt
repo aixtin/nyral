@@ -21,10 +21,13 @@ internal fun BrowserPage.injectScanner() {
             if(seen.has(el)) return; seen.add(el);
             try{
               var r=el.getBoundingClientRect();
-              if(r.width<24||r.height<24) return;
+              var tag=el.tagName;
+              // 交互元素放宽到 16px: 桌面式后台的文字链接/图标项常只有 16~20px 高(Halo 文章标题链接仅 18px), 24px 阈值会把整行列表漏采
+              var actEl=tag==='A'||tag==='BUTTON'||tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||el.isContentEditable||/^(button|link|tab|menuitem)$/.test(el.getAttribute('role')||'');
+              var minS=actEl?16:24;
+              if(r.width<minS||r.height<minS) return;
               var st=el.ownerDocument.defaultView.getComputedStyle(el);
               if(st.visibility==='hidden'||st.display==='none'||st.opacity==='0') return;
-              var tag=el.tagName;
               var txt='';
               if(tag==='INPUT'||tag==='TEXTAREA'){
                 txt=((el.placeholder||'')+(el.name?('('+el.name+')'):'')+(el.value?('当前:'+el.value):''));
@@ -35,6 +38,29 @@ internal fun BrowserPage.injectScanner() {
                 if(!txt&&(tag==='DIV'||tag==='SPAN'||tag==='LI')) {
                   var c=el.querySelector('a,button,img,[role=button]');
                   if(c) txt=(c.innerText||c.getAttribute('aria-label')||c.title||c.alt||'').trim();
+                }
+              }
+              // contenteditable 富文本(TipTap/ProseMirror 等)空态没有 innerText, 用占位提示兜底,
+              // 否则正文框在空白时永远扫不到(扫不到→无法输入→恒空 的死局, Halo 发文失败根因之一)
+              if(!txt && (el.isContentEditable||el.hasAttribute('contenteditable'))){
+                var ph=el.getAttribute('data-placeholder')||el.getAttribute('aria-placeholder')||el.getAttribute('placeholder')||'';
+                if(!ph){var phn=el.querySelector('[data-placeholder]'); if(phn) ph=phn.getAttribute('data-placeholder')||'';}
+                txt=ph?('正文编辑区·'+ph):'正文编辑区';
+              }
+              // 无文字图标型控件兜底: 纯 svg 图标按钮/下拉触发器(更多⋯)自身无 innerText, 窄屏桌面式后台常把行操作
+              // (编辑/删除)收进这种溢出菜单; 不兜底则 AI 既扫不到也点不开(Halo 文章列表删除失败根因)
+              if(!txt){
+                var named=el.getAttribute('aria-label')||el.getAttribute('title')||'';
+                if(named){txt=named;}
+                else{
+                  var cn=(' '+((typeof el.className==='string')?el.className:((el.className&&el.className.baseVal)||''))+' ').toLowerCase();
+                  var iconBtn=(tag==='BUTTON'||tag==='A'||el.getAttribute('role')==='button')&&!!el.querySelector('svg,[class*=icon],i');
+                  var moreTrigger=/dropdown|menu|more|overflow|popover/.test(cn)&&(st.cursor==='pointer'||tag==='BUTTON'||tag==='A'||!!el.querySelector('svg'));
+                  if(iconBtn||moreTrigger){
+                    var rl='';var pp=el;
+                    for(var z=0;z<6&&pp;z++){var aa=pp.querySelector&&pp.querySelector('a[href]');if(aa&&(aa.innerText||'').trim()){rl=aa.innerText.trim().slice(0,16);break;}pp=pp.parentElement;}
+                    txt='更多操作'+(rl?('·'+rl):'');
+                  }
                 }
               }
               txt=cleanTxt(txt);
@@ -142,6 +168,7 @@ internal fun BrowserPage.injectScanner() {
           function interactive(el){
             var t=el.tagName;
             return t==='A'||t==='BUTTON'||t==='INPUT'||t==='SELECT'||t==='TEXTAREA'||t==='OPTION'||
+                   el.isContentEditable||
                    el.hasAttribute('onclick')||/^(button|link|tab|menuitem)$/.test(el.getAttribute('role')||'');
           }
           // 容器剔除: 祖先块内含可交互叶子(叶子基本盖住祖先+叶子文本是祖先文本子串)时只留叶子,

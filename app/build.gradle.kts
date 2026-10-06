@@ -28,10 +28,10 @@ android {
 
     defaultConfig {
         applicationId = "io.github.aixtin.nyral"
-        minSdk = 24
+        minSdk = 29
         targetSdk = 36
-        versionCode = 41
-        versionName = "2.3.5"
+        versionCode = 42
+        versionName = "2.4.0"
         ndk {
             abiFilters += listOf(project.findProperty("nyralAbi") as String? ?: "arm64-v8a")
         }

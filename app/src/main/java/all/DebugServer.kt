@@ -975,11 +975,11 @@ object DebugServer {
         val text = try { JSONObject(body).optString("text", "") } catch (e: Exception) { "" }
         if (text.isBlank()) { writeJson(out, 400, JSONObject().put("error", "text required")); return }
         val latch = CountDownLatch(1); var msg = ""
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
+        Thread {
             if (act.browserPageReady()) msg = act.browserPage.typeIndex(idx, text) else msg = "浏览器页未初始化"
             latch.countDown()
-        }
-        try { latch.await(1, TimeUnit.SECONDS) } catch (e: InterruptedException) {}
+        }.start()
+        try { latch.await(12, TimeUnit.SECONDS) } catch (e: InterruptedException) {}
         writeJson(out, 200, JSONObject().put("ok", true).put("message", msg))
     }
 

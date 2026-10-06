@@ -157,8 +157,22 @@ internal fun BrowserPage.clickIndex(i: Int): String {
             val eff = waitClickEffect(t.fp)
             return "已点击元素[$i]「${e.label}」(data-scan 实时定位 @${t.x},${t.y} 视口坐标)$eff"
         }
-        // 目标在视口外: 滚动会触发懒加载/重排, 快照坐标必过期, 必须走事件驱动闭环
-        return clickWithEventDriven(i, e)
+        // 目标在视口外: 先尝试 scrollIntoView 滚入后物理点; 窄屏 overflow 裁剪、滚不进来的(如文章行的溢出菜单⋯)
+        // 用程序化 el.click() 展开(弹出的菜单在屏内, 重新 scan 即可选)
+        when (revealOffscreen(i)) {
+            "prog" -> return "元素[$i]「${e.label}」在可视区外(窄屏布局溢出且无法滚入), 已程序化触发点击; 若弹出菜单, 请重新 scan 后选择其中项目"
+            "inview", "scrolled" -> {
+                val (vw2, vh2) = viewSize()
+                val t2 = locateByScan(i, e)
+                if (t2 != null && t2.occ.isBlank() && vw2 > 0 && vh2 > 0 && t2.x in 0 until vw2 && t2.y in 0 until vh2) {
+                    physicalTapViewport(t2.x, t2.y)
+                    val eff2 = waitClickEffect(t2.fp)
+                    return "已点击元素[$i]「${e.label}」(滚入视口后定位 @${t2.x},${t2.y})$eff2"
+                }
+                return clickWithEventDriven(i, e)
+            }
+            else -> return clickWithEventDriven(i, e)
+        }
     }
     // data-scan 标记已丢失(节点被移除/重扫重建): 事件驱动内部会按快照 label 重扫匹配
     return clickWithEventDriven(i, e)
@@ -173,6 +187,39 @@ private fun BrowserPage.viewSize(): Pair<Int, Int> {
     }
     try { gate.await(1, java.util.concurrent.TimeUnit.SECONDS) } catch (e: InterruptedException) {}
     return Pair(if (sc > 0f) (vw / sc).roundToInt() else vw, if (sc > 0f) (vh / sc).roundToInt() else vh)
+}
+
+/** 视口外元素处置: 已在视口返回 inview; 否则先 scrollIntoView, 300ms 后进入视口=scrolled(调用方重新物理定位点击);
+ *  仍在视口外(窄屏 overflow:hidden 裁掉、滚不进来的溢出菜单按钮)=程序化 el.click() 展开后回 prog; 元素丢失=no-element */
+private fun BrowserPage.revealOffscreen(i: Int): String {
+    val latch = CountDownLatch(1)
+    actionResult = ""
+    actionLatch = latch
+    act.runOnUiThread {
+        web.evaluateJavascript(
+            "(function(){var i=$i;" +
+            "function findScan(i,doc){" +
+            "  var el=doc.querySelector('[data-scan=\"'+i+'\"]');" +
+            "  if(el) return el;" +
+            "  var fs=doc.querySelectorAll('iframe');" +
+            "  for(var j=0;j<fs.length;j++){try{var inner=findScan(i,fs[j].contentDocument);if(inner)return inner;}catch(e){}" +
+            "  return null;" +
+            "}" +
+            "var el=findScan(i,document);" +
+            "if(!el){daBridge.onActionResult('no-element');return;}" +
+            "function inView(){var r=el.getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.left>=0&&r.bottom<=window.innerHeight&&r.right<=window.innerWidth;}" +
+            "if(inView()){daBridge.onActionResult('inview');return;}" +
+            "try{el.scrollIntoView({block:'center',inline:'center',behavior:'instant'});}catch(e){try{el.scrollIntoView();}catch(e2){}}" +
+            "setTimeout(function(){" +
+            "  if(inView()){daBridge.onActionResult('scrolled');}" +
+            "  else{try{el.click();daBridge.onActionResult('prog');}catch(err){daBridge.onActionResult('no-element');}}" +
+            "},300);" +
+            "})();", null)
+    }
+    try { latch.await(1200, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: InterruptedException) {}
+    actionLatch = null
+    val r = actionResult.trim()
+    return if (r in setOf("inview", "scrolled", "prog", "no-element")) r else "no-element"
 }
 
 /** 快路径定位结果: 中心视口坐标 + 覆盖层描述 + 点击前页面指纹(URL/标题/正文长度) */
@@ -473,12 +520,16 @@ private fun BrowserPage.physicalTapViewport(vx: Int, vy: Int): Boolean {
     return true
 }
 
-/** 向浏览器页第 N 个已识别元素(输入框)输入文本(React/Vue 受控组件兼容); data-scan 标记优先定位, 兜底按扫描时视口坐标 elementFromPoint(仅接受输入类元素); 异步发起, 返回指令结果 */
+/** 向浏览器页第 N 个已识别元素(输入框)输入文本; data-scan 标记优先定位, 兜底按扫描时视口坐标 elementFromPoint(仅接受输入类元素)。
+ *  普通 input/textarea 走原生 value setter+input/change(受控组件兼容); contenteditable 富文本(TipTap/ProseMirror 等)
+ *  走选区全选+execCommand insertText(经编辑器自身事务, value setter 对非输入元素抛 Illegal invocation)。同步返回真实回执。 */
 internal fun BrowserPage.typeIndex(i: Int, text: String): String {
     val e = elements.getOrNull(i) ?: return "索引越界(共 ${elements.size} 个)"
-    actionResult = ""
     val x = e.x; val y = e.y
     val safe = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+    val latch = CountDownLatch(1)
+    actionResult = ""
+    actionLatch = latch
     act.runOnUiThread { web.evaluateJavascript(
         "(function(){var i=$i,x=$x,y=$y,s=\"$safe\";" +
         "function findScan(i,doc){" +
@@ -493,13 +544,34 @@ internal fun BrowserPage.typeIndex(i: Int, text: String): String {
         "var el=findScan(i,document);" +
         "if(!el){var p=document.elementFromPoint(x,y);if(p&&(p.tagName==='INPUT'||p.tagName==='TEXTAREA'||p.isContentEditable)){el=p;}}" +
         "if(!el){daBridge.onActionResult('no-element');return;}" +
-        "var isArea=el.tagName==='TEXTAREA';el.focus();" +
-        "var setter=(isArea?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype);" +
-        "var d=Object.getOwnPropertyDescriptor(setter,'value');" +
-        "if(d&&d.set){d.set.call(el,s);}else{el.value=s;}" +
-        "el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));" +
-        "daBridge.onActionResult('typed:'+(el.tagName));})();", null) }
-    return "已向元素[$i]「${e.label}」发起输入"
+        "try{" +
+        "  el.focus();" +
+        "  if(el.isContentEditable||el.hasAttribute('contenteditable')){" +
+        "    var rg=document.createRange();rg.selectNodeContents(el);" +
+        "    var sv=window.getSelection();sv.removeAllRanges();sv.addRange(rg);" +
+        "    var okCE=document.execCommand('insertText',false,s);" +
+        "    daBridge.onActionResult('ce:'+(okCE?'ok':'unsupported')+':'+(el.innerText||'').length);" +
+        "  }else{" +
+        "    var isArea=el.tagName==='TEXTAREA';" +
+        "    var setter=(isArea?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype);" +
+        "    var d=Object.getOwnPropertyDescriptor(setter,'value');" +
+        "    if(d&&d.set){d.set.call(el,s);}else{el.value=s;}" +
+        "    el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));" +
+        "    daBridge.onActionResult('in:'+el.tagName);" +
+        "  }" +
+        "}catch(err){daBridge.onActionResult('type-error:'+(err&&err.message?err.message:String(err)));}" +
+        "})();", null) }
+    try { latch.await(1500, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (ex: InterruptedException) {}
+    actionLatch = null
+    val r = actionResult.trim()
+    return when {
+        r == "no-element" -> "未找到元素[$i]「${e.label}」(页面可能已重排, 请重新 scan 后再输入)"
+        r.startsWith("type-error") -> "输入失败:${r.removePrefix("type-error:")}（元素[$i]「${e.label}」）"
+        r.startsWith("ce:ok:") -> "已向正文富文本框[$i]「${e.label}」输入 ${text.length} 字（框内现有 ${r.removePrefix("ce:ok:")} 字）"
+        r.startsWith("ce:unsupported") -> "正文框不支持 execCommand 输入（元素[$i]「${e.label}」）, 请换用接管模式手动输入"
+        r.startsWith("in:") -> "已向元素[$i]「${e.label}」输入 ${text.length} 字"
+        else -> "输入结果未确认(元素[$i]「${e.label}」, 回执=$r)"
+    }
 }
 
 /** 供调试/兜底: 执行任意 JS 表达式并把结果经 onActionResult 回传(EVAL: 前缀), 调用线程非主线程可同步等结果 */
