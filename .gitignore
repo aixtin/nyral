@@ -37,3 +37,7 @@ io.github.aixtin.nyral_bak_tablefix_*/
 # 拆分/打补丁备份快照(不入库)
 backups_*/
 backups_split_*/
+
+# 单文件备份快照(不入库)
+backup_strings_*
+backups_split_guide_*

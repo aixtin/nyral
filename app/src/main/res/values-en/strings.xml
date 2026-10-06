@@ -729,4 +729,42 @@ For full Agent capabilities and style fidelity</string>
     <string name="guide_mode_chat_desc">Side-by-side avatars, clean plain text
 For everyday chat experience</string>
 
+    <!-- guide new strings (v2.5.0) -->
+    <string name="guide_mode_t">Mode Intro</string>
+    <string name="guide_mode_chat_t">Chat Mode</string>
+    <string name="guide_mode_chat_d">Everyday conversation, ask and get answers</string>
+    <string name="guide_mode_agent_t">Agent Mode</string>
+    <string name="guide_mode_agent_d">Hand it over and let it work for you</string>
+    <string name="guide_point_chat_d">Multi-model switching</string>
+    <string name="guide_point_file_d">Document &amp; image analysis</string>
+    <string name="guide_step_provider_title">Choose a model provider</string>
+    <string name="guide_step_provider_sub">Pick a provider; you can change it later in Settings</string>
+    <string name="guide_custom_provider">Custom provider</string>
+    <string name="guide_more_provider">More</string>
+    <string name="guide_more_provider_desc">For custom providers and advanced config, go to Settings → Model Config → + Add → Add model</string>
+    <string name="guide_custom_provider_hint">For custom providers, go to Settings → Models to add</string>
+    <string name="guide_provider_pick_hint">Please pick a provider first</string>
+    <string name="guide_step_key_title">Enter the API Key for %1$s</string>
+    <string name="guide_key_hint">Tap here: what an API Key is and where to get one</string>
+    <string name="guide_key_help_title">What is an API Key?</string>
+    <string name="guide_key_help_body">An API Key is your access credential issued by the AI provider, used to identify your account and bill usage.&#10;&#10;How to get one:&#10;1. Open the provider\'s official site and sign in&#10;2. Go to the console and find \"API Key\" or \"Token\"&#10;3. Create and copy the generated key&#10;4. Paste it into the field above</string>
+    <string name="guide_get_key">Get a Key on the official site</string>
+    <string name="guide_key_placeholder">Paste your API Key</string>
+    <string name="guide_test_conn">Test connection</string>
+    <string name="guide_testing">Testing…</string>
+    <string name="guide_test_ok">Connected</string>
+    <string name="guide_test_fail">Connection failed</string>
+    <string name="guide_next">Next</string>
+    <string name="guide_back">Back</string>
+    <string name="guide_done_config">Done</string>
+    <string name="guide_skip_config">Set up later</string>
+    <string name="guide_key_empty_hint">Please enter your API Key first</string>
+    <string name="guide_model_hint">Model (defaults are pre-filled)</string>
+    <string name="guide_pick_models">Choose models (multi-select)</string>
+    <string name="guide_conn_error_confirm">Connection issue. Continue anyway?</string>
+    <string name="guide_tab_intro">Highlights</string>
+    <string name="guide_tab_provider">Choose provider</string>
+    <string name="guide_tab_key">Enter Key</string>
+    <string name="guide_tab_done">Finish &amp; settings</string>
+
 </resources>

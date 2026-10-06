@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,7 +14,9 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.Space
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -65,6 +68,7 @@ class FirstRunSetupActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.statusBar(this)
+        ApiConfig.init(this)
         ModeConfig.init(this)
         val root = Ui.pageRoot(this)
         root.addView(Ui.titleBar(this, getString(R.string.guide_perm_title)))
@@ -99,7 +103,7 @@ class FirstRunSetupActivity : Activity() {
             setPadding(dp(4), dp(18), dp(4), dp(8))
         })
         val modeCard = Ui.card(this)
-        modeBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        modeBox = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         modeCard.addView(modeBox)
         content.addView(modeCard)
         content.addView(TextView(this).apply {
@@ -282,32 +286,47 @@ class FirstRunSetupActivity : Activity() {
     private fun renderMode() {
         val box = modeBox ?: return
         box.removeAllViews()
-        box.addView(modeRow(
-            title = getString(R.string.guide_mode_agent_title),
-            desc = getString(R.string.guide_mode_agent_desc),
-            checked = !ModeConfig.chatMode(),
-            onPick = { ModeConfig.setChatMode(false); renderMode() }
-        ))
-        box.addView(Ui.divider(this))
-        box.addView(modeRow(
+        box.addView(modeCard(
+            iconRes = R.drawable.ic_guide_chat,
             title = getString(R.string.guide_mode_chat_title),
-            desc = getString(R.string.guide_mode_chat_desc),
+            desc = getString(R.string.guide_mode_chat_d),
             checked = ModeConfig.chatMode(),
             onPick = { ModeConfig.setChatMode(true); renderMode() }
         ))
+        box.addView(Space(this), LinearLayout.LayoutParams(dp(10), 1))
+        box.addView(modeCard(
+            iconRes = R.drawable.ic_guide_tool,
+            title = getString(R.string.guide_mode_agent_title),
+            desc = getString(R.string.guide_mode_agent_d),
+            checked = !ModeConfig.chatMode(),
+            onPick = { ModeConfig.setChatMode(false); renderMode() }
+        ))
     }
 
-    private fun modeRow(title: String, desc: String, checked: Boolean, onPick: () -> Unit): LinearLayout =
+    /** 并排双卡（图标左置横排），选中态高亮，无需功能点描述 */
+    private fun modeCard(iconRes: Int, title: String, desc: String, checked: Boolean, onPick: () -> Unit): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(if (checked) Ui.PRIMARY_LIGHT else 0xFFFFFFFF.toInt())
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(1), if (checked) Ui.PRIMARY else 0xFFE5E7EB.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setPadding(dp(14), dp(14), dp(14), dp(14))
             isClickable = true
-            background = Ui.rounded(if (checked) Ui.PRIMARY_LIGHT else 0x00000000.toInt(), 0, this@FirstRunSetupActivity)
             setOnClickListener { onPick() }
+            addView(ImageView(this@FirstRunSetupActivity).apply {
+                setImageResource(iconRes)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setColorFilter(Ui.TEXT)
+                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
+            })
             addView(LinearLayout(this@FirstRunSetupActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                setPadding(dp(10), 0, 0, 0)
                 addView(TextView(this@FirstRunSetupActivity).apply {
                     text = title
                     textSize = 15f
@@ -316,17 +335,11 @@ class FirstRunSetupActivity : Activity() {
                 })
                 addView(TextView(this@FirstRunSetupActivity).apply {
                     text = desc
-                    textSize = 12f
+                    textSize = 11f
+                    maxLines = 1
                     setTextColor(Ui.SUB)
                     setPadding(0, dp(3), 0, 0)
                 })
-            })
-            addView(TextView(this@FirstRunSetupActivity).apply {
-                text = if (checked) "●" else ""
-                textSize = 8f
-                setTextColor(0xFF2E7D32.toInt())
-                typeface = Typeface.DEFAULT_BOLD
-                setPadding(dp(8), 0, 0, 0)
             })
         }
 
