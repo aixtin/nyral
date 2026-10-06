@@ -10,7 +10,7 @@
 
 name: Nightly
 
-on:
+"on":
   schedule:
     # 每日 04:00 北京时间 (UTC+8); GitHub cron 用 UTC
     - cron: '0 20 * * *'
