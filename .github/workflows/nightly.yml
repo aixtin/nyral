@@ -73,10 +73,7 @@ jobs:
             adb forward tcp:8765 tcp:8765
             # 等待 DebugServer 端口就绪
             for i in $(seq 1 30); do
-              python3 -c 'import socket,sys
-try:
- socket.create_connection(("127.0.0.1",8765),timeout=1).close(); sys.exit(0)
-except OSError: sys.exit(1)' && { echo "DebugServer 就绪 (${i}s)"; break; }
+              python3 -c 'import socket,sys; s=socket.create_connection(("127.0.0.1",8765),timeout=1); s.close()' && { echo "DebugServer 就绪 (${i}s)"; break; }
               sleep 1
             done
 
