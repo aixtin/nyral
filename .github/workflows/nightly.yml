@@ -1,0 +1,103 @@
+# Nyral Nightly 测试线 (2026-10-06)
+# 落地三条 CI nightly 决策(DeepSeek 追问定调):
+#   ① 第3级基础档模拟器 instrumentation 进 nightly(与③合并同一模拟器 job)
+#   ② 性能测试(冷启动/内存/DebugServer延迟)独立 nightly 线, 不进常规 push/PR CI
+#   ③ 靶场回归进 CI 模拟器跑基础档
+# 说明:
+#   - 真机重档(heavy)回归与 SSH握手/记忆召回延迟留发版前真机手动采样(依赖用户配置)
+#   - 本 job 单模拟器顺序执行 靶场回归 + 性能采样, 避免双模拟器重复成本
+#   - 模拟器 DebugServer 默认关闭, 脚本注入 debug_server.xml 开启 + 预置 token
+
+name: Nightly
+
+on:
+  schedule:
+    # 每日 04:00 北京时间 (UTC+8); GitHub cron 用 UTC
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+jobs:
+  nightly-emulator:
+    name: Nightly Emulator (Range Regression + Perf)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Set up Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      # 模拟器为 x86_64, 用 -PnyralAbi 覆盖默认 arm64 ABI 过滤
+      # (onnxruntime AAR 含 x86_64 so, 可完整加载)
+      - name: Build x86_64 debug APK for emulator
+        run: ./gradlew :app:assembleDebug -PnyralAbi=x86_64 --console=plain
+
+      - name: Upload emulator debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-emulator-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Run range regression + perf on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect
+          script: |
+            set -e
+            PKG=io.github.aixtin.nyral
+            echo "== 1. 安装 APK =="
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+            echo "== 2. 注入 DebugServer 开关与 token (CI 新装默认关闭) =="
+            XML='<?xml version="1.0" encoding="utf-8" standalone="yes" ?><map><boolean name="enabled" value="true" /><string name="token">droid-nightly-'"$GITHUB_RUN_ID"'</string></map>'
+            printf '%s' "$XML" | adb shell "run-as $PKG sh -c 'cat > shared_prefs/debug_server.xml'"
+            adb shell run-as $PKG cat shared_prefs/debug_server.xml
+
+            echo "== 3. 启动 App (触发 DebugServer init) =="
+            adb shell am force-stop $PKG
+            adb shell am start -W -n $PKG/.MainActivity
+            adb forward tcp:8765 tcp:8765
+            # 等待 DebugServer 端口就绪
+            for i in $(seq 1 30); do
+              python3 -c 'import socket,sys
+try:
+ socket.create_connection(("127.0.0.1",8765),timeout=1).close(); sys.exit(0)
+except OSError: sys.exit(1)' && { echo "DebugServer 就绪 (${i}s)"; break; }
+              sleep 1
+            done
+
+            echo "== 4. 靶场回归 T1-T6 (决策③) =="
+            python3 app/src/test/python/range_regression.py --emulator
+
+            echo "== 5. 性能采样 冷启动/内存/DebugServer延迟 (决策②) =="
+            mkdir -p build
+            python3 app/src/test/python/nightly_perf.py --emulator --json build/nightly-perf.json
+            cat build/nightly-perf.json
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat build/nightly-perf.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload nightly results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-results
+          path: |
+            build/nightly-perf.json
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: warn

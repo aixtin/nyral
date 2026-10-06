@@ -33,7 +33,7 @@ android {
         versionCode = 41
         versionName = "2.3.5"
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf(project.findProperty("nyralAbi") as String? ?: "arm64-v8a")
         }
     }
 

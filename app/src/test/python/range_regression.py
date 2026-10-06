@@ -14,16 +14,21 @@ Nyral 第4级发版回归: 固定靶场 6 条历史问题复测脚本 v2 (2026-1
   python3 range_regression.py                 # 自动选设备
   python3 range_regression.py 10.10.10.3:5555 # 指定无线设备
   python3 range_regression.py --usb
+  python3 range_regression.py --emulator      # GitHub Actions nightly 模拟器 (emulator-5554)
+环境变量: ADB 可覆盖 adb 路径(CI 用), 默认取 PATH 中的 adb
 退出码: 0=全部通过, 1=存在失败
 """
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 
 PKG = "io.github.aixtin.nyral"
-ADB = "/home/ymz/android-sdk/platform-tools/adb"
+EMULATOR_SERIAL = "emulator-5554"
+ADB = os.environ.get("ADB") or shutil.which("adb") or "/home/ymz/android-sdk/platform-tools/adb"
 PORT = 8765
 RANGE = "https://atin.asia/nyral-range/"
 RESULTS = []
@@ -51,6 +56,8 @@ def adb_devices():
             devices.append(("usb", serial))
         elif ":" in serial:
             devices.append(("wifi", serial))
+        elif serial.startswith("emulator-"):
+            devices.append(("emulator", serial))
     return devices
 
 
@@ -136,6 +143,8 @@ def main():
                     break
             if not device:
                 fail("未找到 USB 设备")
+        elif a == "--emulator":
+            device = EMULATOR_SERIAL
         elif not a.startswith("--") and ":" in a:
             device = a
     if device is None:
