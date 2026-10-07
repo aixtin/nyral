@@ -220,7 +220,8 @@ internal fun BrowserPage.injectScanner() {
               if((same>=1&&el>=240)||el>800){ doScan(); return; }
               setTimeout(tick,120);
             }
-            requestAnimationFrame(function(){requestAnimationFrame(tick);});
+            // rAF 双连在后台/黑屏 WebView 不触发导致扫描挂死(scan 恒 0); 改 setTimeout 直启兜底
+            setTimeout(tick, 120);
           }
           setTimeout(waitStable, 200);
         })();""", null)

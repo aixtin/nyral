@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Environment
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
@@ -67,6 +68,7 @@ object DebugServer {
     private val acceptThread = LinkedBlockingQueue<Thread>()
 
     @Volatile private var app: Context? = null
+    @Volatile private var wakeLock: PowerManager.WakeLock? = null
     @Volatile private var main: MainActivity? = null
 
     // ================= 配置 =================
@@ -126,6 +128,8 @@ object DebugServer {
         running.set(false)
         try { serverSocket?.close() } catch (e: Exception) {}
         serverSocket = null
+        try { wakeLock?.let { if (it.isHeld) it.release() } } catch (e: Exception) {}
+        wakeLock = null
     }
 
     fun detach(activity: MainActivity) {
@@ -151,6 +155,17 @@ object DebugServer {
             val ss = if (bindAddr == null) ServerSocket(p) else ServerSocket(p, 50, bindAddr)
             serverSocket = ss
             running.set(true)
+            // 黑屏保活(2026-10-07): PARTIAL_WAKE_LOCK 让屏幕熄灭时 CPU 保持活跃, DebugServer 黑屏可远程控制
+            try {
+                val pm = c.getSystemService(Context.POWER_SERVICE) as PowerManager
+                val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "nyral:debugserver")
+                wl.setReferenceCounted(false)
+                wl.acquire()
+                wakeLock = wl
+                Log.i("Nyral", "DebugServer: 已持有 PARTIAL_WAKE_LOCK(黑屏保活)")
+            } catch (e: Exception) {
+                Log.w("Nyral", "DebugServer: WakeLock 获取失败: ${e.message}")
+            }
             Log.i("Nyral", "DebugServer 启动: ${if (lan) "0.0.0.0" else "127.0.0.1"}:$p")
             if (lan) {
                 // 安全审查加固(2026-10-03): 局域网模式醒目告警
@@ -281,6 +296,7 @@ object DebugServer {
                     method == "POST" && path == "/v1/browser/type" -> browserType(out, body)
                     method == "POST" && path == "/v1/browser/scroll" -> browserScroll(out, body)
                     method == "POST" && path == "/v1/browser/eval" -> browserEval(c, out, body)
+                    method == "POST" && path == "/v1/browser/text" -> browserText(out)
                     method == "POST" && path == "/v1/app/scan" -> appScan(out)
                     method == "POST" && path == "/v1/app/click" -> appClick(out, body)
                     method == "POST" && path == "/v1/app/type" -> appType(out, body)
@@ -811,6 +827,17 @@ object DebugServer {
         }
         val count = act.browserPage.scanSync(4000)
         writeJson(out, 200, JSONObject().put("ok", true).put("count", count))
+    }
+
+    /** /v1/browser/text: 提取整页可见文本(fetchTextSync), 元素扫不到时兜底阅读页面内容 */
+    private fun browserText(out: OutputStream) {
+        val act = main ?: run { writeJson(out, 503, JSONObject().put("error", "MainActivity not alive")); return }
+        if (!act.browserPageReady()) {
+            writeJson(out, 200, JSONObject().put("ok", false).put("text", "").put("message", "浏览器页未初始化"))
+            return
+        }
+        val text = act.browserPage.fetchTextSync(4000)
+        writeJson(out, 200, JSONObject().put("ok", true).put("text", text))
     }
 
     private fun browserCmd(out: OutputStream, body: String, op: (BrowserPage, String) -> Unit) {

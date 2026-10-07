@@ -40,6 +40,7 @@ object DebugRoutes {
         method == "POST" && path == "/v1/browser/type" -> "POST /v1/browser/type"
         method == "POST" && path == "/v1/browser/scroll" -> "POST /v1/browser/scroll"
         method == "POST" && path == "/v1/browser/eval" -> "POST /v1/browser/eval"
+        method == "POST" && path == "/v1/browser/text" -> "POST /v1/browser/text"
         method == "POST" && path == "/v1/app/scan" -> "POST /v1/app/scan"
         method == "POST" && path == "/v1/app/click" -> "POST /v1/app/click"
         method == "POST" && path == "/v1/app/type" -> "POST /v1/app/type"
