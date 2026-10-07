@@ -159,6 +159,10 @@ For model responses, the App sends your message content to the model service pro
 See [PRIVACY.md](PRIVACY.md) for details.
 
 
+## Development Collaboration
+
+This project is designed and validated by aixtin, with implementation assisted by Marvis, an AI coding assistant (powered by Tencent Hunyuan Hy3 + DeepSeek-V4 Pro). See [COLLABORATION.md](COLLABORATION.md) for details.
+
 ## License
 
 MIT License, see [LICENSE](LICENSE).
