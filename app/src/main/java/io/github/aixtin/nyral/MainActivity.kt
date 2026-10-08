@@ -614,10 +614,9 @@ class MainActivity : Activity() {
                 if (abs(dx) > abs(dy) * 1.5f && abs(dx) > dp(60).toFloat() && abs(velocityX) > 500f) {
                     // 兜底 fling 与控制器方向一致: 展开态仅反方向快甩才收(汉堡=右滑, 抽屉=左滑);
                     // 控制器拖拽中(isDragging)时让位, 避免兜底 fling 与 snap 动画打架(收到半路又弹出)
-                    // 关闭态保持分区触发(抽屉=左1/3右滑, 浏览器=右1/3左滑)
+                    // 2026-10-08 手势规则重定义: 关闭态不再用滑动手势展开(抽屉/浏览器/汉堡均走控件), 仅保留展开态反向快甩关闭兜底
                     if (browserPage.hamburgerOpen && dx > 0) browserPage.collapseHamburger()
                     else if (drawerOpen && dx < 0) closeDrawer()
-                    else if (dx > 0 && !browserPage.open && (e1?.x ?: e2.x) < resources.displayMetrics.widthPixels / 3f) openDrawer()
                     return true
                 }
                 return false

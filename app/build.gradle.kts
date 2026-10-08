@@ -30,8 +30,8 @@ android {
         applicationId = "io.github.aixtin.nyral"
         minSdk = 29
         targetSdk = 36
-        versionCode = 44
-        versionName = "2.5.1"
+        versionCode = 45
+        versionName = "2.5.2"
         ndk {
             abiFilters += listOf(project.findProperty("nyralAbi") as String? ?: "arm64-v8a")
         }

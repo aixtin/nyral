@@ -1022,7 +1022,7 @@ internal class DrawerDragController(private val act: MainActivity) {
 
     private val slop = android.view.ViewConfiguration.get(act).scaledTouchSlop
     private var tracker: android.view.VelocityTracker? = null
-    private var mode = 0                // 0=无 1=待开(边缘按下) 2=待关(开态按下)
+    private var mode = 0                // 0=无 2=待关(开态按下; 展开只走控件入口)
     private var dragging = false
     private var downX = 0f
     private var downY = 0f
@@ -1045,9 +1045,7 @@ internal class DrawerDragController(private val act: MainActivity) {
                 downX = ev.rawX
                 downY = ev.rawY
                 startTrans = act.drawerPanel.translationX
-                val sw = act.resources.displayMetrics.widthPixels
-                // 触发区与右侧浏览器右1/3完全对称(用户反馈: 原48dp太窄, 从稍靠右位置右滑即落空→穿透聊天列表滚动; 右侧1/3好触发)
-                // 打开态同样限左1/3接管关闭, 中间/右侧让位给遮罩拦截, 不再任意位置抢手势
+                // 2026-10-08 手势规则重定义: 抽屉展开只走控件入口, 取消左→右滑手势; 保留开态任意位置左滑跟手收
                 mode = when {
                     // Token 面板展开时不抢手势, 避免抽屉从面板下滑出
                     act.tokenMask.visibility == View.VISIBLE -> 0
@@ -1055,8 +1053,6 @@ internal class DrawerDragController(private val act: MainActivity) {
                     act.browserPage.open -> 0
                     // 开态全屏: 任意位置横滑都跟手收(斜率判定保竖滑)
                     act.drawerOpen -> 2
-                    // 关态触发区保持左1/3(与右侧右1/3对称, 防落空穿透聊天列表)
-                    !act.drawerOpen && ev.rawX <= sw / 3f -> 1
                     else -> 0
                 }
             }
@@ -1064,10 +1060,8 @@ internal class DrawerDragController(private val act: MainActivity) {
                 if (mode != 0 && !dragging) {
                     val dx = ev.rawX - downX
                     val dy = ev.rawY - downY
-                    val wantOpen = mode == 1
-                    // 方向锁定: 未开=右滑展开, 已开=左滑收回(反方向, 同向滑动不接管)
+                    // 方向锁定: 已开=左滑收回(展开只走控件), 同向滑动不接管
                     val dirOk = when (mode) {
-                        1 -> dx > 0
                         2 -> dx < 0
                         else -> false
                     }
@@ -1075,7 +1069,16 @@ internal class DrawerDragController(private val act: MainActivity) {
                     // 斜向滑动会被放给下层消息列表滚动(用户反馈); 水平分量达到垂直 70% 即锁定为抽屉拖拽
                     if (kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 0.7 && dirOk) {
                         dragging = true
-                        beginDrag(wantOpen)
+                        beginDrag(false)
+                        // 拦截瞬间的当前 MOVE 会被系统吞掉(只给子view发CANCEL, 不转交给本层onTouchEvent),
+                        // 若不立即定位, 面板会滞后一个事件才跟手(注入实测: dx=-100 被吞, 跟手从 dx=-200 才启动)
+                        // 立即按当前 dx 定位, 消除慢速拖动时面板跳变的"跟手消失"感
+                        val trans0 = (startTrans + dx).coerceIn(-w, 0f)
+                        act.drawerPanel.translationX = trans0
+                        val frac0 = (trans0 + w) / w
+                        act.drawerMask.visibility = View.VISIBLE
+                        act.drawerMask.alpha = frac0
+                        act.setMainSink(frac0)
                         tracker?.addMovement(ev)
                         return true
                     }

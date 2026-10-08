@@ -190,7 +190,19 @@ internal fun BrowserPage.buildHamburger(): LinearLayout = LinearLayout(act).appl
 
 /** 右缘左滑展开汉堡面板: 显示遮罩+面板平移到 0 */
 internal fun BrowserPage.expandHamburger() {
-    if (hamburgerOpen) return
+    if (hamburgerOpen) {
+        // 2026-10-08 修复: 展开态跟手半开拖回松手时直接复位面板动画(原 early-return 导致面板卡半开)
+        if (hamburgerPanel.translationX != 0f) {
+            hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            hamburgerPanel.animate().translationX(0f).setDuration(240)
+                .setInterpolator(DecelerateInterpolator(1.2f))
+                .withEndAction {
+                    hamburgerPanel.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                    act.hamburgerDragEnd()
+                }.start()
+        }
+        return
+    }
     hamburgerOpen = true
     // 每次打开抽屉默认展示思考页(与用户上次停留的页签无关)
     showThinkTab()
