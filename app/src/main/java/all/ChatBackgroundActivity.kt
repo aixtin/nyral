@@ -39,11 +39,23 @@ class ChatBackgroundActivity : Activity() {
         const val ORIG_FILE = "chat_bg_custom_orig.png"  // 上传原图(未模糊), 调整强度时从它重算, 避免对已模糊图叠加失效
         const val REQ_PICK = 1001
 
+        // 顶栏/输入框栏透明设置
+        const val KEY_BAR_MODE = "bar_mode"     // none / alpha / blur
+        const val KEY_BAR_ALPHA = "bar_alpha"   // 0-100: 不透明度百分比(100=完全不透明)
+
         /** 主界面读取: 返回当前背景类型, 供 MainActivity 应用 */
         fun loadType(c: Context): String =
             c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TYPE, "none") ?: "none"
         fun loadPreset(c: Context): Int =
             c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_PRESET, 0)
+
+        /** 顶栏/输入框栏透明模式: none 不透明 / alpha 普通透明 / blur 静态毛玻璃 */
+        fun loadBarMode(c: Context): String =
+            c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_BAR_MODE, "none") ?: "none"
+
+        /** 顶栏/输入框栏不透明度 0-100 */
+        fun loadBarAlpha(c: Context): Int =
+            c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_BAR_ALPHA, 100).coerceIn(0, 100)
     }
 
     // 内置浅色预设: 柔和渐变, 不干扰文字可读性
@@ -59,9 +71,13 @@ class ChatBackgroundActivity : Activity() {
     private lateinit var blurSeek: SeekBar
     private lateinit var blurValText: TextView
     private lateinit var presetCells: Array<TextView>
+    private lateinit var barCells: Array<TextView>
+    private lateinit var barAlphaText: TextView
     private var currentType = "none"
     private var currentPreset = 0
     private var currentBlur = 16
+    private var currentBarMode = "none"
+    private var currentBarAlpha = 100
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,6 +87,8 @@ class ChatBackgroundActivity : Activity() {
         currentType = prefs.getString(KEY_TYPE, "none") ?: "none"
         currentPreset = prefs.getInt(KEY_PRESET, 0)
         currentBlur = prefs.getInt(KEY_BLUR, 16)
+        currentBarMode = prefs.getString(KEY_BAR_MODE, "none") ?: "none"
+        currentBarAlpha = prefs.getInt(KEY_BAR_ALPHA, 100).coerceIn(0, 100)
         if (!prefs.getBoolean(KEY_BLUR_V2, false)) {
             // 旧数据迁移到 1-48: 旧三档 0/1/2 -> 0/16/32; 0(原图) -> 1; 其余直取
             if (currentBlur <= 2) currentBlur = currentBlur * 16
@@ -210,6 +228,77 @@ class ChatBackgroundActivity : Activity() {
         })
         content.addView(cardBlur)
 
+        // 分组5: 顶栏与输入框栏透明(消息区暂不支持)
+        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_bar)))
+        val cardBar = Ui.card(this)
+        cardBar.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(14), dp(12), dp(14))
+            // 三选一: 不透明 / 普通透明 / 毛玻璃透明
+            val modeRow = LinearLayout(this@ChatBackgroundActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+            val modes = arrayOf("none", "alpha", "blur")
+            barCells = Array(3) { TextView(this@ChatBackgroundActivity) }
+            for (i in 0 until 3) {
+                val idx = i
+                barCells[idx] = TextView(this@ChatBackgroundActivity).apply {
+                    text = getString(arrayOf(R.string.cb_bar_none, R.string.cb_bar_alpha, R.string.cb_bar_blur)[idx])
+                    gravity = Gravity.CENTER
+                    textSize = 13f
+                    setTextColor(Ui.TEXT)
+                    setPadding(0, dp(10), 0, dp(10))
+                    setOnClickListener {
+                        currentBarMode = modes[idx]
+                        saveState()
+                        refreshAll()
+                    }
+                    Ui.press(this)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (idx > 0) marginStart = dp(10)
+                    }
+                }
+                modeRow.addView(barCells[idx])
+            }
+            addView(modeRow)
+            // 不透明度滑条 0-100
+            addView(LinearLayout(this@ChatBackgroundActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.cb_bar_alpha_title)))
+                barAlphaText = TextView(this@ChatBackgroundActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(8)
+                    }
+                    gravity = Gravity.END
+                    textSize = 14f
+                    setTextColor(0xFF3478F6.toInt())
+                }
+                addView(barAlphaText)
+            })
+            val alphaSeek = SeekBar(this@ChatBackgroundActivity).apply {
+                max = 100
+                progress = currentBarAlpha
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(2)
+                }
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        refreshBarAlphaText(progress)
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                        currentBarAlpha = (seekBar?.progress ?: 100).coerceIn(0, 100)
+                        saveState()
+                    }
+                })
+            }
+            addView(alphaSeek)
+            addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_bar_hint)))
+        })
+        content.addView(cardBar)
+
         // 分组4: 恢复默认
         content.addView(Ui.groupLabel(this, getString(R.string.cb_group_reset)))
         val cardReset = Ui.card(this)
@@ -298,6 +387,24 @@ class ChatBackgroundActivity : Activity() {
             gd.setStroke(if (checked) dp(3) else 0, 0xFF3478F6.toInt())
             presetCells[i].background = gd
         }
+        // 顶栏/输入框栏模式选中态
+        if (::barCells.isInitialized) {
+            val modes = arrayOf("none", "alpha", "blur")
+            for (i in barCells.indices) {
+                val checked = currentBarMode == modes[i]
+                val gd = GradientDrawable()
+                gd.cornerRadius = dp(10).toFloat()
+                gd.setStroke(if (checked) dp(2) else 1,
+                    if (checked) 0xFF3478F6.toInt() else 0x22000000.toInt())
+                barCells[i].background = gd
+            }
+        }
+        refreshBarAlphaText(currentBarAlpha)
+    }
+
+    private fun refreshBarAlphaText(p: Int) {
+        if (!::barAlphaText.isInitialized) return
+        barAlphaText.text = "$p%"
     }
 
     private fun applyCustomImage(uri: Uri) {
@@ -331,6 +438,8 @@ class ChatBackgroundActivity : Activity() {
             .putInt(KEY_PRESET, currentPreset)
             .putInt(KEY_BLUR, currentBlur)
             .putBoolean(KEY_BLUR_V2, true)   // 标记新格式(1-48), 下次进入不再走旧迁移
+            .putString(KEY_BAR_MODE, currentBarMode)
+            .putInt(KEY_BAR_ALPHA, currentBarAlpha)
             .apply()
     }
 

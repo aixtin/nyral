@@ -425,7 +425,7 @@ private fun MainActivity.buildUploadGrid(): LinearLayout {
         }
         val iv = ImageView(this).apply {
             setImageResource(iconRes)
-            setColorFilter(Color.WHITE)
+            setColorFilter(Ui.TEXT)
         }
         val tv = TextView(this).apply {
             text = label

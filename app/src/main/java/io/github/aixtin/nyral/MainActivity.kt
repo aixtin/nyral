@@ -704,7 +704,7 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
                 val r = dp(16).toFloat()
-                cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, r, r, r, r)
+                cornerRadii = floatArrayOf(r, r, r, r, r, r, r, r)
             }.also { titleBarBg = it }
             gravity = Gravity.CENTER_VERTICAL
         }
@@ -944,7 +944,7 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
                 val r = dp(16).toFloat()
-                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                cornerRadii = floatArrayOf(r, r, r, r, r, r, r, r)
             }.also { inputBarBg = it }
         }
         input = object : EditText(this) {
@@ -1287,7 +1287,11 @@ class MainActivity : Activity() {
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(0xFF0d1b2a.toInt(), 0xFF1b2a4a.toInt(), 0xFF274060.toInt())
             )
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)).apply {
+            // 分割线两端向中间缩 16dp: 让开 inputBar 圆角弧线, 避免直角改圆角后线端悬空露缝
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+        })
         // 一体式(定稿): 表情抽屉焊进 dockContent(输入框+表情区=大抽屉), 不再独立占位。
         // 大抽屉总高=输入框高+表情区高; 键盘 insets 压缩 bodyWrap 顶起整个大抽屉,
         // 表情区与键盘互斥占用底部空间(emojiH = emojiDrawerTargetH - imeH), 切换时输入框零位移
@@ -2003,6 +2007,47 @@ class MainActivity : Activity() {
                 } else null
             }
             else -> android.graphics.drawable.ColorDrawable(Ui.BG)
+        }
+        // 顶栏/输入框栏透明化(普通透明 / 静态毛玻璃), 消息区不参与
+        applyBarStyle()
+    }
+
+    /** 顶栏/输入框栏透明样式: 按聊天背景页设置重挂背景
+     *  none  -> Ui.SURFACE 纯色不透明
+     *  alpha -> Ui.SURFACE 带不透明度(透出下方聊天背景)
+     *  blur  -> 自定义图背景时用已模糊图做毛玻璃; 渐变/纯色背景退化 alpha 模式 */
+    private fun applyBarStyle() {
+        if (!::titleBarBg.isInitialized || !::inputBarBg.isInitialized || !::inputBar.isInitialized || !::titleBar.isInitialized) return
+        val mode = ChatBackgroundActivity.loadBarMode(this)
+        val alpha = ChatBackgroundActivity.loadBarAlpha(this) * 255 / 100
+        val blurBg: BlurBarDrawable? = if (mode == "blur") {
+            val type = ChatBackgroundActivity.loadType(this)
+            val f = java.io.File(filesDir, ChatBackgroundActivity.CUSTOM_FILE)
+            if (type == "custom" && f.exists()) {
+                try {
+                    val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath)
+                    if (bmp != null) BlurBarDrawable(bmp) else null
+                } catch (e: Exception) { null }
+            } else null
+        } else null
+        if (blurBg != null) {
+            val r = dp(16).toFloat()
+            blurBg.setCornerRadii(floatArrayOf(r, r, r, r, r, r, r, r))
+            blurBg.alpha = alpha
+            titleBar.background = blurBg
+            inputBar.background = blurBg
+            return
+        }
+        titleBar.background = titleBarBg
+        inputBar.background = inputBarBg
+        titleBarBg.setColor(Ui.SURFACE)
+        inputBarBg.setColor(Ui.SURFACE)
+        if (mode == "alpha") {
+            titleBarBg.alpha = alpha
+            inputBarBg.alpha = alpha
+        } else {
+            titleBarBg.alpha = 255
+            inputBarBg.alpha = 255
         }
     }
 
@@ -4402,9 +4447,12 @@ class MainActivity : Activity() {
         // 顶栏/底栏外侧两角随下沉进度 0→16dp 圆角化, 与主界面圆角同相
         if (::titleBarBg.isInitialized) {
             val r = dp(16).toFloat()
-            val lr = r * pp
-            titleBarBg.cornerRadii = floatArrayOf(lr, lr, lr, lr, r, r, r, r)
-            inputBarBg.cornerRadii = floatArrayOf(r, r, r, r, lr, lr, lr, lr)
+            val rr = floatArrayOf(r, r, r, r, r, r, r, r)
+            // 毛玻璃透明时背景是 BlurBarDrawable, 圆角走它自己的裁剪参数
+            if (titleBar.background is BlurBarDrawable) (titleBar.background as BlurBarDrawable).setCornerRadii(rr)
+            else titleBarBg.cornerRadii = rr
+            if (inputBar.background is BlurBarDrawable) (inputBar.background as BlurBarDrawable).setCornerRadii(rr)
+            else inputBarBg.cornerRadii = rr
         }
     }
 

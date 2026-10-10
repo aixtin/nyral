@@ -264,6 +264,12 @@
     <string name="cb_reset_title">恢复默认背景</string>
     <string name="cb_reset_sub">回到纯色浅底</string>
     <string name="cb_toast_restored">已恢复默认背景</string>
+    <string name="cb_group_bar">顶栏与输入框栏透明</string>
+    <string name="cb_bar_none">不透明</string>
+    <string name="cb_bar_alpha">普通透明</string>
+    <string name="cb_bar_blur">毛玻璃透明</string>
+    <string name="cb_bar_alpha_title">不透明度</string>
+    <string name="cb_bar_hint">消息区暂不支持透明；毛玻璃需配合自定义图片背景才有实义模糊</string>
     <string name="cb_toast_preset">已应用预设背景</string>
     <string name="cb_original">原图</string>
     <string name="cb_err_read">无法读取图片</string>

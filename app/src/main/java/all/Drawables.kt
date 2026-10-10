@@ -61,3 +61,39 @@ class FixedBgDrawable(private val bmp: android.graphics.Bitmap) : android.graphi
     @Deprecated("Deprecated in Java")
     override fun getOpacity(): Int = android.graphics.PixelFormat.OPAQUE
 }
+
+/** 顶栏/输入框栏毛玻璃背景: centerCrop 绘制聊天背景位图 + 圆角裁剪(与 GradientDrawable 圆角同规格) */
+class BlurBarDrawable(private val bmp: android.graphics.Bitmap) : android.graphics.drawable.Drawable() {
+    private val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val path = android.graphics.Path()
+    private var radii = FloatArray(8) { 0f }
+
+    fun setCornerRadii(r: FloatArray) {
+        if (r.size >= 8) radii = r.copyOf(8)
+        invalidateSelf()
+    }
+
+    override fun draw(canvas: android.graphics.Canvas) {
+        val vw = bounds.width().coerceAtLeast(1)
+        val vh = bounds.height().coerceAtLeast(1)
+        val bw = bmp.width.coerceAtLeast(1)
+        val bh = bmp.height.coerceAtLeast(1)
+        val scale = Math.max(vw.toFloat() / bw, vh.toFloat() / bh)
+        val dw = (bw * scale).toInt()
+        val dh = (bh * scale).toInt()
+        val left = (vw - dw) / 2
+        val top = (vh - dh) / 2
+        // 圆角裁剪
+        path.reset()
+        path.addRoundRect(android.graphics.RectF(bounds), radii, android.graphics.Path.Direction.CW)
+        canvas.save()
+        canvas.clipPath(path)
+        canvas.drawBitmap(bmp, null, android.graphics.Rect(left, top, left + dw, top + dh), paint)
+        canvas.restore()
+    }
+
+    override fun setAlpha(a: Int) { paint.alpha = a }
+    override fun setColorFilter(cf: android.graphics.ColorFilter?) { paint.colorFilter = cf }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+}
