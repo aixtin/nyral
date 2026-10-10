@@ -132,10 +132,9 @@ android-agent-app/
 
 ## 版本记录
 
+- **v2.5.3（2026-10-10，versionCode 46）**：聊天背景新增顶栏/输入框栏透明设置——支持不透明 / 普通透明 / 静态毛玻璃三档（消息区暂不支持）；毛玻璃以自定义图片背景为底做静态模糊；顶栏/输入框四角统一全圆角、分隔线两端内缩 16dp 避开圆弧；表情抽屉图标改用 Ui.TEXT 适配主题。
+- **v2.5.2（2026-10-08，versionCode 45）**：手势交互重构——三面板手势规则统一（左抽屉：控件展开 + 开态右→左关闭；浏览器：双击右缘开/关；右汉堡面板：控件展开 + 左→右关闭）；修复左抽屉跟手滞后——DrawerDragController 在拦截判定通过瞬间即按当前 dx 定位面板/遮罩（Android 手势拦截会吞掉触发拦截的 MOVE 事件，此前面板要滑到 dx=-200 才跟手）；BrowserSlideController 重构（-96 行）。
 - **v2.5.1（2026-10-07，versionCode 44）**：修复黑屏下浏览器 scan 恒 0 挂死——waitStable 入口由 requestAnimationFrame 双连启动改为 setTimeout（后台 WebView 的 rAF 不触发，扫描永不回填）；DebugServer 补挂 /v1/browser/text 端点（fetchTextSync 早已实现但暲注册路由，此前返回 404）；新增 WAKE_LOCK 权限支撑黑屏保活。
-
-- **v2.5.2（2026-10-08，versionCode 45）**：
-- **v2.5.3（2026-10-10，versionCode 46）**：聊天背景新增顶栏/输入框栏透明设置——支持不透明 / 普通透明 / 静态毛玻璃三档（消息区暂不支持）；毛玻璃以自定义图片背景为底做静态模糊；顶栏/输入框四角统一全圆角、分隔线两端内缩 16dp 避开圆弧；表情抽屉图标改用 Ui.TEXT 适配主题。手势交互重构收尾——三面板手势规则统一（左抽屉：控件展开 + 开态右→左关闭；浏览器：双击右缘开/关；右汉堡面板：控件展开 + 左→右关闭）；修复左抽屉跟手滞后——DrawerDragController 在拦截判定通过瞬间即按当前 dx 定位面板/遮罩（Android 手势拦截会吞掉触发拦截的 MOVE 事件，此前面板要滑到 dx=-200 才跟手）；BrowserSlideController 重构（-96 行）。
 - **v2.5.0（2026-10-07，versionCode 43）**：新增新手引导向导（模式亮点、模型提供商选择、API Key 配置流程）；修复引导配置模型不持久化；新增引导相关英文翻译。
 - **v2.4.0（2026-10-06，versionCode 42）**：minSdk 升至 29（Android 10 及以上）；浏览器自动化闭环修复——交互元素扫描阈值放宽至 16px 且无文字图标/下拉菜单兜底（窄屏桌面式后台）、contenteditable 富文本输入改 execCommand insertText（TipTap/ProseMirror 等编辑器）、视口外元素 scrollIntoView/程序化点击兜底；修复 token 遮罩残留吞全屏触摸死锁。
 - **v2.3.5（2026-10-04，versionCode 41）**：修复第三轮安全复评剩余条目——R3-2 通知确认 PendingIntent 改用全局自增 requestCode（杜绝并发 hashCode 碰撞串台，旧通知不再批准新操作）；R3-3 SSH 主机信任确认气泡直接展示待确认主机密钥指纹供核对后批准；R3-4 危险命令规范化增加去除短横线（nc -e / nc -l -e 等反向 Shell 构造面命中黑名单）；R3-6 DebugServer /v1/browser/eval 任意 JS 求值同挂三档门禁；新增 R3-4/R3-6 防回归单测。

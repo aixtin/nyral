@@ -21,19 +21,20 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
-- 2026-10-07: v2.5.1 发布（versionCode 44）：黑屏浏览器 scan 挂死修复（waitStable rAF→setTimeout）+ DebugServer /v1/browser/text 端点补挂 + WAKE_LOCK 保活权限，GitHub Release v2.5.1 附正式签名 APK
+- 2026-10-10: v2.5.3 发布（versionCode 46）：聊天背景顶栏/输入框栏透明化（不透明/普通透明/静态毛玻璃）+ 全圆角与分隔线避弧 + 表情抽屉图标主题化，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-08: v2.5.2 发布（versionCode 45）：手势交互重构收尾（三面板规则统一 + 左抽屉跟手滞后修复 + BrowserSlideController 重构），GitHub/Gitee 双端 Release 附正式签名 APK
+- 2026-10-07: v2.5.1 发布（versionCode 44）：黑屏浏览器 scan 挂死修复（waitStable rAF→setTimeout）+ DebugServer /v1/browser/text 端点补挂 + WAKE_LOCK 保活权限，GitHub Release v2.5.1 附正式签名 APK
 - 2026-10-06: v2.4.0 发布（versionCode 42，minSdk 24→29）：浏览器自动化闭环修复（交互元素 16px 阈值、无文字图标/菜单兜底、contenteditable 富文本输入、视口外元素处置）+ token 遮罩死锁修复
 
 - 2026-10-02: v2.1.1 发布（versionCode 34，GitHub Release v2.1.1 附正式签名 APK）：表格单元格垂直居中修复（聊天/Agent 双模式一致）+ 慢放迁移调试弹窗 + 浏览器面板按钮 + 聊天模式气泡宽度恢复对称
-- 2026-09-25: 状态行覆盖式下拉面板（窗帘式挂 chatArea + ScrollView + 动画代际 token 防连点竞态）+ 思考气泡空气泡根治（协议前缀三处兜底）+ 时间线竖线圆点对齐/💭🔧 图标替换 + 思考计数竖排修复
-- 2026-09-27: 首启闪退修复（markwon 并发 CME 加锁串行化）+ 上滑跳闪治理（watcher 去重 + 注册时机修正）+ 停止按钮 Lucide 化 + 全局死代码清理
-- 2026-09-28: rendered 落库基建阶段1（MemoryDb rendered 列 + RenderedCodec Spanned↔JSON + mdCache→rendered→现场渲染三级读取 + 全链路 writeback，ADR-015）
-- 2026-09-29: 引用块竖线/分割线渲染（QuoteBarSpan/HrSpan，commit 4b175bd 阶段6）+ 表格首列整格空白修复（collectCellText 递归，669dea9）+ 表格横滑 v3 公共版（TableScrollWrap）+ 整表统一列宽（colMaxChars v7）
-- 2026-09-30~10-01: 表格样式系列（框线 PRIMARY/最低宽对齐/顶边封顶/单元格内边距）+ 表格方案 B 边框修复（availW/列竖线/行线调浅）+ DebugServer 直发验证链路（无线直连手机）
 - 2026-10-02: v2.1 表格渲染方案 C 落地（versionCode 33）：MdTableView 重写为气泡内独立 TableView 块化、WRAP_CONTENT 自适应、修复含行内代码单元格整格空白、清理旧表格类（ADR-014）
+- 2026-09-29: 引用块竖线/分割线渲染（QuoteBarSpan/HrSpan，commit 4b175bd 阶段6）+ 表格首列整格空白修复（collectCellText 递归，669dea9）+ 表格横滑 v3 公共版（TableScrollWrap）+ 整表统一列宽（colMaxChars v7）
 - 2026-09-29: 开源收口（chore 安全加固与清理 9150c73）+ targetSdk/compileSdk 升 36（AGP 8.13.0 + Gradle 8.13，为 Android 16 Live Updates 接入准备，versionCode 32）
+- 2026-09-30~10-01: 表格样式系列（框线 PRIMARY/最低宽对齐/顶边封顶/单元格内边距）+ 表格方案 B 边框修复（availW/列竖线/行线调浅）+ DebugServer 直发验证链路（无线直连手机）
+- 2026-09-28: rendered 落库基建阶段1（MemoryDb rendered 列 + RenderedCodec Spanned↔JSON + mdCache→rendered→现场渲染三级读取 + 全链路 writeback，ADR-015）
+- 2026-09-27: 首启闪退修复（markwon 并发 CME 加锁串行化）+ 上滑跳闪治理（watcher 去重 + 注册时机修正）+ 停止按钮 Lucide 化 + 全局死代码清理
 - 2026-09-27/28: D 路线实时 Markdown 渲染落地（MdSpans/MdBlocks/MdStreamRenderer 第1-5步）+ 消息列表滑动丝滑优化（RecyclerView 形态池化/AiRich 容器池化/flush 分批/漂移补偿，池化回归修复多轮）+ 行动轨道原型 + 慢放体系 + 键盘/表情/输入框三层联动修复
+- 2026-09-25: 状态行覆盖式下拉面板（窗帘式挂 chatArea + ScrollView + 动画代际 token 防连点竞态）+ 思考气泡空气泡根治（协议前缀三处兜底）+ 时间线竖线圆点对齐/💭🔧 图标替换 + 思考计数竖排修复
 - 2026-09-13: 三处并发/时序 bug 修复并真机验证闭环（DebugServer chat 互斥、browser_scan 同步回填、browser open 就绪等待）+ DebugServer keep-alive 吞吐优化 + UpdateChecker NPE 修复（af7135a）+ 发视频 OOM 修复（流式读取+大小上限+VideoCompressor）
 - 2026-09-13: v2.0 正式签名发布（versionCode 30，自建 keystore 接入 release signingConfig，密钥异地备份）+ 版本号动态化修复更新检测
 - 2026-09-11: v1.3（versionCode 23）+ 开源准备收口（浏览器模块与 Markdown 渲染源码入库、脱敏内网 IP、清理备份/补丁脚本）+ 开发者文档（docs/README + ADR 13 条）
@@ -46,4 +47,3 @@
 - v0.5: 远程文件系统工具（list/read/write/info）
 - v0.5.1: 工具调用格式容错 + ~ 展开 + 连接名模糊匹配
 - v0.6: 多工具调用循环（上限 5 轮）
-- 2026-10-10: v2.5.3 发布（versionCode 46）：聊天背景顶栏/输入框栏透明化（不透明/普通透明/静态毛玻璃）+ 全圆角与分隔线避弧 + 表情抽屉图标主题化，GitHub/Gitee 双端 Release 附正式签名 APK
