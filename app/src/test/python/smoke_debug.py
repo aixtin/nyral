@@ -5,7 +5,7 @@ Nyral DebugServer 冒烟测试脚本(第2级集成测试, 2026-10-05)
 验证: 设备连通 -> DebugServer 鉴权 -> /v1/chat SSE 完整链路(tool/tool_result/delta/done, 无 400)
       -> UI 发送链路(message_count 增量, 确认消息已渲染落库到会话)。
 用法:
-  python3 smoke_debug.py                    # 默认无线设备 10.10.10.3:5555
+  python3 smoke_debug.py                    # 默认无线设备 <WG_PHONE_IP>:5555
   python3 smoke_debug.py 192.168.2.132:5555 # 指定设备
   python3 smoke_debug.py --usb              # 优先 USB 有线设备
   python3 smoke_debug.py --message "现在几点了？用工具回答"   # 自定义冒烟消息

@@ -12,7 +12,7 @@ Nyral 第4级发版回归: 固定靶场 6 条历史问题复测脚本 v2 (2026-1
   6. 浮层劫持        - 广告元素被采集且被浮层遮挡时拒点(防护生效)
 用法:
   python3 range_regression.py                 # 自动选设备
-  python3 range_regression.py 10.10.10.3:5555 # 指定无线设备
+  python3 range_regression.py <WG_PHONE_IP>:5555 # 指定无线设备
   python3 range_regression.py --usb
   python3 range_regression.py --emulator      # GitHub Actions nightly 模拟器 (emulator-5554)
 环境变量: ADB 可覆盖 adb 路径(CI 用), 默认取 PATH 中的 adb

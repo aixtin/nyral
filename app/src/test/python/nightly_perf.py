@@ -7,7 +7,7 @@ SSH 握手延迟与记忆召回延迟依赖真机用户配置(VPS/记忆库), �
 
 用法:
   python3 nightly_perf.py --emulator       # CI 模拟器 (emulator-5554)
-  python3 nightly_perf.py 10.10.10.3:5555  # 真机(需 DebugServer 已开启)
+  python3 nightly_perf.py <WG_PHONE_IP>:5555  # 真机(需 DebugServer 已开启)
   python3 nightly_perf.py --emulator --json perf.json
 环境变量: ADB 可覆盖 adb 路径
 退出码: 0=采样完成, 2=设备/前置失败
@@ -90,7 +90,7 @@ def get_token(device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("device", nargs="?", default=None, help="设备 serial (如 10.10.10.3:5555)")
+    ap.add_argument("device", nargs="?", default=None, help="设备 serial (如 <WG_PHONE_IP>:5555)")
     ap.add_argument("--emulator", action="store_true", help="使用 CI 模拟器 emulator-5554")
     ap.add_argument("--json", default=None, help="采样结果写 JSON 文件")
     args = ap.parse_args()
