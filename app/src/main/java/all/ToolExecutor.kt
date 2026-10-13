@@ -68,7 +68,7 @@ object ToolExecutor {
         return d.joinToString("") { "%02x".format(it) }.take(12)
     }
 
-    fun execute(context: Context, name: String, argRaw: String, hotLoaded: MutableSet<String>, silent: Boolean = false): String {
+    fun execute(context: Context, name: String, argRaw: String, hotLoaded: MutableSet<String>, silent: Boolean = false, allowTools: Set<String> = emptySet()): String {
         val arg0 = normalizeArgs(name, argRaw)
         // 旧工具名兼容: 映射到新复合工具并注入 action
         val legacy = LEGACY_TOOL_ACTION[name.trim('_')]
@@ -104,7 +104,12 @@ object ToolExecutor {
                 val risk = SecurityConfig.riskOf(key0)
                 // 2026-10-13 fix: 静默定时任务场景无人值守, 不挂起等确认(会白等2分钟), 立即自动拒绝并引导降级
                 if (silent) {
-                    return "【安全确认】静默定时任务已自动拒绝危险工具 [$n](无用户在场确认)。请改用非危险工具(memory_search/calc/get_time/file 只读等)完成目标，不要重试本工具。"
+                    // 2026-10-13: 定时岗位任务级预授权(allowTools 白名单)放行, 未授权仍自动拒绝
+                    if (key0 in allowTools || n in allowTools) {
+                        /* 命中任务白名单: 视为已预授权, 跳过确认继续执行 */
+                    } else {
+                        return "【安全确认】静默定时任务已自动拒绝危险工具 [$n](未在任务能力授权内)。请改用非危险工具(memory_search/calc/get_time/file 只读等)完成目标，不要重试本工具。"
+                    }
                 }
                 // R3-3(2026-10-04): ssh_trust 信任类确认直接展示待确认主机指纹, 供用户核对后再批准
                 val displayArg = if (n == "security_set" && arg.contains("ssh_trust")) {
@@ -262,10 +267,19 @@ object ToolExecutor {
                     // 硬门禁 v3(2026-10-04): MCP 动态工具纳入门禁, 与内置危险工具同款三档+队列确认
                     val mcpKey = "mcp:$name"
                     if (SecurityConfig.needsConfirm(context, mcpKey, arg)) {
-                        when (SecurityUi.requestConfirm(context, mcpKey, arg, SecurityConfig.riskOf(mcpKey))) {
-                            true -> McpClientManager.callTool(context, name, arg)
-                            false -> "【安全确认】用户拒绝了工具 [$name] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
-                            null -> "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
+                        // 2026-10-13: 静默场景同样走预授权白名单放行/自动拒绝, 不挂起等确认
+                        if (silent) {
+                            if (mcpKey in allowTools || name in allowTools) {
+                                McpClientManager.callTool(context, name, arg)
+                            } else {
+                                "【安全确认】静默定时任务已自动拒绝工具 [$name](未在任务能力授权内)。请改用非危险工具完成目标，不要重试本工具。"
+                            }
+                        } else {
+                            when (SecurityUi.requestConfirm(context, mcpKey, arg, SecurityConfig.riskOf(mcpKey))) {
+                                true -> McpClientManager.callTool(context, name, arg)
+                                false -> "【安全确认】用户拒绝了工具 [$name] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
+                                null -> "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
+                            }
                         }
                     } else {
                         McpClientManager.callTool(context, name, arg)

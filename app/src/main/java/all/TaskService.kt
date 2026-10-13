@@ -185,6 +185,8 @@ class TaskService : Service() {
         }
         val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
+        // 能力预授权(2026-10-13): 解析任务白名单(逗号分隔 key), 静默执行命中即放行危险工具
+        val allowTools = task.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         val history = "[当前时间]\n" + now + "\n\n" +
             "[定时岗位任务]\n" +
             "任务名: " + task.name + "\n" +
@@ -230,7 +232,7 @@ class TaskService : Service() {
         }
         Thread {
             LocalEngine.cancelRequested = false
-            LocalEngine.chat(this@TaskService, history, cb, silentMode = true) // 定时岗位静默: 危险工具自动拒绝不挂起
+            LocalEngine.chat(this@TaskService, history, cb, silentMode = true, allowTools = allowTools) // 定时岗位静默: 未授权危险工具自动拒绝不挂起, 白名单内放行
         }.start()
     }
 

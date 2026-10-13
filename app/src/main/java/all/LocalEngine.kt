@@ -384,7 +384,7 @@ object LocalEngine {
     // ================= 流式主流程 =================
 
     /** 流式入口: 主线程调用, 回调全部发生在调用线程(工作线程), UI 需自行 post */
-    fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false) {
+    fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet()) {
         var attempt = 0
         // 跨轮累计正文: 声明在 try 外, 取消/重试 catch 分支也能带回已输出内容
         val full = StringBuilder()
@@ -481,7 +481,7 @@ object LocalEngine {
                     val schemaBlocks = StringBuilder()
                     for ((name, arg) in execCalls) {
                         cb.onTool(name, arg)
-                        val result = ToolExecutor.execute(context, name, arg, hotLoaded, silentMode)
+                        val result = ToolExecutor.execute(context, name, arg, hotLoaded, silentMode, allowTools)
                         cb.onToolResult(name, result)
                         execResults.add(name to result)
                         toolSeqUsed.add(name)
