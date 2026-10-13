@@ -12,6 +12,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -371,10 +372,26 @@ class TimerTaskActivity : Activity() {
     private fun showAllowToolsDialog(title: String, current: Set<String>, onSave: (String) -> Unit) {
         val keys = ALLOW_CATALOG.keys.toList()
         val checked = keys.map { it in current }.toBooleanArray()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(12), dp(24), dp(4))
+            addView(TextView(context).apply {
+                text = "勾选后, 定时任务静默执行时可直接使用这些危险工具, 不再逐次确认; 未勾选的仍会自动拒绝。"
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextColor(0xFF888888.toInt())
+            })
+            keys.forEachIndexed { i, k ->
+                addView(CheckBox(context).apply {
+                    text = ALLOW_CATALOG[k] + "  ($k)"
+                    isChecked = checked[i]
+                    setOnCheckedChangeListener { _, b -> checked[i] = b }
+                })
+            }
+        }
+        val sc = ScrollView(this).apply { addView(content) }
         AlertDialog.Builder(this)
             .setTitle(title)
-            .setMessage("勾选后, 定时任务静默执行时可直接使用这些危险工具, 不再逐次确认; 未勾选的仍会自动拒绝。")
-            .setMultiChoiceItems(keys.toTypedArray(), checked) { _, i, b -> checked[i] = b }
+            .setView(sc)
             .setPositiveButton("保存") { _, _ ->
                 val picked = keys.filterIndexed { i, _ -> checked[i] }
                 onSave(picked.joinToString(","))

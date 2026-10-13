@@ -103,23 +103,23 @@ object ToolExecutor {
             if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
                 val risk = SecurityConfig.riskOf(key0)
                 // 2026-10-13 fix: 静默定时任务场景无人值守, 不挂起等确认(会白等2分钟), 立即自动拒绝并引导降级
-                if (silent) {
-                    // 2026-10-13: 定时岗位任务级预授权(allowTools 白名单)放行, 未授权仍自动拒绝
-                    if (key0 in allowTools || n in allowTools) {
-                        /* 命中任务白名单: 视为已预授权, 跳过确认继续执行 */
-                    } else {
-                        return "【安全确认】静默定时任务已自动拒绝危险工具 [$n](未在任务能力授权内)。请改用非危险工具(memory_search/calc/get_time/file 只读等)完成目标，不要重试本工具。"
-                    }
+                // 2026-10-13: 定时岗位任务级预授权(allowTools 白名单)放行, 未授权仍自动拒绝
+                val silentlyAllowed = silent && (key0 in allowTools || n in allowTools)
+                if (silent && !silentlyAllowed) {
+                    return "【安全确认】静默定时任务已自动拒绝危险工具 [$n](未在任务能力授权内)。请改用非危险工具(memory_search/calc/get_time/file 只读等)完成目标，不要重试本工具。"
                 }
-                // R3-3(2026-10-04): ssh_trust 信任类确认直接展示待确认主机指纹, 供用户核对后再批准
-                val displayArg = if (n == "security_set" && arg.contains("ssh_trust")) {
-                    val fp = SshTools.pendingFingerprint()
-                    if (fp != null) "$arg\n\n待信任主机密钥指纹: $fp\n请与 SSH 安全告警中的指纹核对一致后再批准。" else arg
-                } else null
-                when (SecurityUi.requestConfirm(context, key0, arg, risk, displayArg)) {
-                    true -> { /* 允许: 票据已在决策回调中签发, 继续执行本调用 */ }
-                    false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
-                    null -> return "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
+                // 白名单命中即视为已预授权, 静默跳过确认直接执行; 非静默场景照常逐次确认
+                if (!silentlyAllowed) {
+                    // R3-3(2026-10-04): ssh_trust 信任类确认直接展示待确认主机指纹, 供用户核对后再批准
+                    val displayArg = if (n == "security_set" && arg.contains("ssh_trust")) {
+                        val fp = SshTools.pendingFingerprint()
+                        if (fp != null) "$arg\n\n待信任主机密钥指纹: $fp\n请与 SSH 安全告警中的指纹核对一致后再批准。" else arg
+                    } else null
+                    when (SecurityUi.requestConfirm(context, key0, arg, risk, displayArg)) {
+                        true -> { /* 允许: 票据已在决策回调中签发, 继续执行本调用 */ }
+                        false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
+                        null -> return "【安全确认】确认通道不可用(应用不在前台且通知被禁用)，请在打开 App 后重试本调用。"
+                    }
                 }
             }
         }
@@ -270,9 +270,9 @@ object ToolExecutor {
                         // 2026-10-13: 静默场景同样走预授权白名单放行/自动拒绝, 不挂起等确认
                         if (silent) {
                             if (mcpKey in allowTools || name in allowTools) {
-                                McpClientManager.callTool(context, name, arg)
+                                return McpClientManager.callTool(context, name, arg)
                             } else {
-                                "【安全确认】静默定时任务已自动拒绝工具 [$name](未在任务能力授权内)。请改用非危险工具完成目标，不要重试本工具。"
+                                return "【安全确认】静默定时任务已自动拒绝工具 [$name](未在任务能力授权内)。请改用非危险工具完成目标，不要重试本工具。"
                             }
                         } else {
                             when (SecurityUi.requestConfirm(context, mcpKey, arg, SecurityConfig.riskOf(mcpKey))) {
