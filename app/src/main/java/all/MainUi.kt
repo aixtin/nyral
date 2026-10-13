@@ -107,17 +107,46 @@ import android.widget.Toast
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             setPadding(dp(16), dp(12), dp(16), 0)
-            addView(TextView(this@buildDrawer).apply {
-                text = getString(R.string.mui_new_chat)
-                textSize = 15f
-                setTypeface(typeface, Typeface.BOLD)
-                // 与主页模型切换按钮同款: 浅蓝底蓝字圆角
-                setTextColor(Ui.PRIMARY)
+            // 中间区域顶部双按钮一行(2026-10-11): 左定时任务 / 右新会话
+            addView(LinearLayout(this@buildDrawer).apply {
+                orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                background = rounded(dp(16), Ui.PRIMARY_LIGHT)
-                setPadding(0, dp(12), 0, dp(12))
-                isClickable = true
-                setOnClickListener { startNewSession() }
+                // 左: 定时任务 (UI 占位, 功能待定)
+                addView(TextView(this@buildDrawer).apply {
+                    text = getString(R.string.mui_timer_task)
+                    textSize = 15f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(Ui.PRIMARY)
+                    gravity = Gravity.CENTER
+                    background = rounded(dp(16), Ui.PRIMARY_LIGHT)
+                    setPadding(0, dp(12), 0, dp(12))
+                    isClickable = true
+                    setOnClickListener {
+                        this@buildDrawer.startActivity(
+                            android.content.Intent(this@buildDrawer, TimerTaskActivity::class.java)
+                        )
+                    }
+                    Ui.press(this)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                // 两格间距
+                addView(View(this@buildDrawer).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(12), dp(1))
+                })
+                // 右: 新会话
+                addView(TextView(this@buildDrawer).apply {
+                    text = getString(R.string.mui_new_chat)
+                    textSize = 15f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(Ui.PRIMARY)
+                    gravity = Gravity.CENTER
+                    background = rounded(dp(16), Ui.PRIMARY_LIGHT)
+                    setPadding(0, dp(12), 0, dp(12))
+                    isClickable = true
+                    setOnClickListener { startNewSession() }
+                    Ui.press(this)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
             })
             addView(TextView(this@buildDrawer).apply {
                 text = getString(R.string.mui_records)
@@ -137,31 +166,20 @@ import android.widget.Toast
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
         })
-        // 安全中心入口(2026-10-04): 三档门禁切换 + 审计历史
+        // 门禁状态行(2026-10-11): 原安全中心位置仅保留状态
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(20), dp(12), dp(20), dp(12))
             setBackgroundColor(Ui.BG)
-            isClickable = true
-            setOnClickListener {
-                closeDrawer()
-                startActivity(Intent(this@buildDrawer, SecurityCenterActivity::class.java))
-            }
-            Ui.press(this)
-            addView(ImageView(this@buildDrawer).apply {
-                setImageResource(R.drawable.ic_settings_security)
-                setColorFilter(Ui.TEXT)
-                setPadding(0, 0, dp(10), 0)
-            })
             addView(TextView(this@buildDrawer).apply {
-                text = "安全中心"
+                text = "门禁状态"
                 textSize = 15f
                 setTextColor(Ui.TEXT)
             })
             addView(TextView(this@buildDrawer).apply {
                 text = SecurityConfig.modeText(SecurityConfig.dangerMode(this@buildDrawer))
-                textSize = 11f
+                textSize = 13f
                 setTextColor(Ui.SUB)
                 gravity = Gravity.END
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -169,23 +187,92 @@ import android.widget.Toast
                 }
             })
         })
-
-        // 右下角设置入口
+                // 底部三入口横向一行(2026-10-11): 左安全中心 / 中文档 / 右设置, 上方保留门禁状态行
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), dp(14), dp(20), dp(14))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
             setBackgroundColor(Ui.BG)
-            isClickable = true
-            setOnClickListener {
-                closeDrawer()
-                startActivity(Intent(this@buildDrawer, SettingsActivity::class.java))
-            }
-            Ui.press(this)
-            addView(TextView(this@buildDrawer).apply {
-                text = getString(R.string.mui_settings)
-                textSize = 15f
-                setTextColor(Ui.TEXT)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+            // 左: 安全中心
+            addView(LinearLayout(this@buildDrawer).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                setOnClickListener {
+                    closeDrawer()
+                    startActivity(Intent(this@buildDrawer, SecurityCenterActivity::class.java))
+                }
+                Ui.press(this)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(ImageView(this@buildDrawer).apply {
+                    setImageResource(R.drawable.ic_settings_security)
+                    setColorFilter(Ui.TEXT)
+                    layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply {
+                        setMargins(0, 0, dp(6), 0)
+                    }
+                })
+                addView(TextView(this@buildDrawer).apply {
+                    text = "安全中心"
+                    textSize = 13f
+                    setTextColor(Ui.TEXT)
+                })
+            })
+            // 竖分隔线
+            addView(View(this@buildDrawer).apply {
+                setBackgroundColor(0x1AFFFFFF)
+                layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                    setMargins(0, dp(2), 0, dp(2))
+                }
+            })
+            // 中: 文档
+            addView(LinearLayout(this@buildDrawer).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                setOnClickListener {
+                    closeDrawer()
+                    startActivity(Intent(this@buildDrawer, DocPlaceholderActivity::class.java))
+                }
+                Ui.press(this)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(ImageView(this@buildDrawer).apply {
+                    setImageResource(R.drawable.ic_settings_doc)
+                    setColorFilter(Ui.TEXT)
+                    layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply {
+                        setMargins(0, 0, dp(6), 0)
+                    }
+                })
+                addView(TextView(this@buildDrawer).apply {
+                    text = "文档"
+                    textSize = 13f
+                    setTextColor(Ui.TEXT)
+                })
+            })
+            // 竖分隔线
+            addView(View(this@buildDrawer).apply {
+                setBackgroundColor(0x1AFFFFFF)
+                layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                    setMargins(0, dp(2), 0, dp(2))
+                }
+            })
+            // 右: 设置
+            addView(LinearLayout(this@buildDrawer).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                setOnClickListener {
+                    closeDrawer()
+                    startActivity(Intent(this@buildDrawer, SettingsActivity::class.java))
+                }
+                Ui.press(this)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(TextView(this@buildDrawer).apply {
+                    text = getString(R.string.mui_settings)
+                    textSize = 13f
+                    setTextColor(Ui.TEXT)
+                })
             })
         })
     }

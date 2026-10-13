@@ -44,10 +44,12 @@ class DebugService : Service() {
         createChannel()
         // 尽早前台化, 满足 startForegroundService 5s 时限(Android 15/16 + ColorOS 校验严格)
         startForegroundCompat()
+        ServiceNotifGroup.register(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat()
+        ServiceNotifGroup.publishSummary(this)
         return START_STICKY
     }
 
@@ -90,6 +92,12 @@ class DebugService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setGroup(ServiceNotifGroup.GROUP_KEY)
             .build()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ServiceNotifGroup.unregister(this)
     }
 }

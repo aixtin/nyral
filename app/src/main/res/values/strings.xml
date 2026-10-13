@@ -688,11 +688,16 @@
     <string name="ts_stage_reply">作答中</string>
     <string name="ts_action_cancel">取消</string>
     <string name="ts_action_retry">重试</string>
+    <string name="tk_channel_name">定时岗位</string>
+    <string name="tk_channel_desc">定时岗位运行期间的常驻通知，防止进程被系统回收</string>
+    <string name="tk_running">定时岗位运行中</string>
+    <string name="tk_content">AI 定时岗位已开启，后台静默执行中，点此管理任务</string>
     <!-- 聊天背景 -->
     <string name="cba_img_badge">图</string>
     <string name="cba_def_badge">默</string>
     <!-- 侧栏 -->
-    <string name="mui_new_chat">＋ 新会话</string>
+    <string name="mui_new_chat">新会话</string>
+    <string name="mui_timer_task">定时任务</string>
     <string name="mui_settings">⚙ 设置</string>
     <string name="mui_role_user">我</string>
     <string name="mui_role_ai">AI</string>
@@ -813,6 +818,14 @@
     <string name="guide_model_hint">模型（默认已填）</string>
     <string name="guide_pick_models">选择模型（可多选）</string>
     <string name="guide_conn_error_confirm">连接异常，是否继续？</string>
+    <string name="guide_key_dialog_title">输入密钥</string>
+    <string name="guide_key_dialog_hint">粘贴你的 API Key</string>
+    <string name="guide_model_placeholder">输入密钥后自动选择最优模型</string>
+    <string name="guide_key_tap_hint">点击输入密钥</string>
+    <string name="guide_key_saved">密钥已保存，点击可修改</string>
+    <string name="guide_replace_model">替换</string>
+    <string name="guide_pick_one_model">选择模型</string>
+    <string name="guide_confirm_fetch">确认并拉取模型</string>
     <string name="guide_tab_intro">亮点介绍</string>
     <string name="guide_tab_provider">选择服务商</string>
     <string name="guide_tab_key">填写 Key</string>
