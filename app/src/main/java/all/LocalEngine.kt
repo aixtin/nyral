@@ -384,7 +384,7 @@ object LocalEngine {
     // ================= 流式主流程 =================
 
     /** 流式入口: 主线程调用, 回调全部发生在调用线程(工作线程), UI 需自行 post */
-    fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet()) {
+    fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet(), taskId: Long = 0L) {
         var attempt = 0
         // 跨轮累计正文: 声明在 try 外, 取消/重试 catch 分支也能带回已输出内容
         val full = StringBuilder()
@@ -438,7 +438,7 @@ object LocalEngine {
                     cb.onDone("")
                     return
                 }
-                val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded)
+                val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded, taskId = taskId)
                 // 弱网续跑: 流中断但已有部分输出 -> 携带已输出内容让模型从断点续写, 不重来不静默
                 if (res.interrupted && res.accumulated.isNotBlank()) {
                     attempt++
@@ -462,7 +462,7 @@ object LocalEngine {
                         android.util.Log.i("Nyral", "BudgetExhaustedSummary")
                         val finalMsg = "工具调用预算已耗尽(已达 $MAX_TOOL_CALLS 次上限)。请仅基于已获得的工具执行结果, 直接向用户输出最终答案总结。不要发起任何工具调用, 不要重复执行工具, 不要输出思考过程。"
                         messages.put(JSONObject().put("role", "user").put("content", finalMsg))
-                        val resFinal = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded, forceNoTools = true)
+                        val resFinal = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded, forceNoTools = true, taskId = taskId)
                         val finalText = resFinal.accumulated.trim()
                         if (finalText.isNotBlank()) {
                             full.append(capOut(finalText))
@@ -630,7 +630,8 @@ object LocalEngine {
         answerGate: () -> String?,
         injectedTools: MutableSet<String>,
         hotLoaded: Set<String>,
-        forceNoTools: Boolean = false
+        forceNoTools: Boolean = false,
+        taskId: Long = 0L
     ): StreamResult {
         val body = JSONObject()
         body.put("model", ApiConfig.model())
@@ -665,6 +666,8 @@ object LocalEngine {
             "header" -> conn.setRequestProperty(ApiConfig.authHeaderOf(ApiConfig.providerId()), ApiConfig.apiKey())
             else -> conn.setRequestProperty("Authorization", "Bearer ${ApiConfig.apiKey()}")
         }
+        // 定时岗位任务来源标识(2026-10-13): 静默执行带 taskId, 远端可识别请求归属
+        if (taskId > 0L) conn.setRequestProperty("X-Nyral-Task-ID", taskId.toString())
         conn.doOutput = true
         conn.connectTimeout = 20000
         conn.readTimeout = 60000

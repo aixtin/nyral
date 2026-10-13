@@ -232,7 +232,7 @@ class TaskService : Service() {
         }
         Thread {
             LocalEngine.cancelRequested = false
-            LocalEngine.chat(this@TaskService, history, cb, silentMode = true, allowTools = allowTools) // 定时岗位静默: 未授权危险工具自动拒绝不挂起, 白名单内放行
+            LocalEngine.chat(this@TaskService, history, cb, silentMode = true, allowTools = allowTools, taskId = taskId) // 定时岗位静默: 未授权危险工具自动拒绝不挂起, 白名单内放行; X-Nyral-Task-ID 标识任务来源
         }.start()
     }
 
