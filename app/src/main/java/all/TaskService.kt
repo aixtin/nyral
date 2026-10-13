@@ -35,6 +35,7 @@ class TaskService : Service() {
     companion object {
         private const val CHANNEL_ID = "task_running"
         private const val NOTIF_ID = 1001
+        private const val NOTIF_DONE_ID = 1005
 
         /** 胶囊重试动作(通知 Action 携带, MainActivity.onNewIntent 处理) */
         const val ACTION_RETRY = "io.github.aixtin.nyral.action.RETRY_TASK"
@@ -209,6 +210,7 @@ class TaskService : Service() {
                     TimerScheduler.schedule(this@TaskService, taskId, task.cronDesc)
                     android.util.Log.i("TimerTask", "定时岗位已续期: ${task.name} -> ${task.cronDesc}")
                 }
+                notifyTaskDone(this@TaskService, task, reply)
                 TaskService.stop(this@TaskService)
             }
             override fun onError(msg: String) {
@@ -230,6 +232,28 @@ class TaskService : Service() {
             LocalEngine.cancelRequested = false
             LocalEngine.chat(this@TaskService, history, cb, silentMode = true) // 定时岗位静默: 危险工具自动拒绝不挂起
         }.start()
+    }
+
+    /** 定时岗位完成通知(2026-10-13): 静默执行完成后弹低重要性通知, 点击进主界面 */
+    private fun notifyTaskDone(ctx: Context, task: TimerTaskDb.Task, reply: String) {
+        try {
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val pi = PendingIntent.getActivity(ctx, task.id.toInt(),
+                Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentTitle("定时任务完成: " + task.name)
+                .setContentText(reply.take(80))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(reply.take(200)))
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .build()
+            nm.notify(NOTIF_DONE_ID, notif)
+        } catch (e: Exception) {
+            android.util.Log.w("TimerTask", "完成通知失败: " + e.message)
+        }
     }
 
     /**
