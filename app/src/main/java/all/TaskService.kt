@@ -203,6 +203,12 @@ class TaskService : Service() {
                 SecurityConfig.audit(this@TaskService, "timer_task_run",
                     "${task.name} -> ${reply.take(120)}", "alarm", "timer_task")
                 android.util.Log.i("TimerTask", "定时岗位执行完成: ${task.name}")
+                // 2026-10-13 fix: setAlarmClock 单次闹钟, 完成后必须续期下一次, 否则 *walarm* 消失任务次日不再触发
+                val stillEnabled = db.get(taskId)?.enabled == true
+                if (stillEnabled && !task.cronDesc.isNullOrEmpty()) {
+                    TimerScheduler.schedule(this@TaskService, taskId, task.cronDesc)
+                    android.util.Log.i("TimerTask", "定时岗位已续期: ${task.name} -> ${task.cronDesc}")
+                }
                 TaskService.stop(this@TaskService)
             }
             override fun onError(msg: String) {
@@ -211,12 +217,18 @@ class TaskService : Service() {
                 SecurityConfig.audit(this@TaskService, "timer_task_run",
                     "${task.name} -> 失败: $msg", "alarm", "timer_task")
                 android.util.Log.w("TimerTask", "定时岗位执行失败: ${task.name}: $msg")
+                // 2026-10-13 fix: 失败同样续期下一次(任务仍启用时), 保留每日重试机会
+                val stillEnabled = db.get(taskId)?.enabled == true
+                if (stillEnabled && !task.cronDesc.isNullOrEmpty()) {
+                    TimerScheduler.schedule(this@TaskService, taskId, task.cronDesc)
+                    android.util.Log.i("TimerTask", "定时岗位失败后已续期: ${task.name} -> ${task.cronDesc}")
+                }
                 TaskService.stop(this@TaskService)
             }
         }
         Thread {
             LocalEngine.cancelRequested = false
-            LocalEngine.chat(this@TaskService, history, cb)
+            LocalEngine.chat(this@TaskService, history, cb, silentMode = true) // 定时岗位静默: 危险工具自动拒绝不挂起
         }.start()
     }
 

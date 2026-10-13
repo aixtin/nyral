@@ -68,7 +68,7 @@ object ToolExecutor {
         return d.joinToString("") { "%02x".format(it) }.take(12)
     }
 
-    fun execute(context: Context, name: String, argRaw: String, hotLoaded: MutableSet<String>): String {
+    fun execute(context: Context, name: String, argRaw: String, hotLoaded: MutableSet<String>, silent: Boolean = false): String {
         val arg0 = normalizeArgs(name, argRaw)
         // 旧工具名兼容: 映射到新复合工具并注入 action
         val legacy = LEGACY_TOOL_ACTION[name.trim('_')]
@@ -102,6 +102,10 @@ object ToolExecutor {
         if (SecurityConfig.needsConfirm(context, key0, arg)) {
             if (key0 in DANGER_CONFIRM_TOOLS || n in DANGER_CONFIRM_TOOLS) {
                 val risk = SecurityConfig.riskOf(key0)
+                // 2026-10-13 fix: 静默定时任务场景无人值守, 不挂起等确认(会白等2分钟), 立即自动拒绝并引导降级
+                if (silent) {
+                    return "【安全确认】静默定时任务已自动拒绝危险工具 [$n](无用户在场确认)。请改用非危险工具(memory_search/calc/get_time/file 只读等)完成目标，不要重试本工具。"
+                }
                 // R3-3(2026-10-04): ssh_trust 信任类确认直接展示待确认主机指纹, 供用户核对后再批准
                 val displayArg = if (n == "security_set" && arg.contains("ssh_trust")) {
                     val fp = SshTools.pendingFingerprint()

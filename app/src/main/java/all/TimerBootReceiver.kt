@@ -21,6 +21,10 @@ class TimerBootReceiver : BroadcastReceiver() {
             android.util.Log.e("TimerBoot", "读取任务失败: ${e.message}")
             return
         }
+        // 2026-10-13 fix: 先全量取消旧闹钟(含已禁用任务), 再排启用任务, 防禁用后 *walarm* 残留到点仍触发
+        for (t in tasks) {
+            TimerScheduler.cancel(context, t.id)
+        }
         var enabledCount = 0
         for (t in tasks) {
             if (t.enabled) {
