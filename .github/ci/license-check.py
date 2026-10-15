@@ -50,9 +50,11 @@ KNOWN_LICENSE_MAP = {
 }
 
 # Gradle tree lines look like:  +--- group:artifact:version -> 2.0.21 (*)
-# Capture the coordinate anywhere in the line; prefer the resolved version after "->".
+# Only scan real dependency-tree lines (prefix "+--- " or "\--- ") so that
+# Gradle warnings/daemon banners (e.g. "w: file:///.../build.gradle.kts:120:38")
+# are never mistaken for coordinates.
 LINE_RE = re.compile(
-    r"([A-Za-z0-9_.\-]+):([A-Za-z0-9_.\-]+):([A-Za-z0-9_.\-]+)(?:\s*->\s*([A-Za-z0-9_.\-]+))?"
+    r"^\s*(?:\|\s*)*[+\\]---\s+([A-Za-z0-9_.\-]+):([A-Za-z0-9_.\-]+):([A-Za-z0-9_.\-]+)(?:\s*->\s*([A-Za-z0-9_.\-]+))?"
 )
 
 NS = {"m": "http://maven.apache.org/POM/4.0.0"}
@@ -62,7 +64,7 @@ def extract_coords(path: str) -> set:
     coords = set()
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
-            m = LINE_RE.search(line)
+            m = LINE_RE.match(line)
             if m:
                 ver = m.group(4) or m.group(3)
                 coords.add((m.group(1), m.group(2), ver))
