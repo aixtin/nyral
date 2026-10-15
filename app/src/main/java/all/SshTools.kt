@@ -442,8 +442,8 @@ object SshTools {
             val effKey = if (!proxyKey.isNullOrEmpty()) proxyKey else if (useFallback) cfg.privateKey else null
             val effPw = if (!proxyPw.isNullOrEmpty()) proxyPw else if (useFallback) cfg.password else null
             val effPhrase = if (!proxyPhrase.isNullOrEmpty()) proxyPhrase else if (useFallback) cfg.passphrase else null
-            Log.i("SshTools", "proxy key: user=" + proxyUser + " keyLen=" + (effKey?.length ?: 0) +
-                    " keyHead=" + (effKey?.take(27)?.replace("\n", "|") ?: "NONE") + " hasPw=" + (!effPw.isNullOrEmpty()))
+            Log.i("SshTools", "proxy key: user=" + proxyUser + " keyLen=" +
+                    (effKey?.length ?: 0) + " hasPw=" + (!effPw.isNullOrEmpty()))
             if (!effKey.isNullOrEmpty()) {
                 jsch.addIdentity("proxy_key", effKey.toByteArray(), null, effPhrase?.toByteArray())
             }

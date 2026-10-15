@@ -203,7 +203,7 @@ object WebTools {
         ssrfBlocked(url)?.let { return "错误: $it" }
         return try {
             val headers = mergeHeaders(context, url, parseHeaders(json))
-            val raw = download(url, UA, headers)
+            val raw = downloadPinned(url, UA, headers)
                 ?: return "错误: 下载失败(超时或网络不可用)"
             if (raw.startsWith("错误: ")) return raw
             val text = extractText(raw)
@@ -601,6 +601,70 @@ object WebTools {
             }
         }
         return DlResult(false, "重定向次数过多")
+    }
+
+    /**
+     * fetch 专用下载: 与 download 同逻辑, 但连接走 openPinnedConnection
+     * (解析+校验后 pin IP, 消除 DNS 重绑定 TOCTOU 窗口, 每跳重定向同样复查),
+     * 修复 SSRF: 原 fetch 直接 URL.openConnection 未 pin IP, 存在重绑定绕过风险。
+     */
+    private fun downloadPinned(url: String, ua: String = UA, extraHeaders: Map<String, String> = emptyMap()): String? {
+        var current = url
+        var hs = extraHeaders
+        var redirects = 0
+        var blocked: String? = null
+        while (redirects <= 5 && blocked == null) {
+            val conn = openPinnedConnection(current)
+            if (conn == null) {
+                blocked = "错误: " + (ssrfBlocked(current) ?: "打开连接失败(URL非法或解析失败)")
+                break
+            }
+            try {
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("User-Agent", ua)
+                conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
+                for ((k, v) in hs) conn.setRequestProperty(k, v)
+                conn.connectTimeout = CONNECT_TIMEOUT
+                conn.readTimeout = READ_TIMEOUT
+                conn.instanceFollowRedirects = false
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val loc = conn.getHeaderField("Location") ?: return null
+                    val prev = current
+                    current = if (loc.startsWith("http")) loc else {
+                        val base = URL(prev)
+                        URL(base, loc).toString()
+                    }
+                    // SSRF 加固: 重定向目标同样复查
+                    if (ssrfBlocked(current) != null) return "错误: 重定向目标被 SSRF 拦截: $current"
+                    // Cookie 跨域防护: 重定向到非同域时丢弃显式 Cookie, 防止跨域泄漏
+                    hs = dropCookieIfCrossDomain(prev, current, hs)
+                    redirects++
+                    continue
+                }
+                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                if (stream == null) return null
+                // 修复: 多字节 UTF-8(中文)跨 read 块边界时按块 String() 解码会产生乱码,
+                // 先累积字节再整体转字符串
+                val byteOut = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                var total = 0
+                stream.use { ins ->
+                    while (true) {
+                        val n = ins.read(buf)
+                        if (n < 0) break
+                        total += n
+                        if (total > MAX_BYTES) break
+                        byteOut.write(buf, 0, n)
+                    }
+                }
+                val text = byteOut.toString("UTF-8")
+                return if (total > MAX_BYTES) text + "\n[下载超过2MB已截断]" else text
+            } finally {
+                conn.disconnect()
+            }
+        }
+        return blocked
     }
 
     private fun download(url: String, ua: String = UA, extraHeaders: Map<String, String> = emptyMap()): String? {
