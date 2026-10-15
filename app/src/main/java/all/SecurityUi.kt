@@ -43,7 +43,15 @@ object SecurityUi {
         val channel: String,            // "bubble" / "notification"
         val latch: CountDownLatch,
         val result: AtomicReference<Boolean?>,
-        val deadlineMs: Long
+        val deadlineMs: Long,
+        // ===== 弹窗底座泛化(2026-10-13): 共用底座 + 不同壳 =====
+        val template: String = "tool_exec",   // tool_exec / task_create / question / confirm / raw
+        val title: String? = null,            // 弹窗标题, null 用默认"安全确认"
+        val body: String? = null,             // 结构化正文(按 template 渲染), null 用默认工具摘要
+        val allowLabel: String = "✔ 允许执行",
+        val rejectLabel: String = "✘ 拒绝",
+        // 决策回调: 非空时替代默认 grantTicket(如 task_create 壳做打包授权入库); 允许/拒绝/超时均收到结果
+        val decision: ((Boolean) -> Unit)? = null
     ) {
         @Volatile var status: String = "PENDING"  // PENDING / ALLOWED / REJECTED / TIMEOUT
     }
@@ -71,20 +79,35 @@ object SecurityUi {
     fun snapshot(): List<PendingRequest> = queue.toList()
 
     /**
-     * 阻塞式确认: 由工作线程调用(非主线程), 弹窗期间当前线程挂起。
-     * 返回: true=用户允许(票据已签发); false=用户拒绝/超时自动拒绝; null=无可用通道。
+     * 通用确认申请(2026-10-13 弹窗底座泛化):
+     * 共用确认队列/通道/超时, 按 template 决定壳渲染; decision 回调可替代默认票据签发。
+     * 返回: true=用户允许; false=用户拒绝/超时自动拒绝; null=无可用通道(主线程调用)。
      */
     @JvmStatic
-    fun requestConfirm(ctx: Context, name: String, arg: String, risk: SecurityConfig.RiskLevel, display: String? = null): Boolean? {
+    fun request(
+        ctx: Context,
+        tool: String,
+        arg: String,
+        risk: SecurityConfig.RiskLevel,
+        display: String? = null,
+        template: String = "tool_exec",
+        title: String? = null,
+        body: String? = null,
+        allowLabel: String = "✔ 允许执行",
+        rejectLabel: String = "✘ 拒绝",
+        decision: ((Boolean) -> Unit)? = null
+    ): Boolean? {
         if (Looper.myLooper() == Looper.getMainLooper()) return null
         val req = PendingRequest(
             requestId = "${System.currentTimeMillis()}_${counter.incrementAndGet()}",
             code = piSeq.getAndIncrement(),
-            tool = name, arg = arg, display = display, risk = risk,
+            tool = tool, arg = arg, display = display, risk = risk,
             channel = if (activity != null) "bubble" else "notification",
             latch = CountDownLatch(1),
             result = AtomicReference(null),
-            deadlineMs = System.currentTimeMillis() + REQUEST_TIMEOUT_MS
+            deadlineMs = System.currentTimeMillis() + REQUEST_TIMEOUT_MS,
+            template = template, title = title, body = body,
+            allowLabel = allowLabel, rejectLabel = rejectLabel, decision = decision
         )
         pending[req.requestId] = req
         queue.add(req)
@@ -99,6 +122,7 @@ object SecurityUi {
         if (!done) {
             req.status = "TIMEOUT"
             req.result.set(false)
+            req.decision?.invoke(false)
             SecurityConfig.audit(ctx, req.tool, req.arg, "timeout", req.channel)
             pending.remove(req.requestId)
             queue.remove(req)
@@ -107,12 +131,26 @@ object SecurityUi {
         return req.result.get()
     }
 
+    /**
+     * 工具执行确认快捷入口(兼容 v3 原有 5 个调用点, 零改动):
+     * 即 tool_exec 壳, 默认标题/摘要/票据签发。
+     */
+    @JvmStatic
+    fun requestConfirm(ctx: Context, name: String, arg: String, risk: SecurityConfig.RiskLevel, display: String? = null): Boolean? {
+        return request(ctx, tool = name, arg = arg, risk = risk, display = display, template = "tool_exec")
+    }
+
     /** 用户决策入口(气泡 ✔/✘ 按钮、通知 Action 回调; 任意线程可调) */
     @JvmStatic
     fun decide(ctx: Context, requestId: String, allowed: Boolean) {
         val req = pending[requestId] ?: return
         req.status = if (allowed) "ALLOWED" else "REJECTED"
-        if (allowed) SecurityConfig.grantTicket(ctx, req.tool, req.arg)
+        // 底座泛化: 有自定义决策回调(如 task_create 壳打包授权入库)时替代默认票据签发
+        if (req.decision != null) {
+            req.decision.invoke(allowed)
+        } else if (allowed) {
+            SecurityConfig.grantTicket(ctx, req.tool, req.arg)
+        }
         SecurityConfig.audit(ctx, req.tool, req.arg, if (allowed) "user" else "rejected", req.channel)
         req.result.set(allowed)
         req.latch.countDown()
@@ -146,15 +184,15 @@ object SecurityUi {
         val piReject = PendingIntent.getBroadcast(ctx, codeReject, reject, flags)
         val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("安全确认")
-            .setContentText("工具 [${req.tool}] 请求执行, 请批准或拒绝")
+            .setContentTitle(req.title ?: "安全确认")
+            .setContentText("${req.tool} 请求操作, 请批准或拒绝")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "工具 [${req.tool}] 请求执行危险操作。\n\n参数摘要:\n${(req.display ?: req.arg).take(300)}\n\n2 分钟内未操作将自动拒绝。"))
+                req.body ?: "工具 [${req.tool}] 请求执行危险操作。\n\n参数摘要:\n${(req.display ?: req.arg).take(300)}\n\n2 分钟内未操作将自动拒绝。"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ERROR)
             .setOngoing(true)
-            .addAction(0, "允许执行", piAllow)
-            .addAction(0, "拒绝", piReject)
+            .addAction(0, req.allowLabel, piAllow)
+            .addAction(0, req.rejectLabel, piReject)
             .build()
         nm.notify(req.code, n)
     }

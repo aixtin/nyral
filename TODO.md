@@ -21,6 +21,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-10-15: v2.6.0 发布（versionCode 47）：定时岗位 MVP（AI 创建定时任务 timer_task_create + 任务级能力预授权 + X-Nyral-Task-ID 请求头 + 执行完成系统通知 + 闹钟续期/重排修复）+ 审计页状态栏遮挡修复，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-10: v2.5.3 发布（versionCode 46）：聊天背景顶栏/输入框栏透明化（不透明/普通透明/静态毛玻璃）+ 全圆角与分隔线避弧 + 表情抽屉图标主题化，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-08: v2.5.2 发布（versionCode 45）：手势交互重构收尾（三面板规则统一 + 左抽屉跟手滞后修复 + BrowserSlideController 重构），GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-07: v2.5.1 发布（versionCode 44）：黑屏浏览器 scan 挂死修复（waitStable rAF→setTimeout）+ DebugServer /v1/browser/text 端点补挂 + WAKE_LOCK 保活权限，GitHub Release v2.5.1 附正式签名 APK

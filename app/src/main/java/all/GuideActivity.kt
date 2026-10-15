@@ -53,11 +53,14 @@ class GuideActivity : Activity() {
     private val providerSubViews = mutableListOf<TextView>()
 
     // Step2 引用
-    private var keyInput: EditText? = null
+    private var keyInput: TextView? = null        // Key 输入行：点击弹窗输入，确认后自动拉取模型
+    private val pendingKeys = mutableMapOf<String, String>()          // 各服务商已确认密钥（providerId -> key）
+    private val fetchedModelsMap = mutableMapOf<String, List<String>>()  // 各服务商最近拉取到的实时模型列表
+    private val selectedModels = mutableMapOf<String, String>()       // 各服务商最终选中的模型
     private var helpCard: LinearLayout? = null
     private var connTv: TextView? = null
     private var scrollView: ScrollView? = null
-    private var modelInput: EditText? = null
+    private var modelInput: TextView? = null      // 模型行：只读显示当前选中模型
     private val selectedGuideModels = mutableListOf<String>()
     // 顶部 Tab 栏引用
     private val tabViews = mutableListOf<TextView>()
@@ -557,27 +560,35 @@ class GuideActivity : Activity() {
             setPadding(0, dp(8), 0, dp(4))
         })
 
-        keyInput = EditText(this).apply {
-            hint = getString(R.string.guide_key_placeholder)
+        keyInput = TextView(this).apply {
+            text = if (pendingKeys.containsKey(p.id)) getString(R.string.guide_key_saved) else getString(R.string.guide_key_tap_hint)
             textSize = 14f
-            setTextColor(Ui.TEXT)
-            setHintTextColor(Ui.SUB)
+            setTextColor(if (pendingKeys.containsKey(p.id)) Ui.TEXT else Ui.SUB)
             background = Ui.rounded(Ui.INPUT_BG, 12, this@GuideActivity)
             setPadding(dp(14), dp(12), dp(14), dp(12))
+            isClickable = true
+            Ui.press(this)
+            setOnClickListener { openKeyDialog(p) }
         }
         c.addView(keyInput)
 
-        // 模型行：输入框（预填服务商默认模型）+ 拉取按钮（拉取后弹窗多选，第一个勾选作默认模型）
+        // 模型行：只读显示当前选中模型（默认打分最优）+ 替换按钮（弹单选列表换模型）
         c.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(10), 0, 0)
-            modelInput = Ui.input(this@GuideActivity, getString(R.string.guide_model_hint)).apply {
-                setText(p.defaultModel)
+            modelInput = TextView(this@GuideActivity).apply {
+                text = selectedModels[p.id] ?: getString(R.string.guide_model_placeholder)
+                textSize = 14f
+                setTextColor(if (selectedModels.containsKey(p.id)) Ui.TEXT else Ui.SUB)
+                background = Ui.rounded(Ui.INPUT_BG, 12, this@GuideActivity)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             }
             addView(modelInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(Space(this@GuideActivity), LinearLayout.LayoutParams(dp(8), 1))
-            addView(Ui.lightBtn(this@GuideActivity, getString(R.string.btn_fetch)) { fetchGuideModels() })
+            addView(Ui.lightBtn(this@GuideActivity, getString(R.string.guide_replace_model)) { openReplaceModel(p) })
         })
 
         // ? 说明入口（整行可点）：首次默认展开，之后收起
@@ -669,7 +680,7 @@ class GuideActivity : Activity() {
             addView(prevBtn)
             addView(Space(this@GuideActivity), LinearLayout.LayoutParams(dp(10), 1))
             val nextBtn = Ui.primaryBtn(this@GuideActivity, getString(R.string.guide_next)) {
-                val key = keyInput?.text?.toString()?.trim().orEmpty()
+                val key = pendingKeys[p.id].orEmpty()
                 if (key.isEmpty()) {
                     Toast.makeText(this@GuideActivity, getString(R.string.guide_key_empty_hint), Toast.LENGTH_SHORT).show()
                     return@primaryBtn
@@ -708,7 +719,7 @@ class GuideActivity : Activity() {
 
     /** 测试连接：GET {base}/models，5s 超时 */
     private fun testConnection(p: ApiConfig.Provider) {
-        val key = keyInput?.text?.toString()?.trim().orEmpty()
+        val key = pendingKeys[p.id].orEmpty()
         if (key.isEmpty()) {
             Toast.makeText(this, getString(R.string.guide_key_empty_hint), Toast.LENGTH_SHORT).show()
             return
@@ -770,12 +781,10 @@ class GuideActivity : Activity() {
         }.start()
     }
 
-    /** 连接成功：默认模型=输入框值（未填用第一个拉取项），models=拉取列表（含手输模型） */
+    /** 连接成功：只落库当前选中模型（打分最优或用户替换），不带多余模型 */
     private fun saveAndFinish(p: ApiConfig.Provider, key: String, models: List<String>) {
-        val typed = modelInput?.text?.toString()?.trim().orEmpty()
-        val model = typed.ifEmpty { models.firstOrNull() ?: p.defaultModel }
-        val finalModels = (listOf(model) + models).distinct()
-        ApiConfig.saveProvider(p.id, p.defaultBase, key, model, true, models = finalModels)
+        val model = selectedModels[p.id] ?: models.firstOrNull() ?: p.defaultModel
+        ApiConfig.saveProvider(p.id, p.defaultBase, key, model, true, models = listOf(model))
         finishGuide()
     }
 
@@ -784,8 +793,7 @@ class GuideActivity : Activity() {
         val (dlg, box) = Ui.dialog(this, getString(R.string.guide_conn_error_confirm))
         box.addView(Ui.primaryBtn(this, getString(R.string.dialog_ok)) {
             dlg.dismiss()
-            val typed = modelInput?.text?.toString()?.trim().orEmpty()
-            val model = typed.ifEmpty { p.defaultModel }
+            val model = selectedModels[p.id] ?: p.defaultModel
             ApiConfig.saveProvider(p.id, p.defaultBase, key, model, true, models = listOf(model))
             finishGuide()
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -798,10 +806,9 @@ class GuideActivity : Activity() {
         dlg.show()
     }
 
-    /** 点「拉取」：请求 {base}/models，成功后弹多选弹窗 */
-    private fun fetchGuideModels() {
-        val p = selectedProvider ?: return
-        val key = keyInput?.text?.toString()?.trim().orEmpty()
+    /** 确认 Key 后自动拉取模型列表并打分选最优，更新模型行显示 */
+    private fun startFetchModels(p: ApiConfig.Provider) {
+        val key = pendingKeys[p.id].orEmpty()
         if (key.isEmpty()) {
             Toast.makeText(this, getString(R.string.guide_key_empty_hint), Toast.LENGTH_SHORT).show()
             return
@@ -810,13 +817,105 @@ class GuideActivity : Activity() {
         Thread {
             val models = fetchModelsFromNetwork(p, key)
             runOnUiThread {
-                when {
-                    models == null -> Toast.makeText(this, getString(R.string.toast_fetch_fail), Toast.LENGTH_SHORT).show()
-                    models.isEmpty() -> Toast.makeText(this, getString(R.string.toast_empty_models), Toast.LENGTH_SHORT).show()
-                    else -> showGuideModelPicker(models)
+                if (models == null || models.isEmpty()) {
+                    connTv?.setTextColor(0xFFE53935.toInt())
+                    connTv?.text = getString(R.string.toast_fetch_fail)
+                    Toast.makeText(this, getString(R.string.toast_fetch_fail), Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                fetchedModelsMap[p.id] = models
+                val best = pickBestModel(models, p.defaultModel)
+                selectedModels[p.id] = best
+                modelInput?.text = best
+                modelInput?.setTextColor(Ui.TEXT)
+                connTv?.setTextColor(0xFF4CAF50.toInt())
+                connTv?.text = getString(R.string.guide_test_ok) + "，已自动选择最优模型"
+            }
+        }.start()
+    }
+
+    /** 弹窗输入密钥：点「确认」才写入 pendingKeys[当前服务商]，并触发自动拉取模型 */
+    private fun openKeyDialog(p: ApiConfig.Provider) {
+        val (dlg, box) = Ui.dialog(this, getString(R.string.guide_key_dialog_title))
+        val input = EditText(this).apply {
+            hint = getString(R.string.guide_key_dialog_hint)
+            textSize = 14f
+            setTextColor(Ui.TEXT)
+            setHintTextColor(Ui.SUB)
+            background = Ui.rounded(Ui.INPUT_BG, 12, this@GuideActivity)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(pendingKeys[p.id].orEmpty())
+        }
+        box.addView(input)
+        box.addView(Ui.primaryBtn(this, getString(R.string.guide_confirm_fetch)) {
+            val k = input.text.toString().trim()
+            if (k.isEmpty()) {
+                Toast.makeText(this@GuideActivity, getString(R.string.guide_key_empty_hint), Toast.LENGTH_SHORT).show()
+                return@primaryBtn
+            }
+            pendingKeys[p.id] = k
+            keyInput?.text = getString(R.string.guide_key_saved)
+            keyInput?.setTextColor(Ui.TEXT)
+            dlg.dismiss()
+            startFetchModels(p)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+        dlg.show()
+    }
+
+    /** 替换模型：有实时列表直接弹单选；没有先拉取 */
+    private fun openReplaceModel(p: ApiConfig.Provider) {
+        if (pendingKeys[p.id].orEmpty().isEmpty()) {
+            Toast.makeText(this, getString(R.string.guide_key_empty_hint), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cached = fetchedModelsMap[p.id]
+        if (!cached.isNullOrEmpty()) {
+            showGuideModelPicker(cached)
+            return
+        }
+        Toast.makeText(this, getString(R.string.toast_fetching_models), Toast.LENGTH_SHORT).show()
+        Thread {
+            val models = fetchModelsFromNetwork(p, pendingKeys[p.id].orEmpty())
+            runOnUiThread {
+                if (models == null || models.isEmpty()) {
+                    Toast.makeText(this, getString(R.string.toast_fetch_fail), Toast.LENGTH_SHORT).show()
+                } else {
+                    fetchedModelsMap[p.id] = models
+                    showGuideModelPicker(models)
                 }
             }
         }.start()
+    }
+
+    /** 打分选最优：后缀词加权，pro/max 旗舰优先、flash/lite 垫底；同分优先内置默认 */
+    private fun pickBestModel(models: List<String>, preferred: String): String {
+        fun score(m: String): Int {
+            val s = m.lowercase()
+            var sc = 0
+            if (listOf("pro", "max", "plus", "ultra", "premium", "reasoner", "thinking", "think", "r1", "o1").any { s.contains(it) }) sc += 3
+            if (listOf("vision", "vl", "omni", "multimodal").any { s.contains(it) }) sc += 1
+            if (Regex("v?[0-9]+").containsMatchIn(s)) sc += 1
+            if (listOf("flash", "lite", "mini", "small", "base", "chat", "instruct", "fast").any { s.contains(it) }) sc -= 1
+            return sc
+        }
+        var best = models.firstOrNull() ?: preferred
+        var bestScore = Int.MIN_VALUE
+        for (m in models) {
+            val sc = score(m)
+            if (sc > bestScore) {
+                bestScore = sc
+                best = m
+            }
+        }
+        if (preferred in models && score(preferred) >= bestScore) best = preferred
+        return best
     }
 
     /** OpenAI 兼容 GET /models，解析 data[].id；失败返回 null */
@@ -848,23 +947,13 @@ class GuideActivity : Activity() {
         }
     }
 
-    /** 拉取模型多选弹窗（轻量版：仅勾选，能力由预设自动判定）；第一个勾选作为默认模型 */
+    /** 模型替换单选弹窗：点某行立即选中替换；取消则保持原选择 */
     private fun showGuideModelPicker(models: List<String>) {
-        val existing = selectedGuideModels.toSet()
-        val checked = BooleanArray(models.size) { i -> models[i] in existing }
-        val (dlg, box) = Ui.dialog(this, getString(R.string.guide_pick_models))
+        val current = selectedModels[selectedProvider?.id] ?: ""
+        val (dlg, box) = Ui.dialog(this, getString(R.string.guide_pick_one_model))
         val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        models.forEachIndexed { i, m ->
-            val cb = Ui.check(this, checked[i]).apply { textSize = 11f }
-            lateinit var row: LinearLayout
-            fun styleRow() {
-                row.background = Ui.roundedBorder(if (checked[i]) Ui.PRIMARY else Ui.DIVIDER, 12, 1, this@GuideActivity)
-            }
-            fun updateCb() {
-                Ui.applyCheck(cb, checked[i], this@GuideActivity)
-                styleRow()
-            }
-            row = LinearLayout(this).apply {
+        models.forEach { m ->
+            val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 isClickable = true
@@ -872,12 +961,15 @@ class GuideActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(8)
                 }
+                background = Ui.roundedBorder(if (m == current) Ui.PRIMARY else Ui.DIVIDER, 12, 1, this@GuideActivity)
                 setOnClickListener {
-                    checked[i] = !checked[i]
-                    updateCb()
+                    dlg.dismiss()
+                    selectedModels[selectedProvider?.id.orEmpty()] = m
+                    modelInput?.text = m
+                    modelInput?.setTextColor(Ui.TEXT)
+                    Toast.makeText(this@GuideActivity, "已选择 $m", Toast.LENGTH_SHORT).show()
                 }
             }
-            styleRow()
             Ui.press(row)
             row.addView(TextView(this).apply {
                 text = m
@@ -887,23 +979,10 @@ class GuideActivity : Activity() {
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
-            row.addView(cb)
             listBox.addView(row)
         }
         box.addView(ScrollView(this).apply { addView(listBox) },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)))
-        box.addView(Ui.primaryBtn(this, getString(R.string.dialog_ok)) {
-            dlg.dismiss()
-            val picked = models.filterIndexed { i, _ -> checked[i] }
-            if (picked.isNotEmpty()) {
-                selectedGuideModels.clear()
-                selectedGuideModels.addAll(picked)
-                modelInput?.setText(picked[0])
-                Toast.makeText(this, getString(R.string.toast_models_selected, picked.size), Toast.LENGTH_SHORT).show()
-            }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-        })
         box.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(10)

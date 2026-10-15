@@ -34,7 +34,13 @@ internal sealed class ChatRow(val id: Long) {
         val arg: String,
         val display: String?,
         val status: String,   // PENDING / ALLOWED / REJECTED / TIMEOUT
-        val risk: String = "HIGH"
+        val risk: String = "HIGH",
+        // ===== 弹窗底座泛化(2026-10-13): 透传壳渲染字段 =====
+        val template: String = "tool_exec",
+        val title: String? = null,
+        val body: String? = null,
+        val allowLabel: String = "✔ 允许执行",
+        val rejectLabel: String = "✘ 拒绝"
     ) : ChatRow(rowId)
 }
 

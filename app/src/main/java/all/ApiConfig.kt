@@ -137,7 +137,7 @@ object ApiConfig {
 
     // 默认兜底(仅 base/model; 不再硬编码 API key, key 未配置时明确报错而非静默用旧 key)
     private const val DEFAULT_BASE = "https://api.deepseek.com/v1"
-    private const val DEFAULT_MODEL = "deepseek-chat"
+    private const val DEFAULT_MODEL = "deepseek-v4-pro"
 
     @Volatile private var app: Context? = null
 
@@ -151,9 +151,9 @@ object ApiConfig {
     // 预设仅提供 base/model 骨架，不预置子模型列表：子模型必须由用户显式"拉取"或手动添加后才会出现，
     // 这样清除数据后模型列表随持久化数据一起消失，不会由兜底预设"复活"
     private val PRESETS = listOf(
-        Provider("deepseek", "DeepSeek", "https://api.deepseek.com/v1", "deepseek-chat"),
-        Provider("zhipu", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
-        Provider("mimo", "Xiaomi MiMo", "https://api.xiaomimimo.com/v1", "mimo-v2.5"),
+        Provider("deepseek", "DeepSeek", "https://api.deepseek.com/v1", "deepseek-v4-pro"),
+        Provider("zhipu", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-5.3"),
+        Provider("mimo", "Xiaomi MiMo", "https://api.xiaomimimo.com/v1", "mimo-v2.6-pro"),
     )
 
     // ============ Provider 列表持久化 ============

@@ -41,3 +41,9 @@ backups_split_*/
 # 单文件备份快照(不入库)
 backup_strings_*
 backups_split_guide_*
+
+# 签名残留/调试截图/补丁脚本/通知分组备份(不入库)
+*.idsig
+drawer_timer*.png
+patch_*.py
+backup_notif_group_*/

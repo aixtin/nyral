@@ -2438,7 +2438,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(6) }
         })
         head.addView(TextView(this).apply {
-            text = "安全确认"
+            text = row.title ?: "安全确认"
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(0xFFD32F2F.toInt())
@@ -2446,21 +2446,26 @@ class MainActivity : Activity() {
         })
         head.addView(securityStatusBadge(row.status))
         box.addView(head)
-        // 工具名
+        // 工具名(tool_exec 壳显示工具; 泛化壳只展示结构化正文, 不喧宾夺主)
+        if (row.template == "tool_exec") {
+            box.addView(TextView(this).apply {
+                text = "工具: ${row.tool}"
+                textSize = 15f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(0xFF1A1A1A.toInt())
+                setPadding(0, dp(6), 0, 0)
+            })
+        }
+        // 参数摘要/结构化正文: 泛化壳优先展示 body(如 task_create 的任务概要+权限清单)
+        val argText = when {
+            row.template != "tool_exec" && !row.body.isNullOrBlank() -> row.body!!
+            else -> (row.display ?: row.arg).trim().ifBlank { "(无参数)" }
+        }
         box.addView(TextView(this).apply {
-            text = "工具: ${row.tool}"
-            textSize = 15f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(0xFF1A1A1A.toInt())
-            setPadding(0, dp(6), 0, 0)
-        })
-        // 参数摘要(R3-3: 有增强展示文本时优先展示, 如 ssh_trust 指纹核对)
-        val argText = (row.display ?: row.arg).trim().ifBlank { "(无参数)" }
-        box.addView(TextView(this).apply {
-            text = if (argText.length > 120) argText.take(120) + "…" else argText
+            text = if (argText.length > 600) argText.take(600) + "…" else argText
             textSize = 12f
             setTextColor(0xFF666666.toInt())
-            maxLines = 4
+            maxLines = if (row.template == "tool_exec") 4 else 18
             setPadding(0, dp(2), 0, 0)
         })
         // 决策按钮(PENDING 才显示)
@@ -2471,7 +2476,7 @@ class MainActivity : Activity() {
                 setPadding(0, dp(10), 0, 0)
             }
             btnRow.addView(TextView(this).apply {
-                text = "✘ 拒绝"
+                text = row.rejectLabel
                 textSize = 14f
                 setTextColor(0xFFD32F2F.toInt())
                 gravity = Gravity.CENTER
@@ -2483,7 +2488,7 @@ class MainActivity : Activity() {
                 rightMargin = dp(8)
             })
             btnRow.addView(TextView(this).apply {
-                text = "✔ 允许执行"
+                text = row.allowLabel
                 textSize = 14f
                 setTextColor(android.graphics.Color.WHITE)
                 gravity = Gravity.CENTER
@@ -2523,7 +2528,12 @@ class MainActivity : Activity() {
                 arg = req.arg,
                 display = req.display,
                 status = req.status,
-                risk = req.risk.name
+                risk = req.risk.name,
+                template = req.template,
+                title = req.title,
+                body = req.body,
+                allowLabel = req.allowLabel,
+                rejectLabel = req.rejectLabel
             ))
         }
         if (chatRows.isNotEmpty()) chatAdapter.submit(chatRows.toList())

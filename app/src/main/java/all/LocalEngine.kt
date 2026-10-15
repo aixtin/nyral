@@ -44,6 +44,19 @@ object LocalEngine {
     private fun capOut(s: String): String =
         if (s.length > MAX_OUTPUT_CHARS) s.take(MAX_OUTPUT_CHARS) + "\n…[输出过长已截断]" else s
 
+    /** 工具结果失败判定(2026-10-10): 命中明确失败/拒绝前缀即视为未成功, 回填时显式告知模型 */
+    private fun looksLikeToolFailure(s: String): Boolean =
+        s.startsWith("错误") || s.startsWith("失败") || s.startsWith("【安全确认】") ||
+        s.startsWith("未知工具") || s.startsWith("参数格式错误") || s.startsWith("未找到") ||
+        s.startsWith("请指定") || s.startsWith("已拦截") || s.startsWith("浏览器桥接未初始化") ||
+        s.startsWith("未获取到有效站点信息")
+
+    /** 工具结果包装(2026-10-10): 失败结果追加显式失败声明, 防模型把失败当成功继续瞎编 */
+    private fun wrapToolResult(name: String, result: String): String =
+        if (looksLikeToolFailure(result)) {
+            "$result\n\n【注意】工具 $name 未成功执行, 结果不可用。不要假设它成功了, 请根据情况自行补救或向用户如实说明。"
+        } else result
+
     /** 网络层可重试异常: 请求级断线, 整个 chat 流程自动重跑一次 */
     private class RetryableException(msg: String) : RuntimeException(msg)
 
@@ -118,7 +131,8 @@ object LocalEngine {
         ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
         ToolSpec("video_frame", "从已落盘附件视频抽指定时间点画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(默认0)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(超预算大视频)。", "JSON: {\"name\":\"att://xxx.mp4\",\"timeMs\":10000}"),
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}"),
-        ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}")
+        ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}"),
+        ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}")
     )
 
     /**
@@ -143,7 +157,8 @@ object LocalEngine {
         "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)",
         "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
         "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)",
-        "security_set" to "安全管理开关: 门禁三档(strict/auto/off)/root自动补权/SSH主机密钥信任"
+        "security_set" to "安全管理开关: 门禁三档(strict/auto/off)/root自动补权/SSH主机密钥信任",
+        "timer_task_create" to "创建定时岗位任务(name/goal/cron + 危险工具授权清单[每项必须给具体用途]), 需用户确认, 拒绝零残留"
     )
 
     // ===== Top N 动态装载(2026-09-16): 白名单+热度常驻, 冷门工具经 tool_detail 按需激活 =====
@@ -153,7 +168,8 @@ object LocalEngine {
     /** 跨场景核心工具白名单: 永远注入完整 schema, 防冷启动雪藏 */
     private val TOOL_WHITELIST = setOf(
         "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
-        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export", "security_set"
+        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export", "security_set",
+        "timer_task_create"
     )
 
     interface Callback {
@@ -371,10 +387,20 @@ object LocalEngine {
     // ================= 流式主流程 =================
 
     /** 流式入口: 主线程调用, 回调全部发生在调用线程(工作线程), UI 需自行 post */
-    fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList()) {
+    fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet(), taskId: Long = 0L) {
         var attempt = 0
         // 跨轮累计正文: 声明在 try 外, 取消/重试 catch 分支也能带回已输出内容
         val full = StringBuilder()
+        // 阶段3(2026-10-11): 任务指纹 + 路径沉淀命中, 轮首注入 system 复用成功工具序列
+        val patSig = PatternStore.signatureOf(PatternStore.lastUserText(history))
+        val patHit = PatternStore.match(context, patSig)
+        val patHint = if (patHit != null && patHit.okCount >= 2 && patHit.okCount > patHit.failCount) {
+            PatternStore.bumpHit(context, patSig)
+            "\n【历史同类任务经验】此前同类任务用工具序列 " + patHit.toolSeq.joinToString(" → ") +
+                " 成功完成过。若本次任务性质相同, 可优先复用该序列减少无效探索; 若已能直接回答也可直接回答, 不必强行调用工具。\n"
+        } else null
+        // 本轮实际执行过的工具名序列(保序去重), 结束按成败写入 PatternStore
+        val toolSeqUsed = LinkedHashSet<String>()
         while (true) {
         try {
             McpClientManager.ensureLoaded(context)
@@ -400,7 +426,7 @@ object LocalEngine {
                     } else null
                 } else null
             }
-            val messages = buildRouteMessages(context, history, attachments, memInject)
+            val messages = buildRouteMessages(context, history, attachments, memInject, patHint)
             var toolCount = 0
             var retriedEmpty = false
             // 文本协议降级模式下已注入完整 schema 的工具集
@@ -415,7 +441,7 @@ object LocalEngine {
                     cb.onDone("")
                     return
                 }
-                val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded)
+                val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded, taskId = taskId)
                 // 弱网续跑: 流中断但已有部分输出 -> 携带已输出内容让模型从断点续写, 不重来不静默
                 if (res.interrupted && res.accumulated.isNotBlank()) {
                     attempt++
@@ -435,7 +461,19 @@ object LocalEngine {
                 val toolCalls = res.toolCalls
                 if (toolCalls.isNotEmpty()) {
                     if (toolCount >= MAX_TOOL_CALLS) {
-                        cb.onError("工具调用超过 $MAX_TOOL_CALLS 次, 已停止")
+                        // 收尾轮(2026-10-10): 预算耗尽不再硬断报错, 注入强制总结指令 + 无工具请求, 兜底交付已有输出
+                        android.util.Log.i("Nyral", "BudgetExhaustedSummary")
+                        val finalMsg = "工具调用预算已耗尽(已达 $MAX_TOOL_CALLS 次上限)。请仅基于已获得的工具执行结果, 直接向用户输出最终答案总结。不要发起任何工具调用, 不要重复执行工具, 不要输出思考过程。"
+                        messages.put(JSONObject().put("role", "user").put("content", finalMsg))
+                        val resFinal = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded, forceNoTools = true, taskId = taskId)
+                        val finalText = resFinal.accumulated.trim()
+                        if (finalText.isNotBlank()) {
+                            full.append(capOut(finalText))
+                        } else {
+                            cb.onDelta("\n\n[工具预算已耗尽, 未能生成最终总结; 以上为已完成的执行结果]")
+                        }
+                        PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = true)
+                        cb.onDone(full.toString())
                         return
                     }
                     // 正则化执行本轮全部工具(可能并行多 call), 结果逐条回填 role=tool
@@ -446,9 +484,10 @@ object LocalEngine {
                     val schemaBlocks = StringBuilder()
                     for ((name, arg) in execCalls) {
                         cb.onTool(name, arg)
-                        val result = ToolExecutor.execute(context, name, arg, hotLoaded)
+                        val result = ToolExecutor.execute(context, name, arg, hotLoaded, silentMode, allowTools)
                         cb.onToolResult(name, result)
                         execResults.add(name to result)
+                        toolSeqUsed.add(name)
                         // 上下文瘦身仅文本协议模式用; 原生模式的 schema 在 tools 字段, 此处仅兜底补全
                         val schemaHint = if (!toolsUnsupported && injectedTools.add(name)) "" else {
                             toolRegistry.find { it.name == name }?.let { spec ->
@@ -468,7 +507,7 @@ object LocalEngine {
                         for ((name, result) in execResults) {
                             val clean = if (name == "video_frame") result.substringBefore(" FRAME:data:image/jpeg;base64,") else result
                             messages.put(JSONObject().put("role", "user").put("content",
-                                "[工具 $name 执行结果]\n" + capOut(clean)))
+                                "[工具 $name 执行结果]\n" + capOut(wrapToolResult(name, clean))))
                         }
                     } else {
                         messages.put(buildAssistantToolMessage(res, execCalls))
@@ -479,7 +518,7 @@ object LocalEngine {
                             val clean = if (er.first == "video_frame") er.second.substringBefore(" FRAME:data:image/jpeg;base64,") else er.second
                             messages.put(JSONObject().put("role", "tool")
                                 .put("tool_call_id", toolCallId)
-                                .put("content", capOut(clean)))
+                                .put("content", capOut(wrapToolResult(er.first, clean))))
                         }
                     }
                     // video_frame 帧图注入: 抽帧 base64 作为 image_url 追加 user 消息, 让模型本轮看到画面
@@ -518,6 +557,7 @@ object LocalEngine {
                     continue
                 }
                 full.append(capOut(res.accumulated))
+                PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = true)
                 cb.onDone(full.toString())
                 return
             }
@@ -536,6 +576,7 @@ object LocalEngine {
             attempt++
             if (attempt >= MAX_NET_RETRY) {
                 android.util.Log.e("Nyral", "chat network retry exhausted", e)
+                PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = false)
                 cb.onError(e.message ?: "网络连接中断，请检查网络后重试")
                 return
             }
@@ -552,6 +593,7 @@ object LocalEngine {
                 return
             }
             android.util.Log.e("Nyral", "chat error", e)
+            PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = false)
             cb.onError(e.message ?: "未知错误")
             return
         }
@@ -590,7 +632,9 @@ object LocalEngine {
         cb: Callback,
         answerGate: () -> String?,
         injectedTools: MutableSet<String>,
-        hotLoaded: Set<String>
+        hotLoaded: Set<String>,
+        forceNoTools: Boolean = false,
+        taskId: Long = 0L
     ): StreamResult {
         val body = JSONObject()
         body.put("model", ApiConfig.model())
@@ -598,7 +642,7 @@ object LocalEngine {
         body.put("temperature", 0.3)
         body.put("stream", true)
         // 原生 function calling: 请求携带 tools(模型支持时); probe 失败过则降级纯文本
-        val useTools = !toolsUnsupported
+        val useTools = !toolsUnsupported && !forceNoTools
         if (useTools) body.put("tools", buildToolsArray(context, hotLoaded))
         // 默认厂商支持流式返回真实 usage(最后一块); 其余厂商未知, 不加避免报错, 靠本地估算
         if (ApiConfig.providerId() == "deepseek") {
@@ -625,6 +669,8 @@ object LocalEngine {
             "header" -> conn.setRequestProperty(ApiConfig.authHeaderOf(ApiConfig.providerId()), ApiConfig.apiKey())
             else -> conn.setRequestProperty("Authorization", "Bearer ${ApiConfig.apiKey()}")
         }
+        // 定时岗位任务来源标识(2026-10-13): 静默执行带 taskId, 远端可识别请求归属
+        if (taskId > 0L) conn.setRequestProperty("X-Nyral-Task-ID", taskId.toString())
         conn.doOutput = true
         conn.connectTimeout = 20000
         conn.readTimeout = 60000
@@ -714,6 +760,7 @@ object LocalEngine {
                 // 推理模型(如小米MiMo): 思考内容在 reasoning_content, 正文在 content
                 val rText = if (delta != null && !delta.isNull("reasoning_content")) delta.optString("reasoning_content") else ""
                 if (rText.isNotEmpty()) {
+                    android.util.Log.d("Nyral", "SSE-THINK reasoning_content len=" + rText.length + " head=" + rText.take(40).replace("\n", " "))
                     if (mode != MODE_THINKING) {
                         mode = MODE_THINKING
                         cb.onThinkingStart()
@@ -723,6 +770,7 @@ object LocalEngine {
                 }
                 val text = if (delta != null && !delta.isNull("content")) delta.optString("content") else ""
                 if (text.isEmpty()) continue
+                android.util.Log.d("Nyral", "SSE-CONTENT len=" + text.length + " head=" + text.take(60).replace("\n", " "))
                 // content 出现即思考结束
                 if (mode == MODE_THINKING) {
                     mode = MODE_NONE
@@ -791,6 +839,7 @@ object LocalEngine {
                     } else {
                         // 原生 tools 模式: content 纯正文直接流式(无需行级协议解析, 但保留换行)
                         if (row.startsWith("思考:") || row.startsWith("思考：")) {
+                            android.util.Log.d("Nyral", "SSE-THINK text-protocol prefix row")
                             // 思考->工具间隙空气泡修复(09-25): 原生 tools 模式兼容 content 通道的 思考:/答案: 前缀行,
                             // 前缀行识别进 thinking 通道不再当正文渲染(否则收尾剥离前缀 -> 文字变空 -> 空气泡)
                             if (mode != MODE_THINKING) {
@@ -809,7 +858,12 @@ object LocalEngine {
                             continue
                         }
                         if (mode != MODE_CONTENT) {
-                            if (mode == MODE_THINKING) cb.onThinkingEnd()
+                            if (mode == MODE_THINKING) {
+                                // 思考续行(无前缀): 追加进思考区, 不切正文; 正文仅由"答案:"前缀行触发
+                                // (2026-10-11 修复: 此前续行被强制切正文 -> 思考气泡不完整 + 思考泄漏进正文)
+                                cb.onThinkingDelta(row)
+                                continue
+                            }
                             mode = MODE_CONTENT
                         }
                         val out = if (row.endsWith("\r")) row.dropLast(1) else row
@@ -1116,7 +1170,7 @@ object LocalEngine {
         return text.trim()
     }
 
-    private fun buildRouteMessages(context: Context, history: String, attachments: List<Attachment> = emptyList(), memInject: String? = null): JSONArray {
+    private fun buildRouteMessages(context: Context, history: String, attachments: List<Attachment> = emptyList(), memInject: String? = null, patHint: String? = null): JSONArray {
         val messages = JSONArray()
         val sshList = SshConfigStore.load(context).joinToString("\n") {
             "- ${it.name}: ${it.user}@${it.host}:${it.port}" +
@@ -1134,7 +1188,7 @@ object LocalEngine {
             "收到工具结果后可继续发起函数调用或直接回答。一次(轮)可并行发起多个工具。"
         } else {
             "输出格式约定(重要):\n" +
-            "1. 需要先思考时, 第一行以『思考:』开头输出思考内容, 一行一句(或使用模型原生 reasoning 能力);\n" +
+            "1. 思考过程必须逐行以『思考:』开头输出, 严禁把思考文本直接输出到正文(未标记『思考:』的内容会原样展示给用户, 思考泄漏=严重错误); 若不想思考可省略, 直接输出正文;\n" +
             "2. 需要调用工具时, 使用系统提供的原生函数调用(function calling), 结构化的工具名与参数;\n" +
             "3. 思考结束要回答时, 直接输出正文(可用『答案:』开头), 不要写『TOOL:』。\n" +
             "收到工具结果后可继续思考或直接回答。一次(轮)可并行发起多个工具。"
@@ -1178,7 +1232,8 @@ object LocalEngine {
             "\n可用SSH连接:$sshHint\n" +
             "调用方式: 使用系统提供的 function calling 原生工具调用(工具名与 JSON 参数已由系统给出 schema), 一次(轮)可并行发起多个工具; 不要自己发明不存在的工具名。" +
             "记忆使用: 若所需信息可能来自与此用户过去的对话且当前上下文未提及, 应调用 memory_search 查证后再回答; 工具调用过程中拿不准时也先查记忆再作答。\n" +
-            (if (memInject.isNullOrBlank()) "" else memInject + "\n") + fmtRules + mdBan + emojiBlock))
+            (if (memInject.isNullOrBlank()) "" else memInject + "\n") +
+            (if (patHint.isNullOrBlank()) "" else patHint + "\n") + fmtRules + mdBan + emojiBlock))
         if (attachments.isEmpty()) {
             messages.put(JSONObject().put("role", "user").put("content", history))
         } else {

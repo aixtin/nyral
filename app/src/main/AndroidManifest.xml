@@ -10,6 +10,11 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 定时岗位(2026-10-11): 精确闹钟到点唤醒 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Android 13+ 闹钟类豁免: 免用户手动授权精确闹钟, 自分发无 Play 政策限制 -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- 所有文件访问: 解决作用域存储下 adb push 落盘文件 owner=NULL 对 MediaStore 查询不可见的问题 -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
@@ -73,9 +78,44 @@
             android:theme="@android:style/Theme.Material.Light.NoActionBar">
         </activity>
 
+        <!-- 文档占位页(2026-10-11): 抽屉"文档"入口占位 -->
+        <activity
+            android:name=".DocPlaceholderActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        </activity>
+
         <receiver
             android:name=".TaskControlReceiver"
             android:exported="false" />
+
+        <!-- 定时岗位唤醒接收器(2026-10-11): AlarmManager 到点触发, 拉起 TaskService 静默执行 -->
+        <receiver
+            android:name=".TimerWakeReceiver"
+            android:exported="false" />
+
+        <!-- 定时岗位开机/应用更新重排(2026-10-11): 重启后 AlarmManager 清空, 重排启用任务并尝试拉起保活 FGS -->
+        <receiver
+            android:name=".TimerBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 定时岗位列表页(2026-10-11): 抽屉"定时任务"入口 -->
+        <activity
+            android:name=".TimerTaskActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        </activity>
+
+        <!-- 定时岗位保活前台服务(2026-10-11): 有启用任务时常驻通知钉住进程, 防速冻/防被杀 -->
+        <service
+            android:name=".TimerKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- 任务执行前台服务: AI 处理任务期间防止进程被回收, dataSync 类型 -->
         <service
