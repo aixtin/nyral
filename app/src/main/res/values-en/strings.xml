@@ -235,6 +235,12 @@
     <string name="cb_reset_title">Reset Background</string>
     <string name="cb_reset_sub">Back to plain light background</string>
     <string name="cb_toast_restored">Default background restored</string>
+    <string name="cb_group_bar">Transparent top bar and input field</string>
+    <string name="cb_bar_none">Opaque</string>
+    <string name="cb_bar_alpha">Translucent</string>
+    <string name="cb_bar_blur">Frosted glass</string>
+    <string name="cb_bar_alpha_title">Opacity</string>
+    <string name="cb_bar_hint">Message area transparency is not supported yet; frosted glass needs a custom image background to be visible</string>
     <string name="cb_toast_preset">Preset background applied</string>
     <string name="cb_original">Original</string>
     <string name="cb_err_read">Cannot read image</string>
@@ -636,11 +642,16 @@
     <string name="ts_channel_desc">Foreground notification while AI processes tasks, prevents the process from being killed</string>
     <string name="ts_running">Task running…</string>
     <string name="ts_content">AI is processing a task in the background, please don\'t force-stop</string>
+    <string name="tk_channel_name">Scheduled Job</string>
+    <string name="tk_channel_desc">Ongoing notification while a scheduled job runs, keeps the process from being reclaimed by the system</string>
+    <string name="tk_running">Scheduled job is running</string>
+    <string name="tk_content">AI scheduled job is on, silently running in the background; tap to manage tasks</string>
     <!-- 聊天背景 -->
     <string name="cba_img_badge">IMG</string>
     <string name="cba_def_badge">DFT</string>
     <!-- 侧栏 -->
     <string name="mui_new_chat">＋ New Chat</string>
+    <string name="mui_timer_task">Scheduled Tasks</string>
     <string name="mui_settings">⚙ Settings</string>
     <string name="mui_role_user">Me</string>
     <string name="mui_role_ai">AI</string>
@@ -762,6 +773,14 @@ For everyday chat experience</string>
     <string name="guide_model_hint">Model (defaults are pre-filled)</string>
     <string name="guide_pick_models">Choose models (multi-select)</string>
     <string name="guide_conn_error_confirm">Connection issue. Continue anyway?</string>
+    <string name="guide_key_dialog_title">Enter API Key</string>
+    <string name="guide_key_dialog_hint">Paste your API Key</string>
+    <string name="guide_model_placeholder">Best model is picked automatically once the key is entered</string>
+    <string name="guide_key_tap_hint">Tap to enter API Key</string>
+    <string name="guide_key_saved">Key saved, tap to change</string>
+    <string name="guide_replace_model">Replace</string>
+    <string name="guide_pick_one_model">Choose a model</string>
+    <string name="guide_confirm_fetch">Confirm and fetch models</string>
     <string name="guide_tab_intro">Highlights</string>
     <string name="guide_tab_provider">Choose provider</string>
     <string name="guide_tab_key">Enter Key</string>

@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("jacoco")
+    id("io.gitlab.arturbosch.detekt")
 }
 
 android {
@@ -119,4 +120,12 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     classDirectories.setFrom(files("$buildDir/tmp/kotlin-classes/debug"))
     sourceDirectories.setFrom(files("src/main/java"))
     executionData.setFrom(files("$buildDir/jacoco/testDebugUnitTest.exec"))
+}
+
+// 2026-10-15: Detekt 静态分析; baseline 冻结存量问题, 仅新增问题使构建失败
+detekt {
+    config.setFrom(rootProject.file("config/detekt/detekt.yml"))
+    baseline = rootProject.file("config/detekt/detekt-baseline.xml")
+    buildUponDefaultConfig = true
+    parallel = true
 }
