@@ -275,6 +275,14 @@ class TimerTaskActivity : Activity() {
                 db.delete(t.id)
                 TimerScheduler.cancel(this, t.id)
                 SecurityConfig.audit(this, "timer_task_delete", "${t.name}(id=${t.id})", "ui_user", "timer_task")
+                if (t.sessionId > 0L) {
+                    // 级联清理任务专属会话(2026-10-16): 删除任务时同步清理 MemoryDb 绑定的 session 与其消息, 避免孤儿会话
+                    MemoryDb(this).deleteSession(t.sessionId)
+                    SecurityConfig.audit(
+                        this, "timer_task_session_cleanup",
+                        "${t.name}(session=${t.sessionId})", "ui_user", "timer_task"
+                    )
+                }
                 TimerKeepAliveService.ensure(this)
                 render()
             }
