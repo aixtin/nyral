@@ -131,7 +131,8 @@ object LocalEngine {
         ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
         ToolSpec("video_frame", "从已落盘附件视频抽指定时间点画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(默认0)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(超预算大视频)。", "JSON: {\"name\":\"att://xxx.mp4\",\"timeMs\":10000}"),
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}"),
-        ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}")
+        ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}"),
+        ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}")
     )
 
     /**
@@ -156,7 +157,8 @@ object LocalEngine {
         "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)",
         "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
         "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)",
-        "security_set" to "安全管理开关: 门禁三档(strict/auto/off)/root自动补权/SSH主机密钥信任"
+        "security_set" to "安全管理开关: 门禁三档(strict/auto/off)/root自动补权/SSH主机密钥信任",
+        "timer_task_create" to "创建定时岗位任务(name/goal/cron + 危险工具授权清单[每项必须给具体用途]), 需用户确认, 拒绝零残留"
     )
 
     // ===== Top N 动态装载(2026-09-16): 白名单+热度常驻, 冷门工具经 tool_detail 按需激活 =====
@@ -166,7 +168,8 @@ object LocalEngine {
     /** 跨场景核心工具白名单: 永远注入完整 schema, 防冷启动雪藏 */
     private val TOOL_WHITELIST = setOf(
         "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
-        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export", "security_set"
+        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export", "security_set",
+        "timer_task_create"
     )
 
     interface Callback {

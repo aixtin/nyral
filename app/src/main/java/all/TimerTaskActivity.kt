@@ -28,27 +28,6 @@ import android.widget.Toast
  */
 class TimerTaskActivity : Activity() {
 
-    /** 能力预授权目录(2026-10-13): key 与 ToolExecutor 危险工具名单一致, 任务静默执行命中即放行 */
-    private val ALLOW_CATALOG = linkedMapOf(
-        "ssh_run" to "SSH 远程执行命令",
-        "sh_run" to "本地 Shell 执行",
-        "js_run" to "JS 代码执行",
-        "web_download" to "下载网页文件",
-        "file:write" to "写入本地文件",
-        "file:upload" to "上传文件到远程",
-        "workdir:write" to "写入工作目录",
-        "browser:click" to "浏览器点击",
-        "browser:type" to "浏览器输入",
-        "browser:upload" to "浏览器上传",
-        "browser:clear_cache" to "浏览器清缓存",
-        "browser:save_cookies" to "浏览器存Cookie",
-        "app:click" to "App 点击",
-        "app:text" to "App 输入",
-        "app:tap" to "App 轻点",
-        "app:launch" to "App 启动",
-        "security_set" to "安全设置变更"
-    )
-
     private lateinit var db: TimerTaskDb
     private lateinit var listBox: LinearLayout
 
@@ -249,11 +228,26 @@ class TimerTaskActivity : Activity() {
     }
 
     private fun disable(t: TimerTaskDb.Task) {
-        db.setEnabled(t.id, false)
-        TimerScheduler.cancel(this, t.id)
-        SecurityConfig.audit(this, "timer_task_disable", "${t.name}(id=${t.id})", "ui_user", "timer_task")
-        TimerKeepAliveService.ensure(this)
-        render()
+        val auth = t.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val msg = buildString {
+            append("停用「${t.name}」后不再触发, 预授权能力暂停使用(重新启用后恢复)。")
+            if (auth.isNotEmpty()) {
+                append("\n\n当前能力授权(${auth.size} 项):\n")
+                append(auth.mapNotNull { SecurityConfig.ALLOW_CATALOG[it] }.joinToString("、"))
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("停用定时任务")
+            .setMessage(msg)
+            .setPositiveButton("停用") { _, _ ->
+                db.setEnabled(t.id, false)
+                TimerScheduler.cancel(this, t.id)
+                SecurityConfig.audit(this, "timer_task_disable", "${t.name}(id=${t.id})", "ui_user", "timer_task")
+                TimerKeepAliveService.ensure(this)
+                render()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun enable(t: TimerTaskDb.Task) {
@@ -265,9 +259,18 @@ class TimerTaskActivity : Activity() {
     }
 
     private fun delete(t: TimerTaskDb.Task) {
+        val auth = t.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val msg = buildString {
+            append("删除「${t.name}」后不再触发, 确定?\n")
+            if (auth.isNotEmpty()) {
+                append("\n将同步撤回以下能力授权(${auth.size} 项):\n")
+                append(auth.mapNotNull { SecurityConfig.ALLOW_CATALOG[it] }.joinToString("、"))
+                append("\n\n任务专属会话一并清理, 授权范围=任务生命周期。")
+            }
+        }
         AlertDialog.Builder(this)
             .setTitle("删除定时任务")
-            .setMessage("删除「${t.name}」后不再触发, 确定?")
+            .setMessage(msg)
             .setPositiveButton("删除") { _, _ ->
                 db.delete(t.id)
                 TimerScheduler.cancel(this, t.id)
@@ -363,14 +366,14 @@ class TimerTaskActivity : Activity() {
     private fun allowLabel(keys: String): String {
         val set = keys.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         if (set.isEmpty()) return "未授权任何危险工具"
-        val names = ALLOW_CATALOG.filterKeys { it in set }.values
+        val names = SecurityConfig.ALLOW_CATALOG.filterKeys { it in set }.values
         return if (names.size == set.size) "已授权 ${set.size} 项: " + names.joinToString("、")
         else "已授权 ${set.size} 项"
     }
 
     /** 能力授权多选对话框(2026-10-13): 勾选危险工具白名单, 保存为逗号分隔 key */
     private fun showAllowToolsDialog(title: String, current: Set<String>, onSave: (String) -> Unit) {
-        val keys = ALLOW_CATALOG.keys.toList()
+        val keys = SecurityConfig.ALLOW_CATALOG.keys.toList()
         val checked = keys.map { it in current }.toBooleanArray()
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -382,7 +385,7 @@ class TimerTaskActivity : Activity() {
             })
             keys.forEachIndexed { i, k ->
                 addView(CheckBox(context).apply {
-                    text = ALLOW_CATALOG[k] + "  ($k)"
+                    text = SecurityConfig.ALLOW_CATALOG[k] + "  ($k)"
                     isChecked = checked[i]
                     setOnCheckedChangeListener { _, b -> checked[i] = b }
                 })

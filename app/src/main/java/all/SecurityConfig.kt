@@ -51,6 +51,28 @@ object SecurityConfig {
         "app:click", "app:text", "app:tap", "app:launch"
     )
 
+    // ===== 能力预授权目录(2026-10-13, 自 TimerTaskActivity 上移共享) =====
+    /** 危险工具 key -> 展示名; 与 ToolExecutor 危险工具名单一致, 任务静默执行命中即放行 */
+    val ALLOW_CATALOG: Map<String, String> = linkedMapOf(
+        "ssh_run" to "SSH 远程执行命令",
+        "sh_run" to "本地 Shell 执行",
+        "js_run" to "JS 代码执行",
+        "web_download" to "下载网页文件",
+        "file:write" to "写入本地文件",
+        "file:upload" to "上传文件到远程",
+        "workdir:write" to "写入工作目录",
+        "browser:click" to "浏览器点击",
+        "browser:type" to "浏览器输入",
+        "browser:upload" to "浏览器上传",
+        "browser:clear_cache" to "浏览器清缓存",
+        "browser:save_cookies" to "浏览器存Cookie",
+        "app:click" to "App 点击",
+        "app:text" to "App 输入",
+        "app:tap" to "App 轻点",
+        "app:launch" to "App 启动",
+        "security_set" to "安全设置变更"
+    )
+
     fun riskOf(name: String): RiskLevel = when {
         name in CRITICAL_TOOLS -> RiskLevel.CRITICAL
         name.startsWith("mcp:") -> RiskLevel.HIGH

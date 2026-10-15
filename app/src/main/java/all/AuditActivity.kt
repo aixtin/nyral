@@ -27,10 +27,19 @@ class AuditActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Ui.statusBar(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFFF2F3F7.toInt())
+            // targetSdk 36 强制 edge-to-edge(同 TimerTaskActivity): 消费状态栏 inset, 顶栏避开系统状态栏
+            if (android.os.Build.VERSION.SDK_INT >= 35) {
+                setOnApplyWindowInsetsListener { v, insets ->
+                    val top = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
+                    v.setPadding(0, top, 0, 0)
+                    insets
+                }
+            }
         }
 
         // 顶栏: 返回 + 标题

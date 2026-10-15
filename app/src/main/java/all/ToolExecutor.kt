@@ -252,6 +252,7 @@ object ToolExecutor {
             }
             "sh_run" -> ScriptEngine.runShConfirmed(context, arg)
             "security_set" -> SecurityConfig.set(context, arg)
+            "timer_task_create" -> timerTaskCreate(context, arg, silent)
             "tool_detail" -> {
                 val tName = try { JSONObject(arg.trim()).optString("name", "").trim() } catch (e: Exception) { "" }
                 if (tName.isEmpty()) return "请指定要查询的工具名 name(可参考 system 中的工具索引)"
@@ -411,6 +412,89 @@ object ToolExecutor {
             return "[ask_user] 需要向你确认: $q (当前无界面可弹窗, AI 请基于已有信息自行判断继续)"
         }
         return cb(q, opts, allowCustom)
+    }
+
+    /**
+     * AI 创建定时岗位任务(2026-10-13): 分析 goal 后列出危险工具授权清单+用途,
+     * 弹 task_create 壳(共用弹窗底座)由用户打包批准; 批准后创建任务并预授权, 拒绝零残留。
+     * 权限生命周期=任务生命周期: 删除/停用任务时授权同步回收(阶段3)。
+     */
+    private fun timerTaskCreate(context: Context, argRaw: String, silent: Boolean): String {
+        // 静默创建强制拒绝: 定时任务创建必须用户当面确认, 无人值守场景不允许
+        if (silent) {
+            return "【安全确认】静默定时任务不允许创建新定时任务(创建必须用户当面确认)。请直接在当前轮执行目标, 不要调用 timer_task_create。"
+        }
+        val j = try { JSONObject(argRaw.trim()) } catch (e: Exception) { return "参数格式错误(需 JSON: name/goal/cron/allow_tools)" }
+        val name = j.optString("name", "").trim()
+        val goal = j.optString("goal", "").trim()
+        val cron = j.optString("cron", "").trim()
+        val fullCron = if (cron.startsWith("每天")) cron else "每天 $cron"
+        if (name.isEmpty() || goal.isEmpty()) return "请填写 name(任务名) 与 goal(任务目标)"
+        if (TimerScheduler.parseCron(fullCron) == null) return "cron 格式错误, 请使用 \"每天 HH:mm\"(如 \"每天 09:00\")"
+        // 解析授权清单: key 必须命中 ALLOW_CATALOG(严格校验, 不静默过滤), 越权/未知名直接报错让 AI 修正
+        val reqs = ArrayList<Pair<String, String>>()  // (key, reason)
+        val arr = j.optJSONArray("allow_tools")
+        if (arr != null) for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val k = o.optString("key", "").trim()
+            val r = o.optString("reason", "").trim()
+            if (k.isEmpty()) return "参数错误: allow_tools 第 ${i + 1} 项缺少 key"
+            if (k !in SecurityConfig.ALLOW_CATALOG) {
+                return "参数错误: allow_tools key \"$k\" 不在授权目录 ALLOW_CATALOG 中, 请改用以下合法 key 之一: ${SecurityConfig.ALLOW_CATALOG.keys.joinToString(", ")}。请修正参数后重新调用 timer_task_create。"
+            }
+            if (reqs.none { it.first == k }) {
+                reqs.add(k to r)
+            }
+        }
+        val keys = reqs.joinToString(",") { it.first }
+        // 组装 task_create 壳正文: 任务概要 + 权限清单(用途仅展示不落库)
+        val sb = StringBuilder()
+        sb.append("任务名: $name\n")
+        sb.append("触发: $fullCron\n")
+        sb.append("目标: $goal\n")
+        if (reqs.isEmpty()) {
+            sb.append("危险工具授权: 无(仅用安全工具, 静默执行无需确认)")
+        } else {
+            sb.append("危险工具授权(${reqs.size} 项, 每项附 AI 声明用途):\n")
+            reqs.forEachIndexed { i, (k, r) ->
+                sb.append("  ${i + 1}. $k — ").append(if (r.isBlank()) "未说明用途(应补具体用途)" else r).append('\n')
+            }
+        }
+        sb.append("\n批准后创建定时任务; 授权范围=本任务生命周期(删除任务自动回收)。")
+        val created = java.util.concurrent.atomic.AtomicBoolean(false)
+        val approved = SecurityUi.request(
+            context,
+            tool = "timer_task_create",
+            arg = argRaw.take(200),
+            risk = SecurityConfig.RiskLevel.HIGH,
+            template = "task_create",
+            title = "创建定时任务",
+            body = sb.toString(),
+            allowLabel = "✔ 创建任务",
+            rejectLabel = "✘ 拒绝",
+            decision = { allowed ->
+                if (allowed) {
+                    try {
+                        val mode = ModeConfig.modeValue()
+                        val db = TimerTaskDb(context)
+                        val id = db.insert(name, goal, fullCron, mode, keys)
+                        val sessionId = MemoryDb(context).saveSession(name, emptyList(), mode)
+                        db.bindSession(id, sessionId)
+                        TimerScheduler.schedule(context, id, fullCron)
+                        SecurityConfig.audit(context, "timer_task_register", "$name / $goal / $keys", "user", "bubble")
+                        TimerKeepAliveService.ensure(context)
+                        created.set(true)
+                    } catch (e: Exception) {
+                        android.util.Log.e("TimerTaskCreate", "创建失败: ${e.message}")
+                    }
+                }
+            }
+        )
+        return when {
+            approved != true -> "【安全确认】用户拒绝或未确认创建定时任务「$name」, 未产生任何数据残留。请停止创建, 直接向用户说明。"
+            !created.get() -> "定时任务创建失败(内部异常), 未产生残留。请检查日志后重试或改用普通轮次执行。"
+            else -> "定时任务「$name」已创建并预授权(${if (reqs.isEmpty()) "无危险工具" else reqs.joinToString("、") { "${it.first}(${it.second})" }}), $fullCron 静默执行; 删除/停用任务时授权同步回收。"
+        }
     }
 
     internal fun normalizeArgs(name: String, argRaw: String): String {
