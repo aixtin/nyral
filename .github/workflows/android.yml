@@ -68,6 +68,37 @@ jobs:
         with:
           name: lint-report
           path: app/build/reports/lint-results-debug.html
+  detekt:
+    name: Detekt (Kotlin Static Analysis)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Set up Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      # 静态分析门(Kotlin): baseline 冻结存量, 仅新增问题使 CI 失败
+      # 存量更新时本地跑 :app:detektBaseline 重新生成 config/detekt/detekt-baseline.xml
+      - name: Run detekt
+        run: ./gradlew :app:detekt --console=plain
+
+      - name: Upload detekt report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detekt-report
+          path: app/build/reports/detekt/
+
   build-debug:
     name: Build Debug APK
     runs-on: ubuntu-latest
