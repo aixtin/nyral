@@ -29,11 +29,12 @@ Nyral is an open-source AI agent assistant for Android: LLM chat, long-term loca
 
 **Long-term Memory (self-hosted)**
 - bge-small ONNX on-device semantic vectors + keyword LIKE dual-path retrieval, SQLite storage
-- Three-tier layering: short-term rolling window → mid-term summaries (background compression via auxiliary model) → long-term full text + semantic search
+- Rolling memory: short-term rolling window + single-slot rolling summary (overwritten via `INSERT OR REPLACE id=1`, compressed by auxiliary model) + long-term full text with semantic search
+- Retrieval decision is made per-turn by the auxiliary model over the network (blocks each turn; on failure it silently skips retrieval)
 - Optional separate "auxiliary AI" for memory indexing without consuming the main chat model
 - Pending queue persisted + atomic consumption transactions: no lost or duplicated messages after process kill
 
-**Tool Calling (40-round cap, 20 built-in tools across 8 shared bases)**
+**Tool Calling (40-round cap, 21 built-in tools across 8 shared bases)**
 - Network: `web_search` (four-engine rotation: Sogou mobile → Bing RSS → Bing web → Baidu; direct access in mainland China, no key) / `web_fetch` / `web_download` / `site_auth` (per-domain cookie auto-injection)
 - SSH: `ssh_run` / `file` (remote read/write/upload/download), proxy jumps (ProxyJump over JSch), ED25519 (BouncyCastle), dual auth
 - Execution: `js_run` (sandboxed JS with ClassShutter class restrictions) / `sh_run` (local shell with dangerous-command interception + root elevation)
@@ -44,6 +45,7 @@ Nyral is an open-source AI agent assistant for Android: LLM chat, long-term loca
 - Security: `security_set` (dangerous-op confirmation / root permission grant / SSH trust switch)
 - Browser (in-house agent-browser prototype): full-screen WebView takeover, AI step narration + highlight rings + one-tap CAPTCHA handoff to the user
 - Meta tools: `ask_user` (interactive clarification) / `tool_detail` (tool documentation)
+- Scheduling: `timer_task_create` (scheduled-job station: goal analysis, dangerous-tool authorization list with per-item purposes, one-shot approval, task-scoped capability pre-authorization)
 
 **Security**
 - Secondary confirmation for dangerous operations: confirm-then-execute; same params exempted for 5 minutes; rejection stops immediately with a receipt; timeout auto-rejects; full audit trail (allow/deny/timeout) persisted
@@ -118,7 +120,7 @@ android-agent-app/
 ## Roadmap
 
 - [x] Multi-model capability table & custom models
-- [x] Local memory (bge semantic retrieval + keyword recall + three-tier layering)
+- [x] Local memory (bge semantic retrieval + keyword recall + rolling summary)
 - [x] SSH remote filesystem + proxy jumps + SFTP upload/download
 - [x] Web tools (four-engine search rotation / fetch / download / site_auth cookie injection)
 - [x] Attachment multimodality: images/videos/audio/PDF/Office (v19)
@@ -127,7 +129,7 @@ android-agent-app/
 - [x] Workdir batch tools (grep/head/stats, 40-round tool cap)
 - [x] Browser module (in-house agent browser: full-screen takeover + AI highlight + CAPTCHA handoff)
 - [x] GitHub Release publishing (signed builds since v2.0, in-app update prompt live)
-- [ ] Further optimization of conversation context tiering
+- [ ] Further optimization of conversation context rolling/summary strategy
 
 ## Changelog
 
@@ -155,7 +157,7 @@ android-agent-app/
 
 ## Privacy
 
-Nyral is designed to keep your data local-first. Conversations, memories, attachments and logs are stored on your device. Text embedding runs fully on-device.
+Nyral is designed to keep your data local-first. Conversations, memories, attachments and logs are stored on your device. Text embedding runs fully on-device. Model inference, however, runs remotely: both the main chat model and the auxiliary memory-judge/compression model are called over the network via OpenAI-compatible endpoints (a local GGUF inference engine is not yet integrated).
 
 For model responses, the App sends your message content to the model service provider configured in Settings (DeepSeek by default; Zhipu GLM, Xiaomi MiMo and custom endpoints are supported). The App does not operate its own cloud service and does not include analytics or advertising SDKs.
 
