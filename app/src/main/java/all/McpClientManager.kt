@@ -25,13 +25,13 @@ object McpClientManager {
     private const val CONNECT_TIMEOUT = 8000
     private const val READ_TIMEOUT = 60000
 
-    private var loaded = false
-    private var lastError: String? = null
+    @Volatile private var loaded = false
+    @Volatile private var lastError: String? = null
 
-    /** serverName -> 该 server 的工具清单 */
-    private val toolsByServer = mutableMapOf<String, List<McpTool>>()
+    /** serverName -> 该 server 的工具清单(线程安全: reload 清空与并发 callTool/spec 读并存, 用 ConcurrentHashMap 避免 ConcurrentModificationException) */
+    private val toolsByServer = java.util.concurrent.ConcurrentHashMap<String, List<McpTool>>()
     /** toolName -> 工具(含归属 server 的连接信息), 供调用时分发 */
-    private val toolsByName = mutableMapOf<String, McpTool>()
+    private val toolsByName = java.util.concurrent.ConcurrentHashMap<String, McpTool>()
 
     data class McpTool(
         val name: String,

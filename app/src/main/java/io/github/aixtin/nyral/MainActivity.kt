@@ -4302,9 +4302,13 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         if (instance == this) instance = null
+        // 安全确认桥持有的 Activity 静态引用必须清理, 否则 Activity 销毁后仍被单例强引用导致泄漏
+        SecurityUi.unregister()
         uiScope.cancel()
         // 优化(2026-09-18 全面扫描): 单线程 executor 是 Activity 成员, 销毁后任务继续跑会持有 Activity 引用; 立即关停
         executor.shutdownNow()
+        // mdExecutor 同样是 Activity 成员线程池, 不关闭会持有 Activity 引用泄漏
+        mdExecutor.shutdownNow()
         if (::browserPage.isInitialized) browserPage.destroy()
         // 调试服务随 Activity 销毁关闭, 并清引用避免泄漏
         DebugServer.stop()
