@@ -8,6 +8,8 @@
 
 # Nyral
 
+> **Project Completed (2026-10-16)** — maintenance mode; no new features planned. A 54-day build retrospective: [END.md](./END.md).
+
 > Self-hosted memory · Bring your own model · Open source · No root
 
 Nyral is an open-source AI agent assistant for Android: LLM chat, long-term local memory, SSH remote operations, web tools, and voice/attachment multimodality in a single app. Data is self-hosted; no root required; no dependency on any third-party server.
