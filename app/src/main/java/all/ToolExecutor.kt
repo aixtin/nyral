@@ -124,6 +124,21 @@ object ToolExecutor {
             }
         }
         return when (n) {
+            "write_clipboard" -> {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val text = jo?.optString("text", "").orEmpty()
+                if (text.isEmpty()) "错误: 缺少 text(要复制到剪贴板的内容), 如 {\"text\":\"hello\"}"
+                else try {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("nyral", text))
+                    SecurityConfig.audit(context, "write_clipboard", "len=${text.length}", "ai", "bubble")
+                    android.util.Log.i("Nyral", "write_clipboard ok, len=${text.length}")
+                    "已写入剪贴板(共 ${text.length} 字符)。请告知用户: 内容已复制, 切换到目标应用后长按粘贴即可。"
+                } catch (e: Exception) {
+                    android.util.Log.e("Nyral", "write_clipboard fail", e)
+                    "错误: 剪贴板写入失败: ${e.message}"
+                }
+            }
             "get_time" -> MemoryTools.getTime()
             "calc" -> MemoryTools.calc(arg)
             "memory_search" -> MemoryTools.search(context, arg)
