@@ -135,6 +135,10 @@ android-agent-app/
 
 - **v2.6.0 (2026-10-15, versionCode 47)**: Scheduled-job station MVP — AI creates recurring tasks (timer_task_create): goal analysis, dangerous-tool authorization list with per-item purposes, task-create shell for one-shot approval, silent creation refused; per-task authorization lifecycle tied to task lifecycle; task-level capability pre-authorization (white-listed dangerous tools bypass confirmation during silent runs); X-Nyral-Task-ID request header injection so remote ends can identify task-originated requests; execution-complete system notification (notifyTaskDone); single-shot alarm renewal & stale-alarm reschedule fixes; authorization dialog list rendering fix. Security audit page (AuditActivity) title no longer overlapped by the system status bar (consumed window insets on Android 15+ edge-to-edge).
 - **v2.5.3 (2026-10-10, versionCode 46)**: Chat background bar transparency — title bar / input bar can be set to opaque / translucent / static frosted glass in the chat background settings (message area excluded); frosted glass uses the custom image background and blurs statically; input/title bar corners unified to all-rounded, divider inset 16dp to clear the rounded arcs.
+
+<details>
+<summary>Older versions (v2.5.2 and earlier, 19 releases)</summary>
+
 - **v2.5.2 (2026-10-08, versionCode 45)**: Gesture interaction overhaul — unified three-panel gesture rules (left drawer: expand by control, close by right-to-left swipe while open; browser panel: toggle by double-tap on right edge; right hamburger panel: expand by control, close by left-to-right swipe); fixed left-drawer swipe-follow lag — DrawerDragController now positions panel/mask/offset immediately once interception is decided (Android gesture interception swallows the triggering MOVE, causing the panel to lag until dx=-200); BrowserSlideController reworked (-96 lines).
 - **v2.5.1 (2026-10-07, versionCode 44)**: Fixed browser scan returning 0 / hanging under screen-off — waitStable double requestAnimationFrame kick-off replaced with setTimeout (background WebView rAF never fires, scan never settles); DebugServer now routes /v1/browser/text (fetchTextSync was implemented but unregistered, returned 404); added WAKE_LOCK permission for screen-off keep-alive.
 - **v2.5.0 (2026-10-07, versionCode 43)**: New onboarding wizard — mode highlights, provider selection, API key setup flow; fixed model configuration not persisting from onboarding; added English translations for new onboarding strings.
@@ -154,6 +158,8 @@ android-agent-app/
 - **v1.1 (2026-09-04)**: SSE streaming connection/stream-handle leak fix (unified finally release; no leaks on cancel/exception); makeCopyable non-null assertion hardening; versionCode 19→20 / versionName 1.1; SSE messages and streamOnce full logs downgraded Log.i → Log.v (anti-spam).
 - **v1.0**: Baseline feature release (versionCode 19).
 - **v1.1.1 (2026-09-04, versionCode 21)**: Video bubble frame-extraction failure changed from permanent abandonment to 20s cooldown auto-retry (recovers on next render/scroll/foreground); fixes video bubble degrading to file card.
+</details>
+
 
 ## Privacy
 
