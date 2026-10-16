@@ -155,7 +155,8 @@ android-agent-app/
 
 ## 版本记录
 
-- **【最新】v2.6.0（2026-10-15，versionCode 47）**：定时岗位 MVP 落地——AI 可创建定时任务（timer_task_create）：分析 goal 后列出危险工具授权清单（每项附用途），弹 task_create 壳由用户打包批准，静默场景强制拒绝创建；任务级能力预授权（任务静默执行时白名单危险工具放行），授权生命周期随任务销毁回收；定时岗位请求注入 X-Nyral-Task-ID 请求头（远端可识别任务来源）；任务执行完成新增系统通知（notifyTaskDone）；修复单次闹钟无续期/重排残留旧闹钟/授权对话框列表不渲染。安全审计页（AuditActivity）标题不再被系统状态栏遮挡（Android 15+ edge-to-edge 下消费窗口 inset）。
+- **【最新】v2.7.0（2026-10-16，versionCode 48）**：项目完结收尾版——发布完结篇 END.md 并在 README 顶部声明完结；Trae 修复（SecurityUi 确认桥泄漏 / mdExecutor 线程池泄漏 / MCP 客户端并发安全）；新增 write_clipboard 剪贴板工具与 tool_detail 工具索引；基于最新 main 重新构建正式产物 APK。
+- **v2.6.0（2026-10-15，versionCode 47）**：定时岗位 MVP 落地——AI 可创建定时任务（timer_task_create）：分析 goal 后列出危险工具授权清单（每项附用途），弹 task_create 壳由用户打包批准，静默场景强制拒绝创建；任务级能力预授权（任务静默执行时白名单危险工具放行），授权生命周期随任务销毁回收；定时岗位请求注入 X-Nyral-Task-ID 请求头（远端可识别任务来源）；任务执行完成新增系统通知（notifyTaskDone）；修复单次闹钟无续期/重排残留旧闹钟/授权对话框列表不渲染。安全审计页（AuditActivity）标题不再被系统状态栏遮挡（Android 15+ edge-to-edge 下消费窗口 inset）。
 - **v2.5.3（2026-10-10，versionCode 46）**：聊天背景新增顶栏/输入框栏透明设置——支持不透明 / 普通透明 / 静态毛玻璃三档（消息区暂不支持）；毛玻璃以自定义图片背景为底做静态模糊；顶栏/输入框四角统一全圆角、分隔线两端内缩 16dp 避开圆弧；表情抽屉图标改用 Ui.TEXT 适配主题。
 
 <details>
