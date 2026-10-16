@@ -35,6 +35,10 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 - pending 队列落盘 + 原子消费事务：进程被杀不丢消息、不重复归档
 
 **工具调用（40 轮上限，21 个内置工具挂在 8 个公共底座上）**
+
+<details>
+<summary>工具清单（点击展开）</summary>
+
 - 网络底座：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
 - SSH 底座：ssh_run / file（远端文件读写/上传/下载），支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
 - 执行底座：js_run（沙箱执行 JS，ClassShutter 限制类访问）/ sh_run（本机 Shell，危险命令拦截 + root 提权）
@@ -46,6 +50,9 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 - 浏览器（自研 Agent 浏览器雏形）：整屏 WebView 接管，AI 步骤播报 + 页面高亮圈 + 验证码一键交还用户
 - 元工具：ask_user（交互澄清）/ tool_detail（工具说明）
 - 定时岗位：timer_task_create（创建定时任务：分析 goal 后列出危险工具授权清单并逐项写明用途，task_create 壳一次打包批准，任务级能力预授权随任务销毁回收）
+
+</details>
+
 
 **安全**
 - 危险操作二次确认：先确认后执行，同参数 5 分钟内免重复确认，拒绝立即停止并回执，超时自动拒绝；操作审计（允许/拒绝/超时）落库可追踪
@@ -87,6 +94,9 @@ git clone https://github.com/aixtin/nyral.git
 
 ## 目录结构
 
+<details>
+<summary>展开查看</summary>
+
 ```
 android-agent-app/
 ├── app/src/main/java/io/github/aixtin/nyral/   # 主包：入口 + 会话/渲染核心
@@ -111,6 +121,8 @@ android-agent-app/
 └── app/src/main/assets/mem_model/   # bge-small 量化 ONNX 模型 + vocab
 ```
 
+</details>
+
 ## 数据与隐私
 
 - 对话、记忆、Token 统计、SSH 配置（加密存储）全部仅存本机
@@ -120,6 +132,9 @@ android-agent-app/
 - 权限清单与安全设计（DebugServer 防护 / 危险操作门禁 / 数据边界）见 [SECURITY.md](SECURITY.md)
 
 ## 路线图
+
+<details>
+<summary>展开查看（10/11 已完成）</summary>
 
 - [x] 多模型能力表与自定义模型
 - [x] 本地记忆（bge 语义检索 + 关键词召回 + 滚动式记忆）
@@ -132,6 +147,9 @@ android-agent-app/
 - [x] 浏览器模块（自研 Agent 浏览器：整屏接管 + AI 高亮 + 验证码交还）
 - [x] GitHub Release 发布（v2.0 起正式签名包，应用内更新弹窗生效）
 - [ ] 对话上下文滚动/摘要策略进一步优化
+
+</details>
+
 
 ## 版本记录
 

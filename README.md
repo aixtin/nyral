@@ -35,6 +35,10 @@ Nyral is an open-source AI agent assistant for Android: LLM chat, long-term loca
 - Pending queue persisted + atomic consumption transactions: no lost or duplicated messages after process kill
 
 **Tool Calling (40-round cap, 21 built-in tools across 8 shared bases)**
+
+<details>
+<summary>Tool list (click to expand)</summary>
+
 - Network: `web_search` (four-engine rotation: Sogou mobile → Bing RSS → Bing web → Baidu; direct access in mainland China, no key) / `web_fetch` / `web_download` / `site_auth` (per-domain cookie auto-injection)
 - SSH: `ssh_run` / `file` (remote read/write/upload/download), proxy jumps (ProxyJump over JSch), ED25519 (BouncyCastle), dual auth
 - Execution: `js_run` (sandboxed JS with ClassShutter class restrictions) / `sh_run` (local shell with dangerous-command interception + root elevation)
@@ -46,6 +50,9 @@ Nyral is an open-source AI agent assistant for Android: LLM chat, long-term loca
 - Browser (in-house agent-browser prototype): full-screen WebView takeover, AI step narration + highlight rings + one-tap CAPTCHA handoff to the user
 - Meta tools: `ask_user` (interactive clarification) / `tool_detail` (tool documentation)
 - Scheduling: `timer_task_create` (scheduled-job station: goal analysis, dangerous-tool authorization list with per-item purposes, one-shot approval, task-scoped capability pre-authorization)
+
+</details>
+
 
 **Security**
 - Secondary confirmation for dangerous operations: confirm-then-execute; same params exempted for 5 minutes; rejection stops immediately with a receipt; timeout auto-rejects; full audit trail (allow/deny/timeout) persisted
@@ -86,6 +93,9 @@ Requires JDK 17, Gradle 8.13, Android SDK 36. The repo ships `gradlew` (pinned t
 
 ## Directory Layout
 
+<details>
+<summary>Expand</summary>
+
 ```
 android-agent-app/
 ├── app/src/main/java/io/github/aixtin/nyral/   # Main package: entry + session/rendering core
@@ -110,6 +120,8 @@ android-agent-app/
 └── app/src/main/assets/mem_model/   # bge-small quantized ONNX model + vocab
 ```
 
+</details>
+
 ## Data & Privacy
 
 - Conversations, memory, token stats, and SSH config (encrypted storage) stay on-device
@@ -118,6 +130,9 @@ android-agent-app/
 - Permission list and security design (DebugServer protections / dangerous-op gates / data boundaries): see [SECURITY.md](SECURITY.md)
 
 ## Roadmap
+
+<details>
+<summary>Expand (10/11 completed)</summary>
 
 - [x] Multi-model capability table & custom models
 - [x] Local memory (bge semantic retrieval + keyword recall + rolling summary)
@@ -130,6 +145,9 @@ android-agent-app/
 - [x] Browser module (in-house agent browser: full-screen takeover + AI highlight + CAPTCHA handoff)
 - [x] GitHub Release publishing (signed builds since v2.0, in-app update prompt live)
 - [ ] Further optimization of conversation context rolling/summary strategy
+
+</details>
+
 
 ## Changelog
 
