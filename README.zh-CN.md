@@ -37,7 +37,7 @@ Nyral 是一款运行在 Android 上的开源智能体（Agent）助手：把大
 **工具调用（40 轮上限，21 个内置工具挂在 8 个公共底座上）**
 
 <details>
-<summary>工具清单（点击展开）</summary>
+<summary><b>工具清单</b>（点击展开 · 21 个内置工具）</summary>
 
 - 网络底座：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
 - SSH 底座：ssh_run / file（远端文件读写/上传/下载），支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
@@ -95,7 +95,7 @@ git clone https://github.com/aixtin/nyral.git
 ## 目录结构
 
 <details>
-<summary>展开查看</summary>
+<summary><b>展开查看完整目录结构</b></summary>
 
 ```
 android-agent-app/
@@ -134,7 +134,7 @@ android-agent-app/
 ## 路线图
 
 <details>
-<summary>展开查看（10/11 已完成）</summary>
+<summary><b>路线图</b>：<span style="color:#1a7f37"><b>10/11 已完成</b></span>（点击展开）</summary>
 
 - [x] 多模型能力表与自定义模型
 - [x] 本地记忆（bge 语义检索 + 关键词召回 + 滚动式记忆）
@@ -153,7 +153,7 @@ android-agent-app/
 
 ## 版本记录
 
-- **v2.6.0（2026-10-15，versionCode 47）**：定时岗位 MVP 落地——AI 可创建定时任务（timer_task_create）：分析 goal 后列出危险工具授权清单（每项附用途），弹 task_create 壳由用户打包批准，静默场景强制拒绝创建；任务级能力预授权（任务静默执行时白名单危险工具放行），授权生命周期随任务销毁回收；定时岗位请求注入 X-Nyral-Task-ID 请求头（远端可识别任务来源）；任务执行完成新增系统通知（notifyTaskDone）；修复单次闹钟无续期/重排残留旧闹钟/授权对话框列表不渲染。安全审计页（AuditActivity）标题不再被系统状态栏遮挡（Android 15+ edge-to-edge 下消费窗口 inset）。
+- **【最新】v2.6.0（2026-10-15，versionCode 47）**：定时岗位 MVP 落地——AI 可创建定时任务（timer_task_create）：分析 goal 后列出危险工具授权清单（每项附用途），弹 task_create 壳由用户打包批准，静默场景强制拒绝创建；任务级能力预授权（任务静默执行时白名单危险工具放行），授权生命周期随任务销毁回收；定时岗位请求注入 X-Nyral-Task-ID 请求头（远端可识别任务来源）；任务执行完成新增系统通知（notifyTaskDone）；修复单次闹钟无续期/重排残留旧闹钟/授权对话框列表不渲染。安全审计页（AuditActivity）标题不再被系统状态栏遮挡（Android 15+ edge-to-edge 下消费窗口 inset）。
 - **v2.5.3（2026-10-10，versionCode 46）**：聊天背景新增顶栏/输入框栏透明设置——支持不透明 / 普通透明 / 静态毛玻璃三档（消息区暂不支持）；毛玻璃以自定义图片背景为底做静态模糊；顶栏/输入框四角统一全圆角、分隔线两端内缩 16dp 避开圆弧；表情抽屉图标改用 Ui.TEXT 适配主题。
 
 <details>

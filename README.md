@@ -37,7 +37,7 @@ Nyral is an open-source AI agent assistant for Android: LLM chat, long-term loca
 **Tool Calling (40-round cap, 21 built-in tools across 8 shared bases)**
 
 <details>
-<summary>Tool list (click to expand)</summary>
+<summary><b>Tool list</b> (click to expand · 21 built-in tools)</summary>
 
 - Network: `web_search` (four-engine rotation: Sogou mobile → Bing RSS → Bing web → Baidu; direct access in mainland China, no key) / `web_fetch` / `web_download` / `site_auth` (per-domain cookie auto-injection)
 - SSH: `ssh_run` / `file` (remote read/write/upload/download), proxy jumps (ProxyJump over JSch), ED25519 (BouncyCastle), dual auth
@@ -94,7 +94,7 @@ Requires JDK 17, Gradle 8.13, Android SDK 36. The repo ships `gradlew` (pinned t
 ## Directory Layout
 
 <details>
-<summary>Expand</summary>
+<summary><b>Expand full directory layout</b></summary>
 
 ```
 android-agent-app/
@@ -132,7 +132,7 @@ android-agent-app/
 ## Roadmap
 
 <details>
-<summary>Expand (10/11 completed)</summary>
+<summary><b>Roadmap</b>: <span style="color:#1a7f37"><b>10/11 completed</b></span> (click to expand)</summary>
 
 - [x] Multi-model capability table & custom models
 - [x] Local memory (bge semantic retrieval + keyword recall + rolling summary)
@@ -151,7 +151,7 @@ android-agent-app/
 
 ## Changelog
 
-- **v2.6.0 (2026-10-15, versionCode 47)**: Scheduled-job station MVP — AI creates recurring tasks (timer_task_create): goal analysis, dangerous-tool authorization list with per-item purposes, task-create shell for one-shot approval, silent creation refused; per-task authorization lifecycle tied to task lifecycle; task-level capability pre-authorization (white-listed dangerous tools bypass confirmation during silent runs); X-Nyral-Task-ID request header injection so remote ends can identify task-originated requests; execution-complete system notification (notifyTaskDone); single-shot alarm renewal & stale-alarm reschedule fixes; authorization dialog list rendering fix. Security audit page (AuditActivity) title no longer overlapped by the system status bar (consumed window insets on Android 15+ edge-to-edge).
+- **[Latest] v2.6.0 (2026-10-15, versionCode 47)**: Scheduled-job station MVP — AI creates recurring tasks (timer_task_create): goal analysis, dangerous-tool authorization list with per-item purposes, task-create shell for one-shot approval, silent creation refused; per-task authorization lifecycle tied to task lifecycle; task-level capability pre-authorization (white-listed dangerous tools bypass confirmation during silent runs); X-Nyral-Task-ID request header injection so remote ends can identify task-originated requests; execution-complete system notification (notifyTaskDone); single-shot alarm renewal & stale-alarm reschedule fixes; authorization dialog list rendering fix. Security audit page (AuditActivity) title no longer overlapped by the system status bar (consumed window insets on Android 15+ edge-to-edge).
 - **v2.5.3 (2026-10-10, versionCode 46)**: Chat background bar transparency — title bar / input bar can be set to opaque / translucent / static frosted glass in the chat background settings (message area excluded); frosted glass uses the custom image background and blurs statically; input/title bar corners unified to all-rounded, divider inset 16dp to clear the rounded arcs.
 
 <details>
