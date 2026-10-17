@@ -59,7 +59,9 @@ object FileTools {
             val append = p.optBoolean("append", false)
             val b64 = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
             val op = if (append) ">>" else ">"
-            val cmd = "echo '$b64' | base64 -d $op ${q(path)} && echo '[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符)' 2>&1"
+            val okTag = if (append) "追加" else "写入"
+            val cmd = "echo '$b64' | base64 -d $op ${q(path)} && " +
+                    "echo '[OK] 已$okTag: ${q(path)} (${content.length} 字符)' 2>&1"
             runRemote(context, p.optString("conn"), cmd)
         } catch (e: Exception) {
             "file_write 失败: ${e.message}"

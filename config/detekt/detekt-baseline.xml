@@ -174,6 +174,7 @@
     <ID>CyclomaticComplexMethod:VideoCompressor.kt$VideoCompressor$private fun transcodeLoop( extractor: MediaExtractor, decoder: MediaCodec, encoder: MediaCodec, muxer: MediaMuxer, videoMuxIdx: Int, audioExtractor: MediaExtractor?, audioMuxIdx: Int )</ID>
     <ID>CyclomaticComplexMethod:WebTools.kt$WebTools$fun siteAuth(context: Context, arg: String): String</ID>
     <ID>CyclomaticComplexMethod:WebTools.kt$WebTools$private fun download(url: String, ua: String = UA, extraHeaders: Map&lt;String, String&gt; = emptyMap()): String?</ID>
+    <ID>CyclomaticComplexMethod:WebTools.kt$WebTools$private fun downloadPinned(url: String, ua: String = UA, extraHeaders: Map&lt;String, String&gt; = emptyMap()): String?</ID>
     <ID>CyclomaticComplexMethod:WebTools.kt$WebTools$private fun saveOnce(context: Context, url: String, givenName: String, headers: Map&lt;String, String&gt;): DlResult</ID>
     <ID>CyclomaticComplexMethod:WorkDir.kt$WorkDir$fun write(context: Context, name: String, bytes: ByteArray, subDir: String = ""): Boolean</ID>
     <ID>CyclomaticComplexMethod:WorkTools.kt$WorkTools$fun grep(context: Context, arg: String): String</ID>
@@ -1670,7 +1671,6 @@
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$10000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$15000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$20</ID>
-    <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$27</ID>
     <ID>MagicNumber:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$150</ID>
     <ID>MagicNumber:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$3</ID>
     <ID>MagicNumber:TaskService.kt$TaskService$200</ID>
@@ -2075,7 +2075,6 @@
     <ID>MaxLineLength:FileListActivity.kt$FileListActivity$Toast</ID>
     <ID>MaxLineLength:FileListActivity.kt$FileListActivity$addView</ID>
     <ID>MaxLineLength:FileListActivity.kt$FileListActivity$private</ID>
-    <ID>MaxLineLength:FileTools.kt$FileTools$val cmd = "echo '$b64' | base64 -d $op ${q(path)} &amp;&amp; echo '[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符)' 2&gt;&amp;1"</ID>
     <ID>MaxLineLength:FirstRunSetupActivity.kt$FirstRunSetupActivity$private</ID>
     <ID>MaxLineLength:FirstRunSetupActivity.kt$FirstRunSetupActivity$startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))</ID>
     <ID>MaxLineLength:GifToMp4.kt$GifToMp4$arr[i] = (b[o].toInt() and 0xFF) shl 16 or ((b[o + 1].toInt() and 0xFF) shl 8) or (b[o + 2].toInt() and 0xFF)</ID>
@@ -2373,7 +2372,6 @@
     <ID>MaxLineLength:SshTools.kt$SshTools$.</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools$return "$head\n\n... [输出共 ${body.length} 字符, 已截断中间部分; 若需完整结果, 用 ssh_run 把输出重定向到文件再 ssh_download 拉取] ...\n\n$tail"</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools$return "错误: 参数需含 conn(连接名)/local(工作目录文件名)/remote(远端路径), 如 {\"conn\":\"vps\",\"local\":\"a.txt\",\"remote\":\"/tmp/a.txt\"}"</ID>
-    <ID>MaxLineLength:SshTools.kt$SshTools.JschProxyJump$" keyHead="</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools.JschProxyJump$Log.i("SshTools", "proxy connect: proxy=" + cfg.proxyHost + ":" + cfg.proxyPort + " -&gt; target=" + host + ":" + port)</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools.PrefsHostKeyRepository$return if (trusted().contains("$h ${hk.getFingerPrint(jschFp)}")) HostKeyRepository.OK else HostKeyRepository.NOT_INCLUDED</ID>
     <ID>MaxLineLength:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$activity.messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))</ID>
@@ -2488,6 +2486,7 @@
     <ID>NestedBlockDepth:VideoCompressor.kt$VideoCompressor$fun compress(context: Context, uri: Uri, outFile: File)</ID>
     <ID>NestedBlockDepth:VideoCompressor.kt$VideoCompressor$private fun transcodeLoop( extractor: MediaExtractor, decoder: MediaCodec, encoder: MediaCodec, muxer: MediaMuxer, videoMuxIdx: Int, audioExtractor: MediaExtractor?, audioMuxIdx: Int )</ID>
     <ID>NestedBlockDepth:WebTools.kt$WebTools$private fun download(url: String, ua: String = UA, extraHeaders: Map&lt;String, String&gt; = emptyMap()): String?</ID>
+    <ID>NestedBlockDepth:WebTools.kt$WebTools$private fun downloadPinned(url: String, ua: String = UA, extraHeaders: Map&lt;String, String&gt; = emptyMap()): String?</ID>
     <ID>NestedBlockDepth:WebTools.kt$WebTools$private fun saveOnce(context: Context, url: String, givenName: String, headers: Map&lt;String, String&gt;): DlResult</ID>
     <ID>NestedBlockDepth:WorkDir.kt$WorkDir$fun entries(context: Context): List&lt;Entry&gt;</ID>
     <ID>NestedBlockDepth:WorkDir.kt$WorkDir$fun write(context: Context, name: String, bytes: ByteArray, subDir: String = ""): Boolean</ID>
@@ -2647,6 +2646,7 @@
     <ID>ReturnCount:WebTools.kt$WebTools$private fun bingHtmlSearch(query: String): List&lt;SearchHit&gt;</ID>
     <ID>ReturnCount:WebTools.kt$WebTools$private fun bingRssSearch(query: String): List&lt;SearchHit&gt;</ID>
     <ID>ReturnCount:WebTools.kt$WebTools$private fun download(url: String, ua: String = UA, extraHeaders: Map&lt;String, String&gt; = emptyMap()): String?</ID>
+    <ID>ReturnCount:WebTools.kt$WebTools$private fun downloadPinned(url: String, ua: String = UA, extraHeaders: Map&lt;String, String&gt; = emptyMap()): String?</ID>
     <ID>ReturnCount:WebTools.kt$WebTools$private fun dropCookieIfCrossDomain(prev: String, next: String, headers: Map&lt;String, String&gt;): Map&lt;String, String&gt;</ID>
     <ID>ReturnCount:WebTools.kt$WebTools$private fun loadSiteAuth(context: Context): JSONObject?</ID>
     <ID>ReturnCount:WebTools.kt$WebTools$private fun loginExpiredHint(context: Context, url: String, headers: Map&lt;String, String&gt;, body: String): String?</ID>
