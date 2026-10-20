@@ -86,7 +86,6 @@ git clone https://github.com/aixtin/nyral.git
 
 > 构建建议：仓库已内置 gradlew（锁定 Gradle 8.13），直接 `./gradlew assembleDebug`；本机已装 Gradle 8.13 也可用 `gradle assembleDebug`。
 > 正式签名包用 `gradle assembleRelease`（自建 keystore 经 `keystore.properties` 读取；keystore 与 properties 已入 .gitignore，需自行准备密钥）。
-> 发布流程见 [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md)（发版唯一操作手册）与 [docs/规范_开源平台发布检查清单.md](docs/规范_开源平台发布检查清单.md)（发布前敏感扫描）。
 
 ## 快速开始
 

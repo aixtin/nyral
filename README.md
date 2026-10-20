@@ -85,8 +85,6 @@ git clone https://github.com/aixtin/nyral.git
 Requires JDK 17, Gradle 8.13, Android SDK 36. The repo ships `gradlew` (pinned to Gradle 8.13); a system Gradle 8.13 works too. `settings.gradle.kts` includes Aliyun mirror config for faster builds in mainland China — remove the `maven(...)` lines if you are elsewhere.
 
 > Release-signed builds: `./gradlew assembleRelease` (self-managed keystore read from `keystore.properties`; both keystore and properties are gitignored — prepare your own keys).
->
-> Release process: see [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) and [docs/规范_开源平台发布检查清单.md](docs/规范_开源平台发布检查清单.md).
 
 ## Quick Start
 
