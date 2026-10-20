@@ -7,6 +7,8 @@
 | 文档 | 内容 | 适用读者 |
 |------|------|---------|
 | [架构决策记录（ADR）](./ADR-架构决策记录.md) | 17 条关键架构决策：背景 → 方案 → 取舍 → 结论 | 想理解"为什么这么设计"的开发者 |
+| [发布流程（RELEASE_PROCESS）](./RELEASE_PROCESS.md) | 发版唯一操作手册：版本号规则、必改清单、双端 Release 闭环 | 维护者 / 发版人 |
+| [开源平台发布检查清单](./规范_开源平台发布检查清单.md) | push / release 前敏感扫描、脱敏替换原则、违规补救 SOP | 维护者 / 发版人 |
 | 本文档 | 工程结构、构建与发布流程、模块清单 | 想动手改代码/构建/发版的开发者 |
 
 ---
@@ -137,6 +139,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 发布流程（维护者）
 
+> 完整发布手册见 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)（发版唯一操作手册）；push 前必过 [开源平台发布检查清单](./规范_开源平台发布检查清单.md)。
+
 发布新版本到 GitHub Releases 的标准闭环：
 
 1. **代码收口**：合并功能分支到 `main`，提交信息遵循 `feat:/docs:/fix:/i18n:` 前缀
@@ -175,3 +179,5 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 013 | 数据存储访问：Android 作用域存储适配 | 已采纳 |
 | 014 | 消息流表格渲染：气泡内独立 TableView 块化（方案 C） | 已采纳 |
 | 015 | 消息渲染结果落库：mdCache → rendered → 现场渲染三级读取 | 已采纳 |
+| 016 | MainActivity 功能域横向拆分：状态机 → 控制器 → UI 桥 → 域模块 | 已采纳 |
+| 017 | 安全硬门禁 v2：阻塞式确认 + 票据窗口期复用 | 已采纳 |

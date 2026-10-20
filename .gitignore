@@ -50,4 +50,14 @@ backup_notif_group_*/
 
 # release build logs
 build_release_*.log
-nyral_check_*.png
+yral_check_*.png
+
+# 发布检查清单补充（2026-10-20）：日志/归档/密钥/环境文件/临时目录
+*.log
+*.tgz
+*.bundle
+*.key
+*.pem
+.env
+temp/
+scripts_archive/
