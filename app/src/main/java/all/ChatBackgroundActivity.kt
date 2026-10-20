@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.content.res.ColorStateList
 import android.widget.Toast
 import java.io.File
 import java.io.FileOutputStream
@@ -187,12 +188,13 @@ class ChatBackgroundActivity : Activity() {
                     }
                     gravity = Gravity.END
                     textSize = 14f
-                    setTextColor(0xFF3478F6.toInt())
+                    setTextColor(Ui.PRIMARY)
                 }
                 addView(blurValText)
             })
             blurSeek = SeekBar(this@ChatBackgroundActivity).apply {
                 max = 48
+                styleSeek(this)
                 progress = currentBlur
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -282,12 +284,13 @@ class ChatBackgroundActivity : Activity() {
                     }
                     gravity = Gravity.END
                     textSize = 14f
-                    setTextColor(0xFF3478F6.toInt())
+                    setTextColor(Ui.PRIMARY)
                 }
                 addView(barAlphaText)
             })
             val alphaSeek = SeekBar(this@ChatBackgroundActivity).apply {
                 max = 100
+                styleSeek(this)
                 progress = currentBarAlpha
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -322,12 +325,13 @@ class ChatBackgroundActivity : Activity() {
                 }
                 gravity = Gravity.END
                 textSize = 14f
-                setTextColor(0xFF3478F6.toInt())
+                setTextColor(Ui.PRIMARY)
             }
             addView(msgAlphaText)
         })
         val msgAlphaSeek = SeekBar(this@ChatBackgroundActivity).apply {
             max = 100
+            styleSeek(this)
             progress = currentMsgAlpha
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -424,6 +428,13 @@ class ChatBackgroundActivity : Activity() {
 
     /** 强度 1-48: 1=原图(不模糊), 48=最重; 滑块值即真实半径 */
 
+    /** 滑条颜色跟随当前主题 */
+    private fun styleSeek(sb: SeekBar) {
+        val primary = Ui.PRIMARY
+        sb.progressTintList = ColorStateList.valueOf(primary)
+        sb.thumbTintList = ColorStateList.valueOf(primary)
+    }
+
     private fun refreshAll() {
         refreshBlurText(currentBlur)
         for (i in presetCells.indices) {
@@ -433,7 +444,7 @@ class ChatBackgroundActivity : Activity() {
             val gd = GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 intArrayOf(presets[i][0], presets[i][1]))
             gd.cornerRadius = dp(10).toFloat()
-            gd.setStroke(if (checked) dp(3) else 0, 0xFF3478F6.toInt())
+            gd.setStroke(if (checked) dp(3) else 0, Ui.PRIMARY)
             presetCells[i].background = gd
         }
         // 顶栏/输入框栏模式选中态
@@ -444,7 +455,7 @@ class ChatBackgroundActivity : Activity() {
                 val gd = GradientDrawable()
                 gd.cornerRadius = dp(10).toFloat()
                 gd.setStroke(if (checked) dp(2) else 1,
-                    if (checked) 0xFF3478F6.toInt() else 0x22000000.toInt())
+                    if (checked) Ui.PRIMARY else 0x22000000.toInt())
                 barCells[i].background = gd
             }
         }

@@ -1,5 +1,6 @@
 # Nyral 待办
 
+- [x] v2.8.1 发版（2026-10-20，versionCode 64）：记忆库 v12 迁移 + onOpen 幂等补列（src_session_id/src_msg_no）修复老库必崩；全 App 主题化 Theme.Nyral；返回按钮 Lucide 化；全局弹窗动画统一 fadeScaleShow；页面切换动画；双端 Release 发布
 - [x] v2.8.0 发版（2026-10-20，versionCode 63）：知识库自动沉淀（默认关闭）；video_frame 未传 timeMs 默认多帧采样 + 单帧超限报错回传真实时长；LocalEngine 多帧强制逐帧描述；空参熔断；思考面板宽度解耦；ANR Watchdog；文档占位幻觉警示；双端 Release 发布
 ## 待办
 - [x] 文件/图片/视频发送功能（MiMo 多模态）：选附件 → 本地压缩 → 复制 cacheDir → Base64 发 MiMo → AI 生成描述占位进历史/记忆

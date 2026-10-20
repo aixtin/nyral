@@ -4,4 +4,16 @@
         <item name="android:windowEnterAnimation">@anim/popup_up</item>
         <item name="android:windowExitAnimation">@anim/popup_down</item>
     </style>
+<style name="NyralWindowAnim">
+    <item name="android:activityOpenEnterAnimation">@anim/nyral_page_in</item>
+    <item name="android:activityOpenExitAnimation">@anim/nyral_page_out</item>
+    <item name="android:activityCloseEnterAnimation">@anim/nyral_page_in</item>
+    <item name="android:activityCloseExitAnimation">@anim/nyral_page_out</item>
+</style>
+<style name="Theme.Nyral" parent="@android:style/Theme.Material.Light">
+    <item name="android:windowAnimationStyle">@style/NyralWindowAnim</item>
+</style>
+<style name="Theme.Nyral.NoActionBar" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <item name="android:windowAnimationStyle">@style/NyralWindowAnim</item>
+</style>
 </resources>

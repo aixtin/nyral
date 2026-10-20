@@ -13,6 +13,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.OvershootInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -95,6 +96,25 @@ object Ui {
                 .scaleX(1f).scaleY(1f).alpha(1f)
                 .setDuration(duration)
                 .setInterpolator(OvershootInterpolator(overshoot))
+                .start()
+        }
+    }
+
+    /**
+     * 弹窗淡入+微缩放（全局弹窗出现动画）：0.92 倍轻放大 + 透明度渐入，
+     * Material 风格，克制不出错；替代水墨晕开与 jelly 回弹。
+     */
+    fun fadeScaleShow(v: View, startScale: Float = 0.92f, duration: Long = 250) {
+        v.post {
+            v.pivotX = v.width / 2f
+            v.pivotY = v.height / 2f
+            v.scaleX = startScale
+            v.scaleY = startScale
+            v.alpha = 0f
+            v.animate()
+                .scaleX(1f).scaleY(1f).alpha(1f)
+                .setDuration(duration)
+                .setInterpolator(DecelerateInterpolator(2.2f))
                 .start()
         }
     }
@@ -291,10 +311,9 @@ object Ui {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(a, 4), dp(a, 8), dp(a, 12), dp(a, 8))
             setBackgroundColor(Ui.SURFACE)
-            addView(TextView(a).apply {
-                text = "‹"
-                textSize = 26f
-                setTextColor(TEXT)
+            addView(ImageView(a).apply {
+                setImageResource(R.drawable.lucide_arrow_left)
+                setColorFilter(TEXT)
                 setPadding(dp(a, 12), dp(a, 0), dp(a, 14), dp(a, 0))
                 setOnClickListener { onBack() }
             })
@@ -505,8 +524,7 @@ object Ui {
             d.window?.setGravity(android.view.Gravity.CENTER)
         }
         d.setOnShowListener {
-            if (animate) jellyShow(animTarget, overshoot = jellyOvershoot)
-            else animTarget.post { animTarget.scaleX = 1f; animTarget.scaleY = 1f; animTarget.alpha = 1f }
+            fadeScaleShow(animTarget)
         }
         return d to box
     }
@@ -585,8 +603,7 @@ object Ui {
         d.window?.setLayout(w, maxH)
         d.window?.setGravity(android.view.Gravity.CENTER)
         d.setOnShowListener {
-            if (animate) jellyShow(root, overshoot = jellyOvershoot)
-            else root.post { root.scaleX = 1f; root.scaleY = 1f; root.alpha = 1f }
+            fadeScaleShow(root)
         }
         return Triple(d, contentBox, bottomBox)
     }

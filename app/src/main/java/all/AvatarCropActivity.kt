@@ -20,6 +20,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -78,10 +79,9 @@ class AvatarCropActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(8), dp(12), dp(8))
             setBackgroundColor(Color.parseColor("#141414"))
-            addView(TextView(this@AvatarCropActivity).apply {
-                text = "‹"
-                textSize = 26f
-                setTextColor(Color.WHITE)
+            addView(ImageView(this@AvatarCropActivity).apply {
+                setImageResource(R.drawable.lucide_arrow_left)
+                setColorFilter(Color.WHITE)
                 setPadding(dp(12), 0, dp(14), 0)
                 setOnClickListener { finish() }
             })

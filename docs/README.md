@@ -121,8 +121,8 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.8.0 / versionCode 63）
-（当前 v2.6.0 / versionCode 47）。
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.8.1 / versionCode 64）
+
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 
 ### 装机

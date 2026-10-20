@@ -2656,7 +2656,20 @@ class MainActivity : Activity() {
                     val sel = k == currentMode
                     b.setTextColor(if (sel) Color.WHITE else Ui.PRIMARY)
                     b.background = if (sel) Ui.rounded(Ui.PRIMARY, 10, this@MainActivity)
-                    else Ui.rounded(Ui.PRIMARY_LIGHT, 10, this@MainActivity)
+                    else {
+                        // 未选中: 三档按聊天背景三种质感呈现(不透明/普通透明/毛玻璃透明), 统一 PRIMARY 细描边镶边
+                        val alpha35 = (Ui.PRIMARY and 0x00FFFFFF) or (0x59 shl 24)
+                        val solid = when (k) {
+                            "strict" -> Ui.PRIMARY_LIGHT                       // 不透明实底
+                            "auto" -> alpha35                                    // 普通透明(35%)
+                            else -> android.graphics.Color.TRANSPARENT          // 毛玻璃: 透明底+描边
+                        }
+                        android.graphics.drawable.GradientDrawable().apply {
+                            cornerRadius = dp(10).toFloat()
+                            setColor(solid)
+                            setStroke(dp(1), Ui.PRIMARY)
+                        }
+                    }
                 }
             }
             fun applyMode(m: String) {

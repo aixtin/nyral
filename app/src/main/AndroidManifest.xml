@@ -31,7 +31,7 @@
     <application android:name=".NyralApp"
         android:label="Nyral"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@android:style/Theme.Material.Light"
+        android:theme="@style/Theme.Nyral"
         android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="false"
         android:fullBackupContent="false">
@@ -40,7 +40,7 @@
         <activity
             android:name=".GuideActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:theme="@style/Theme.Nyral.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -52,7 +52,7 @@
             android:name=".MainActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
 
         <receiver
@@ -68,21 +68,21 @@
         <activity
             android:name=".AuditActivity"
             android:exported="false"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
 
         <!-- 安全中心(2026-10-04): 三档门禁切换 + 审计历史入口 -->
         <activity
             android:name=".SecurityCenterActivity"
             android:exported="false"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
 
         <!-- 文档占位页(2026-10-11): 抽屉"文档"入口占位 -->
         <activity
             android:name=".DocPlaceholderActivity"
             android:exported="false"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
 
         <receiver
@@ -108,7 +108,7 @@
         <activity
             android:name=".TimerTaskActivity"
             android:exported="false"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
 
         <!-- 定时岗位保活前台服务(2026-10-11): 有启用任务时常驻通知钉住进程, 防速冻/防被杀 -->
@@ -148,79 +148,79 @@
             android:name=".SshConfigActivity"
             android:exported="false"
             android:label="SSH 连接配置"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:label="设置"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <!-- 头像 1:1 自由裁剪页 -->
         <activity
             android:name=".AvatarCropActivity"
             android:exported="false"
             android:label="裁剪头像"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".ModelConfigActivity"
             android:exported="false"
             android:label="模型配置"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".ModelEditActivity"
             android:exported="false"
             android:label="添加模型"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".MemModelConfigActivity"
             android:exported="false"
             android:label="记忆辅助模型"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".MemoryListActivity"
             android:exported="false"
             android:label="长期记忆"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".FileListActivity"
             android:exported="false"
             android:label="文件管理"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".MemorySummaryActivity"
             android:exported="false"
             android:label="整理记忆索引"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".LogActivity"
             android:exported="false"
             android:label="运行日志"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".AboutActivity"
             android:exported="false"
             android:label="关于"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <!-- 权限管理: 查看/补开全部依赖权限 -->
         <activity
             android:name=".PermissionsActivity"
             android:exported="false"
             android:label="权限管理"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".FirstRunSetupActivity"
             android:exported="false"
             android:label="完成授权与设置"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
 
 
@@ -228,7 +228,7 @@
             android:name=".ChatBackgroundActivity"
             android:exported="false"
             android:label="聊天背景"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <!-- 附件持久化访问: 通过 content:// 让系统查看器打开 app 私有目录里的附件文件 -->
         <provider
@@ -240,18 +240,18 @@
             android:name=".PersonalityActivity"
             android:exported="false"
             android:label="AI 个性化"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".AppearanceActivity"
             android:exported="false"
             android:label="外观设置"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
             android:name=".McpConfigActivity"
             android:exported="false"
             android:label="MCP 服务"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <!-- AI 悬浮迷你终端前台服务: 半透明终端实时显示 AI 执行状态 -->
         <service
@@ -263,22 +263,22 @@
             android:name=".KnowledgeBaseActivity"
             android:exported="false"
             android:label="知识库"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".KnowledgeEntryActivity"
             android:exported="false"
             android:label="知识详情"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".KnowledgeTrashActivity"
             android:exported="false"
             android:label="回收区"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".KnowledgeAuditActivity"
             android:exported="false"
             android:label="变更审计"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+            android:theme="@style/Theme.Nyral.NoActionBar" />
 
     </application>
 </manifest>

@@ -630,9 +630,9 @@ import android.widget.Toast
         if (show) {
             refreshTokenPanel()
             tokenMask.visibility = View.VISIBLE
-            // 悬浮层定位: 顶边对齐标题栏底部(标题栏已布局, height 有效), 右缘对齐屏幕右缘
+            // 悬浮层定位: 顶边对齐标题栏屏幕底部(titleBar.top 含状态栏偏移, 只加 height 会盖住右上角∑按钮), 右缘对齐屏幕右缘
             val lp = p.layoutParams as FrameLayout.LayoutParams
-            lp.topMargin = titleBar.height
+            lp.topMargin = titleBar.top + titleBar.height
             p.layoutParams = lp
             // 果冻展开: 锚点=面板右上角(∑ 图标处), 向左下角弹性弹出
             p.pivotY = 0f

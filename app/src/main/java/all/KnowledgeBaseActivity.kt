@@ -248,7 +248,6 @@ class KnowledgeBaseActivity : Activity() {
         }
 
         col.measure(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        val popH = col.measuredHeight
         popup = PopupWindow(col, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
             elevation = dp(10).toFloat()
             isTouchable = true
@@ -269,7 +268,9 @@ class KnowledgeBaseActivity : Activity() {
                 false
             }
         }
-        popup!!.showAsDropDown(btn, 0, -(popH + btn.height + dp(6)))
+        // 与主页 token 面板/长期记忆页同款修复：显式在按钮正下方 6dp 展开，
+        // 不再因按钮上方空间不足被系统翻转而盖住触发按钮本身
+        popup!!.showAsDropDown(btn, 0, dp(6))
         col.scaleX = 1f
         col.scaleY = 1f
         col.alpha = 1f

@@ -150,6 +150,25 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         if (!hasPno) {
             db.execSQL("ALTER TABLE pending ADD COLUMN msg_no INTEGER")
         }
+        // 幂等兜底：memory 缺 src_session_id/src_msg_no 列则补齐(v10+ 新增)
+        // 曾有库 user_version 已=12 但表结构旧, onUpgrade 不再触发, 长期记忆页必崩, 故放 onOpen 每次校验
+        val mcols = db.rawQuery("PRAGMA table_info(memory)", null)
+        var hasMsid = false
+        var hasMmno = false
+        while (mcols.moveToNext()) {
+            when (mcols.getString(1)) {
+                "src_session_id" -> hasMsid = true
+                "src_msg_no" -> hasMmno = true
+            }
+        }
+        mcols.close()
+        if (!hasMsid) {
+            db.execSQL("ALTER TABLE memory ADD COLUMN src_session_id INTEGER")
+        }
+        if (!hasMmno) {
+            db.execSQL("ALTER TABLE memory ADD COLUMN src_msg_no INTEGER")
+        }
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_mem_src ON memory(src_session_id, src_msg_no)")
 
         // 防 SQLiteBlobTooBigException：单字段超限则截断（CursorWindow 单值上限约 1MB，200KB 留足余量）
         val maxLen = MAX_FIELD_LEN

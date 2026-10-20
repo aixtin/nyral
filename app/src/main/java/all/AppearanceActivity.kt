@@ -3,7 +3,6 @@ package io.github.aixtin.nyral
 import io.github.aixtin.nyral.R
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -166,15 +165,21 @@ class AppearanceActivity : Activity() {
             gridRefreshers.forEach { it() }
             return
         }
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.appr_kb_dialog_title))
-            .setMessage(getString(R.string.appr_kb_dialog_msg))
-            .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
-                KnowledgeBaseConfig.setEnabled(this, true)
-                gridRefreshers.forEach { it() }
-            }
-            .setNegativeButton(getString(R.string.dialog_cancel), null)
-            .show()
+        val (dlg, box) = Ui.dialog(this, getString(R.string.appr_kb_dialog_title), jellyOvershoot = 1.4f)
+        box.addView(Ui.dialogText(this, getString(R.string.appr_kb_dialog_msg)))
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        btnRow.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() },
+            LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(8) })
+        btnRow.addView(Ui.primaryBtn(this, getString(R.string.dialog_ok)) {
+            KnowledgeBaseConfig.setEnabled(this, true)
+            gridRefreshers.forEach { it() }
+            dlg.dismiss()
+        }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(8) })
+        box.addView(btnRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
+        dlg.show()
     }
 
     /** 跳转卡状态刷新器（onResume 统一刷新，返回后反映最新背景/主题） */

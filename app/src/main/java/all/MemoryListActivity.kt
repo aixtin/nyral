@@ -138,7 +138,6 @@ class MemoryListActivity : Activity() {
         item(getString(R.string.memory_delete_all)) { confirmDeleteAll() }
 
         col.measure(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        val popH = col.measuredHeight
         popup = PopupWindow(col, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
             elevation = dp(10).toFloat()
             isTouchable = true
@@ -159,7 +158,9 @@ class MemoryListActivity : Activity() {
                 false
             }
         }
-        popup!!.showAsDropDown(moreBtn, 0, -(popH + moreBtn.height + dp(6)))
+        // 与主页 token 面板同款修复：显式在按钮正下方展开（6dp 间距），
+        // 不再因按钮上方空间不足被系统翻转而盖住触发按钮本身
+        popup!!.showAsDropDown(moreBtn, 0, dp(6))
         // 无动画即开即显（非主页弹窗，不播果冻动画）
         col.scaleX = 1f
         col.scaleY = 1f
