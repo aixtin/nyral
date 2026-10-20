@@ -54,7 +54,7 @@ Notifications, microphone, overlay window, all-files access, install unknown app
 
 - **On-device only**: conversation history, long-term memory, token stats, SSH config (encrypted storage)
 - **Leaves the device**: chat messages, attachments, and parsed text are sent to **the model endpoint you configure** (OpenAI-compatible). Self-host an endpoint for full privacy
-- **No telemetry**; the only startup external request is the GitHub Release update check (404 ignorable)
+- **No behavioral tracking**; the only outbound diagnostic is anonymous crash reporting (device model, Android version, crash stack, last 30 runtime log lines — never chat content or PII), on by default and one-tap disable in Appearance Settings → Quick Switches; crash reports are stored on the developer's server for up to 30 days and then automatically purged, with per-day and total upload quotas; the only other startup external request is the GitHub Release update check (404 ignorable)
 
 ## Recommendations
 

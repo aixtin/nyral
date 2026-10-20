@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 2026-10-05
+Last updated: 2026-10-21
 
 Nyral ("the App") is developed by aixtin. This document describes what data the App stores, what it sends over the network, and how you can control your data.
 
@@ -54,9 +54,13 @@ The App periodically checks the official GitHub repository (`github.com/aixtin/n
 
 Permissions are only used for the features described above.
 
-## 4. Analytics and Advertising
+## 4. Analytics, Advertising and Diagnostics
 
-The App does **not** include analytics, telemetry, advertising, or crash-reporting SDKs. No usage statistics are collected.
+The App does **not** include third-party analytics, advertising, or behavioral-tracking SDKs, and has no account system. No usage statistics are collected. The only outbound diagnostic is the anonymous crash reporting described below.
+
+### Crash Reporting (on by default, user can disable)
+
+To help locate and fix crashes, the App writes a local log when a crash / ANR / unexplained exit occurs, and anonymously uploads it over HTTPS on the next cold start to the developer's own server (atin.asia/crash). The payload contains only device model, Android version, crash stack, and the latest 30 runtime log lines — never chat content, account info, or any personally identifiable data. This is the only data the App sends beyond what you explicitly configure (model endpoint, MCP servers, browser). It is **enabled by default and can be turned off anytime**: Appearance Settings → Quick Switches → Crash Reporting. Reports are stored on the developer's server for up to 30 days and are automatically purged afterwards; the server also enforces per-day and total storage quotas to prevent abuse. Crash data is never sold, shared, or used for profiling.
 
 ## 5. Data Control and Deletion
 
