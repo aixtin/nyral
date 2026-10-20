@@ -42,11 +42,13 @@ class MemoryKeeperChunkTest {
 
     @Test
     fun chunkOversizeSingleLineBecomesOwnBlock() {
-        // 单行超长: 不拆行(保持消息完整性), 超长行单独成块
+        // B2 修复(2026-10-20): 单行超长按 size 硬切(码点安全), 避免单块超 CHUNK_CHARS 导致向量化块超限/缺失
         val long = "user: " + "z".repeat(1200)
         val r = chunk(long, 800)
-        check(r.size == 1) { "单行超长应整行成块(不截断), 实际 ${r.size}" }
-        check(r[0].length == long.length) { "块应保留整行完整长度, 实际 ${r[0].length} vs ${long.length}" }
+        check(r.size == 2) { "单行超长应硬切为 2 块, 实际 ${r.size}" }
+        check(r[0].length <= 800) { "第1块长度 ${r[0].length} 应 ≤ 800" }
+        check(r[1].length <= 800) { "第2块长度 ${r[1].length} 应 ≤ 800" }
+        check(r.joinToString("") == long) { "硬切拼接应无损还原原行" }
     }
 
     @Test

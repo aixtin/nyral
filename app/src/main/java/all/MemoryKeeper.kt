@@ -158,12 +158,26 @@ object MemoryKeeper {
         val chunks = mutableListOf<String>()
         val sb = StringBuilder()
         for (line in text.lines()) {
-            if (sb.isNotEmpty() && sb.length + line.length > size) {
+            // B2 修复(2026-10-20): 单行超过 size 时按 size 硬切(码点安全), 保证向量与块内容对应
+            var rest = line
+            while (rest.length > size) {
+                if (sb.isNotEmpty()) {
+                    chunks.add(sb.toString().trim())
+                    sb.clear()
+                }
+                var cut = size
+                if (Character.isLowSurrogate(rest[cut - 1])) {
+                    cut = if (cut >= 2 && Character.isHighSurrogate(rest[cut - 2])) cut - 2 else cut - 1
+                }
+                chunks.add(rest.substring(0, cut).trim())
+                rest = rest.substring(cut)
+            }
+            if (sb.isNotEmpty() && sb.length + rest.length > size) {
                 chunks.add(sb.toString().trim())
                 sb.clear()
             }
             if (sb.isNotEmpty()) sb.append('\n')
-            sb.append(line)
+            sb.append(rest)
         }
         if (sb.isNotBlank()) chunks.add(sb.toString().trim())
         return chunks

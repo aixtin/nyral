@@ -324,9 +324,11 @@ object WorkDir {
 
     /** 文件名清洗: 去路径分隔与非法字符 */
     fun sanitize(name: String): String {
-        return name.replace(Regex("[\\\\/:*?\"<>|\n\r]"), "_")
+        val s = name.replace(Regex("[\\\\/:*?\"<>|\n\r]"), "_")
             .replace(Regex("[\u0000-\u001f]"), "")
-            .trim().ifBlank { "" }
+            .trim()
+        // B8 修复(2026-10-20): 显式拒绝路径穿越名(../. 与空名)
+        return if (s.isEmpty() || s == "." || s == "..") "" else s
     }
 
     /** 冗余方法: 清理本地缓存目录(未用, 保留接口) */

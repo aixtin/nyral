@@ -103,8 +103,10 @@ class MemoryEmbedder(context: Context) {
             buf.get(data)
             val shape = out.info.shape ?: longArrayOf(1L, seqLen.toLong(), 512L)
             if (on.contains("sentence", true)) {
+                // B4 修复(2026-10-20): 热更模型输出维度与 DIM 不一致时防御, 避免越界
+                val dim = minOf(data.size, MemoryDb.DIM)
                 val arr = FloatArray(MemoryDb.DIM)
-                for (i in 0 until MemoryDb.DIM) arr[i] = data[i]
+                for (i in 0 until dim) arr[i] = data[i]
                 return arr
             } else {
                 val dim = shape.last().toInt()

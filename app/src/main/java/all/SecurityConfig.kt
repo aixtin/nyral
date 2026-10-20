@@ -167,12 +167,25 @@ object SecurityConfig {
                 .put("ts", System.currentTimeMillis())
                 .put("tool", name)
                 .put("argHash", sha256(name, arg).take(12))
-                .put("arg", arg.take(200))
+                .put("arg", maskAuditArg(arg))
                 .put("approvedBy", approvedBy)
                 .put("channel", channel)
                 .toString() + "\n"
             f.appendText(line)
         } catch (e: Exception) { /* 审计失败不阻塞主流程 */ }
+    }
+
+    /** 审计参数脱敏(2026-10-20 M3 修复): 掩码疑似凭据/私钥/IP/长串, 保留结构摘要 */
+    private fun maskAuditArg(arg: String): String {
+        var out = arg.take(200)
+        out = Regex("(?i)(ghp_[A-Za-z0-9]{6,}|glpat_[A-Za-z0-9_-]{6,}|gho_[A-Za-z0-9]{6,}|github_pat_[A-Za-z0-9_]{6,}|droid-[A-Za-z0-9]{6,})")
+            .replace(out) { it.value.take(8) + "***" }
+        out = Regex("-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*").replace(out) { "-----BEGIN PRIVATE KEY-----***已脱敏***" }
+        out = Regex("(?i)((?:password|passwd|token|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\\s*[=:]\\s*)([^,\\s\"']+)")
+            .replace(out) { "${it.groupValues[1]}***" }
+        out = Regex("\\b(\\d{1,3}(?:\\.\\d{1,3}){2})\\.\\d{1,3}\\b").replace(out) { "${it.groupValues[1]}.***" }
+        out = Regex("(?<![A-Za-z0-9])[A-Za-z0-9_-]{16,}(?![A-Za-z0-9])").replace(out) { it.value.take(8) + "***" }
+        return out
     }
 
     /** 审计文件路径(供审计页/导出查看) */

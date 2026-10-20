@@ -70,6 +70,9 @@ object LocalEngine {
     data class Attachment(val mime: String, val base64: String, val name: String = "attachment", val text: String? = null, val isVoice: Boolean = false, val pdfSourceName: String? = null, val stored: Boolean = false, val isEmoji: Boolean = false)
 
     /** 取消状态: requestCancel() 置 true, 引擎在流式读取/工具循环处检查并中断 */
+    /** C1 修复(2026-10-20): 对话单飞锁——同一时刻只允许一个 chat 运行(主对话与定时任务互斥) */
+    private val chatLock = Any()
+
     @Volatile
     var cancelRequested = false
 
@@ -399,7 +402,19 @@ object LocalEngine {
     // ================= 流式主流程 =================
 
     /** 流式入口: 主线程调用, 回调全部发生在调用线程(工作线程), UI 需自行 post */
+    /**
+     * C1 修复(2026-10-20): 主对话与定时任务并发共享单例状态(cancelRequested/activeConn)会互相干扰。
+     * 改为全局单飞: 同一时刻只允许一个对话运行, 并发请求(定时任务)阻塞等待前一个对话结束;
+     * cancelRequested 在持锁后统一重置, 避免等待线程误清正在运行对话的取消状态。
+     */
     fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet(), taskId: Long = 0L) {
+        synchronized(chatLock) {
+            cancelRequested = false
+            chatImpl(context, history, cb, attachments, silentMode, allowTools, taskId)
+        }
+    }
+
+    private fun chatImpl(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet(), taskId: Long = 0L) {
         var attempt = 0
         // 跨轮累计正文: 声明在 try 外, 取消/重试 catch 分支也能带回已输出内容
         val full = StringBuilder()

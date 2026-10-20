@@ -163,6 +163,50 @@ object ScriptEngine {
         for (w in DANGER_NORMALIZED) {
             if (norm.contains(w)) return "已拦截: 脚本命中危险命令(规范化)[$w], 拒绝执行(如需保留可拆分脚本绕过)"
         }
+        // M1 修复(2026-10-20): 解析型检查兜底, 堵子串匹配可被参数顺序/选项变体绕过的形态
+        blockReasonSemantic(script)?.let { return it }
+        return null
+    }
+
+    /** 解析型危险命令检查(2026-10-20 M1 修复): 词法切分 + 选项感知,
+     *  拦截 rm/chmod/chown 递归作用于系统路径、dd 直写设备等子串层漏网的变体
+     *  (如 "rm -rf --no-preserve-root /" / "chmod 777 -R /" / "chown -hR root:root /") */
+    private fun blockReasonSemantic(script: String): String? {
+        val sysRoots = listOf("/", "/*", "/boot", "/dev", "/etc", "/usr", "/var", "/proc", "/sys",
+            "/root", "/home", "/opt", "/bin", "/sbin", "/lib", "/lib64", "/data", "/cache")
+        val toks = script.split(Regex("[\\s;|&()]+")).map { it.trim('"', '\'').trim() }.filter { it.isNotEmpty() }
+        var i = 0
+        while (i < toks.size) {
+            val t = toks[i]
+            val cmdName = when {
+                t == "rm" -> "rm"
+                t.startsWith("chmod") -> "chmod"
+                t.startsWith("chown") -> "chown"
+                t == "dd" -> "dd"
+                else -> null
+            }
+            if (cmdName != null) {
+                val opts = mutableListOf<String>()
+                val args = mutableListOf<String>()
+                var j = i + 1
+                while (j < toks.size && !toks[j].startsWith("$") && toks[j] !in setOf("&&", "||", ";", "|")) {
+                    if (toks[j].startsWith("-")) opts.add(toks[j]) else args.add(toks[j])
+                    j++
+                }
+                if (cmdName == "dd" && args.any { it.startsWith("of=/dev/") })
+                    return "已拦截: 脚本含 dd 直接写设备(of=/dev/), 拒绝执行(如需保留可拆分脚本绕过)"
+                val shortOpts = opts.flatMap { o ->
+                    if (o.length > 2 && !o.startsWith("--")) o.drop(1).map { "-$it" } else listOf(o)
+                }.toSet()
+                val recursive = shortOpts.any { it in setOf("-r", "-R", "-f", "-rf", "-fr", "-fR", "--recursive", "--force") }
+                val targetRoot = args.any { a -> sysRoots.any { r -> a == r || a.startsWith(r + "/") } }
+                if (recursive && targetRoot)
+                    return "已拦截: 脚本含破坏性命令 $cmdName(递归作用于系统路径), 拒绝执行(如需保留可拆分脚本绕过)"
+                i = j
+                continue
+            }
+            i++
+        }
         return null
     }
 

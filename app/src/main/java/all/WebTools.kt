@@ -608,7 +608,9 @@ object WebTools {
         var hs = extraHeaders
         var redirects = 0
         while (redirects <= 5) {
-            val conn = URL(current).openConnection() as HttpURLConnection
+            // M2 修复(2026-10-20): 抓取路径与下载路径统一走 IP 锁定连接, 消除 DNS 重绑定 TOCTOU 窗口
+            val conn = openPinnedConnection(current)
+                ?: return "错误: 目标被 SSRF 拦截: $current"
             conn.requestMethod = "GET"
             conn.setRequestProperty("User-Agent", ua)
             conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")

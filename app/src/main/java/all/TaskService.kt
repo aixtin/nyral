@@ -231,7 +231,7 @@ class TaskService : Service() {
             }
         }
         Thread {
-            LocalEngine.cancelRequested = false
+            // C1 修复(2026-10-20): 取消状态重置已移入 LocalEngine.chat 门卫(持锁后统一处理), 避免等待期间误清主对话取消状态; 定时任务与主对话经 chatLock 单飞互斥
             LocalEngine.chat(this@TaskService, history, cb, silentMode = true, allowTools = allowTools, taskId = taskId) // 定时岗位静默: 未授权危险工具自动拒绝不挂起, 白名单内放行; X-Nyral-Task-ID 标识任务来源
         }.start()
     }

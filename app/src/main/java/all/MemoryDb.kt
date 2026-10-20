@@ -487,9 +487,9 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     }
 
     /** 供语义检索使用: 首次全量加载并缓存, 写路径后自动失效重建 */
-    fun allCached(): List<Mem> {
-        vectorCache?.let { return it }
-        return all().also { vectorCache = it }
+    fun allCached(): List<Mem> = lock.withLock {
+        vectorCache?.let { return@withLock it }
+        all().also { vectorCache = it }
     }
 
     /** 重建 summary 用: 只取 content+ts, 不反序列化向量 */
@@ -504,13 +504,17 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
+    /** B5 修复(2026-10-20): LIKE 通配符转义, 防止 %/_ 被当作通配符 */
+    private fun escapeLike(kw: String): String =
+        kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     fun searchKeyword(keyword: String, limit: Int = 5): List<Mem> {
         lock.withLock {
             val db = readableDatabase
             val list = mutableListOf<Mem>()
             db.rawQuery(
-                "SELECT id, content, ts, embedding, session_title, src_session_id, src_msg_no FROM memory WHERE content LIKE ? ORDER BY ts DESC LIMIT ?",
-                arrayOf("%$keyword%", limit.toString())
+                "SELECT id, content, ts, embedding, session_title, src_session_id, src_msg_no FROM memory WHERE content LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?",
+                arrayOf("%" + escapeLike(keyword) + "%", limit.toString())
             ).use { c ->
                 while (c.moveToNext()) {
                     list.add(Mem(
@@ -877,8 +881,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
             db.rawQuery(
                 "SELECT m.session_id, s.title, s.updated_at, m.role, m.seq, m.content, m.thinking " +
                     "FROM session_msgs m JOIN sessions s ON s.id = m.session_id " +
-                    "WHERE m.content LIKE ?",
-                arrayOf("%$kw%")
+                    "WHERE m.content LIKE ? ESCAPE '\\'",
+                arrayOf("%" + escapeLike(kw) + "%")
             ).use { c ->
                 while (c.moveToNext()) {
                     val content = c.getString(5)
@@ -901,8 +905,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
             db.rawQuery(
                 "SELECT m.session_id, s.title, s.updated_at, m.role, m.seq, m.content, m.thinking " +
                     "FROM session_msgs m JOIN sessions s ON s.id = m.session_id " +
-                    "WHERE m.thinking LIKE ?",
-                arrayOf("%$kw%")
+                    "WHERE m.thinking LIKE ? ESCAPE '\\'",
+                arrayOf("%" + escapeLike(kw) + "%")
             ).use { c ->
                 while (c.moveToNext()) {
                     val thinking = if (c.isNull(6)) "" else c.getString(6)

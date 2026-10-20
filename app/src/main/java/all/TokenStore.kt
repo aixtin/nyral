@@ -1,5 +1,6 @@
 package io.github.aixtin.nyral
 
+import kotlin.jvm.Synchronized
 import android.content.Context
 import android.content.SharedPreferences
 import java.text.SimpleDateFormat
@@ -36,6 +37,7 @@ object TokenStore {
     private fun prefs(c: Context): SharedPreferences =
         c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    @Synchronized
     fun record(c: Context, prompt: Int, completion: Int) {
         if (prompt <= 0 && completion <= 0) return
         val p = prefs(c)
@@ -98,6 +100,7 @@ object TokenStore {
     // ============ 辅助 AI（记忆辅助模型）统计 ============
 
     /** 辅助 AI 消耗记录：MemoryKeeper 生成主题索引等后台调用成功后写入 */
+    @Synchronized
     fun recordAux(c: Context, prompt: Int, completion: Int) {
         if (prompt <= 0 && completion <= 0) return
         val p = prefs(c)

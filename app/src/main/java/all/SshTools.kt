@@ -179,7 +179,7 @@ object SshTools {
             val sb = StringBuilder()
             val errSb = StringBuilder()
             val idleTimeoutMs = 8000L   // 连续无新输出超过该时长视为命令结束
-            val totalTimeoutMs = 60000L // 总硬超时兜底, 防止隧道下 close 信号丢失导致死等
+            val totalTimeoutMs = 300000L // 总硬超时兜底(5min, B3 修复 2026-10-20 调大以容纳静默命令), 防止隧道下 close 信号丢失导致死等
             val startTime = System.currentTimeMillis()
             var lastDataTime = System.currentTimeMillis()
             var timedOut = false
@@ -199,8 +199,12 @@ object SshTools {
                     if (out.available() == 0 && errStream.available() == 0) break
                     Thread.sleep(50)
                 } else if (System.currentTimeMillis() - lastDataTime > idleTimeoutMs) {
-                    timedOut = true
-                    break
+                    // B3 修复(2026-10-20): idle 超时不再直接判定结束——通道未关闭(exitStatus<0)说明是静默命令仍在运行, 刷新计时继续等待
+                    if (channel.isClosed || channel.exitStatus >= 0) {
+                        timedOut = true
+                        break
+                    }
+                    lastDataTime = System.currentTimeMillis()
                 } else if (System.currentTimeMillis() - startTime > totalTimeoutMs) {
                     timedOut = true
                     break
@@ -442,8 +446,7 @@ object SshTools {
             val effKey = if (!proxyKey.isNullOrEmpty()) proxyKey else if (useFallback) cfg.privateKey else null
             val effPw = if (!proxyPw.isNullOrEmpty()) proxyPw else if (useFallback) cfg.password else null
             val effPhrase = if (!proxyPhrase.isNullOrEmpty()) proxyPhrase else if (useFallback) cfg.passphrase else null
-            Log.i("SshTools", "proxy key: user=" + proxyUser + " keyLen=" + (effKey?.length ?: 0) +
-                    " keyHead=" + (effKey?.take(27)?.replace("\n", "|") ?: "NONE") + " hasPw=" + (!effPw.isNullOrEmpty()))
+            Log.i("SshTools", "proxy key: user=" + proxyUser + " keyLen=" + (effKey?.length ?: 0) + " hasPw=" + (!effPw.isNullOrEmpty()))
             if (!effKey.isNullOrEmpty()) {
                 jsch.addIdentity("proxy_key", effKey.toByteArray(), null, effPhrase?.toByteArray())
             }
