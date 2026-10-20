@@ -35,7 +35,7 @@ enum class MdSpanType { BOLD, ITALIC, INLINE_CODE, STRIKETHROUGH, LINK, CODE_BLO
 data class MdSpan(val start: Int, val end: Int, val type: MdSpanType, val extra: String? = null)
 
 /**
- * 解析结果中间层 (借鉴豆包 MessageMarkdownParseResult):
+ * 解析结果中间层 (参考竞品渲染器实现):
  * displayText = 纯显示文本(无 MD 标记), spans = 扁平样式区间列表。
  * 天然适配 AnnotatedString / Spannable 的区间样式, 比 ASTNode 更轻。
  */
