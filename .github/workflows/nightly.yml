@@ -36,6 +36,17 @@ jobs:
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Inject crashToken
+        env:
+          CRASH_TOKEN: ${{ secrets.CRASH_TOKEN }}
+        run: |
+          if [ -n "$CRASH_TOKEN" ]; then
+            printf 'crashToken=%s\n' "$CRASH_TOKEN" > local.properties
+            echo "local.properties written (crashToken injected)"
+          else
+            echo "::warning::CRASH_TOKEN secret missing; local.properties skipped"
+          fi
+
       # 模拟器为 x86_64, 用 -PnyralAbi 覆盖默认 arm64 ABI 过滤
       # (onnxruntime AAR 含 x86_64 so, 可完整加载)
       - name: Build x86_64 debug APK for emulator

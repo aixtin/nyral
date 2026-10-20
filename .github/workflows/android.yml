@@ -32,6 +32,17 @@ jobs:
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Inject crashToken
+        env:
+          CRASH_TOKEN: ${{ secrets.CRASH_TOKEN }}
+        run: |
+          if [ -n "$CRASH_TOKEN" ]; then
+            printf 'crashToken=%s\n' "$CRASH_TOKEN" > local.properties
+            echo "local.properties written (crashToken injected)"
+          else
+            echo "::warning::CRASH_TOKEN secret missing; local.properties skipped"
+          fi
+
       - name: Run JVM unit tests
         run: ./gradlew :app:testDebugUnitTest --console=plain
 
@@ -64,6 +75,17 @@ jobs:
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Inject crashToken
+        env:
+          CRASH_TOKEN: ${{ secrets.CRASH_TOKEN }}
+        run: |
+          if [ -n "$CRASH_TOKEN" ]; then
+            printf 'crashToken=%s\n' "$CRASH_TOKEN" > local.properties
+            echo "local.properties written (crashToken injected)"
+          else
+            echo "::warning::CRASH_TOKEN secret missing; local.properties skipped"
+          fi
+
       # 静态检查门: 潜在 bug/可用性/性能问题云端提前暴露
       - name: Run lint
         run: ./gradlew :app:lintDebug --console=plain
@@ -92,6 +114,17 @@ jobs:
 
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Inject crashToken
+        env:
+          CRASH_TOKEN: ${{ secrets.CRASH_TOKEN }}
+        run: |
+          if [ -n "$CRASH_TOKEN" ]; then
+            printf 'crashToken=%s\n' "$CRASH_TOKEN" > local.properties
+            echo "local.properties written (crashToken injected)"
+          else
+            echo "::warning::CRASH_TOKEN secret missing; local.properties skipped"
+          fi
 
       # 静态分析门(Kotlin): baseline 冻结存量, 仅新增问题使 CI 失败
       # 存量更新时本地跑 :app:detektBaseline 重新生成 config/detekt/detekt-baseline.xml
@@ -124,6 +157,17 @@ jobs:
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Inject crashToken
+        env:
+          CRASH_TOKEN: ${{ secrets.CRASH_TOKEN }}
+        run: |
+          if [ -n "$CRASH_TOKEN" ]; then
+            printf 'crashToken=%s\n' "$CRASH_TOKEN" > local.properties
+            echo "local.properties written (crashToken injected)"
+          else
+            echo "::warning::CRASH_TOKEN secret missing; local.properties skipped"
+          fi
+
       # 编译门：push/PR 必过，本地编译错误云端提前暴露
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --console=plain
@@ -155,6 +199,17 @@ jobs:
       # gradle wrapper 与依赖缓存（首次全量下载，之后增量）
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Inject crashToken
+        env:
+          CRASH_TOKEN: ${{ secrets.CRASH_TOKEN }}
+        run: |
+          if [ -n "$CRASH_TOKEN" ]; then
+            printf 'crashToken=%s\n' "$CRASH_TOKEN" > local.properties
+            echo "local.properties written (crashToken injected)"
+          else
+            echo "::warning::CRASH_TOKEN secret missing; local.properties skipped"
+          fi
 
       # 签名材料全部来自 GitHub Secrets，仓库不落任何口令/keystore
       - name: Restore keystore from secrets
@@ -210,6 +265,17 @@ jobs:
 
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Inject crashToken
+        env:
+          CRASH_TOKEN: ${{ secrets.CRASH_TOKEN }}
+        run: |
+          if [ -n "$CRASH_TOKEN" ]; then
+            printf 'crashToken=%s\n' "$CRASH_TOKEN" > local.properties
+            echo "local.properties written (crashToken injected)"
+          else
+            echo "::warning::CRASH_TOKEN secret missing; local.properties skipped"
+          fi
 
       # 依赖坐标解析（无需编译；releaseRuntimeClasspath 即打包进 APK 的运行时依赖）
       # build/ 已在 .gitignore 中，deps.txt 不会入库
