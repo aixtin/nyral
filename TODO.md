@@ -1,6 +1,6 @@
 # Nyral 待办
 
-- [x] v2.8.0 发版（2026-10-20，versionCode 63）：知识库自动沉淀（默认关闭）+ tool_frame timeMs 超限修复 + 多帧强制逐帧描述修复；双端 Release 发布
+- [x] v2.8.0 发版（2026-10-20，versionCode 63）：知识库自动沉淀（默认关闭）；video_frame 未传 timeMs 默认多帧采样 + 单帧超限报错回传真实时长；LocalEngine 多帧强制逐帧描述；空参熔断；思考面板宽度解耦；ANR Watchdog；文档占位幻觉警示；双端 Release 发布
 ## 待办
 - [x] 文件/图片/视频发送功能（MiMo 多模态）：选附件 → 本地压缩 → 复制 cacheDir → Base64 发 MiMo → AI 生成描述占位进历史/记忆
       - 处理路径分类定案(2026-08-28)：文本/PDF 本地处理不走模型；图片/视频/音频 必须走模型（多模态）

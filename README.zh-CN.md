@@ -155,13 +155,13 @@ android-agent-app/
 
 ## 版本记录
 
-- **【最新】v2.8.0（2026-10-20，versionCode 63）**：新增知识库自动沉淀（默认关闭，设置里可开启）——每次与 AI 讨论后按章节异步沉淀到本地知识书，含书库/条目/回收站/审计页面；修复 tool_frame 单帧 timeMs 超限问题（超范围报错并回传真实视频时长，不再伪造 @标签）；LocalEngine 视觉块新增规则，多帧采样强制逐帧描述，杜绝“视频只按首帧概括”；配套 UiKit/MainActivity 重构。
-- **【最新】v2.7.0（2026-10-16，versionCode 48）**：项目完结收尾版——发布完结篇 END.md 并在 README 顶部声明完结；Trae 修复（SecurityUi 确认桥泄漏 / mdExecutor 线程池泄漏 / MCP 客户端并发安全）；新增 write_clipboard 剪贴板工具与 tool_detail 工具索引；基于最新 main 重新构建正式产物 APK。
-- **v2.6.0（2026-10-15，versionCode 47）**：定时岗位 MVP 落地——AI 可创建定时任务（timer_task_create）：分析 goal 后列出危险工具授权清单（每项附用途），弹 task_create 壳由用户打包批准，静默场景强制拒绝创建；任务级能力预授权（任务静默执行时白名单危险工具放行），授权生命周期随任务销毁回收；定时岗位请求注入 X-Nyral-Task-ID 请求头（远端可识别任务来源）；任务执行完成新增系统通知（notifyTaskDone）；修复单次闹钟无续期/重排残留旧闹钟/授权对话框列表不渲染。安全审计页（AuditActivity）标题不再被系统状态栏遮挡（Android 15+ edge-to-edge 下消费窗口 inset）。
-- **v2.5.3（2026-10-10，versionCode 46）**：聊天背景新增顶栏/输入框栏透明设置——支持不透明 / 普通透明 / 静态毛玻璃三档（消息区暂不支持）；毛玻璃以自定义图片背景为底做静态模糊；顶栏/输入框四角统一全圆角、分隔线两端内缩 16dp 避开圆弧；表情抽屉图标改用 Ui.TEXT 适配主题。
+- **【最新】v2.8.0（2026-10-20，versionCode 63）**：新增知识库自动沉淀（默认关闭，设置可开启）——每次与 AI 讨论后按章节异步沉淀到本地知识书，含书库/条目/回收站/审计页面；video_frame 未传 timeMs 时默认抽 0/30%/60%/95% 四帧，单帧 timeMs 超范围改报错并回传真实视频时长（不再伪造 @14s/@20s 标签），抽帧结果统一追加“(视频共Xs)”；LocalEngine 视觉块新增规则，多帧采样强制逐帧描述，杜绝“视频只按首帧概括”；空参熔断（workdir 空 action / sh_run 空 script 前置报错，不进确认流程）；思考面板宽度与聊天解耦（toggleStatusDrop / wMaxLimit / chatMaxW，双模式右缘修复）；新增 ANR Watchdog 崩溃收集；文档占位页落地“模型幻觉·勿过度依赖 AI·信用户自己”警示；工具描述强化 file_export 必用于交付；配套 UiKit / MainActivity 重构。
+- **v2.7.0（2026-10-16，versionCode 48）**：项目完结收尾版——发布完结篇 END.md 并在 README 顶部声明完结；Trae 修复（SecurityUi 确认桥泄漏 / mdExecutor 线程池泄漏 / MCP 客户端并发安全）；新增 write_clipboard 剪贴板工具与 tool_detail 工具索引；基于最新 main 重新构建正式产物 APK。
 
 <details>
-<summary>历史版本（v2.5.2 及更早，共 19 条）</summary>
+<summary>历史版本（v2.6.0 及更早，共 21 条）</summary>
+- **v2.6.0（2026-10-15，versionCode 47）**：定时岗位 MVP 落地——AI 可创建定时任务（timer_task_create）：分析 goal 后列出危险工具授权清单（每项附用途），弹 task_create 壳由用户打包批准，静默场景强制拒绝创建；任务级能力预授权（任务静默执行时白名单危险工具放行），授权生命周期随任务销毁回收；定时岗位请求注入 X-Nyral-Task-ID 请求头（远端可识别任务来源）；任务执行完成新增系统通知（notifyTaskDone）；修复单次闹钟无续期/重排残留旧闹钟/授权对话框列表不渲染。安全审计页（AuditActivity）标题不再被系统状态栏遮挡（Android 15+ edge-to-edge 下消费窗口 inset）。
+- **v2.5.3（2026-10-10，versionCode 46）**：聊天背景新增顶栏/输入框栏透明设置——支持不透明 / 普通透明 / 静态毛玻璃三档（消息区暂不支持）；毛玻璃以自定义图片背景为底做静态模糊；顶栏/输入框四角统一全圆角、分隔线两端内缩 16dp 避开圆弧；表情抽屉图标改用 Ui.TEXT 适配主题。
 
 - **v2.5.2（2026-10-08，versionCode 45）**：手势交互重构——三面板手势规则统一（左抽屉：控件展开 + 开态右→左关闭；浏览器：双击右缘开/关；右汉堡面板：控件展开 + 左→右关闭）；修复左抽屉跟手滞后——DrawerDragController 在拦截判定通过瞬间即按当前 dx 定位面板/遮罩（Android 手势拦截会吞掉触发拦截的 MOVE 事件，此前面板要滑到 dx=-200 才跟手）；BrowserSlideController 重构（-96 行）。
 - **v2.5.1（2026-10-07，versionCode 44）**：修复黑屏下浏览器 scan 恒 0 挂死——waitStable 入口由 requestAnimationFrame 双连启动改为 setTimeout（后台 WebView 的 rAF 不触发，扫描永不回填）；DebugServer 补挂 /v1/browser/text 端点（fetchTextSync 早已实现但暲注册路由，此前返回 404）；新增 WAKE_LOCK 权限支撑黑屏保活。
