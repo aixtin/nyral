@@ -150,6 +150,10 @@ class AppearanceActivity : Activity() {
                 addView(gridSwitch(R.drawable.ic_appr_track, 23, getString(R.string.appr_39), {
                     if (ModeConfig.actionTrack()) getString(R.string.appr_33) else getString(R.string.appr_34)
                 }) { ModeConfig.setActionTrack(!ModeConfig.actionTrack()) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
+                addView(gridSwitch(R.drawable.ic_appr_crash, 32, getString(R.string.appr_crash), {
+                    if (CrashReportConfig.enabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)
+                }) { CrashReportConfig.setEnabled(this@AppearanceActivity, !CrashReportConfig.enabled(this@AppearanceActivity)) },
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
             })
         })

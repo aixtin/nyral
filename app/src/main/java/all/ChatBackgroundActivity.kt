@@ -122,7 +122,7 @@ class ChatBackgroundActivity : Activity() {
         val grid = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(14), dp(12), dp(14))
-            background = Ui.rounded(Color.WHITE, 16, this@ChatBackgroundActivity)
+            background = Ui.rounded(Ui.SURFACE, 16, this@ChatBackgroundActivity)
         }
         presetCells = Array(6) { TextView(this) }
         for (row in 0 until 2) {

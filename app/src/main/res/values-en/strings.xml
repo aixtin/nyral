@@ -662,54 +662,10 @@
     <string name="agr_got_it">Got It</string>
 
     <!-- 协议全文 -->
-    <string name="agr_disclaimer" formatted="false">This app is a personal Android agent tool provided by an individual developer, for learning, research and technical exchange only, and does not constitute any formal product commitment.
+    <string name="agr_disclaimer" formatted="false">This app is a personal Android agent tool provided by an individual developer, for learning, research and technical exchange only, and does not constitute any formal product commitment.\n\nI. No-Warranty Statement\n\nThis app is provided &quot;as is&quot; without any express or implied warranty of any kind, including but not limited to merchantability, fitness for a particular purpose, non-infringement of third-party rights, stable operation, or integrity of data. The developer shall not be liable for any direct or indirect loss arising from the use of this app.\n\nII. Data and API Disclosure (Important)\n\n1. This app does not bundle any local model. All conversations are served through third-party AI provider APIs (e.g. OpenAI-compatible endpoints) that you configure yourself.\n\n2. Content you submit in conversations, along with attached context (such as memory retrieval results, tool call parameters, file content snippets), will be sent over the network to the model provider you configured for processing; data is not stored only on your local device.\n\n3. The processing, storage and compliance of the above data follow the provider\x27s own terms of service and privacy policy and are unrelated to the developer. Please read and confirm the provider\x27s agreements before configuring the API.\n\n4. For sensitive data such as file contents, SSH remote information, personal privacy and account credentials, be fully aware before sending that they will necessarily pass through the model channel you specified; choose models and configurations carefully.\n\nIII. Remote and System Operation Risks\n\nThis app may include capabilities such as SSH remote connection, file read/write, and system debugging (root/adb). Such operations may cause unpredictable consequences to the device, remote servers or data on them (including but not limited to data loss, service interruption, or device malfunction). You are solely responsible for all remote and system-level operations; please assess the risks yourself and keep backups.\n\nIV. Liability Boundary\n\nThe developer makes no warranty regarding the availability, security or compliance of third-party providers, and is not liable for losses caused by network, model output content, or third-party service failures. Consequences arising from your violation of laws, provider terms, or the rights of others are borne by you.\n\nV. Changes\n\nThe developer reserves the right to modify this statement at any time. Changes take effect from the date of update; continued use of this app means acceptance of the latest version.</string>
+    <string name="agr_privacy" formatted="false">This app follows the &quot;minimal collection&quot; principle: the app itself does not collect, store, analyze or share any data directly related to your personal identity. Your usage records are stored only on your own device by default.\n\nI. Data Collection\n\n1. The developer does not collect any personal information, device identifiers, IMEI, location, contacts, calls, SMS, etc.\n\n2. No analytics, advertising or tracking SDKs are integrated.\n\n3. Login state, configuration and memory within the app are managed and operated by you.\n\nII. Data Flow (Important)\n\n1. Model APIs you configure and enable: conversation content and attached context (including memory retrieval results, tool call parameters, file content snippets) are sent over the network to the third-party model provider you configured, subject to that provider\x27s own privacy policy.\n\n2. In this policy, &quot;third party&quot; means any external service provider other than the developer of this app. Except for the channels you proactively configured above, this app does not transmit your data to any third party; the only data transmitted to the developer\x27s own server is the anonymous crash report described in Section IV, which contains technical data only and no personally identifiable information.\n\nIII. Locally Stored Content\n\nThe following content is stored only on the device to ensure continuous conversation and basic functionality:\n\n1. Chat history and memory database content.\n\n2. Connection configurations such as models and SSH (including addresses, tokens, keys you filled in yourself).\n\n3. App runtime logs.\n\nIV. Crash Reporting (on by default, can be turned off anytime)\n\n1. To help locate and fix crashes, the app writes a local log when a crash / ANR / unexplained exit occurs, and anonymously uploads it over HTTPS on the next cold start to the developer\x27s own server; the payload contains only device model, Android version, crash stack and the latest 30 runtime log lines, never chat content, account info or any personally identifiable data.\n\n2. As the receiver, the developer processes only the anonymous technical data above, which involves no personally identifiable information and does not conflict with the &quot;no personal information collection / no personal data transmission to third parties&quot; commitments in Sections I and II; it is used solely for crash diagnosis and fixing.\n\n3. This feature is enabled by default; you can turn it off or on anytime in Appearance Settings → Quick Switches → Crash Reporting.
 
-I. No-Warranty Statement
-This app is provided &quot;as is&quot; without any express or implied warranty of any kind, including but not limited to merchantability, fitness for a particular purpose, non-infringement of third-party rights, stable operation, or integrity of data. The developer shall not be liable for any direct or indirect loss arising from the use of this app.
-
-II. Data and API Disclosure (Important)
-1. This app does not bundle any local model. All conversations are served through third-party AI provider APIs (e.g. OpenAI-compatible endpoints) that you configure yourself.
-2. Content you submit in conversations, along with attached context (such as memory retrieval results, tool call parameters, file content snippets), will be sent over the network to the model provider you configured for processing; data is not stored only on your local device.
-3. The processing, storage and compliance of the above data follow the provider\x27s own terms of service and privacy policy and are unrelated to the developer. Please read and confirm the provider\x27s agreements before configuring the API.
-4. For sensitive data such as file contents, SSH remote information, personal privacy and account credentials, be fully aware before sending that they will necessarily pass through the model channel you specified; choose models and configurations carefully.
-
-III. Remote and System Operation Risks
-This app may include capabilities such as SSH remote connection, file read/write, and system debugging (root/adb). Such operations may cause unpredictable consequences to the device, remote servers or data on them (including but not limited to data loss, service interruption, or device malfunction). You are solely responsible for all remote and system-level operations; please assess the risks yourself and keep backups.
-
-IV. Liability Boundary
-The developer makes no warranty regarding the availability, security or compliance of third-party providers, and is not liable for losses caused by network, model output content, or third-party service failures. Consequences arising from your violation of laws, provider terms, or the rights of others are borne by you.
-
-V. Changes
-The developer reserves the right to modify this statement at any time. Changes take effect from the date of update; continued use of this app means acceptance of the latest version.</string>
-    <string name="agr_privacy" formatted="false">This app follows the &quot;minimal collection&quot; principle: the app itself does not collect, store, analyze or share any data directly related to your personal identity. Your usage records are stored only on your own device by default.
-
-I. Data Collection
-1. The developer does not collect any personal information, device identifiers, IMEI, location, contacts, calls, SMS, etc.
-2. No analytics, advertising or tracking SDKs are integrated.
-3. Login state, configuration and memory within the app are managed and operated by you.
-
-II. Data Flow (Important)
-1. Model APIs you configure and enable: conversation content and attached context (including memory retrieval results, tool call parameters, file content snippets) are sent over the network to the third-party model provider you configured, subject to that provider\x27s own privacy policy.
-2. Except for the channel you proactively configured above, this app does not transmit your data to any third party.
-
-III. Locally Stored Content
-The following content is stored only on the device to ensure continuous conversation and basic functionality:
-1. Chat history and memory database content.
-2. Connection configurations such as models and SSH (including addresses, tokens, keys you filled in yourself).
-3. App runtime logs.
-Please keep configurations containing sensitive information safe; uninstalling the app or clearing app data removes the above local content.
-
-IV. Permission Usage
-1. Network permission: used to access the model APIs and SSH targets you configured.
-2. Storage permission: used to read and write files you allow access to.
-3. System debugging related: only takes effect per your operation when remote debugging or root capability is enabled.
-Permissions are requested only when needed; you can turn them off anytime in system settings.
-
-V. Minors
-This app does not provide services to minors; if a minor uses it under guardian guidance, the guardian should be aware of the API data channel described above.
-
-VI. Policy Changes and Contact
-We may update this policy from time to time; changes take effect upon publication, and material changes will be notified prominently. For questions, please submit to the repository Issues.</string>
+4. Crash reports are stored on the developer\'s server for up to 30 days and are automatically purged afterwards; the server also enforces per-day and total upload quotas to prevent abuse.\n\nPlease keep configurations containing sensitive information safe; uninstalling the app or clearing app data removes the above local content.</string>
     <!-- 主题名 -->
     <string name="theme_default">Default</string>
     <string name="theme_flat">Flat</string>

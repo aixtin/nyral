@@ -1,6 +1,7 @@
 package io.github.aixtin.nyral
 
 import android.app.Activity
+import io.github.aixtin.nyral.BuildConfig
 import android.app.Application
 import android.content.ContentValues
 import android.content.Context
@@ -34,6 +35,17 @@ class NyralApp : Application() {
 
     /** 崩溃报告匿名上报端点(零鉴权, 只收纯文本崩溃报告) */
     private val UPLOAD_URL = "https://atin.asia/crash"
+
+    /** 崩溃上报鉴权 token(构建时注入, 源码不含明文; 见 local.properties) */
+    private val CRASH_TOKEN = BuildConfig.CRASH_TOKEN
+
+    /** 安装实例 ID(首次生成持久化; 服务端按此做 per-install 配额, 2026-10-21) */
+    private val installId: String by lazy {
+        val p = getSharedPreferences("crash_install", MODE_PRIVATE)
+        p.getString("install_id", null) ?: java.util.UUID.randomUUID().toString().also {
+            p.edit().putString("install_id", it).apply()
+        }
+    }
 
     /** ANR 卡死进行中标记: 只有 正常->卡死 边沿写一次, 恢复后重置 */
     private val anrInProgress = AtomicBoolean(false)
@@ -207,6 +219,8 @@ class NyralApp : Application() {
     private fun exportPendingCrashes() {
         // 单后台线程: 先上传云端(成功删源), 再对剩余源文件导出公共副本(失败保留源, 下次冷启动重试上传)
         Thread {
+            // 崩溃上报开关(2026-10-21): 关闭时跳过上传与导出, 崩溃日志仅留私有目录
+            if (!CrashReportConfig.enabled(this)) return@Thread
             try {
                 val dir = File(filesDir, "crash")
                 val marked = getSharedPreferences("crash_export", MODE_PRIVATE)
@@ -252,9 +266,17 @@ class NyralApp : Application() {
                 conn.readTimeout = 15000
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8")
+                conn.setRequestProperty("X-Auth-Token", CRASH_TOKEN)
+                conn.setRequestProperty("X-Install-Id", installId)
                 val body = f.readText()
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 if (conn.responseCode == 200) return true
+                // 服务端拒绝(401 无效 token / 429 超配额): 永久失败, 停止重试并丢弃该日志, 避免本地堆积
+                if (conn.responseCode == 401 || conn.responseCode == 429) {
+                    Log.w("NyralApp", "upload crash rejected " + conn.responseCode + ", dropping file")
+                    f.delete()
+                    return false
+                }
                 last = RuntimeException("http " + conn.responseCode)
                 Log.w("NyralApp", "upload crash http " + conn.responseCode + " (attempt " + (i + 1) + "/" + attempts + ")")
             } catch (e: Exception) {

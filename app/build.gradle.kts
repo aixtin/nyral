@@ -27,12 +27,25 @@ android {
         }
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "io.github.aixtin.nyral"
         minSdk = 29
         targetSdk = 36
         versionCode = 65
         versionName = "2.8.2"
+        // 崩溃上报 token 构建时注入(local.properties 不入库); 空串时禁用上报鉴权将 401
+        val crashProps = rootProject.file("local.properties")
+        val crashToken = Properties().apply {
+            if (crashProps.exists()) crashProps.inputStream().use { load(it) }
+        }.getProperty("crashToken", "")
+        if (crashToken.isEmpty()) {
+            throw GradleException("crashToken missing in local.properties — refusing to build a broken release; inject via secret on CI")
+        }
+        buildConfigField("String", "CRASH_TOKEN", "\"" + crashToken + "\"")
         ndk {
             abiFilters += listOf(project.findProperty("nyralAbi") as String? ?: "arm64-v8a")
         }
