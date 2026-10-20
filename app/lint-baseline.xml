@@ -19,7 +19,7 @@
         errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="58"
+            line="64"
             column="27"/>
     </issue>
 
@@ -30,7 +30,7 @@
         errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="14"
+            line="20"
             column="36"/>
     </issue>
 
@@ -41,7 +41,7 @@
         errorLine2="                 ~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2075"
+            line="2074"
             column="18"/>
     </issue>
 
@@ -52,7 +52,7 @@
         errorLine2="                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/LocalEngine.kt"
-            line="1199"
+            line="1320"
             column="69"/>
     </issue>
 
@@ -63,7 +63,7 @@
         errorLine2="                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/LocalEngine.kt"
-            line="1200"
+            line="1321"
             column="57"/>
     </issue>
 
@@ -74,7 +74,7 @@
         errorLine2="                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/LocalEngine.kt"
-            line="1225"
+            line="1337"
             column="69"/>
     </issue>
 
@@ -85,7 +85,7 @@
         errorLine2="                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/LocalEngine.kt"
-            line="1226"
+            line="1338"
             column="57"/>
     </issue>
 
@@ -96,7 +96,7 @@
         errorLine2="                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/LocalEngine.kt"
-            line="1246"
+            line="1363"
             column="69"/>
     </issue>
 
@@ -107,7 +107,29 @@
         errorLine2="                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/LocalEngine.kt"
-            line="1247"
+            line="1364"
+            column="57"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                            val sizeStr = if (sizeB >= 1024 * 1024) String.format(&quot;%.1fMB&quot;, sizeB / 1024.0 / 1024.0)"
+        errorLine2="                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/LocalEngine.kt"
+            line="1384"
+            column="69"/>
+    </issue>
+
+    <issue
+        id="DefaultLocale"
+        message="Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+        errorLine1="                                else if (sizeB >= 1024) String.format(&quot;%.1fKB&quot;, sizeB / 1024.0)"
+        errorLine2="                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/LocalEngine.kt"
+            line="1385"
             column="57"/>
     </issue>
 
@@ -118,7 +140,7 @@
         errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="1045"
+            line="1161"
             column="28"/>
     </issue>
 
@@ -129,7 +151,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="1046"
+            line="1162"
             column="26"/>
     </issue>
 
@@ -140,7 +162,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="1047"
+            line="1163"
             column="25"/>
     </issue>
 
@@ -212,84 +234,106 @@
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 33 (current min is 24): `android.Manifest.permission#POST_NOTIFICATIONS`"
+        message="Field requires API level 33 (current min is 29): `android.Manifest.permission#POST_NOTIFICATIONS`"
         errorLine1="            perms.put(&quot;post_notifications&quot;, c.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)"
         errorLine2="                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="465"
+            line="481"
             column="67"/>
     </issue>
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 33 (current min is 24): `android.Manifest.permission#POST_NOTIFICATIONS`"
+        message="Field requires API level 33 (current min is 29): `android.Manifest.permission#POST_NOTIFICATIONS`"
         errorLine1="            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED"
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="172"
+            line="176"
             column="33"/>
     </issue>
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 33 (current min is 24): `android.Manifest.permission#POST_NOTIFICATIONS`"
+        message="Field requires API level 33 (current min is 29): `android.Manifest.permission#POST_NOTIFICATIONS`"
         errorLine1="            a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_RUNTIME)"
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="174"
+            line="178"
             column="42"/>
     </issue>
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 30 (current min is 24): `android.provider.Settings#ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`"
+        message="Field requires API level 30 (current min is 29): `android.provider.Settings#ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`"
         errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse(&quot;package:$packageName&quot;)))"
         errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="344"
+            line="357"
             column="34"/>
     </issue>
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 30 (current min is 24): `android.provider.Settings#ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`"
+        message="Field requires API level 30 (current min is 29): `android.provider.Settings#ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`"
         errorLine1="            try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }"
         errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="346"
+            line="359"
             column="40"/>
     </issue>
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 26 (current min is 24): `android.provider.Settings#ACTION_MANAGE_UNKNOWN_APP_SOURCES`"
-        errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse(&quot;package:$packageName&quot;)))"
-        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Field requires API level 33 (current min is 29): `android.Manifest.permission#POST_NOTIFICATIONS`"
+        errorLine1="            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="353"
+            file="src/main/java/all/GuideActivity.kt"
+            line="1101"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 33 (current min is 29): `android.Manifest.permission#POST_NOTIFICATIONS`"
+        errorLine1="            a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_RUNTIME)"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1103"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 30 (current min is 29): `android.provider.Settings#ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`"
+        errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse(&quot;package:$packageName&quot;)))"
+        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1291"
             column="34"/>
     </issue>
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 26 (current min is 24): `android.provider.Settings#ACTION_MANAGE_UNKNOWN_APP_SOURCES`"
-        errorLine1="            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)) }"
-        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Field requires API level 30 (current min is 29): `android.provider.Settings#ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`"
+        errorLine1="            try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="355"
+            file="src/main/java/all/GuideActivity.kt"
+            line="1293"
             column="40"/>
     </issue>
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 33 (current min is 24): `android.Manifest.permission#POST_NOTIFICATIONS`"
+        message="Field requires API level 33 (current min is 29): `android.Manifest.permission#POST_NOTIFICATIONS`"
         errorLine1="            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED"
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -300,7 +344,7 @@
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 33 (current min is 24): `android.Manifest.permission#POST_NOTIFICATIONS`"
+        message="Field requires API level 33 (current min is 29): `android.Manifest.permission#POST_NOTIFICATIONS`"
         errorLine1="            a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_RUNTIME)"
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -311,7 +355,7 @@
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 30 (current min is 24): `android.provider.Settings#ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`"
+        message="Field requires API level 30 (current min is 29): `android.provider.Settings#ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`"
         errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse(&quot;package:$packageName&quot;)))"
         errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -322,7 +366,7 @@
 
     <issue
         id="InlinedApi"
-        message="Field requires API level 30 (current min is 24): `android.provider.Settings#ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`"
+        message="Field requires API level 30 (current min is 29): `android.provider.Settings#ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`"
         errorLine1="            try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }"
         errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -332,74 +376,19 @@
     </issue>
 
     <issue
-        id="InlinedApi"
-        message="Field requires API level 26 (current min is 24): `android.provider.Settings#ACTION_MANAGE_UNKNOWN_APP_SOURCES`"
-        errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse(&quot;package:$packageName&quot;)))"
-        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/PermissionsActivity.kt"
-            line="294"
-            column="34"/>
-    </issue>
-
-    <issue
-        id="InlinedApi"
-        message="Field requires API level 26 (current min is 24): `android.provider.Settings#ACTION_MANAGE_UNKNOWN_APP_SOURCES`"
-        errorLine1="            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)) }"
-        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/PermissionsActivity.kt"
-            line="296"
-            column="40"/>
-    </issue>
-
-    <issue
-        id="InlinedApi"
-        message="Field requires API level 29 (current min is 24): `android.provider.MediaStore#VOLUME_EXTERNAL_PRIMARY`"
-        errorLine1="            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)"
-        errorLine2="                                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/WebTools.kt"
-            line="339"
-            column="65"/>
-    </issue>
-
-    <issue
-        id="InlinedApi"
-        message="Field requires API level 29 (current min is 24): `android.provider.MediaStore#VOLUME_EXTERNAL_PRIMARY`"
-        errorLine1="    private fun collection() = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)"
-        errorLine2="                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/WorkDir.kt"
-            line="82"
-            column="67"/>
-    </issue>
-
-    <issue
         id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.os.Environment#isExternalStorageManager`"
+        message="Call requires API level 30 (current min is 29): `android.os.Environment#isExternalStorageManager`"
         errorLine1="            perms.put(&quot;all_files&quot;, Environment.isExternalStorageManager())"
         errorLine2="                                               ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="463"
+            line="479"
             column="48"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.content.pm.PackageManager#canRequestPackageInstalls`"
-        errorLine1="            perms.put(&quot;install_unknown&quot;, c.packageManager.canRequestPackageInstalls())"
-        errorLine2="                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/DebugServer.kt"
-            line="464"
-            column="59"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.view.WindowInsets#getInsets`"
+        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets#getInsets`"
         errorLine1="        (window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0) > dp(80)"
         errorLine2="                                            ~~~~~~~~~">
         <location
@@ -410,7 +399,7 @@
 
     <issue
         id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.view.WindowInsets.Type#ime`"
+        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets.Type#ime`"
         errorLine1="        (window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0) > dp(80)"
         errorLine2="                                                                                     ~~~">
         <location
@@ -421,18 +410,7 @@
 
     <issue
         id="NewApi"
-        message="Field requires API level 29 (current min is 24): `android.graphics.Insets#bottom`"
-        errorLine1="        (window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0) > dp(80)"
-        errorLine2="         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/EmojiDrawer.kt"
-            line="142"
-            column="10"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.view.WindowInsets#getInsets`"
+        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets#getInsets`"
         errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.bottom ?: 0"
         errorLine2="                                               ~~~~~~~~~">
         <location
@@ -443,7 +421,7 @@
 
     <issue
         id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.view.WindowInsets.Type#systemBars`"
+        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets.Type#systemBars`"
         errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.bottom ?: 0"
         errorLine2="                                                                                        ~~~~~~~~~~">
         <location
@@ -454,106 +432,40 @@
 
     <issue
         id="NewApi"
-        message="Field requires API level 29 (current min is 24): `android.graphics.Insets#bottom`"
-        errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.bottom ?: 0"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/EmojiDrawer.kt"
-            line="153"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.os.Environment#isExternalStorageManager`"
+        message="Call requires API level 30 (current min is 29): `android.os.Environment#isExternalStorageManager`"
         errorLine1="            Environment.isExternalStorageManager()"
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="191"
+            line="195"
             column="25"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.content.pm.PackageManager#canRequestPackageInstalls`"
-        errorLine1="            packageManager.canRequestPackageInstalls()"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="196"
-            column="28"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 29 (current min is 24): `android.provider.MediaStore.Downloads#EXTERNAL_CONTENT_URI`"
-        errorLine1="        val c = contentResolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,"
-        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/LogActivity.kt"
-            line="294"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.view.WindowInsets#getInsets`"
+        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets#getInsets`"
         errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())"
         errorLine2="                                               ~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2175"
+            line="2178"
             column="48"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.view.WindowInsets.Type#systemBars`"
+        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets.Type#systemBars`"
         errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())"
         errorLine2="                                                                                        ~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2175"
+            line="2178"
             column="89"/>
     </issue>
 
     <issue
         id="NewApi"
-        message="Field requires API level 29 (current min is 24): `android.graphics.Insets#NONE`"
-        errorLine1="                ?: android.graphics.Insets.NONE"
-        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2176"
-            column="20"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 29 (current min is 24): `android.graphics.Insets#NONE`"
-        errorLine1="        } catch (e: Exception) { android.graphics.Insets.NONE }"
-        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2177"
-            column="34"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 29 (current min is 24): `android.graphics.Insets#bottom`"
-        errorLine1="        val fullH = (root.height - top - sb.bottom).coerceAtLeast(dp(120))"
-        errorLine2="                                         ~~~~~~~~~">
-        <location
-            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2178"
-            column="42"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 24): `android.os.Environment#isExternalStorageManager`"
+        message="Call requires API level 30 (current min is 29): `android.os.Environment#isExternalStorageManager`"
         errorLine1="            Environment.isExternalStorageManager()"
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -563,217 +475,19 @@
     </issue>
 
     <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.content.pm.PackageManager#canRequestPackageInstalls`"
-        errorLine1="            packageManager.canRequestPackageInstalls()"
-        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/PermissionsActivity.kt"
-            line="168"
-            column="28"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 24): `android.text.style.BulletSpan#getGapWidth`"
-        errorLine1="            is BulletSpan -> { o.put(KEY_T, &quot;bullet&quot;); o.put(&quot;gap&quot;, sp.gapWidth); o }"
-        errorLine2="                                                                       ~~~~~~~~">
-        <location
-            file="src/main/java/all/RenderedCodec.kt"
-            line="152"
-            column="72"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#waitFor`"
-        errorLine1="        p.waitFor(2000, TimeUnit.MILLISECONDS) &amp;&amp;"
-        errorLine2="          ~~~~~~~">
-        <location
-            file="src/main/java/all/RootCheck.kt"
-            line="33"
-            column="11"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#waitFor`"
-        errorLine1="        if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {"
-        errorLine2="               ~~~~~~~">
-        <location
-            file="src/main/java/all/RootCheck.kt"
-            line="47"
-            column="16"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#destroyForcibly`"
-        errorLine1="            p.destroyForcibly()"
-        errorLine2="              ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/RootCheck.kt"
-            line="48"
-            column="15"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#waitFor`"
-        errorLine1="        if (p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {"
-        errorLine2="              ~~~~~~~">
-        <location
-            file="src/main/java/all/RootCheck.kt"
-            line="91"
-            column="15"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#destroyForcibly`"
-        errorLine1="            p.destroyForcibly()"
-        errorLine2="              ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/RootCheck.kt"
-            line="94"
-            column="15"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#waitFor`"
-        errorLine1="            if (!proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {"
-        errorLine2="                      ~~~~~~~">
-        <location
-            file="src/main/java/all/ScriptEngine.kt"
-            line="184"
-            column="23"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#destroyForcibly`"
-        errorLine1="                proc.destroyForcibly()"
-        errorLine2="                     ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/ScriptEngine.kt"
-            line="185"
-            column="22"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#destroyForcibly`"
-        errorLine1="            if (!p.waitFor(3000, TimeUnit.MILLISECONDS)) { p.destroyForcibly(); false }"
-        errorLine2="                                                             ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/ScriptEngine.kt"
-            line="205"
-            column="62"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#waitFor`"
-        errorLine1="            if (!p.waitFor(3000, TimeUnit.MILLISECONDS)) { p.destroyForcibly(); false }"
-        errorLine2="                   ~~~~~~~">
-        <location
-            file="src/main/java/all/ScriptEngine.kt"
-            line="205"
-            column="20"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#waitFor`"
-        errorLine1="        if (p.waitFor(4000, TimeUnit.MILLISECONDS)) p.exitValue() == 0"
-        errorLine2="              ~~~~~~~">
-        <location
-            file="src/main/java/all/SettingsActivity.kt"
-            line="302"
-            column="15"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#destroyForcibly`"
-        errorLine1="        else { p.destroyForcibly(); false }"
-        errorLine2="                 ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/SettingsActivity.kt"
-            line="303"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#waitFor`"
-        errorLine1="                if (p.waitFor(4000, TimeUnit.MILLISECONDS)) p.exitValue() == 0"
-        errorLine2="                      ~~~~~~~">
-        <location
-            file="src/main/java/all/SlowBall.kt"
-            line="109"
-            column="23"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `java.lang.Process#destroyForcibly`"
-        errorLine1="                else { p.destroyForcibly(); false }"
-        errorLine2="                         ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/SlowBall.kt"
-            line="110"
-            column="26"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 24): `android.media.MediaExtractor#getSampleSize`"
-        errorLine1="            val sampleSize = ae.sampleSize.toInt()"
-        errorLine2="                                ~~~~~~~~~~">
-        <location
-            file="src/main/java/all/VideoCompressor.kt"
-            line="175"
-            column="33"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 29 (current min is 24): `android.provider.MediaStore.Downloads#getContentUri`"
-        errorLine1="            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)"
-        errorLine2="                                                  ~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/WebTools.kt"
-            line="339"
-            column="51"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 29 (current min is 24): `android.provider.MediaStore.Downloads#getContentUri`"
-        errorLine1="    private fun collection() = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)"
-        errorLine2="                                                    ~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/WorkDir.kt"
-            line="82"
-            column="53"/>
-    </issue>
-
-    <issue
         id="OldTargetApi"
         message="Not targeting the latest versions of Android; compatibility modes apply. Consider testing and updating this version. Consult the `android.os.Build.VERSION_CODES` javadoc for details."
         errorLine1="        targetSdk = 36"
         errorLine2="        ~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="31"
+            line="37"
             column="9"/>
     </issue>
 
     <issue
         id="UnusedAttribute"
-        message="Attribute `canTakeScreenshot` is only used in API level 30 and higher (current min is 24)"
+        message="Attribute `canTakeScreenshot` is only used in API level 30 and higher (current min is 29)"
         errorLine1="    android:canTakeScreenshot=&quot;true&quot;"
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -784,12 +498,34 @@
 
     <issue
         id="WrongConstant"
+        message="Must be one of: LineBreaker.BREAK_STRATEGY_SIMPLE, LineBreaker.BREAK_STRATEGY_HIGH_QUALITY, LineBreaker.BREAK_STRATEGY_BALANCED"
+        errorLine1="            breakStrategy = 0   // TextView.BREAK_STRATEGY_SIMPLE"
+        errorLine2="                            ~">
+        <location
+            file="src/main/java/all/AiBubbleHolder.kt"
+            line="158"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="WrongConstant"
+        message="Must be one of: Layout.HYPHENATION_FREQUENCY_NORMAL, Layout.HYPHENATION_FREQUENCY_NORMAL_FAST, Layout.HYPHENATION_FREQUENCY_FULL, Layout.HYPHENATION_FREQUENCY_FULL_FAST, Layout.HYPHENATION_FREQUENCY_NONE"
+        errorLine1="            hyphenationFrequency = 0   // TextView.HYPHENATION_FREQUENCY_NONE"
+        errorLine2="                                   ~">
+        <location
+            file="src/main/java/all/AiBubbleHolder.kt"
+            line="159"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="WrongConstant"
         message="Must be one or more of: MediaCodec.BUFFER_FLAG_SYNC_FRAME, MediaCodec.BUFFER_FLAG_KEY_FRAME, MediaCodec.BUFFER_FLAG_CODEC_CONFIG, MediaCodec.BUFFER_FLAG_END_OF_STREAM, MediaCodec.BUFFER_FLAG_PARTIAL_FRAME, MediaCodec.BUFFER_FLAG_DECODE_ONLY, but could be MediaExtractor.SAMPLE_FLAG_SYNC, MediaExtractor.SAMPLE_FLAG_ENCRYPTED, MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME"
         errorLine1="                info.flags = ex.sampleFlags"
         errorLine2="                             ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="818"
+            line="934"
             column="30"/>
     </issue>
 
@@ -811,7 +547,7 @@
         errorLine2="                                                                               ~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3136"
+            line="3167"
             column="80"/>
     </issue>
 
@@ -822,7 +558,7 @@
         errorLine2="                                                                               ~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3306"
+            line="3337"
             column="80"/>
     </issue>
 
@@ -839,7 +575,7 @@
 
     <issue
         id="AndroidGradlePluginVersion"
-        message="A newer version of Gradle than 8.13 is available: 8.14.5"
+        message="A newer version of Gradle than 8.13 is available: 8.14.6"
         errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-8.13-bin.zip"
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -849,13 +585,46 @@
     </issue>
 
     <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-exoplayer than 1.5.1 is available: 1.11.1"
+        errorLine1="    implementation(&quot;androidx.media3:media3-exoplayer:1.5.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="107"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.core:core-ktx than 1.17.0 is available: 1.19.1"
+        errorLine1="    implementation(&quot;androidx.core:core-ktx:1.17.0&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="108"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.media3:media3-ui than 1.5.1 is available: 1.11.1"
+        errorLine1="    implementation(&quot;androidx.media3:media3-ui:1.5.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="109"
+            column="20"/>
+    </issue>
+
+    <issue
         id="NewerVersionAvailable"
-        message="A newer version of com.github.mwiede:jsch than 0.2.26 is available: 2.28.7"
+        message="A newer version of com.github.mwiede:jsch than 0.2.26 is available: 2.28.8"
         errorLine1="    implementation(&quot;com.github.mwiede:jsch:0.2.26&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="83"
+            line="99"
             column="20"/>
     </issue>
 
@@ -866,18 +635,18 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="85"
+            line="101"
             column="20"/>
     </issue>
 
     <issue
         id="NewerVersionAvailable"
-        message="A newer version of com.github.junrar:junrar than 7.6.0 is available: 8.1.1"
+        message="A newer version of com.github.junrar:junrar than 7.6.0 is available: 8.1.2"
         errorLine1="    implementation(&quot;com.github.junrar:junrar:7.6.0&quot;) // CVE-2026-41245/CVE-2026-28208 修复"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="86"
+            line="102"
             column="20"/>
     </issue>
 
@@ -888,7 +657,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="87"
+            line="103"
             column="20"/>
     </issue>
 
@@ -899,18 +668,18 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="88"
+            line="104"
             column="20"/>
     </issue>
 
     <issue
         id="NewerVersionAvailable"
-        message="A newer version of com.microsoft.onnxruntime:onnxruntime-android than 1.26.0 is available: 1.30.0"
+        message="A newer version of com.microsoft.onnxruntime:onnxruntime-android than 1.26.0 is available: 1.31.0"
         errorLine1="    implementation(&quot;com.microsoft.onnxruntime:onnxruntime-android:1.26.0&quot;)"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="89"
+            line="105"
             column="20"/>
     </issue>
 
@@ -921,7 +690,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="96"
+            line="112"
             column="20"/>
     </issue>
 
@@ -932,7 +701,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="97"
+            line="113"
             column="20"/>
     </issue>
 
@@ -943,7 +712,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="98"
+            line="114"
             column="20"/>
     </issue>
 
@@ -954,7 +723,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="101"
+            line="117"
             column="20"/>
     </issue>
 
@@ -965,7 +734,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="104"
+            line="120"
             column="24"/>
     </issue>
 
@@ -976,7 +745,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="105"
+            line="121"
             column="24"/>
     </issue>
 
@@ -987,7 +756,7 @@
         errorLine2="        ~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3137"
+            line="3168"
             column="9"/>
     </issue>
 
@@ -998,7 +767,7 @@
         errorLine2="           ~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3137"
+            line="3168"
             column="12"/>
     </issue>
 
@@ -1009,7 +778,7 @@
         errorLine2="                                               ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3137"
+            line="3168"
             column="48"/>
     </issue>
 
@@ -1334,12 +1103,551 @@
 
     <issue
         id="MissingTranslation"
+        message="&quot;settings_kb&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;settings_kb&quot;>知识库&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="162"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;settings_kb_sub&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;settings_kb_sub&quot;>与 AI 讨论后按章节沉淀知识，默认关闭&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="163"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;settings_kb_toast_on&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;settings_kb_toast_on&quot;>知识库自动沉淀已开启，讨论内容将异步沉淀&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="164"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;settings_kb_toast_off&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;settings_kb_toast_off&quot;>知识库自动沉淀已关闭&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="165"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;settings_kb_entry&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;settings_kb_entry&quot;>知识库&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="166"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;settings_kb_entry_sub&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;settings_kb_entry_sub&quot;>浏览书章、回收区与变更审计&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="167"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_title&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_title&quot;>知识库&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="168"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_chapters&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_chapters&quot;>章节&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="169"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_entries&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_entries&quot;>条目&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="170"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_trash&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_trash&quot;>回收区&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="171"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_audit&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_audit&quot;>变更审计&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="172"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_empty_books&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_empty_books&quot;>还没有知识书。打开「知识库自动沉淀」开关后与 AI 讨论，内容会按章节自动沉淀到这里&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="173"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_empty_chapters&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_empty_chapters&quot;>本书还没有章节&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="174"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_empty_entries&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_empty_entries&quot;>本章还没有条目&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="175"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_book_sub&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_book_sub&quot;>%1$d 章 · %2$d 条 · %3$s&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="176"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_chapter_sub&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_chapter_sub&quot;>%1$d 条 · %2$s&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="177"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_entry_sub&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_entry_sub&quot;>v%1$d · %2$s · %3$s&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="178"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_entry_detail&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_entry_detail&quot;>条目详情&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="179"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_entry_meta&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_entry_meta&quot;>v%1$d%2$s · 更新于 %3$s&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="180"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_deleted_tag&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_deleted_tag&quot;>已删除&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="181"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_gone&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_gone&quot;>条目不存在或已删除&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="182"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_edit&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_edit&quot;>编辑&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="183"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_delete&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_delete&quot;>删除&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="184"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_restore&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_restore&quot;>恢复&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="185"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_purge&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_purge&quot;>彻底删除&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="186"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_history&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_history&quot;>变更历史&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="187"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_confirm_delete&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_confirm_delete&quot;>确定将该条目移入回收区吗？可在回收区恢复。&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="188"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_confirm_purge&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_confirm_purge&quot;>「%1$s」将被彻底删除，无法恢复。确定继续？&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="189"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_saved&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_saved&quot;>已保存&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="190"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_deleted&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_deleted&quot;>已移入回收区&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="191"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_restored&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_restored&quot;>已恢复&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="192"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_purged&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_purged&quot;>已彻底删除&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="193"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_cancel&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_cancel&quot;>取消&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="194"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_save&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_save&quot;>保存&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="195"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_done&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_done&quot;>完成&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="196"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_title_hint&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_title_hint&quot;>标题&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="197"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_content_hint&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_content_hint&quot;>正文（支持 Markdown）&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="198"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_title_empty&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_title_empty&quot;>标题不能为空&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="199"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_source&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_source&quot;>来源会话 #%1$d&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="200"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_trash_empty&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_trash_empty&quot;>回收区是空的&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="201"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_audit_empty&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_audit_empty&quot;>暂无变更记录&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="202"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_action_create&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_action_create&quot;>新建&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="203"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_action_update&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_action_update&quot;>更新&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="204"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_action_delete&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_action_delete&quot;>移入回收区&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="205"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_action_restore&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_action_restore&quot;>恢复&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="206"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;kb_action_purge&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;kb_action_purge&quot;>彻底删除&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="207"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;cb_group_msg_alpha&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;cb_group_msg_alpha&quot;>消息气泡透明度&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="319"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;cb_msg_alpha_title&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;cb_msg_alpha_title&quot;>透明度&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="320"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;cb_msg_alpha_hint&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;cb_msg_alpha_hint&quot;>0 = 完全不透明，100 = 全透明，默认 45；图片、视频、文件气泡不跟随&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="321"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
         message="&quot;log_13&quot; is not translated in &quot;en&quot; (English)"
         errorLine1="    &lt;string name=&quot;log_13&quot;>已导出到 &lt;/string>"
         errorLine2="            ~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="407"
+            line="462"
             column="13"/>
     </issue>
 
@@ -1350,7 +1658,51 @@
         errorLine2="            ~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="408"
+            line="463"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;mui_attach_location&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="&lt;string name=&apos;mui_attach_location&apos;>位置&lt;/string>"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="558"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;appr_kb&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;appr_kb&quot;>知识库&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="629"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;appr_kb_dialog_title&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;appr_kb_dialog_title&quot;>开启知识库&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="630"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;appr_kb_dialog_msg&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;appr_kb_dialog_msg&quot;>此功能为实验性功能，极其耗费 token，是否开启？&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="631"
             column="13"/>
     </issue>
 
@@ -1361,7 +1713,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="579"
+            line="638"
             column="13"/>
     </issue>
 
@@ -1372,7 +1724,18 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="580"
+            line="639"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingTranslation"
+        message="&quot;appr_crash&quot; is not translated in &quot;en&quot; (English)"
+        errorLine1="    &lt;string name=&quot;appr_crash&quot;>崩溃上报&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="640"
             column="13"/>
     </issue>
 
@@ -1383,7 +1746,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="648"
+            line="708"
             column="13"/>
     </issue>
 
@@ -1394,7 +1757,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="649"
+            line="709"
             column="13"/>
     </issue>
 
@@ -1405,7 +1768,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="650"
+            line="710"
             column="13"/>
     </issue>
 
@@ -1416,7 +1779,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="651"
+            line="711"
             column="13"/>
     </issue>
 
@@ -1427,7 +1790,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="680"
+            line="740"
             column="13"/>
     </issue>
 
@@ -1438,7 +1801,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="681"
+            line="741"
             column="13"/>
     </issue>
 
@@ -1449,7 +1812,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="682"
+            line="742"
             column="13"/>
     </issue>
 
@@ -1460,7 +1823,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="683"
+            line="743"
             column="13"/>
     </issue>
 
@@ -1471,7 +1834,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="684"
+            line="744"
             column="13"/>
     </issue>
 
@@ -1482,7 +1845,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="753"
+            line="774"
             column="13"/>
     </issue>
 
@@ -1493,7 +1856,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="754"
+            line="775"
             column="13"/>
     </issue>
 
@@ -1504,7 +1867,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="755"
+            line="776"
             column="13"/>
     </issue>
 
@@ -1515,7 +1878,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="756"
+            line="777"
             column="13"/>
     </issue>
 
@@ -1526,7 +1889,7 @@
         errorLine2="                                                                                                                                                                                         ~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="431"
+            line="437"
             column="186"/>
     </issue>
 
@@ -1537,7 +1900,7 @@
         errorLine2="                                                                                                                                                                                         ~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="462"
+            line="517"
             column="186"/>
     </issue>
 
@@ -1604,17 +1967,6 @@
         <location
             file="src/main/res/values-en/strings.xml"
             line="156"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;tokens&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;settings_token_total&quot;>主 AI %1$d · 辅助 AI %2$d tokens&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="163"
             column="5"/>
     </issue>
 
@@ -1698,11 +2050,22 @@
     <issue
         id="PluralsCandidate"
         message="Formatting %d followed by words (&quot;tokens&quot;): This should probably be a plural rather than a string"
+        errorLine1="    &lt;string name=&quot;settings_token_total&quot;>主 AI %1$d · 辅助 AI %2$d tokens&lt;/string>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="209"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="PluralsCandidate"
+        message="Formatting %d followed by words (&quot;tokens&quot;): This should probably be a plural rather than a string"
         errorLine1="    &lt;string name=&quot;settings_stats_today_total&quot;>今日总计 %1$d tokens&lt;/string>"
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="185"
+            line="231"
             column="5"/>
     </issue>
 
@@ -1713,7 +2076,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="425"
+            line="431"
             column="5"/>
     </issue>
 
@@ -1724,7 +2087,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="435"
+            line="441"
             column="5"/>
     </issue>
 
@@ -1735,7 +2098,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="439"
+            line="445"
             column="5"/>
     </issue>
 
@@ -1746,7 +2109,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="483"
+            line="489"
             column="5"/>
     </issue>
 
@@ -1757,7 +2120,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="560"
+            line="566"
             column="5"/>
     </issue>
 
@@ -1768,7 +2131,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="564"
+            line="570"
             column="5"/>
     </issue>
 
@@ -1779,18 +2142,18 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="623"
+            line="629"
             column="5"/>
     </issue>
 
     <issue
         id="ChromeOsAbiSupport"
         message="Missing x86_64 ABI support for ChromeOS"
-        errorLine1="            abiFilters += listOf(&quot;arm64-v8a&quot;)"
-        errorLine2="                          ~~~~~~~~~~~~~~~~~~~">
+        errorLine1="            abiFilters += listOf(project.findProperty(&quot;nyralAbi&quot;) as String? ?: &quot;arm64-v8a&quot;)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="build.gradle.kts"
-            line="35"
+            line="50"
             column="27"/>
     </issue>
 
@@ -1812,7 +2175,7 @@
         errorLine2="                             ~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="30"
+            line="36"
             column="30"/>
     </issue>
 
@@ -1850,13 +2213,24 @@
     </issue>
 
     <issue
+        id="WakelockTimeout"
+        message="Provide a timeout when requesting a wakelock with `PowerManager.Wakelock.acquire(long timeout)`. This will ensure the OS will cleanup any wakelocks that last longer than you intend, and will save your user&apos;s battery."
+        errorLine1="                wl.acquire()"
+        errorLine2="                ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/DebugServer.kt"
+            line="163"
+            column="17"/>
+    </issue>
+
+    <issue
         id="NotifyDataSetChanged"
         message="It will always be more efficient to use more specific change events if you can. Rely on `notifyDataSetChanged` as a last resort."
         errorLine1="            chatRows.clear(); chatAdapter.notifyDataSetChanged()"
         errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1962"
+            line="1885"
             column="31"/>
     </issue>
 
@@ -1873,7 +2247,18 @@
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(i)"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/AITerminal.kt"
+            line="124"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &amp;&amp; !Settings.canDrawOverlays(this)) return"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -1884,7 +2269,18 @@
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/AITerminal.kt"
+            line="204"
+            column="24"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -1895,18 +2291,51 @@
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
-        errorLine1="        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/all/AvatarCropActivity.kt"
-            line="69"
+            file="src/main/java/all/AITerminal.kt"
+            line="299"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/AITerminal.kt"
+            line="314"
             column="13"/>
     </issue>
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) b.setChannelId(CHANNEL_ID)"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/AITerminal.kt"
+            line="334"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/AvatarCropActivity.kt"
+            line="70"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -1917,40 +2346,216 @@
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/DebugService.kt"
+            line="30"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/DebugService.kt"
+            line="59"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/DebugService.kt"
+            line="68"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/DebugService.kt"
+            line="83"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="184"
+            line="188"
             column="13"/>
     </issue>
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/FirstRunSetupActivity.kt"
+            line="198"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1113"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1123"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= 29) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/LogActivity.kt"
+            line="258"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &amp;&amp; !Settings.canDrawOverlays(this)) {"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="433"
+            line="436"
             column="13"/>
     </issue>
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &amp;&amp; !packageManager.canRequestPackageInstalls()) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="452"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="515"
+            line="518"
             column="13"/>
     </issue>
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= 26 &amp;&amp; !dark) vis = vis or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="521"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="                        if (android.os.Build.VERSION.SDK_INT >= 27)"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="1160"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= 29) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="1438"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= 29) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="1453"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= 29) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="1473"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="                            if (android.os.Build.VERSION.SDK_INT >= 27)"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="4447"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="                            if (android.os.Build.VERSION.SDK_INT >= 27)"
+        errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="4526"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="                if (Build.VERSION.SDK_INT >= 23 &amp;&amp;"
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -1961,7 +2566,51 @@
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is never &lt; 29"
+        errorLine1="        if (Build.VERSION.SDK_INT &lt; Build.VERSION_CODES.Q) return null"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/MediaFileUtils.kt"
+            line="59"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= 29) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/MediaPreviews.kt"
+            line="319"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/NyralApp.kt"
+            line="308"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= 28) packageManager.getPackageInfo(packageName, 0).longVersionCode.toInt()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/NyralApp.kt"
+            line="339"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -1972,35 +2621,262 @@
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
-        errorLine1="        checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &amp;&amp; !Settings.canDrawOverlays(this))"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/PermissionsActivity.kt"
+            line="166"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/SecurityUi.kt"
+            line="170"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/java/all/SettingsActivity.kt"
-            line="651"
+            file="src/main/java/all/ServiceNotifGroup.kt"
+            line="44"
             column="17"/>
     </issue>
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
-        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/ServiceNotifGroup.kt"
+            line="51"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &amp;&amp; !Settings.canDrawOverlays(this))"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/SettingsActivity.kt"
+            line="652"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &amp;&amp; !packageManager.canRequestPackageInstalls())"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/SettingsActivity.kt"
+            line="654"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/SlowBall.kt"
+            line="80"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TaskService.kt"
+            line="50"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TaskService.kt"
+            line="284"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/TaskService.kt"
-            line="181"
+            line="301"
             column="13"/>
     </issue>
 
     <issue
         id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TaskService.kt"
+            line="312"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerKeepAliveService.kt"
+            line="42"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerKeepAliveService.kt"
+            line="96"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerKeepAliveService.kt"
+            line="129"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerKeepAliveService.kt"
+            line="143"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerScheduler.kt"
+            line="51"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="222"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerWakeReceiver.kt"
+            line="39"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
         errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="108"
+            line="128"
             column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="            if (Build.VERSION.SDK_INT >= 26 &amp;&amp; !dark) vis = vis or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="131"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is never &lt; 29"
+        errorLine1="    if (root == null || android.os.Build.VERSION.SDK_INT &lt; 26) { ExoGate.release(job); thumbJobFail(job); return }"
+        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/UiKit.kt"
+            line="628"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="    private fun supported(): Boolean = Build.VERSION.SDK_INT >= 29"
+        errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/WorkDir.kt"
+            line="80"
+            column="40"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is always >= 29"
+        errorLine1="        if (Build.VERSION.SDK_INT >= 29) return null"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/WorkDir.kt"
+            line="337"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="This folder configuration (`v26`) is unnecessary; `minSdkVersion` is 29. Merge all the resources in this folder into `mipmap-anydpi`.">
+        <location
+            file="src/main/res/mipmap-anydpi-v26"/>
     </issue>
 
     <issue
@@ -2043,7 +2919,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ApiConfig.kt"
-            line="142"
+            line="144"
             column="5"/>
     </issue>
 
@@ -2076,7 +2952,7 @@
         errorLine2="^">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="32"
+            line="33"
             column="1"/>
     </issue>
 
@@ -2087,7 +2963,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="69"
+            line="70"
             column="5"/>
     </issue>
 
@@ -2291,6 +3167,50 @@
 
     <issue
         id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields (static reference to `MemoryEmbedder` which has field `ctx` pointing to `Context`); this is a memory leak"
+        errorLine1="    private lateinit var embedder: MemoryEmbedder"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/MemoryKeeper.kt"
+            line="35"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields (static reference to `MemoryEmbedder` which has field `ctx` pointing to `Context`); this is a memory leak"
+        errorLine1="    @Volatile"
+        errorLine2="    ^">
+        <location
+            file="src/main/java/all/MemoryTools.kt"
+            line="13"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields (static reference to `ModelUpdater` which has field `app` pointing to `Context`); this is a memory leak"
+        errorLine1="/**"
+        errorLine2="^">
+        <location
+            file="src/main/java/all/ModelUpdater.kt"
+            line="18"
+            column="1"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields; this is a memory leak"
+        errorLine1="    @Volatile private var app: Context? = null"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/ModelUpdater.kt"
+            line="40"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
         message="Do not place Android context classes in static fields (static reference to `PersonaConfig` which has field `app` pointing to `Context`); this is a memory leak"
         errorLine1="/**"
         errorLine2="^">
@@ -2401,13 +3321,57 @@
 
     <issue
         id="UnnecessaryArrayInit"
+        message="This initialization lambda (`{ 0f }`) is unnecessary and is less efficient"
+        errorLine1="    private var radii = FloatArray(8) { 0f }"
+        errorLine2="                                      ~~~~~~">
+        <location
+            file="src/main/java/all/Drawables.kt"
+            line="69"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="UnnecessaryArrayInit"
         message="This initialization lambda (`{ 0L }`) is unnecessary and is less efficient"
         errorLine1="        val types = LongArray(seqLen) { 0L }"
         errorLine2="                                      ~~~~~~">
         <location
             file="src/main/java/all/MemoryEmbedder.kt"
-            line="54"
+            line="92"
             column="39"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.drawable.ic_appr_new_chat` appears to be unused"
+        errorLine1="&lt;vector xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;"
+        errorLine2="^">
+        <location
+            file="src/main/res/drawable/ic_appr_new_chat.xml"
+            line="2"
+            column="1"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.drawable.ic_appr_task` appears to be unused"
+        errorLine1="&lt;vector xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;"
+        errorLine2="^">
+        <location
+            file="src/main/res/drawable/ic_appr_task.xml"
+            line="2"
+            column="1"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.drawable.ic_upload_video` appears to be unused"
+        errorLine1="&lt;vector xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;"
+        errorLine2="^">
+        <location
+            file="src/main/res/drawable/ic_upload_video.xml"
+            line="2"
+            column="1"/>
     </issue>
 
     <issue
@@ -2484,17 +3448,6 @@
         <location
             file="src/main/res/values/strings.xml"
             line="27"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.att_label_image` appears to be unused"
-        errorLine1="    &lt;string name=&quot;att_label_image&quot;>图片&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="31"
             column="13"/>
     </issue>
 
@@ -2654,12 +3607,78 @@
 
     <issue
         id="UnusedResources"
+        message="The resource `R.string.settings_kb` appears to be unused"
+        errorLine1="    &lt;string name=&quot;settings_kb&quot;>知识库&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="162"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.settings_kb_sub` appears to be unused"
+        errorLine1="    &lt;string name=&quot;settings_kb_sub&quot;>与 AI 讨论后按章节沉淀知识，默认关闭&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="163"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.settings_kb_toast_on` appears to be unused"
+        errorLine1="    &lt;string name=&quot;settings_kb_toast_on&quot;>知识库自动沉淀已开启，讨论内容将异步沉淀&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="164"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.settings_kb_toast_off` appears to be unused"
+        errorLine1="    &lt;string name=&quot;settings_kb_toast_off&quot;>知识库自动沉淀已关闭&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="165"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.settings_kb_entry` appears to be unused"
+        errorLine1="    &lt;string name=&quot;settings_kb_entry&quot;>知识库&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="166"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.settings_kb_entry_sub` appears to be unused"
+        errorLine1="    &lt;string name=&quot;settings_kb_entry_sub&quot;>浏览书章、回收区与变更审计&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="167"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
         message="The resource `R.string.appr_14` appears to be unused"
         errorLine1="    &lt;string name=&quot;appr_14&quot;>聊天&lt;/string>"
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="324"
+            line="379"
             column="13"/>
     </issue>
 
@@ -2670,7 +3689,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="326"
+            line="381"
             column="13"/>
     </issue>
 
@@ -2681,7 +3700,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="328"
+            line="383"
             column="13"/>
     </issue>
 
@@ -2692,7 +3711,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="329"
+            line="384"
             column="13"/>
     </issue>
 
@@ -2703,7 +3722,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="330"
+            line="385"
             column="13"/>
     </issue>
 
@@ -2714,7 +3733,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="331"
+            line="386"
             column="13"/>
     </issue>
 
@@ -2725,7 +3744,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="337"
+            line="392"
             column="13"/>
     </issue>
 
@@ -2736,7 +3755,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="387"
+            line="442"
             column="13"/>
     </issue>
 
@@ -2747,8 +3766,19 @@
         errorLine2="            ~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="465"
+            line="520"
             column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.mui_attach_video` appears to be unused"
+        errorLine1="&lt;string name=&apos;mui_attach_video&apos;>视频&lt;/string>"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="555"
+            column="9"/>
     </issue>
 
     <issue
@@ -2758,7 +3788,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="501"
+            line="556"
             column="9"/>
     </issue>
 
@@ -2769,7 +3799,7 @@
         errorLine2="        ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="508"
+            line="564"
             column="9"/>
     </issue>
 
@@ -2780,7 +3810,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="509"
+            line="565"
             column="9"/>
     </issue>
 
@@ -2791,7 +3821,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="511"
+            line="567"
             column="9"/>
     </issue>
 
@@ -2802,7 +3832,7 @@
         errorLine2="        ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="518"
+            line="574"
             column="9"/>
     </issue>
 
@@ -2813,7 +3843,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="519"
+            line="575"
             column="9"/>
     </issue>
 
@@ -2824,8 +3854,41 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="520"
+            line="576"
             column="9"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_f1_d` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_f1_d&quot;>接入主流大模型，支持多模型切换&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="583"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_f3_d` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_f3_d&quot;>读取、分析手机中的文档与图片&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="587"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_perm_note` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_perm_note&quot;>使用以上功能需要授权通知、麦克风、悬浮窗、文件访问等权限，均可在 设置→权限管理 中随时调整。&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="590"
+            column="13"/>
     </issue>
 
     <issue
@@ -2835,7 +3898,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="546"
+            line="602"
             column="13"/>
     </issue>
 
@@ -2846,7 +3909,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="547"
+            line="603"
             column="13"/>
     </issue>
 
@@ -2857,7 +3920,29 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="548"
+            line="604"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_mode_agent_desc` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_mode_agent_desc&quot;>无头像、保留 Markdown 渲染"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="606"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_mode_chat_desc` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_mode_chat_desc&quot;>双头像并排、纯文本简洁展示"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="609"
             column="13"/>
     </issue>
 
@@ -2868,7 +3953,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="568"
+            line="624"
             column="13"/>
     </issue>
 
@@ -2879,7 +3964,7 @@
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="580"
+            line="639"
             column="13"/>
     </issue>
 
@@ -2890,7 +3975,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="588"
+            line="648"
             column="13"/>
     </issue>
 
@@ -2901,7 +3986,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="607"
+            line="667"
             column="13"/>
     </issue>
 
@@ -2912,7 +3997,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="664"
+            line="724"
             column="13"/>
     </issue>
 
@@ -2923,7 +4008,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="665"
+            line="725"
             column="13"/>
     </issue>
 
@@ -2934,7 +4019,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="666"
+            line="726"
             column="13"/>
     </issue>
 
@@ -2945,7 +4030,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="667"
+            line="727"
             column="13"/>
     </issue>
 
@@ -2956,7 +4041,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="668"
+            line="728"
             column="13"/>
     </issue>
 
@@ -2967,7 +4052,73 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="682"
+            line="742"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_custom_provider` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_custom_provider&quot;>自定义服务商&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="808"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_custom_provider_hint` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_custom_provider_hint&quot;>自定义服务商请前往 设置 → 模型 中添加&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="811"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_key_placeholder` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_key_placeholder&quot;>粘贴你的 API Key&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="818"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_done_config` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_done_config&quot;>完成&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="825"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_model_hint` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_model_hint&quot;>模型（默认已填）&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="828"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnusedResources"
+        message="The resource `R.string.guide_pick_models` appears to be unused"
+        errorLine1="    &lt;string name=&quot;guide_pick_models&quot;>选择模型（可多选）&lt;/string>"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="829"
             column="13"/>
     </issue>
 
@@ -3055,18 +4206,7 @@
         errorLine2="                          ~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="350"
-            column="27"/>
-    </issue>
-
-    <issue
-        id="TypographyEllipsis"
-        message="Replace &quot;...&quot; with ellipsis character (…, &amp;#8230;) ?"
-        errorLine1="    &lt;string name=&quot;mcp_15&quot;>测试中...&lt;/string>"
-        errorLine2="                          ~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="379"
+            line="356"
             column="27"/>
     </issue>
 
@@ -3077,7 +4217,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="415"
+            line="421"
             column="29"/>
     </issue>
 
@@ -3088,30 +4228,19 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="418"
+            line="424"
             column="29"/>
     </issue>
 
     <issue
         id="TypographyEllipsis"
         message="Replace &quot;...&quot; with ellipsis character (…, &amp;#8230;) ?"
-        errorLine1="    &lt;string name=&quot;mmcfg_18&quot;>正在测试连通性...&lt;/string>"
-        errorLine2="                            ~~~~~~~~~~">
+        errorLine1="    &lt;string name=&quot;mcp_15&quot;>测试中...&lt;/string>"
+        errorLine2="                          ~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="446"
-            column="29"/>
-    </issue>
-
-    <issue
-        id="TypographyEllipsis"
-        message="Replace &quot;...&quot; with ellipsis character (…, &amp;#8230;) ?"
-        errorLine1="    &lt;string name=&quot;mmcfg_21&quot;>正在拉取模型列表...&lt;/string>"
-        errorLine2="                            ~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="449"
-            column="29"/>
+            line="434"
+            column="27"/>
     </issue>
 
     <issue
@@ -3121,7 +4250,7 @@
         errorLine2="                                 ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="475"
+            line="481"
             column="34"/>
     </issue>
 
@@ -3132,7 +4261,7 @@
         errorLine2="                               ~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="478"
+            line="484"
             column="32"/>
     </issue>
 
@@ -3143,8 +4272,30 @@
         errorLine2="                               ~~~~~~~~~~~">
         <location
             file="src/main/res/values-en/strings.xml"
-            line="488"
+            line="494"
             column="32"/>
+    </issue>
+
+    <issue
+        id="TypographyEllipsis"
+        message="Replace &quot;...&quot; with ellipsis character (…, &amp;#8230;) ?"
+        errorLine1="    &lt;string name=&quot;mmcfg_18&quot;>正在测试连通性...&lt;/string>"
+        errorLine2="                            ~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="501"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="TypographyEllipsis"
+        message="Replace &quot;...&quot; with ellipsis character (…, &amp;#8230;) ?"
+        errorLine1="    &lt;string name=&quot;mmcfg_21&quot;>正在拉取模型列表...&lt;/string>"
+        errorLine2="                            ~~~~~~~~~~~">
+        <location
+            file="src/main/res/values/strings.xml"
+            line="504"
+            column="29"/>
     </issue>
 
     <issue
@@ -3154,7 +4305,7 @@
         errorLine2="                             ~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="506"
+            line="562"
             column="30"/>
     </issue>
 
@@ -3165,7 +4316,7 @@
         errorLine2="                           ~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="509"
+            line="565"
             column="28"/>
     </issue>
 
@@ -3176,7 +4327,7 @@
         errorLine2="                           ~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="519"
+            line="575"
             column="28"/>
     </issue>
 
@@ -3205,7 +4356,7 @@
         errorLine2="          ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="640"
+            line="657"
             column="11"/>
     </issue>
 
@@ -3249,7 +4400,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AiBubbleHolder.kt"
-            line="557"
+            line="572"
             column="33"/>
     </issue>
 
@@ -3260,7 +4411,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AiBubbleHolder.kt"
-            line="557"
+            line="572"
             column="33"/>
     </issue>
 
@@ -3271,7 +4422,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AiBubbleHolder.kt"
-            line="582"
+            line="597"
             column="37"/>
     </issue>
 
@@ -3282,7 +4433,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AiBubbleHolder.kt"
-            line="582"
+            line="597"
             column="37"/>
     </issue>
 
@@ -3293,7 +4444,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AiBubbleHolder.kt"
-            line="1724"
+            line="1863"
             column="22"/>
     </issue>
 
@@ -3304,7 +4455,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ApiConfig.kt"
-            line="250"
+            line="252"
             column="9"/>
     </issue>
 
@@ -3315,7 +4466,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ApiConfig.kt"
-            line="336"
+            line="338"
             column="9"/>
     </issue>
 
@@ -3326,7 +4477,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ApiConfig.kt"
-            line="512"
+            line="514"
             column="9"/>
     </issue>
 
@@ -3337,7 +4488,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AppearanceActivity.kt"
-            line="352"
+            line="380"
             column="25"/>
     </issue>
 
@@ -3359,7 +4510,7 @@
         errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AttachmentSender.kt"
-            line="388"
+            line="405"
             column="40"/>
     </issue>
 
@@ -3370,7 +4521,7 @@
         errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AttachmentSender.kt"
-            line="404"
+            line="421"
             column="45"/>
     </issue>
 
@@ -3381,19 +4532,8 @@
         errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AttachmentSender.kt"
-            line="404"
+            line="421"
             column="45"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX function `createBitmap` instead?"
-        errorLine1="                    val bmp = Bitmap.createBitmap("
-        errorLine2="                              ^">
-        <location
-            file="src/main/java/all/AttachmentSender.kt"
-            line="442"
-            column="31"/>
     </issue>
 
     <issue
@@ -3469,7 +4609,7 @@
         errorLine2="                                                                                ~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AvatarCropActivity.kt"
-            line="64"
+            line="65"
             column="81"/>
     </issue>
 
@@ -3480,7 +4620,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AvatarCropActivity.kt"
-            line="68"
+            line="69"
             column="33"/>
     </issue>
 
@@ -3491,7 +4631,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AvatarCropActivity.kt"
-            line="68"
+            line="69"
             column="33"/>
     </issue>
 
@@ -3502,7 +4642,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AvatarCropActivity.kt"
-            line="73"
+            line="74"
             column="33"/>
     </issue>
 
@@ -3513,7 +4653,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AvatarCropActivity.kt"
-            line="80"
+            line="81"
             column="32"/>
     </issue>
 
@@ -3689,7 +4829,7 @@
         errorLine2="              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/BrowserPageSync.kt"
-            line="618"
+            line="690"
             column="15"/>
     </issue>
 
@@ -3711,7 +4851,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/BrowserSlideController.kt"
-            line="56"
+            line="52"
             column="21"/>
     </issue>
 
@@ -3744,7 +4884,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ChatBackgroundActivity.kt"
-            line="329"
+            line="502"
             column="9"/>
     </issue>
 
@@ -3755,7 +4895,7 @@
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ChatBackgroundActivity.kt"
-            line="355"
+            line="531"
             column="19"/>
     </issue>
 
@@ -3766,8 +4906,19 @@
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ChatBackgroundActivity.kt"
-            line="360"
+            line="536"
             column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, on).apply()"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/CrashReportConfig.kt"
+            line="22"
+            column="9"/>
     </issue>
 
     <issue
@@ -3777,7 +4928,7 @@
         errorLine2="                                             ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="76"
+            line="78"
             column="46"/>
     </issue>
 
@@ -3788,7 +4939,7 @@
         errorLine2="                                      ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="78"
+            line="80"
             column="39"/>
     </issue>
 
@@ -3799,7 +4950,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="80"
+            line="82"
             column="42"/>
     </issue>
 
@@ -3810,7 +4961,7 @@
         errorLine2="                                              ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="82"
+            line="84"
             column="47"/>
     </issue>
 
@@ -3821,7 +4972,7 @@
         errorLine2="            ~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="96"
+            line="98"
             column="13"/>
     </issue>
 
@@ -3832,7 +4983,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="103"
+            line="105"
             column="9"/>
     </issue>
 
@@ -3843,7 +4994,7 @@
         errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/DebugServer.kt"
-            line="548"
+            line="564"
             column="27"/>
     </issue>
 
@@ -3855,6 +5006,17 @@
         <location
             file="src/main/java/all/Drawables.kt"
             line="23"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Canvas.withClip` instead?"
+        errorLine1="        canvas.save()"
+        errorLine2="        ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Drawables.kt"
+            line="89"
             column="9"/>
     </issue>
 
@@ -3953,7 +5115,7 @@
         errorLine2="        ^">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="162"
+            line="166"
             column="9"/>
     </issue>
 
@@ -3964,7 +5126,7 @@
         errorLine2="                                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="335"
+            line="348"
             column="77"/>
     </issue>
 
@@ -3975,7 +5137,7 @@
         errorLine2="                                                                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="344"
+            line="357"
             column="90"/>
     </issue>
 
@@ -3986,7 +5148,7 @@
         errorLine2="                                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="353"
+            line="366"
             column="78"/>
     </issue>
 
@@ -4037,11 +5199,22 @@
     <issue
         id="UseKtx"
         message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                        prefs().edit()"
+        errorLine2="                        ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="313"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
         errorLine1="                prefs().edit().putBoolean(&quot;disclaimer_read&quot;, true).apply()"
         errorLine2="                ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/GuideActivity.kt"
-            line="134"
+            line="349"
             column="17"/>
     </issue>
 
@@ -4052,41 +5225,129 @@
         errorLine2="                ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/GuideActivity.kt"
-            line="137"
+            line="352"
             column="17"/>
     </issue>
 
     <issue
         id="UseKtx"
         message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="                    prefs().edit()"
-        errorLine2="                    ~~~~~~~~~~~~~~">
+        errorLine1="                prefs().edit().putBoolean(&quot;privacy_accepted&quot;, true).apply()"
+        errorLine2="                ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/GuideActivity.kt"
-            line="167"
-            column="21"/>
+            line="396"
+            column="17"/>
     </issue>
 
     <issue
         id="UseKtx"
         message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="            prefs().edit()"
+        errorLine1="            prefs().edit().putBoolean(&quot;guide_key_help_shown&quot;, true).apply()"
         errorLine2="            ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/GuideActivity.kt"
-            line="207"
+            line="621"
             column="13"/>
     </issue>
 
     <issue
         id="UseKtx"
-        message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="                prefs().edit()"
-        errorLine2="                ~~~~~~~~~~~~~~">
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))"
+        errorLine2="                                                                     ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/GuideActivity.kt"
-            line="231"
-            column="17"/>
+            line="645"
+            column="70"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension property `View.isVisible` instead?"
+        errorLine1="        hc.visibility = if (hc.visibility == View.VISIBLE) View.GONE else View.VISIBLE"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="709"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension property `View.isVisible` instead?"
+        errorLine1="        hc.visibility = if (hc.visibility == View.VISIBLE) View.GONE else View.VISIBLE"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="709"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs().edit()"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="998"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs().edit().putBoolean(&quot;first_run_perms_done&quot;, true).apply()"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1093"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse(&quot;package:$packageName&quot;)))"
+        errorLine2="                                                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1282"
+            column="77"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse(&quot;package:$packageName&quot;)))"
+        errorLine2="                                                                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1291"
+            column="90"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `String.toUri` instead?"
+        errorLine1="            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse(&quot;package:$packageName&quot;)))"
+        errorLine2="                                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1300"
+            column="78"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="        prefs(c).edit().putBoolean(K_ENABLED, on).apply()"
+        errorLine2="        ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/KnowledgeBaseConfig.kt"
+            line="20"
+            column="9"/>
     </issue>
 
     <issue
@@ -4096,7 +5357,7 @@
         errorLine2="                                                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="436"
+            line="439"
             column="81"/>
     </issue>
 
@@ -4107,7 +5368,7 @@
         errorLine2="                                                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="444"
+            line="447"
             column="94"/>
     </issue>
 
@@ -4118,7 +5379,7 @@
         errorLine2="                                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="452"
+            line="455"
             column="82"/>
     </issue>
 
@@ -4129,7 +5390,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="458"
+            line="461"
             column="9"/>
     </issue>
 
@@ -4140,7 +5401,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="841"
+            line="843"
             column="42"/>
     </issue>
 
@@ -4151,7 +5412,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1067"
+            line="1069"
             column="42"/>
     </issue>
 
@@ -4162,7 +5423,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1067"
+            line="1069"
             column="42"/>
     </issue>
 
@@ -4173,7 +5434,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1263"
+            line="1265"
             column="26"/>
     </issue>
 
@@ -4184,7 +5445,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1263"
+            line="1265"
             column="26"/>
     </issue>
 
@@ -4195,7 +5456,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1305"
+            line="1311"
             column="32"/>
     </issue>
 
@@ -4206,7 +5467,7 @@
         errorLine2="                                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1699"
+            line="1622"
             column="65"/>
     </issue>
 
@@ -4217,7 +5478,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1764"
+            line="1687"
             column="29"/>
     </issue>
 
@@ -4228,7 +5489,7 @@
         errorLine2="                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1839"
+            line="1762"
             column="56"/>
     </issue>
 
@@ -4239,7 +5500,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1905"
+            line="1828"
             column="37"/>
     </issue>
 
@@ -4250,7 +5511,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2006"
+            line="1929"
             column="21"/>
     </issue>
 
@@ -4261,7 +5522,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2006"
+            line="1929"
             column="21"/>
     </issue>
 
@@ -4272,7 +5533,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2088"
+            line="2087"
             column="13"/>
     </issue>
 
@@ -4283,7 +5544,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3450"
+            line="3481"
             column="37"/>
     </issue>
 
@@ -4294,8 +5555,19 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3460"
+            line="3491"
             column="37"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.scale` instead?"
+        errorLine1="                              else Bitmap.createScaledBitmap(bmp, dw, dh, true)"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
+            line="3508"
+            column="36"/>
     </issue>
 
     <issue
@@ -4305,7 +5577,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3471"
+            line="3510"
             column="29"/>
     </issue>
 
@@ -4316,7 +5588,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3486"
+            line="3525"
             column="29"/>
     </issue>
 
@@ -4327,7 +5599,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3498"
+            line="3537"
             column="30"/>
     </issue>
 
@@ -4338,30 +5610,30 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3502"
+            line="3541"
             column="29"/>
     </issue>
 
     <issue
         id="UseKtx"
         message="Use the KTX extension function `String.toColorInt` instead?"
-        errorLine1="                setColor(Color.parseColor(&quot;#5A6478&quot;))"
-        errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="                setColor(if (isAi) Color.parseColor(&quot;#5A6478&quot;) else Ui.PRIMARY)"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3611"
-            column="26"/>
+            line="3672"
+            column="36"/>
     </issue>
 
     <issue
         id="UseKtx"
         message="Use the KTX extension function `String.toColorInt` instead?"
-        errorLine1="                setColor(Color.parseColor(&quot;#5A6478&quot;))"
-        errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="                setColor(if (isAi) Color.parseColor(&quot;#5A6478&quot;) else Ui.PRIMARY)"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3611"
-            column="26"/>
+            line="3672"
+            column="36"/>
     </issue>
 
     <issue
@@ -4371,7 +5643,7 @@
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="3706"
+            line="3742"
             column="16"/>
     </issue>
 
@@ -4382,7 +5654,7 @@
         errorLine2="                                  ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="4225"
+            line="4270"
             column="35"/>
     </issue>
 
@@ -4481,7 +5753,7 @@
         errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="403"
+            line="515"
             column="41"/>
     </issue>
 
@@ -4492,7 +5764,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="1053"
+            line="1165"
             column="21"/>
     </issue>
 
@@ -4505,6 +5777,17 @@
             file="src/main/java/all/McpConfigStore.kt"
             line="53"
             column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.scale` instead?"
+        errorLine1="                            else Bitmap.createScaledBitmap(bmp, w, h, true)"
+        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/MdSpannable.kt"
+            line="110"
+            column="34"/>
     </issue>
 
     <issue
@@ -4641,12 +5924,34 @@
 
     <issue
         id="UseKtx"
+        message="Use the KTX extension function `SQLiteDatabase.transaction` instead?"
+        errorLine1="            db.beginTransaction()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/MemoryDb.kt"
+            line="380"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SQLiteDatabase.transaction` instead?"
+        errorLine1="            db.beginTransaction()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/MemoryDb.kt"
+            line="430"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
         message="Use the KTX extension function `Int.toDrawable` instead?"
         errorLine1="        pending.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))"
         errorLine2="                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MemoryListActivity.kt"
-            line="451"
+            line="453"
             column="47"/>
     </issue>
 
@@ -4681,6 +5986,72 @@
             file="src/main/java/all/ModeConfig.kt"
             line="47"
             column="9"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            prefs().edit().putInt(K_VERSION, version).putBoolean(K_READY, true).apply()"
+        errorLine2="            ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/ModelUpdater.kt"
+            line="118"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="            p.edit().putString(&quot;install_id&quot;, it).apply()"
+        errorLine2="            ~~~~~~~~">
+        <location
+            file="src/main/java/all/NyralApp.kt"
+            line="46"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                lifecyclePrefs.edit().putLong(&quot;last_foreground&quot;, System.currentTimeMillis()).apply()"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/NyralApp.kt"
+            line="125"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                lifecyclePrefs.edit().putLong(&quot;last_background&quot;, System.currentTimeMillis()).apply()"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/NyralApp.kt"
+            line="128"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                        marked.edit().putBoolean(&quot;uploaded_&quot; + f.name, true).apply()"
+        errorLine2="                        ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/NyralApp.kt"
+            line="233"
+            column="25"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `SharedPreferences.edit` instead?"
+        errorLine1="                    if (exportToDownload(f)) marked.edit().putBoolean(key, true).apply()"
+        errorLine2="                                             ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/NyralApp.kt"
+            line="242"
+            column="46"/>
     </issue>
 
     <issue
@@ -6230,7 +7601,7 @@
         errorLine2="                ~~~~~~~~">
         <location
             file="src/main/java/all/TokenStore.kt"
-            line="46"
+            line="48"
             column="17"/>
     </issue>
 
@@ -6241,7 +7612,7 @@
         errorLine2="        ~~~~~~~~">
         <location
             file="src/main/java/all/TokenStore.kt"
-            line="108"
+            line="111"
             column="9"/>
     </issue>
 
@@ -6252,19 +7623,41 @@
         errorLine2="        ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/TokenStore.kt"
-            line="175"
+            line="178"
             column="9"/>
     </issue>
 
     <issue
         id="UseKtx"
         message="Use the KTX extension function `Bitmap.scale` instead?"
-        errorLine1="                val bmp = if (scale &lt; 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame"
-        errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="                    val bmp = if (scale &lt; 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame"
+        errorLine2="                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/ToolExecutor.kt"
-            line="172"
-            column="43"/>
+            line="243"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.scale` instead?"
+        errorLine1="                        val bmp = if (scale &lt; 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame"
+        errorLine2="                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/ToolExecutor.kt"
+            line="265"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.scale` instead?"
+        errorLine1="                val outBmp = if (scale &lt; 1f) Bitmap.createScaledBitmap(bmp, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else bmp"
+        errorLine2="                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/ToolExecutor.kt"
+            line="288"
+            column="46"/>
     </issue>
 
     <issue
@@ -6285,7 +7678,7 @@
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="157"
+            line="177"
             column="19"/>
     </issue>
 
@@ -6294,53 +7687,9 @@
         message="Use the KTX extension function `Bitmap.toDrawable` instead?"
         errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="161"
-            column="16"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX function `createBitmap` instead?"
-        errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
-        errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="169"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="173"
-            column="16"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX function `createBitmap` instead?"
-        errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
-        errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
             line="181"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="185"
             column="16"/>
     </issue>
 
@@ -6349,20 +7698,20 @@
         message="Use the KTX function `createBitmap` instead?"
         errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="189"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
             line="193"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="197"
             column="16"/>
     </issue>
 
@@ -6371,20 +7720,20 @@
         message="Use the KTX function `createBitmap` instead?"
         errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="201"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
             line="205"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="209"
             column="16"/>
     </issue>
 
@@ -6393,20 +7742,20 @@
         message="Use the KTX function `createBitmap` instead?"
         errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="213"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
             line="217"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="221"
             column="16"/>
     </issue>
 
@@ -6415,20 +7764,20 @@
         message="Use the KTX function `createBitmap` instead?"
         errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="225"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
             line="229"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="233"
             column="16"/>
     </issue>
 
@@ -6437,20 +7786,20 @@
         message="Use the KTX function `createBitmap` instead?"
         errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="237"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
             line="241"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="245"
             column="16"/>
     </issue>
 
@@ -6459,20 +7808,20 @@
         message="Use the KTX function `createBitmap` instead?"
         errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="249"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
             line="253"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
-        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
-        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/Ui.kt"
-            line="257"
             column="16"/>
     </issue>
 
@@ -6483,7 +7832,7 @@
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="265"
+            line="261"
             column="19"/>
     </issue>
 
@@ -6494,7 +7843,51 @@
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="269"
+            line="265"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX function `createBitmap` instead?"
+        errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
+        errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="273"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="277"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX function `createBitmap` instead?"
+        errorLine1="        val bmp = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)"
+        errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="285"
+            column="19"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
+        message="Use the KTX extension function `Bitmap.toDrawable` instead?"
+        errorLine1="        return android.graphics.drawable.BitmapDrawable(a.resources, bmp)"
+        errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/Ui.kt"
+            line="289"
             column="16"/>
     </issue>
 
@@ -6505,7 +7898,7 @@
         errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="498"
+            line="517"
             column="45"/>
     </issue>
 
@@ -6516,7 +7909,7 @@
         errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="503"
+            line="522"
             column="45"/>
     </issue>
 
@@ -6527,7 +7920,7 @@
         errorLine2="                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/Ui.kt"
-            line="584"
+            line="602"
             column="41"/>
     </issue>
 
@@ -6588,12 +7981,23 @@
 
     <issue
         id="UseKtx"
+        message="Use the KTX function `createBitmap` instead?"
+        errorLine1="                val bmp = Bitmap.createBitmap("
+        errorLine2="                          ^">
+        <location
+            file="src/main/java/all/UiKit.kt"
+            line="851"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="UseKtx"
         message="Use the KTX extension function `Canvas.withTranslation` instead?"
         errorLine1="        canvas.save()"
         errorLine2="        ~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="861"
+            line="977"
             column="9"/>
     </issue>
 
@@ -6604,7 +8008,7 @@
         errorLine2="        ~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="905"
+            line="1021"
             column="9"/>
     </issue>
 
@@ -6615,7 +8019,7 @@
         errorLine2="        ~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="931"
+            line="1047"
             column="9"/>
     </issue>
 
@@ -6626,7 +8030,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="955"
+            line="1071"
             column="33"/>
     </issue>
 
@@ -6637,7 +8041,7 @@
         errorLine2="        ~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="970"
+            line="1086"
             column="9"/>
     </issue>
 
@@ -6648,7 +8052,7 @@
         errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="1022"
+            line="1138"
             column="19"/>
     </issue>
 
@@ -6659,7 +8063,7 @@
         errorLine2="                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/UiKit.kt"
-            line="1066"
+            line="1182"
             column="40"/>
     </issue>
 
@@ -6709,12 +8113,23 @@
 
     <issue
         id="ClickableViewAccessibility"
+        message="`onTouch` lambda should call `View#performClick` when a click is detected"
+        errorLine1="            setTouchInterceptor { _, e ->"
+        errorLine2="                                ^">
+        <location
+            file="src/main/java/all/KnowledgeBaseActivity.kt"
+            line="256"
+            column="33"/>
+    </issue>
+
+    <issue
+        id="ClickableViewAccessibility"
         message="Custom view anonymous class overrides `onTouchEvent` but not `performClick`"
         errorLine1="            override fun onTouchEvent(ev: MotionEvent): Boolean {"
         errorLine2="                         ~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="634"
+            line="636"
             column="26"/>
     </issue>
 
@@ -6725,7 +8140,7 @@
         errorLine2="                               ^">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="757"
+            line="759"
             column="32"/>
     </issue>
 
@@ -6736,7 +8151,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1072"
+            line="1074"
             column="13"/>
     </issue>
 
@@ -6747,7 +8162,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="1072"
+            line="1074"
             column="32"/>
     </issue>
 
@@ -6758,7 +8173,7 @@
         errorLine2="                                ^">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="706"
+            line="820"
             column="33"/>
     </issue>
 
@@ -6769,7 +8184,7 @@
         errorLine2="                                        ^">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="948"
+            line="1062"
             column="41"/>
     </issue>
 
@@ -6846,7 +8261,7 @@
         errorLine2="                                ^">
         <location
             file="src/main/java/all/MemoryListActivity.kt"
-            line="147"
+            line="146"
             column="33"/>
     </issue>
 
@@ -6857,7 +8272,7 @@
         errorLine2="                                ^">
         <location
             file="src/main/java/all/ModelEditActivity.kt"
-            line="357"
+            line="359"
             column="33"/>
     </issue>
 
@@ -6879,7 +8294,7 @@
         errorLine2="                             ^">
         <location
             file="src/main/java/all/Ui.kt"
-            line="65"
+            line="66"
             column="30"/>
     </issue>
 
@@ -6901,7 +8316,7 @@
         errorLine2="                      ~~~~~~~~">
         <location
             file="src/main/java/all/AiBubbleHolder.kt"
-            line="765"
+            line="780"
             column="23"/>
     </issue>
 
@@ -6912,7 +8327,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/AuditActivity.kt"
-            line="65"
+            line="74"
             column="20"/>
     </issue>
 
@@ -6952,6 +8367,39 @@
     <issue
         id="SetTextI18n"
         message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="        barAlphaText.text = &quot;$p%&quot;"
+        errorLine2="                            ~~~~~">
+        <location
+            file="src/main/java/all/ChatBackgroundActivity.kt"
+            line="468"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="        msgAlphaText.text = &quot;$p%&quot;"
+        errorLine2="                            ~~~~~">
+        <location
+            file="src/main/java/all/ChatBackgroundActivity.kt"
+            line="473"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="String literal in `setText` can not be translated. Use Android resources instead."
+        errorLine1="            text = &quot;AI 模型也可能“看走眼”&quot;"
+        errorLine2="                    ~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/DocPlaceholderActivity.kt"
+            line="47"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
         errorLine1="            text = &quot;表情库为空\n点右上角 ＋ 添加图片&quot;"
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -6985,12 +8433,133 @@
     <issue
         id="SetTextI18n"
         message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
-        errorLine1="            text = &quot;工具: ${row.tool}&quot;"
-        errorLine2="                   ~~~~~~~~~~~~~~~~~">
+        errorLine1="                    connTv?.text = getString(R.string.guide_test_fail) + &quot; &quot; + msg"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="760"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    connTv?.text = getString(R.string.guide_test_fail) + &quot; &quot; + msg"
+        errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="760"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                connTv?.text = getString(R.string.guide_test_ok) + &quot;，已自动选择最优模型&quot;"
+        errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="832"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = &quot;‹ &quot; + label"
+        errorLine2="                   ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/GuideActivity.kt"
+            line="1309"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    text = fmt(a.ts) + &quot;  ·  &quot; + actionLabel(a.action)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/KnowledgeAuditActivity.kt"
+            line="56"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    text = fmt(a.ts) + &quot;  ·  &quot; + actionLabel(a.action)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/KnowledgeAuditActivity.kt"
+            line="56"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    text = a.entityType + &quot; #&quot; + a.entityId"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/KnowledgeAuditActivity.kt"
+            line="68"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    text = a.entityType + &quot; #&quot; + a.entityId"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/KnowledgeAuditActivity.kt"
+            line="68"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = getString(R.string.kb_entry_meta,"
+        errorLine2="                   ^">
+        <location
+            file="src/main/java/all/KnowledgeEntryActivity.kt"
+            line="83"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                        text = fmt(a.ts) + &quot;  ·  &quot; + a.action"
+        errorLine2="                               ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/KnowledgeEntryActivity.kt"
+            line="244"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                        text = fmt(a.ts) + &quot;  ·  &quot; + a.action"
+        errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/KnowledgeEntryActivity.kt"
+            line="244"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                text = &quot;工具: ${row.tool}&quot;"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2407"
-            column="20"/>
+            line="2413"
+            column="24"/>
     </issue>
 
     <issue
@@ -7033,7 +8602,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="419"
+            line="531"
             column="20"/>
     </issue>
 
@@ -7044,7 +8613,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="455"
+            line="567"
             column="24"/>
     </issue>
 
@@ -7055,7 +8624,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="562"
+            line="674"
             column="30"/>
     </issue>
 
@@ -7066,7 +8635,7 @@
         errorLine2="                                                                          ~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="562"
+            line="674"
             column="75"/>
     </issue>
 
@@ -7077,7 +8646,7 @@
         errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="564"
+            line="676"
             column="31"/>
     </issue>
 
@@ -7088,7 +8657,7 @@
         errorLine2="                                                       ~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="564"
+            line="676"
             column="56"/>
     </issue>
 
@@ -7099,7 +8668,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MainUi.kt"
-            line="676"
+            line="788"
             column="24"/>
     </issue>
 
@@ -7297,7 +8866,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/all/MemoryListActivity.kt"
-            line="350"
+            line="352"
             column="24"/>
     </issue>
 
@@ -7354,6 +8923,94 @@
             file="src/main/java/all/SecurityCenterActivity.kt"
             line="80"
             column="94"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                text = &quot;暂无任务\n点击右上角「＋ 新建」创建&quot;"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="108"
+            column="24"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = &quot;触发: ${t.cronDesc}&quot;"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="153"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = &quot;授权: &quot; + allowLabel(t.allowTools)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="160"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="            text = &quot;目标: ${t.goal}&quot;"
+        errorLine2="                   ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="168"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                text = &quot;上次(${time}): ${t.lastResult ?: &quot;执行中/无结果&quot;}&quot;"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="179"
+            column="24"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    text = &quot;能力授权: &quot; + allowLabel(s)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="330"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    text = SecurityConfig.ALLOW_CATALOG[k] + &quot;  ($k)&quot;"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="396"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="SetTextI18n"
+        message="Do not concatenate text displayed with `setText`. Use resource string with placeholders."
+        errorLine1="                    text = SecurityConfig.ALLOW_CATALOG[k] + &quot;  ($k)&quot;"
+        errorLine2="                                                             ~~~~~~~~">
+        <location
+            file="src/main/java/all/TimerTaskActivity.kt"
+            line="396"
+            column="62"/>
     </issue>
 
     <issue
