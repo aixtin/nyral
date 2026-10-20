@@ -188,7 +188,7 @@ android-agent-app/
 
 ## Privacy
 
-Nyral is designed privacy-first. Conversations, memories, attachments and logs stay on your device by default. Text embedding runs fully on-device. Model inference, however, runs remotely: both the main chat model and the auxiliary memory-judge/compression model are called over the network via OpenAI-compatible endpoints (a local GGUF inference engine is not yet integrated).
+Nyral is designed privacy-first. Conversations, memories, attachments and logs stay on your device by default. Text embedding runs fully on-device. Model inference, however, runs remotely: both the main chat model and the auxiliary memory-judge/compression model are called over the network via OpenAI-compatible endpoints. On-device inference (e.g., local GGUF engines) is not supported.
 
 For model responses, the App sends your message content to the model service provider configured in Settings (DeepSeek by default; Zhipu GLM, Xiaomi MiMo and custom endpoints are supported). The App operates no cloud service for chat, requires no account, and includes no analytics, advertising or behavioral-tracking SDKs. The only outbound diagnostic is anonymous crash reporting (on by default, disable anytime — see Data & Privacy above).
 
