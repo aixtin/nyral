@@ -50,3 +50,4 @@ backup_notif_group_*/
 
 # release build logs
 build_release_*.log
+nyral_check_*.png

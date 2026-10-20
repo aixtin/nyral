@@ -2658,10 +2658,9 @@ class MainActivity : Activity() {
                     b.background = if (sel) Ui.rounded(Ui.PRIMARY, 10, this@MainActivity)
                     else {
                         // 未选中: 三档按聊天背景三种质感呈现(不透明/普通透明/毛玻璃透明), 统一 PRIMARY 细描边镶边
-                        val alpha35 = (Ui.PRIMARY and 0x00FFFFFF) or (0x59 shl 24)
                         val solid = when (k) {
                             "strict" -> Ui.PRIMARY_LIGHT                       // 不透明实底
-                            "auto" -> alpha35                                    // 普通透明(35%)
+                            "auto" -> Ui.PRIMARY_LIGHT                                    // 不透明实底(与strict一致)
                             else -> android.graphics.Color.TRANSPARENT          // 毛玻璃: 透明底+描边
                         }
                         android.graphics.drawable.GradientDrawable().apply {
