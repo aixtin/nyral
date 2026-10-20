@@ -122,7 +122,7 @@ internal class ChatFlowController(
         for (d in dispList) {
             activity.appendUser(d)
             activity.messages.add(MemoryDb.SessionMsg("user", d, "", "", "", System.currentTimeMillis()))
-            MemoryKeeper.push("user", d)
+            MemoryKeeper.push("user", d, activity.currentSessionId, activity.messages.size - 1)
         }
         activity.currentSaved = false
         // 即时落库: 不依赖 onStop 兜底, 防止发送后进程被杀(force-stop/划掉后台)导致最后一条消息丢失
@@ -190,6 +190,34 @@ internal class ChatFlowController(
         TokenStore.currentSessionId = activity.currentSessionId
         LocalEngine.cancelRequested = false
         session.markBusy()
-        continueSend(text, listOf(text), attachments)
+        if (attachments.isEmpty()) {
+            continueSend(text, listOf(text), attachments)
+        } else {
+            // 附件落盘与气泡文本生成: 与 doSend 同规格(2026-10-19 sinkfix),
+            // 否则 content 无 att:// 引用, KnowledgeSinker 图片池扫不到图
+            executor.execute {
+                val dispList = try {
+                    val showAtts = attachments.filter { it.pdfSourceName == null }
+                    val marks = showAtts.map { a ->
+                        val fileName = try {
+                            if (a.stored) a.name
+                            else AttachmentStore.save(activity, a.name, a.mime, Base64.decode(a.base64, Base64.NO_WRAP))
+                        } catch (e: Exception) { null }
+                        val link = if (fileName != null) "(att://$fileName)" else ""
+                        val dispName = if (a.stored) AttachmentStore.displayName(activity, a.name) else a.name
+                        when {
+                            a.isEmoji -> "[表情:$dispName]$link"
+                            a.mime.startsWith("image/") -> "[图片]$link"
+                            a.isVoice -> "[音频]$link"
+                            a.mime.startsWith("audio/") -> "[文件:$dispName]$link"
+                            a.mime.startsWith("video/") -> "[视频:$dispName]$link"
+                            else -> "[文件:$dispName]$link"
+                        }
+                    }
+                    if (text.isEmpty()) marks else marks + listOf(text)
+                } catch (e: Exception) { listOf(text) }
+                uiScope.launch { continueSend(text, dispList, attachments) }
+            }
+        }
         return true
     }}

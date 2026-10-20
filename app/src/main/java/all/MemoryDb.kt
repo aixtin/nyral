@@ -6,10 +6,11 @@ import android.database.sqlite.SQLiteOpenHelper
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 9) {
+class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 12) {
 
     companion object {
         const val DIM = 512
+        const val MAX_FIELD_LEN = 200_000
 
         /** 时间戳 → 人类可读: 今天只显时刻, 跨天显月日+时刻, 跨年显年月日+时刻 */
         @JvmStatic
@@ -53,7 +54,9 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                 "role TEXT NOT NULL," +
                 "content TEXT NOT NULL," +
-                "ts INTEGER NOT NULL)"
+                "ts INTEGER NOT NULL," +
+                "session_id INTEGER," +
+                "msg_no INTEGER)"
         )
         db.execSQL(
             "CREATE TABLE sessions (" +
@@ -129,6 +132,29 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
         if (!hasRenderedVersion) {
             db.execSQL("ALTER TABLE session_msgs ADD COLUMN rendered_version INTEGER DEFAULT 0")
+        }
+        // 幂等兜底：pending 缺 session_id/msg_no 列则补齐(v10+ 新增，防止 onCreate 旧库/坏库崩溃)
+        val pcols = db.rawQuery("PRAGMA table_info(pending)", null)
+        var hasPid = false
+        var hasPno = false
+        while (pcols.moveToNext()) {
+            when (pcols.getString(1)) {
+                "session_id" -> hasPid = true
+                "msg_no" -> hasPno = true
+            }
+        }
+        pcols.close()
+        if (!hasPid) {
+            db.execSQL("ALTER TABLE pending ADD COLUMN session_id INTEGER")
+        }
+        if (!hasPno) {
+            db.execSQL("ALTER TABLE pending ADD COLUMN msg_no INTEGER")
+        }
+
+        // 防 SQLiteBlobTooBigException：单字段超限则截断（CursorWindow 单值上限约 1MB，200KB 留足余量）
+        val maxLen = MAX_FIELD_LEN
+        for (col in listOf("content", "thinking", "tools", "timeline", "rendered")) {
+            db.execSQL("UPDATE session_msgs SET " + col + " = substr(" + col + ", 1, " + maxLen + ") WHERE length(" + col + ") > " + maxLen)
         }
     }
 
@@ -254,9 +280,63 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 db.execSQL("ALTER TABLE session_msgs ADD COLUMN timeline TEXT")
             }
         }
+        if (oldVersion < 10) {
+            // v10: pending/memory 新增来源指针(会话id + 消息序号), 支撑删除联动清同源块
+            val pCols = db.rawQuery("PRAGMA table_info(pending)", null)
+            var pSid = false; var pMno = false
+            while (pCols.moveToNext()) {
+                val n = pCols.getString(1)
+                if (n == "session_id") pSid = true
+                if (n == "msg_no") pMno = true
+            }
+            pCols.close()
+            if (!pSid) db.execSQL("ALTER TABLE pending ADD COLUMN session_id INTEGER")
+            if (!pMno) db.execSQL("ALTER TABLE pending ADD COLUMN msg_no INTEGER")
+
+            val mCols = db.rawQuery("PRAGMA table_info(memory)", null)
+            var mSid = false; var mMno = false
+            while (mCols.moveToNext()) {
+                val n = mCols.getString(1)
+                if (n == "src_session_id") mSid = true
+                if (n == "src_msg_no") mMno = true
+            }
+            mCols.close()
+            if (!mSid) db.execSQL("ALTER TABLE memory ADD COLUMN src_session_id INTEGER")
+            if (!mMno) db.execSQL("ALTER TABLE memory ADD COLUMN src_msg_no INTEGER")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_mem_src ON memory(src_session_id, src_msg_no)")
+        }
+        if (oldVersion < 11) {
+            // v11(2026-10-20): 修复历史库 pending 缺来源列(曾存在 version=10 但表结构旧的库, onUpgrade 不触发导致 addPending 必崩)
+            val pCols11 = db.rawQuery("PRAGMA table_info(pending)", null)
+            var pSid11 = false; var pMno11 = false
+            while (pCols11.moveToNext()) {
+                val n = pCols11.getString(1)
+                if (n == "session_id") pSid11 = true
+                if (n == "msg_no") pMno11 = true
+            }
+            pCols11.close()
+            if (!pSid11) db.execSQL("ALTER TABLE pending ADD COLUMN session_id INTEGER")
+            if (!pMno11) db.execSQL("ALTER TABLE pending ADD COLUMN msg_no INTEGER")
+        }
+        if (oldVersion < 12) {
+            // v12(2026-10-20): 补修 memory 表缺 src_session_id/src_msg_no 列
+            // v4 分支只在 oldVersion<4 时生效, 历史库(v10/v11)升级时漏加, 导致 consumePending 的 INSERT 必败,
+            // 归档失败无限重试 = memory-keeper 持续 200% CPU 发热根因
+            val mCols12 = db.rawQuery("PRAGMA table_info(memory)", null)
+            var mSid12 = false; var mMno12 = false
+            while (mCols12.moveToNext()) {
+                val n = mCols12.getString(1)
+                if (n == "src_session_id") mSid12 = true
+                if (n == "src_msg_no") mMno12 = true
+            }
+            mCols12.close()
+            if (!mSid12) db.execSQL("ALTER TABLE memory ADD COLUMN src_session_id INTEGER")
+            if (!mMno12) db.execSQL("ALTER TABLE memory ADD COLUMN src_msg_no INTEGER")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_mem_src ON memory(src_session_id, src_msg_no)")
+        }
     }
 
-    data class Mem(val id: Long, val content: String, val ts: Long, val embedding: FloatArray, val sessionTitle: String?)
+    data class Mem(val id: Long, val content: String, val ts: Long, val embedding: FloatArray, val sessionTitle: String?, val srcSessionId: Long? = null, val srcMsgNo: Int? = null)
 
     fun add(content: String, embedding: FloatArray, sessionTitle: String? = null) {
         lock.withLock {
@@ -275,21 +355,21 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
      * 修复 bug: 旧逻辑原文先入库、索引失败后 pending 未清，导致同一批 pending 被反复归档，
      * memory 表无限叠加相同内容(实测 2850 条相同记忆)。
      */
-    fun consumePending(ids: List<Long>, chunks: List<Pair<String, FloatArray>>, sessionTitle: String? = null) {
+    fun consumePending(ids: List<Long>, chunks: List<PendingChunk>, sessionTitle: String? = null) {
         lock.withLock {
             val db = writableDatabase
             db.beginTransaction()
             try {
-                for ((content, vec) in chunks) {
+                for (ch in chunks) {
                     // content 去重: 库中已存在完全相同内容则跳过, 防止重复叠加
                     val exists = db.rawQuery(
                         "SELECT 1 FROM memory WHERE content = ? LIMIT 1",
-                        arrayOf(content)
+                        arrayOf(ch.content)
                     ).use { it.moveToFirst() }
                     if (!exists) {
                         db.execSQL(
-                            "INSERT INTO memory(content, ts, embedding, session_title) VALUES(?, ?, ?, ?)",
-                            arrayOf(content, System.currentTimeMillis(), FloatArrayToBytes(vec), sessionTitle)
+                            "INSERT INTO memory(content, ts, embedding, session_title, src_session_id, src_msg_no) VALUES(?, ?, ?, ?, ?, ?)",
+                            arrayOf(ch.content, System.currentTimeMillis(), FloatArrayToBytes(ch.vec), sessionTitle, ch.sessionId?.toString(), ch.msgNo?.toString())
                         )
                     }
                 }
@@ -301,13 +381,25 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
             } finally {
                 db.endTransaction()
             }
+            invalidateVectorCache()
         }
     }
 
     /** 删除单条记忆 */
     fun delete(id: Long) {
         lock.withLock {
-            writableDatabase.execSQL("DELETE FROM memory WHERE id = ?", arrayOf(id.toString()))
+            val db = writableDatabase
+            // 有来源指针: 连带删除同一消息切出的所有块(同 session_id + msg_no)
+            val src = db.rawQuery("SELECT src_session_id, src_msg_no FROM memory WHERE id = ?", arrayOf(id.toString())).use { c ->
+                if (c.moveToFirst() && !c.isNull(0) && !c.isNull(1)) Pair(c.getLong(0), c.getInt(1)) else null
+            }
+            if (src != null) {
+                db.execSQL("DELETE FROM memory WHERE src_session_id = ? AND src_msg_no = ?",
+                    arrayOf(src.first.toString(), src.second.toString()))
+            } else {
+                db.execSQL("DELETE FROM memory WHERE id = ?", arrayOf(id.toString()))
+            }
+            invalidateVectorCache()
         }
     }
 
@@ -318,14 +410,29 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
             val db = writableDatabase
             db.beginTransaction()
             try {
+                // 收集选中行的来源指针
+                val srcPairs = HashSet<Pair<Long, Int>>()
+                val ph1 = ids.joinToString(",") { "?" }
+                db.rawQuery("SELECT src_session_id, src_msg_no FROM memory WHERE id IN ($ph1)", ids.map { it.toString() }.toTypedArray()).use { c ->
+                    while (c.moveToNext()) {
+                        if (!c.isNull(0) && !c.isNull(1)) srcPairs.add(Pair(c.getLong(0), c.getInt(1)))
+                    }
+                }
+                // 删选中的行
                 for (chunk in ids.chunked(500)) {
                     val ph = chunk.joinToString(",") { "?" }
                     db.execSQL("DELETE FROM memory WHERE id IN ($ph)", chunk.map { it.toString() }.toTypedArray())
+                }
+                // 删同源块(同一消息切出的其他块, 可能未被选中)
+                for ((sid, mno) in srcPairs) {
+                    db.execSQL("DELETE FROM memory WHERE src_session_id = ? AND src_msg_no = ?",
+                        arrayOf(sid.toString(), mno.toString()))
                 }
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
             }
+            invalidateVectorCache()
         }
     }
 
@@ -333,6 +440,9 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     fun clearAll() {
         lock.withLock {
             writableDatabase.execSQL("DELETE FROM memory")
+            // v10: 清空记忆同时清空主题索引, 杜绝假记忆残留
+            writableDatabase.execSQL("DELETE FROM summary")
+            invalidateVectorCache()
         }
     }
 
@@ -343,6 +453,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "UPDATE memory SET content = ?, embedding = ?, ts = ? WHERE id = ?",
                 arrayOf(content, FloatArrayToBytes(embedding), System.currentTimeMillis(), id.toString())
             )
+            invalidateVectorCache()
         }
     }
 
@@ -350,16 +461,44 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         lock.withLock {
             val db = readableDatabase
             val list = mutableListOf<Mem>()
-            db.rawQuery("SELECT id, content, ts, embedding, session_title FROM memory ORDER BY ts DESC", null).use { c ->
+            db.rawQuery("SELECT id, content, ts, embedding, session_title, src_session_id, src_msg_no FROM memory ORDER BY ts DESC", null).use { c ->
                 while (c.moveToNext()) {
                     list.add(Mem(
                         id = c.getLong(0),
                         content = c.getString(1),
                         ts = c.getLong(2),
                         embedding = BytesToFloatArray(c.getBlob(3)),
-                        sessionTitle = if (c.isNull(4)) null else c.getString(4)
+                        sessionTitle = if (c.isNull(4)) null else c.getString(4),
+                        srcSessionId = if (c.isNull(5)) null else c.getLong(5),
+                        srcMsgNo = if (c.isNull(6)) null else c.getInt(6)
                     ))
                 }
+            }
+            return list
+        }
+    }
+
+    // ===== v10: 向量缓存(进程内, 写路径失效), search 走缓存避免每次全表反序列化 =====
+    @Volatile
+    private var vectorCache: List<Mem>? = null
+
+    private fun invalidateVectorCache() {
+        vectorCache = null
+    }
+
+    /** 供语义检索使用: 首次全量加载并缓存, 写路径后自动失效重建 */
+    fun allCached(): List<Mem> {
+        vectorCache?.let { return it }
+        return all().also { vectorCache = it }
+    }
+
+    /** 重建 summary 用: 只取 content+ts, 不反序列化向量 */
+    fun allContents(): List<ContentRow> {
+        lock.withLock {
+            val db = readableDatabase
+            val list = mutableListOf<ContentRow>()
+            db.rawQuery("SELECT content, ts FROM memory ORDER BY ts DESC", null).use { c ->
+                while (c.moveToNext()) list.add(ContentRow(c.getString(0), c.getLong(1)))
             }
             return list
         }
@@ -370,7 +509,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
             val db = readableDatabase
             val list = mutableListOf<Mem>()
             db.rawQuery(
-                "SELECT id, content, ts, embedding, session_title FROM memory WHERE content LIKE ? ORDER BY ts DESC LIMIT ?",
+                "SELECT id, content, ts, embedding, session_title, src_session_id, src_msg_no FROM memory WHERE content LIKE ? ORDER BY ts DESC LIMIT ?",
                 arrayOf("%$keyword%", limit.toString())
             ).use { c ->
                 while (c.moveToNext()) {
@@ -379,7 +518,9 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         content = c.getString(1),
                         ts = c.getLong(2),
                         embedding = BytesToFloatArray(c.getBlob(3)),
-                        sessionTitle = if (c.isNull(4)) null else c.getString(4)
+                        sessionTitle = if (c.isNull(4)) null else c.getString(4),
+                        srcSessionId = if (c.isNull(5)) null else c.getLong(5),
+                        srcMsgNo = if (c.isNull(6)) null else c.getInt(6)
                     ))
                 }
             }
@@ -417,24 +558,25 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     }
 
     /** 待压缩队列(持久化): 消息实时落盘, 防进程被杀丢记忆 */
-    fun addPending(role: String, content: String) {
+    fun addPending(role: String, content: String, sessionId: Long? = null, msgNo: Int? = null) {
         lock.withLock {
             writableDatabase.execSQL(
-                "INSERT INTO pending(role, content, ts) VALUES(?, ?, ?)",
-                arrayOf(role, content, System.currentTimeMillis())
+                "INSERT INTO pending(role, content, ts, session_id, msg_no) VALUES(?, ?, ?, ?, ?)",
+                arrayOf(role, content, System.currentTimeMillis(), sessionId?.toString(), msgNo?.toString())
             )
         }
     }
 
-    data class Pending(val id: Long, val role: String, val content: String, val ts: Long)
+    data class Pending(val id: Long, val role: String, val content: String, val ts: Long, val sessionId: Long? = null, val msgNo: Int? = null)
 
     fun pendingAll(): List<Pending> {
         lock.withLock {
             val db = readableDatabase
             val list = mutableListOf<Pending>()
-            db.rawQuery("SELECT id, role, content, ts FROM pending ORDER BY id", null).use { c ->
+            db.rawQuery("SELECT id, role, content, ts, session_id, msg_no FROM pending ORDER BY id", null).use { c ->
                 while (c.moveToNext()) {
-                    list.add(Pending(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3)))
+                    list.add(Pending(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3),
+                        if (c.isNull(4)) null else c.getLong(4), if (c.isNull(5)) null else c.getInt(5)))
                 }
             }
             return list
@@ -484,6 +626,12 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     /** 会话消息: role / content(正文) / thinking(AI 思考) / tools(工具调用序列 JSON) / timeline(思考+工具交错时间线 JSON, v8) / ts(消息时间戳 v10) / seq(会话内序号, 窗口化加载时用于定位) / date(消息日期 yyyy-MM-dd) */
     data class SessionMsg(val role: String, val content: String, val thinking: String = "", val tools: String = "", val timeline: String = "", val ts: Long = 0L, val seq: Int = -1, val rendered: String = "", val renderedVersion: Int = 0, val date: String = "")
 
+    /** 归档落库单元: 原文块 + 向量 + 来源指针(会话id + 消息序号) */
+    data class PendingChunk(val content: String, val vec: FloatArray, val sessionId: Long?, val msgNo: Int?)
+
+    /** 重建 summary 用的轻量行(不带 embedding, 避免无谓反序列化) */
+    data class ContentRow(val content: String, val ts: Long)
+
     /** 由时间戳格式化日期 yyyy-MM-dd；date 为空时的兜底派生 */
     private fun fmtDate(ts: Long): String =
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(ts))
@@ -505,13 +653,13 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         android.content.ContentValues().apply {
                             put("session_id", id)
                             put("role", m.role)
-                            put("content", m.content)
+                            put("content", m.content.take(MAX_FIELD_LEN))
                             put("ts", if (m.ts > 0) m.ts else System.currentTimeMillis())
                             put("date", m.date.ifBlank { fmtDate(if (m.ts > 0) m.ts else System.currentTimeMillis()) })
-                            put("thinking", m.thinking.ifBlank { null })
-                            put("tools", m.tools.ifBlank { null })
-                            put("timeline", m.timeline.ifBlank { null })
-                            put("rendered", m.rendered.ifBlank { null })
+                            put("thinking", m.thinking.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("tools", m.tools.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("timeline", m.timeline.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("rendered", m.rendered.take(MAX_FIELD_LEN).ifBlank { null })
                             put("rendered_version", m.renderedVersion)
                             put("seq", i)
                         })
@@ -589,13 +737,13 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         android.content.ContentValues().apply {
                             put("session_id", id)
                             put("role", m.role)
-                            put("content", m.content)
+                            put("content", m.content.take(MAX_FIELD_LEN))
                             put("ts", if (m.ts > 0) m.ts else System.currentTimeMillis())
                             put("date", m.date.ifBlank { fmtDate(if (m.ts > 0) m.ts else System.currentTimeMillis()) })
-                            put("thinking", m.thinking.ifBlank { null })
-                            put("tools", m.tools.ifBlank { null })
-                            put("timeline", m.timeline.ifBlank { null })
-                            put("rendered", m.rendered.ifBlank { null })
+                            put("thinking", m.thinking.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("tools", m.tools.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("timeline", m.timeline.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("rendered", m.rendered.take(MAX_FIELD_LEN).ifBlank { null })
                             put("rendered_version", m.renderedVersion)
                             put("seq", baseSeq + i)
                         })
@@ -613,7 +761,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         lock.withLock {
             writableDatabase.execSQL(
                 "UPDATE session_msgs SET rendered = ?, rendered_version = ? WHERE session_id = ? AND seq = ?",
-                arrayOf(rendered, version, sessionId.toString(), seq.toString())
+                arrayOf(rendered.take(MAX_FIELD_LEN), version, sessionId.toString(), seq.toString())
             )
         }
     }

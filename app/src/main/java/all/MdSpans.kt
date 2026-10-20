@@ -29,7 +29,7 @@ import org.commonmark.ext.gfm.tables.TableRow
 import org.json.JSONArray
 
 /** 文本区间样式类型 */
-enum class MdSpanType { BOLD, ITALIC, INLINE_CODE, STRIKETHROUGH, LINK, CODE_BLOCK, HEADING, QUOTE, TABLE_ROW, TABLE_BLOCK, HR }
+enum class MdSpanType { BOLD, ITALIC, INLINE_CODE, STRIKETHROUGH, LINK, CODE_BLOCK, HEADING, QUOTE, TABLE_ROW, TABLE_BLOCK, HR, LIST_ITEM, IMAGE }
 
 /** 单个样式区间: [start,end) 左闭右开, 作用于 displayText */
 data class MdSpan(val start: Int, val end: Int, val type: MdSpanType, val extra: String? = null)
@@ -111,21 +111,29 @@ object MdToSpans {
             }
             is ListItem -> {
                 if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
-                if (listPrefix != null) sb.append("  ".repeat(indentLevel)).append(listPrefix)
+                val isBullet = node.parent is BulletList
+                // 列表标记: 缩进 + 标记本身作为文本拼接, 保证嵌套层级圆点/序号跟随缩进移动
+                if (listPrefix != null) {
+                    sb.append("  ".repeat(indentLevel))
+                    if (!isBullet) sb.append(listPrefix)
+                    else sb.append("• ")
+                }
+                var cut = -1
                 // 列表项内容直下钻: 项内段落紧跟前缀(不触发块级空行逻辑), 嵌套列表缩进一级
                 var c = node.firstChild
                 while (c != null) {
                     if (c is Paragraph) {
                         val box = taskBoxMarker(c)
                         if (box != null) {
-                            // GFM 任务列表: [x] 已完成 -> ☑, [ ] 待办 -> ☐
-                            sb.append(box).append(' ')
+                            // GFM 任务列表: [x] 已完成 -> ☑, [ ] 待办 -> ☐ (checkbox 即列表标记, 不再叠加圆点)
+                            sb.append(box).append(" ")
                             walkChildrenSkip(c, sb, spans, 4)
                         } else {
                             walkChildren(c, sb, spans)
                         }
                         sb.append("\n")
                     } else {
+                        if (cut < 0) cut = sb.length
                         walk(c, sb, spans, blockStart = false, listPrefix = listPrefix, indentLevel = indentLevel + 1)
                     }
                     c = c.next
@@ -281,17 +289,21 @@ object MdToSpans {
             is Image -> {
                 val start = sb.length
                 val dest = node.destination ?: ""
-                if (dest.startsWith("att://")) {
-                    sb.append("\uD83D\uDDBC\uFE0F 图片")
-                } else {
-                    val alt = node.firstChild?.let { c ->
-                        val t = StringBuilder()
-                        var ch: Node? = c
-                        while (ch != null) { if (ch is Text) t.append(ch.literal); ch = ch.next }
-                        t.toString()
-                    } ?: ""
-                    sb.append("[图片").append(if (alt.isNotBlank()) ":$alt" else "").append("]")
-                    // 占位文本不可点击跳转: 不加 LINK span
+                when {
+                    dest.startsWith("att://") -> {
+                        // Nyral 附件图(聊天流): 轻量占位, 收尾 markwon 渲染真实卡片
+                        sb.append("\uD83D\uDDBC\uFE0F 图片")
+                    }
+                    dest.startsWith("http://") || dest.startsWith("https://") -> {
+                        // 网络图: MVP 知识库不拉外网图, 降级占位
+                        sb.append("[图片]")
+                    }
+                    dest.isNotBlank() -> {
+                        // 本地相对路径(知识库图片池 kb_images/...): 占位符由渲染层 ImageSpan 替换
+                        sb.append("\uFFFC")
+                        spans += MdSpan(start, sb.length, MdSpanType.IMAGE, dest)
+                    }
+                    else -> sb.append("[图片]")
                 }
             }
             is Code -> {

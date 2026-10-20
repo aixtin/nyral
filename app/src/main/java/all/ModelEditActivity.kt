@@ -85,7 +85,9 @@ class ModelEditActivity : Activity() {
         if (p != null) {
             p.modelCaps.forEach { (m, caps) -> selectedModelCaps[m] = caps.toMutableSet() }
             selectedModels.forEach { m ->
-                selectedModelCaps.getOrPut(m) { mutableSetOf(ApiConfig.CAP_TEXT) }
+                // 预设模型按内置表/启发式补全能力，自定义缺失才默认仅文本
+                val base = if (p.isPreset) ApiConfig.modelCapabilities(p.id, m) else setOf(ApiConfig.CAP_TEXT)
+                selectedModelCaps.getOrPut(m) { base.toMutableSet() }
             }
         }
 
@@ -742,7 +744,7 @@ class ModelEditActivity : Activity() {
         if (isNew) {
             val modelCapsMap = buildMap<String, Set<String>> {
                 selectedModelCaps.forEach { (m, caps) -> if (m in selectedModels) put(m, caps.toSet()) }
-                if (model.trim().isNotEmpty() && !containsKey(model.trim())) put(model.trim(), setOf(ApiConfig.CAP_TEXT))
+                if (model.trim().isNotEmpty() && !containsKey(model.trim())) put(model.trim(), ApiConfig.guessModelCaps(model.trim()).toSet())
             }
             val id = ApiConfig.addCustomProvider(labelInput.text.toString().trim(), base, key, model, selectedModels, selectedEffort, selectedCaps, modelCapsMap, selectedAuthType, selectedAuthHeader.ifBlank { "Authorization" })
             if (setAsCurrent) ApiConfig.setCurrent(id)
@@ -752,7 +754,7 @@ class ModelEditActivity : Activity() {
         val caps = if (ApiConfig.providerById(id)?.isPreset == true) null else selectedCaps
         val modelCapsMap = if (ApiConfig.providerById(id)?.isPreset == true) null else buildMap<String, Set<String>> {
             selectedModelCaps.forEach { (m, caps) -> if (m in selectedModels) put(m, caps.toSet()) }
-            if (model.trim().isNotEmpty() && !containsKey(model.trim())) put(model.trim(), setOf(ApiConfig.CAP_TEXT))
+            if (model.trim().isNotEmpty() && !containsKey(model.trim())) put(model.trim(), ApiConfig.guessModelCaps(model.trim()).toSet())
         }
         ApiConfig.saveProvider(id, base, key, model, setAsCurrent, selectedModels, selectedEffort, caps, modelCapsMap, selectedAuthType, selectedAuthHeader.ifBlank { "Authorization" })
         return id

@@ -51,7 +51,8 @@ class MemoryEmbedder(context: Context) {
                 return false
             }
             val opts = OrtSession.SessionOptions()
-            opts.setIntraOpNumThreads(2)
+            // 单线程推理: 双线程虽快但会占满 2 个核导致发热(2026-10-20 真机诊断), 归档场景优先控温
+            opts.setIntraOpNumThreads(1)
             val s = env.createSession(modelFile.absolutePath, opts)
             val info = s.outputInfo
             val out = if (info.keys.any { it.contains("sentence", true) }) {

@@ -56,6 +56,13 @@ class ChatBackgroundActivity : Activity() {
         /** 顶栏/输入框栏不透明度 0-100 */
         fun loadBarAlpha(c: Context): Int =
             c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_BAR_ALPHA, 100).coerceIn(0, 100)
+
+        // 消息气泡透明度(全局): 0=完全不透明, 100=全透明, 默认 60
+        const val KEY_MSG_ALPHA = "msg_alpha"
+
+        /** 主界面读取: 返回消息气泡透明度 0-100 */
+        fun loadMsgAlpha(c: Context): Int =
+            c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_MSG_ALPHA, 45).coerceIn(0, 100)
     }
 
     // 内置浅色预设: 柔和渐变, 不干扰文字可读性
@@ -73,11 +80,13 @@ class ChatBackgroundActivity : Activity() {
     private lateinit var presetCells: Array<TextView>
     private lateinit var barCells: Array<TextView>
     private lateinit var barAlphaText: TextView
+    private lateinit var msgAlphaText: TextView
     private var currentType = "none"
     private var currentPreset = 0
     private var currentBlur = 16
     private var currentBarMode = "none"
     private var currentBarAlpha = 100
+    private var currentMsgAlpha = 45
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,6 +98,7 @@ class ChatBackgroundActivity : Activity() {
         currentBlur = prefs.getInt(KEY_BLUR, 16)
         currentBarMode = prefs.getString(KEY_BAR_MODE, "none") ?: "none"
         currentBarAlpha = prefs.getInt(KEY_BAR_ALPHA, 100).coerceIn(0, 100)
+        currentMsgAlpha = prefs.getInt(KEY_MSG_ALPHA, 45).coerceIn(0, 100)
         if (!prefs.getBoolean(KEY_BLUR_V2, false)) {
             // 旧数据迁移到 1-48: 旧三档 0/1/2 -> 0/16/32; 0(原图) -> 1; 其余直取
             if (currentBlur <= 2) currentBlur = currentBlur * 16
@@ -299,6 +309,45 @@ class ChatBackgroundActivity : Activity() {
         })
         content.addView(cardBar)
 
+        // 分组4.5: 消息气泡透明度(全局, 0=不透明 100=全透明, 默认60; 图片/视频/文件不跟随)
+        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_msg_alpha)))
+        val cardMsgAlpha = Ui.card(this)
+        cardMsgAlpha.addView(LinearLayout(this@ChatBackgroundActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.cb_msg_alpha_title)))
+            msgAlphaText = TextView(this@ChatBackgroundActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(8)
+                }
+                gravity = Gravity.END
+                textSize = 14f
+                setTextColor(0xFF3478F6.toInt())
+            }
+            addView(msgAlphaText)
+        })
+        val msgAlphaSeek = SeekBar(this@ChatBackgroundActivity).apply {
+            max = 100
+            progress = currentMsgAlpha
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(2)
+            }
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    refreshMsgAlphaText(progress)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    currentMsgAlpha = (seekBar?.progress ?: 45).coerceIn(0, 100)
+                    saveState()
+                }
+            })
+        }
+        cardMsgAlpha.addView(msgAlphaSeek)
+        cardMsgAlpha.addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_msg_alpha_hint)))
+        content.addView(cardMsgAlpha)
+
         // 分组4: 恢复默认
         content.addView(Ui.groupLabel(this, getString(R.string.cb_group_reset)))
         val cardReset = Ui.card(this)
@@ -400,11 +449,17 @@ class ChatBackgroundActivity : Activity() {
             }
         }
         refreshBarAlphaText(currentBarAlpha)
+        refreshMsgAlphaText(currentMsgAlpha)
     }
 
     private fun refreshBarAlphaText(p: Int) {
         if (!::barAlphaText.isInitialized) return
         barAlphaText.text = "$p%"
+    }
+
+    private fun refreshMsgAlphaText(p: Int) {
+        if (!::msgAlphaText.isInitialized) return
+        msgAlphaText.text = "$p%"
     }
 
     private fun applyCustomImage(uri: Uri) {
@@ -440,6 +495,7 @@ class ChatBackgroundActivity : Activity() {
             .putBoolean(KEY_BLUR_V2, true)   // 标记新格式(1-48), 下次进入不再走旧迁移
             .putString(KEY_BAR_MODE, currentBarMode)
             .putInt(KEY_BAR_ALPHA, currentBarAlpha)
+            .putInt(KEY_MSG_ALPHA, currentMsgAlpha)
             .apply()
     }
 

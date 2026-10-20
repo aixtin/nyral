@@ -13,7 +13,7 @@ import kotlin.math.abs
  */
 internal class BrowserSlideController(private val act: MainActivity) {
     private companion object {
-        const val EDGE_DP = 96          // 双击触发区宽度(dp; 原48被当px用实际仅48px过窄, 放宽到96dp)
+        const val EDGE_DP = 32          // 双击触发区宽度(dp; 96dp近1/3屏易误触, 收回48dp)
         const val FLING_VX = 500f       // 吸附速度阈值(px/s)
         const val SNAP_FRAC = 0.5f      // 吸附位置阈值
         const val TAP_MS = 420L         // 双击判定时间窗(ms; 300过严手慢就超时, 放宽到420)

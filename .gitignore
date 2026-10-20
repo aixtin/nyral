@@ -47,3 +47,6 @@ backups_split_guide_*
 drawer_timer*.png
 patch_*.py
 backup_notif_group_*/
+
+# release build logs
+build_release_*.log

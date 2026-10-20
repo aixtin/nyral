@@ -1,15 +1,22 @@
 package io.github.aixtin.nyral
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Typeface
+import android.text.Layout
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.ImageSpan
+import android.text.style.LeadingMarginSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.text.style.URLSpan
+import android.graphics.drawable.BitmapDrawable
 import io.noties.markwon.ext.tables.TableTheme
 import org.json.JSONArray
 
@@ -36,6 +43,11 @@ object MdSpannable {
     /** 代码块/行内代码底色: MainActivity 注入 Ui.INPUT_BG 与 markwon theme 对齐, 消除收尾突变 */
     @Volatile var codeBlockBg: Int = CODE_BG
     @Volatile var inlineCodeBg: Int = INLINE_CODE_BG
+
+    /** 知识库图片池渲染(2026-10-19 阶段3): 详情页注入, 按相对路径(kb_images/...)加载本地图 */
+    @Volatile var kbImageLoader: ((path: String) -> Bitmap?)? = null
+    /** 图片显示最大宽度(px): 渲染前由宿主注入 TextView 可用宽度, 超宽等比缩放 */
+    @Volatile var kbImageMaxWidth: Int = 0
 
     fun toSpannable(md: MdSpans): CharSequence {
         if (md.displayText.isEmpty()) return md.displayText
@@ -81,9 +93,65 @@ object MdSpannable {
                     // 分割线: 零宽占位由 HrSpan 替换为横线(占满可用宽度, 与表格同机制)
                     sb.setSpan(HrSpan(density), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
+                MdSpanType.LIST_ITEM -> {
+                    // 无序列表: 圆点+缩进(前缀已在 parse 层剥离, 嵌套缩进由文本空格承担)
+                    // 嵌套列表圆点不跟随修复: 按 indentLevel 右移圆点, 与缩进后的内容对齐
+                    val level = sp.extra?.toIntOrNull() ?: 0
+                    sb.setSpan(LevelBulletSpan((12f * density).toInt(), level), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                MdSpanType.IMAGE -> {
+                    // 知识库图片池: 相对路径 -> 本地 Bitmap -> ImageSpan(等比缩放, 不超可用宽)
+                    val path = sp.extra ?: continue
+                    val bmp = kbImageLoader?.invoke(path)
+                    if (bmp != null && !bmp.isRecycled) {
+                        val w = if (kbImageMaxWidth > 0) kbImageMaxWidth else bmp.width
+                        val h = (bmp.height * (w.toFloat() / bmp.width)).toInt().coerceAtLeast(1)
+                        val scaled = if (w == bmp.width && h == bmp.height) bmp
+                            else Bitmap.createScaledBitmap(bmp, w, h, true)
+                        val d = BitmapDrawable(scaled).apply { setBounds(0, 0, w, h) }
+                        sb.setSpan(ImageSpan(d), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    } else {
+                        // 图片缺失: 灰字占位, 不崩
+                        sb.setSpan(ForegroundColorSpan(0xFF999999.toInt()), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                }
             }
         }
         return sb
     }
 
+}
+
+/**
+ * 无序列表圆点 span (修复嵌套列表圆点不跟随, 2026-10-19):
+ * 解析层 MdSpans 的 LIST_ITEM span 把嵌套缩进以空格写入 displayText,
+ * 系统 BulletSpan 圆点固定画行首, 导致嵌套项圆点与缩进后的内容错位。
+ * 本 span 按 indentLevel 用 paint 实测空格宽度, 将圆点右移到缩进后的正确位置;
+ * leading margin 保持与 BulletSpan 一致(2*gap), 折行缩进行为不回归。
+ */
+class LevelBulletSpan(
+    private val gapWidth: Int,
+    private val indentLevel: Int,
+    private val color: Int = 0xFF000000.toInt(),
+    private val bulletRadius: Int = 4
+) : LeadingMarginSpan {
+
+    override fun getLeadingMargin(first: Boolean): Int = 2 * gapWidth
+
+    override fun drawLeadingMargin(
+        canvas: Canvas, paint: Paint, x: Int, dir: Int,
+        top: Int, baseline: Int, bottom: Int,
+        text: CharSequence, start: Int, end: Int,
+        first: Boolean, layout: Layout
+    ) {
+        if (bulletRadius <= 0 || !first) return
+        // 缩进偏移: 每级 2 个空格, 用当前 paint 实测宽度(跟随字号/字距)
+        val spaceW = if (indentLevel > 0) paint.measureText("  ") * indentLevel else 0f
+        val cx = x + dir * (gapWidth + spaceW)
+        val cy = baseline + (bottom - top) / 2f - bulletRadius
+        val saved = paint.color
+        paint.color = color
+        canvas.drawCircle(cx, cy, bulletRadius.toFloat(), paint)
+        paint.color = saved
+    }
 }

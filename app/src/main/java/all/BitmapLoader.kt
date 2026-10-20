@@ -76,7 +76,7 @@ object BitmapLoader {
      * 注意：返回的位图归缓存所有，调用方【禁止 recycle】，只用于显示/绘制。
      */
     fun cachedSampled(path: String, key: String, maxSide: Int): Bitmap? {
-        sThumbCache.get(key)?.let { return it }
+        sThumbCache.get(key)?.takeIf { !it.isRecycled }?.let { return it }
         return decodeSampledFile(File(path), maxSide)?.also { sThumbCache.put(key, it) }
     }
 

@@ -77,7 +77,7 @@ object ApiConfig {
         val m = model.lowercase()
         return when {
             p.id == "mimo" || m.contains("mimo") -> setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_AUDIO, CAP_TOOL)
-            p.id == "deepseek" && m.contains("vision") -> setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_TOOL)
+            p.id == "deepseek" && (m.contains("vision") || m.contains("flash")) -> setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_TOOL)
             p.id == "deepseek" -> setOf(CAP_TEXT, CAP_TOOL)
             p.id == "zhipu" || m.contains("glm") -> setOf(CAP_TEXT, CAP_TOOL)
             m.contains("vl") || m.contains("vision") || m.contains("omni") -> setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)
@@ -100,6 +100,8 @@ object ApiConfig {
                 setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_TOOL)
             m.contains("audio") || m.contains("voice") || m.contains("speech") ->
                 setOf(CAP_TEXT, CAP_AUDIO, CAP_TOOL)
+            m.contains("deepseek") && m.contains("flash") ->
+                setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)
             m.contains("deepseek") || m.contains("gpt") || m.contains("qwen") || m.contains("glm") ||
                 m.contains("llama") || m.contains("gemini") || m.contains("claude") || m.contains("doubao") ||
                 m.contains("kimi") || m.contains("moonshot") || m.contains("spark") || m.contains("ernie") ->

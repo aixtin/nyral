@@ -107,11 +107,11 @@ import android.widget.Toast
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             setPadding(dp(16), dp(12), dp(16), 0)
-            // 中间区域顶部双按钮一行(2026-10-11): 左定时任务 / 右新会话
+            // 中间区域顶部按钮行(2026-10-19 老板): 任务 / 新会话 / 知识库(开关开启后显示)
             addView(LinearLayout(this@buildDrawer).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                // 左: 定时任务 (UI 占位, 功能待定)
+                // 左: 任务(原定时任务)
                 addView(TextView(this@buildDrawer).apply {
                     text = getString(R.string.mui_timer_task)
                     textSize = 15f
@@ -129,11 +129,11 @@ import android.widget.Toast
                     Ui.press(this)
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 })
-                // 两格间距
+                // 间距
                 addView(View(this@buildDrawer).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(12), dp(1))
+                    layoutParams = LinearLayout.LayoutParams(dp(6), dp(1))
                 })
-                // 右: 新会话
+                // 中: 新会话
                 addView(TextView(this@buildDrawer).apply {
                     text = getString(R.string.mui_new_chat)
                     textSize = 15f
@@ -147,6 +147,29 @@ import android.widget.Toast
                     Ui.press(this)
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 })
+                // 间距
+                addView(View(this@buildDrawer).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(6), dp(1))
+                })
+                // 右: 知识库(默认隐藏; 外观快捷开关开启后 openDrawer 显示)
+                addView(TextView(this@buildDrawer).apply {
+                    text = getString(R.string.appr_kb)
+                    textSize = 15f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(Ui.PRIMARY)
+                    gravity = Gravity.CENTER
+                    background = rounded(dp(16), Ui.PRIMARY_LIGHT)
+                    setPadding(0, dp(12), 0, dp(12))
+                    isClickable = true
+                    visibility = View.GONE
+                    setOnClickListener {
+                        this@buildDrawer.startActivity(
+                            android.content.Intent(this@buildDrawer, KnowledgeBaseActivity::class.java)
+                        )
+                    }
+                    Ui.press(this)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }.also { this@buildDrawer.kbEntryBtn = it })
             })
             addView(TextView(this@buildDrawer).apply {
                 text = getString(R.string.mui_records)
@@ -305,6 +328,8 @@ import android.widget.Toast
         imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
         drawerOpen = true
         refreshSessionList()
+        // 知识库入口显隐随开关联动(2026-10-19 老板): 开启则显示第三个入口, 关闭则隐藏
+        kbEntryBtn?.visibility = if (KnowledgeBaseConfig.isEnabled(this)) View.VISIBLE else View.GONE
         // 面板/遮罩/主界面下沉三路统一动画
         animateDrawer(true, 220)
     }
@@ -742,7 +767,7 @@ import android.widget.Toast
         dlg.show()
     }
 
-    /** 附件选择弹窗(PopupWindow 融合样式, 对齐模型弹窗): 相册/其他文件/音频; 相册与音频按当前模型能力置灰(预设=内置表, 手动=用户勾选) */
+    /** 附件选择弹窗(PopupWindow 融合样式, 对齐模型弹窗): 相册(图片+视频合并)/位置(占位)/其他文件; 相册按当前模型能力置灰 */
     internal fun MainActivity.showAttachSheet() {
         if (attachPopup?.isShowing == true) {
             dismissAttachPopup()
@@ -777,8 +802,10 @@ import android.widget.Toast
             }
             col.addView(tv)
         }
-        item(getString(R.string.mui_attach_album), hasImage) { pickImage() }
-        item(getString(R.string.mui_attach_video), hasVideo) { pickVideo() }
+        item(getString(R.string.mui_attach_album), hasImage || hasVideo) { pickMedia() }
+        item(getString(R.string.mui_attach_location), true) {
+            Toast.makeText(this@showAttachSheet, "原型占位: 位置待接入", Toast.LENGTH_SHORT).show()
+        }
         item(getString(R.string.mui_attach_other), true) { pickFile() }
         col.measure(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         val popH = col.measuredHeight

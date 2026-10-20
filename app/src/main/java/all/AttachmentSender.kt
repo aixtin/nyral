@@ -96,25 +96,13 @@ internal class AttachmentSender(private val host: MainActivity) {
         } catch (e: Exception) { /* meta 失败不阻断发送 */ }
     }
 
-    /** 当前模型是否支持视频输入(CAP_VIDEO): 不支持时小视频也走落库分流, 避免直传报错 */
-    private fun videoSupported(): Boolean =
-        ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_VIDEO)
-
     private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHintRes: Int): LocalEngine.Attachment? {
-        // 不因时长/大小拒绝: 小视频直发, 其余流式落库(附件+meta 同生共死)发索引卡
+        // 统一落库(附件+meta 同生共死)发索引卡: 不再直发视频字节, 由 AI 按需 video_frame 抽帧 / file_export
         val durMs = videoDurationMs(uri)
         // 先取大小(不整文件进内存, 修复大视频 OOM 闪退): openAssetFileDescriptor 拿 length 即可
         val size = try {
             host.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
         } catch (e: Exception) { -1L }
-        if (size in 1..SMALL_VIDEO_BYTES && durMs <= SMALL_VIDEO_SEC && videoSupported()) {
-            // 小视频直传: 整文件读入内存可控(≤10MB), base64 后随消息内联
-            val raw = MediaFileUtils.readAll(host.contentResolver, uri)
-            // 小视频直传时顺手生成 meta 存工作目录(供 AI 按需观看/抽帧参考)
-            writeVideoMeta(uri, name, raw.size.toLong())
-            return LocalEngine.Attachment(mime, Base64.encodeToString(raw, Base64.NO_WRAP), name)
-        }
-        // 大视频(>10MB 或 >30秒) 或不支持视频的模型(小视频也走此): 流式落私有附件库(附件+meta 同生共死), 消息只放索引卡, 不传 base64
         val meta = videoMetaJson(uri, name, size, mime, durMs)
         val key = try {
             host.contentResolver.openInputStream(uri)?.use { ins ->
@@ -131,9 +119,9 @@ internal class AttachmentSender(private val host: MainActivity) {
         return LocalEngine.Attachment(mime, "", key, stored = true)
     }
 
-    /** 图片(真实类型)处理: HEIC 实况图关联 motion 视频则转视频; GIF 动画转 MP4; 其余压缩 JPEG 直发 */
+    /** 图片(真实类型)统一落库: HEIC 实况图关联 motion 视频则转视频落库; GIF 动画转 MP4 落库; 其余压缩 JPEG 落库 */
     private fun imageAttachments(uri: Uri, name: String, real: String): List<LocalEngine.Attachment> {
-        // 实况图(LIVE photo): HEIC 查 MediaStore 关联 motion 视频, 命中即以视频发送(保留动态);
+        // 实况图(LIVE photo): HEIC 查 MediaStore 关联 motion 视频, 命中即以视频落库(保留动态);
         // 未命中回退静态压缩; 压缩失败回退静态 JPEG, 绝不阻断发送
         if (real == FormatSniffer.IMAGE_HEIC) {
             val mv = MediaFileUtils.motionVideoUriOf(host.contentResolver, uri)
@@ -144,21 +132,27 @@ internal class AttachmentSender(private val host: MainActivity) {
                 if (vAtt != null) return listOf(vAtt)
             }
             val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
-            return listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+            val meta = JSONObject().put("name", name).put("mime", "image/jpeg")
+                .put("size", bytes.size.toLong()).put("createdAt", System.currentTimeMillis())
+            val key = AttachmentStore.save(host, name, "image/jpeg", bytes, meta.toString())
+            return listOf(LocalEngine.Attachment("image/jpeg", "", key, stored = true))
         }
         if (real == FormatSniffer.IMAGE_GIF) {
-            val mp4Att = try {
+            val mp4Att: List<LocalEngine.Attachment>? = try {
                 val gifBytes = MediaFileUtils.readAll(host.contentResolver, uri)
                 if (gifBytes.size in 6..GIF_ANIM_MAX_BYTES && GifToMp4.isAnimated(gifBytes)) {
                     val f = File(host.cacheDir, "anim_${System.currentTimeMillis()}.mp4")
                     try {
                         val frames = GifToMp4.convert(gifBytes, f)
                         if (frames > 0 && f.length() in 1..MAX_VIDEO_BYTES.toLong()) {
-                            val mp4 = f.readBytes()
+                            val mp4Name = name.replace(Regex("\\.gif$", RegexOption.IGNORE_CASE), ".mp4")
+                            val meta = videoMetaJson(uri, mp4Name, f.length(), "video/mp4", 0L)
+                            val key = try {
+                                f.inputStream().use { ins -> AttachmentStore.saveStream(host, mp4Name, "video/mp4", ins, meta?.toString()) }
+                            } catch (e: Exception) { null }
                             f.delete()
-                            listOf(LocalEngine.Attachment(
-                                "video/mp4", Base64.encodeToString(mp4, Base64.NO_WRAP),
-                                name.replace(Regex("\\.gif$", RegexOption.IGNORE_CASE), ".mp4")))
+                            if (key != null) return listOf(LocalEngine.Attachment("video/mp4", "", key, stored = true))
+                            null
                         } else { f.delete(); null }
                     } catch (e: Exception) {
                         try { f.delete() } catch (_: Exception) {}
@@ -168,12 +162,17 @@ internal class AttachmentSender(private val host: MainActivity) {
             } catch (e: Exception) { null }
             if (mp4Att != null) return mp4Att
         }
+        // 普通图片/压缩失败回退: 统一压缩 JPEG 落库
         val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
         // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
-        return listOf(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), name))
+        val meta = JSONObject().put("name", name).put("mime", "image/jpeg")
+            .put("size", bytes.size.toLong()).put("createdAt", System.currentTimeMillis())
+        val key = AttachmentStore.save(host, name, "image/jpeg", bytes, meta.toString())
+        toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_image))
+        return listOf(LocalEngine.Attachment("image/jpeg", "", key, stored = true))
     }
 
-    /** 音频: 预算内直发(魔数真实 mime + m4a brand 修正), 超时长/超大流式落库发索引卡 */
+    /** 音频统一落库(魔数真实 mime 为准): 不再直发音频字节, 由 AI 按需 audio_read(支持音频输入的模型) / file_export */
     private fun audioOrStore(uri: Uri, name: String, realMime: String, claimedMime: String): List<LocalEngine.Attachment> {
         // 音频以魔数真实 mime 为准(扩展名可能说谎, 如 .aac 实为 MP3): 归一到模型认识的格式
         val effMime = if (realMime != FormatSniffer.UNKNOWN) realMime else claimedMime
@@ -181,24 +180,7 @@ internal class AttachmentSender(private val host: MainActivity) {
             host.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
         } catch (e: Exception) { -1L }
         val dur = audioDurationMs(uri)
-        if (size in 1..host.maxFileBytes && dur <= MAX_AUDIO_SEC) {
-            // 小音频直发: 整文件读入内存可控(≤maxFileBytes)
-            val raw = MediaFileUtils.readAll(host.contentResolver, uri)
-            // m4a: 部分设备/APP 生成 isom/mp42 容器, MiMo 仅接受 ftyp M4A; 修正 major_brand 避免 400
-            val finalRaw = if ((effMime.startsWith("audio/") || name.lowercase().endsWith(".m4a")) &&
-                raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
-                raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
-                val brand = String(raw, 8, 4)
-                if (brand != "M4A " && brand != "M4A\u0000") {
-                    val out = raw.clone()
-                    out[8] = 'M'.code.toByte(); out[9] = '4'.code.toByte()
-                    out[10] = 'A'.code.toByte(); out[11] = ' '.code.toByte()
-                    out
-                } else raw
-            } else raw
-            return listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(finalRaw, Base64.NO_WRAP), name))
-        }
-        // 大音频/超时长: 流式落库(不整文件进内存) + meta(时长/大小), 消息只放索引卡
+        // 统一流式落库(不整文件进内存) + meta(时长/大小), 消息只放索引卡
         val meta = videoMetaJson(uri, name, size, effMime, dur)
         val key = try {
             host.contentResolver.openInputStream(uri)?.use { ins ->
@@ -215,28 +197,58 @@ internal class AttachmentSender(private val host: MainActivity) {
         return listOf(LocalEngine.Attachment(effMime, "", key, stored = true))
     }
 
-    /** 文件兜底(文档/文本/未知/伪装媒体): 预算内小文件提取文本直发注入; 无法解析或超大流式落库发索引卡 */
+
     private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List<LocalEngine.Attachment> {
         val size = try {
             host.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
         } catch (e: Exception) { -1L }
-        // 预算内小文件: 尝试提取文本直发(模型可直接读)
+        // PDF: 一律流式落私有附件库 + 首轮预览前 3 页图(pdfSourceName 显示层隐藏) + 索引卡(含总页数与 pdf_page 指引)
+        if (isPdf) {
+            val meta = JSONObject()
+                .put("name", name).put("mime", claimedMime).put("size", size)
+                .put("realType", real).put("createdAt", System.currentTimeMillis())
+            val key = try {
+                host.contentResolver.openInputStream(uri)?.use { ins ->
+                    AttachmentStore.saveStream(host, name, claimedMime, ins, meta.toString())
+                } ?: run {
+                    toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, "open failed")
+                    return listOf()
+                }
+            } catch (e: Exception) {
+                toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
+                return listOf()
+            }
+            toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_file))
+            val atts = mutableListOf<LocalEngine.Attachment>()
+            if (ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
+                val f = AttachmentStore.fileOf(host, key)
+                if (f != null) {
+                    val (first, total) = renderPdfPageJpeg(f, 0)
+                    if (first != null && total > 0) {
+                        atts.add(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(first, Base64.NO_WRAP),
+                            "${name.removeSuffix(".pdf")}_p1.jpg").copy(pdfSourceName = name))
+                        for (i in 1 until minOf(total, 3)) {
+                            val (bytes, _) = renderPdfPageJpeg(f, i)
+                            if (bytes == null) break
+                            atts.add(LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP),
+                                "${name.removeSuffix(".pdf")}_p${i + 1}.jpg").copy(pdfSourceName = name))
+                        }
+                        atts.add(LocalEngine.Attachment("application/pdf", "", key, stored = true,
+                            text = "（PDF 已落私有附件库，共 $total 页；需要看任意页请调 pdf_page(name=\"att://$key\", page=页码, mode=\"image\"或\"text\")，按自身识图能力选 mode）"))
+                        return atts
+                    }
+                }
+            }
+            atts.add(LocalEngine.Attachment("application/pdf", "", key, stored = true,
+                text = "（PDF 已落私有附件库；需要看任意页请调 pdf_page(name=\"att://$key\", page=页码, mode=\"image\"或\"text\")，按自身识图能力选 mode）"))
+            return atts
+        }
+        // 预算内小文件(非PDF): 尝试提取文本直发(模型可直接读)
         if (size in 1..host.maxFileBytes) {
             val raw = MediaFileUtils.readAll(host.contentResolver, uri)
             val txt = DocTextExtractor.extract(name, raw)
             if (!txt.isNullOrBlank()) {
                 return listOf(LocalEngine.Attachment(claimedMime, Base64.encodeToString(raw, Base64.NO_WRAP), name, text = txt))
-            }
-            // 无文本层 PDF(扫描件)且模型支持图像: 渲染为图片走 image_url, 避免 MiMo 对 input_file 500
-            if (isPdf && ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
-                val imgs = pdfToImageAttachments(uri, name)
-                if (imgs.isNotEmpty()) {
-                    // 页图标记 pdfSourceName: 显示层隐藏(不铺图片网格), 仅作为 image_url 发给模型看图;
-                    // 追加 PDF 卡片附件: 气泡以文件卡片展示(点击进 PDF 全屏预览)
-                    return imgs.map { it.copy(pdfSourceName = name) } + listOf(
-                        LocalEngine.Attachment("application/pdf", Base64.encodeToString(raw, Base64.NO_WRAP), name,
-                            text = "（PDF 扫描件，已渲染为图片供查看）"))
-                }
             }
         }
         // 大文件或无法解析: 流式落库 + meta(真实类型/大小), 由 AI 按需读取/导出处理
@@ -363,6 +375,7 @@ internal class AttachmentSender(private val host: MainActivity) {
     }
 
     /** 附件显示名: 落库附件取 meta 中的原名, 否则原名 */
+    /** 附件显示名: 落库附件取 meta 中的原名, 否则原名 */
     private fun displayNameOf(att: LocalEngine.Attachment): String {
         if (!att.stored) return att.name
         return try {
@@ -380,8 +393,12 @@ internal class AttachmentSender(private val host: MainActivity) {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 background = rounded(dp(8), Ui.INPUT_BG)
                 try {
-                    val arr = Base64.decode(att.base64, Base64.NO_WRAP)
-                    val raw = BitmapFactory.decodeByteArray(arr, 0, arr.size)
+                    val raw = if (att.stored) {
+                        AttachmentStore.fileOf(host, att.name)?.let { BitmapFactory.decodeFile(it.absolutePath) }
+                    } else {
+                        val arr = Base64.decode(att.base64, Base64.NO_WRAP)
+                        BitmapFactory.decodeByteArray(arr, 0, arr.size)
+                    }
                     if (raw != null) {
                         val s = minOf(raw.width, raw.height)
                         val crop = Bitmap.createBitmap(raw, (raw.width - s) / 2, (raw.height - s) / 2, s, s)
@@ -422,48 +439,5 @@ internal class AttachmentSender(private val host: MainActivity) {
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
     }
 
-    /** 无文本层 PDF(扫描件): 用系统 PdfRenderer 渲染前几页为 JPEG, 走 image_url 让多模态模型看图。
-     *  返回空列表表示渲染失败。 */
-    private fun pdfToImageAttachments(uri: Uri, name: String): List<LocalEngine.Attachment> {
-        val list = mutableListOf<LocalEngine.Attachment>()
-        val pfd: ParcelFileDescriptor = try {
-            host.contentResolver.openFileDescriptor(uri, "r") ?: return list
-        } catch (e: Exception) { return list }
-        var renderer: PdfRenderer? = null
-        try {
-            renderer = PdfRenderer(pfd)
-            val maxPages = minOf(renderer.pageCount, 10)
-            for (i in 0 until maxPages) {
-                val page = renderer.openPage(i)
-                try {
-                    val w = page.width
-                    val h = page.height
-                    val scale = if (maxOf(w, h) > MAX_IMAGE_SIDE) MAX_IMAGE_SIDE.toFloat() / maxOf(w, h) else 1f
-                    val bmp = Bitmap.createBitmap(
-                        (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1),
-                        Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(Color.WHITE)
-                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    val out = ByteArrayOutputStream()
-                    bmp.compress(Bitmap.CompressFormat.JPEG, 82, out)
-                    if (out.size() > 3 * 1024 * 1024) {
-                        out.reset()
-                        bmp.compress(Bitmap.CompressFormat.JPEG, 68, out)
-                    }
-                    val bytes = out.toByteArray()
-                    bmp.recycle()
-                    list.add(LocalEngine.Attachment("image/jpeg",
-                        Base64.encodeToString(bytes, Base64.NO_WRAP), "${name.removeSuffix(".pdf")}_p${i + 1}.jpg"))
-                } finally {
-                    try { page.close() } catch (e: Exception) { /* 单页失败跳过 */ }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Nyral", "PDF 渲染失败", e)
-        } finally {
-            try { renderer?.close() } catch (e: Exception) { }
-            try { pfd.close() } catch (e: Exception) { }
-        }
-        return list
-    }
+    /** PDF 渲染已迁移: 发送时落库 + 首轮预览前 3 页 + pdf_page 工具按需翻页, 不再整段渲染直发 */
 }

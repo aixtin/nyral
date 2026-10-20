@@ -149,8 +149,7 @@ import android.util.LruCache
             return
         }
         if (md.length < 600) {   // 短文本同步渲染本就不卡, 直接走旧路径并回填缓存
-            MdSpannable.tableMaxWidth = renderW
-            synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md) }
+            setHistoryMd(tv, md, renderW)
             watchHeightDrift(tv)
             (tv.text as? Spanned)?.let { mdCache.put(md, it); writeback?.invoke(it) }
             tv.setTag(MainActivity.KEY_RENDER_MD, md)
@@ -174,7 +173,7 @@ import android.util.LruCache
             mdExecutor.execute {
                 MdSpannable.tableMaxWidth = renderW   // 阶段5: 异步现场渲染前注入同款表格宽度(与主线程现算一致)
                 val spanned = try {
-                    if (mdCache.get(md) == null) mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
+                    if (mdCache.get(md) == null) mdCache.put(md, renderHistoryMd(md, renderW))
                     mdCache.get(md)
                 } catch (e: Exception) { null }
                 if (spanned != null) runOnUiThread {
@@ -210,7 +209,7 @@ import android.util.LruCache
             // 仅打开会话瞬间发生且 prewarm 通常已命中大部分, 少数同步渲染小卡可接受;
             // 滚动中/流式中不走(防掉帧)
             MdSpannable.tableMaxWidth = renderW   // 阶段5: 同步现场渲染前注入同款表格宽度
-            synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md) }
+            setHistoryMd(tv, md, renderW)
             watchHeightDrift(tv)
             (tv.text as? Spanned)?.let { mdCache.put(md, it); writeback?.invoke(it) }
             tv.setTag(MainActivity.KEY_RENDER_MD, md)
@@ -225,7 +224,7 @@ import android.util.LruCache
         mdExecutor.execute {
             MdSpannable.tableMaxWidth = renderW   // 阶段5: 异步现场渲染前注入同款表格宽度(与主线程现算一致)
             val spanned = try {
-                if (mdCache.get(md) == null) mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
+                if (mdCache.get(md) == null) mdCache.put(md, renderHistoryMd(md, renderW))
                 mdCache.get(md)
             } catch (e: Exception) { null }
             if (spanned != null) runOnUiThread {
@@ -393,7 +392,7 @@ import android.util.LruCache
                         }
                         if (spanned == null) {
                             try {
-                                spanned = synchronized(markwonRenderLock) { markwon.toMarkdown(md) }
+                                spanned = renderHistoryMd(md, chatMaxW())
                                 mdCache.put(md, spanned)
 
                             } catch (e: Exception) { spanned = null }
@@ -415,17 +414,85 @@ import android.util.LruCache
             }
         }
     }
+    /** 轻量预判 Markdown 列表语法: 行首(可含引用/缩进前缀)为 -, *, + 或 数字. 等标记。
+     *  仅用于历史渲染路径选择: 含列表语法时接回自研 MdToSpans, 保证与流式一致的圆点/序号渲染 */
+    internal fun containsListSyntax(md: String): Boolean {
+        var inFence = false
+        for (line in md.split('\n')) {
+            val t = line.trim()
+            if (t.startsWith("```") || t.startsWith("~~~")) { inFence = !inFence; continue }
+            if (inFence) continue
+            val c = t.removePrefix(">").trim()
+            if (c.isEmpty()) continue
+            if (Regex("""^([-*+]|\d{1,9}[.)])\s+""").containsMatchIn(c)) return true
+            if (Regex("""^[-*+]\s+\[[ xX]\]""").containsMatchIn(c)) return true
+        }
+        return false
+    }
+
+    /** 历史渲染统一入口(2026-10-18 列表圆点丢失修复): 含列表语法走自研 MdToSpans(圆点随缩进文本),
+     *  其余保持 markwon 原路径。自研链失败回退 markwon, 保证渲染不中断。 */
+    internal fun MainActivity.renderHistoryMd(md: String, renderW: Int): Spanned? {
+        MdSpannable.tableMaxWidth = renderW
+        return if (containsListSyntax(md)) {
+            try {
+                val ms = MdToSpans.parse(md)
+                val cs = MdSpannable.toSpannable(ms)
+                cs as? Spanned
+            } catch (e: Exception) {
+                synchronized(markwonRenderLock) { markwon.toMarkdown(md) }
+            }
+        } else {
+            synchronized(markwonRenderLock) { markwon.toMarkdown(md) }
+        }
+    }
+
+    /** 历史同步上屏入口: 含列表语法走自研链, 否则 markwon.setMarkdown */
+    internal fun MainActivity.setHistoryMd(tv: TextView, md: String, renderW: Int) {
+        MdSpannable.tableMaxWidth = renderW
+        if (containsListSyntax(md)) {
+            try {
+                val ms = MdToSpans.parse(md)
+                tv.text = MdSpannable.toSpannable(ms)
+                return
+            } catch (e: Exception) { /* 回退 markwon */ }
+        }
+        synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md) }
+    }
+
     /** 轻量预判 Markdown 表格语法(竖线表): 首行含 |, 次行为分隔行(|---|) */
     internal fun containsTableSyntax(md: String): Boolean {
+        // 2026-10-18 加强: 允许表格行间存在空行——模型输出表格时偶发在行间插 \n\n,
+        // 原实现要求"表头行"与"分隔行"必须物理相邻, 空行插入后识别失败。
+        // 改为跳过空行, 遇到分隔行时回看上一个非空行是否为 | 开头表格行。
         val lines = md.split('\n')
-        if (lines.size < 2) return false
-        for (i in 0 until lines.size - 1) {
-            val l0 = lines[i].trim()
-            if (l0.startsWith("|") && l0.count { it == '|' } >= 2) {
-                val l1 = lines[i + 1].trim()
-                if (l1.startsWith("|") && l1.count { it == '|' } >= 2 &&
-                    l1.filter { it != '|' && it != '-' && it != ':' && it != ' ' }.isEmpty()) return true
+        var lastRow = -1
+        for (i in lines.indices) {
+            val t = lines[i].trim()
+            if (t.isEmpty()) continue
+            val isSepRow = t.startsWith("|") && t.count { it == '|' } >= 2 &&
+                t.filter { it != '|' && it != '-' && it != ':' && it != ' ' }.isEmpty()
+            if (isSepRow && lastRow >= 0) {
+                val prev = lines[lastRow].trim()
+                if (prev.startsWith("|") && prev.count { it == '|' } >= 2) return true
             }
+            lastRow = i
+        }
+        return false
+    }
+
+    /** 段落内是否含表格行序列(2026-10-18 表格不可拆兜底):
+     *  表格被空行拆散后, 只有数据行的片段不含"表头+分隔行"双行模式,
+     *  containsTableSyntax 会漏判 -> 超长时被硬切, 表格依旧断开。
+     *  只要段落内存在 >=2 个表格行(| 开头且含 >=2 竖线, 忽略空行)即视为表格内容,
+     *  不硬切、整段保留, 保证表格完整性优先于阈值。 */
+    private fun paraHasTableRows(para: String): Boolean {
+        var rows = 0
+        for (ln in para.split('\n')) {
+            val t = ln.trim()
+            if (t.isEmpty()) continue
+            if (t.startsWith("|") && t.count { it == '|' } >= 2) rows++
+            if (rows >= 2) return true
         }
         return false
     }
@@ -448,7 +515,9 @@ import android.util.LruCache
     }
 
     /** 长正文分片(阶段2 content 分片): 优先按段落边界切块, 每块不超过 SPLIT_CONTENT_LEN;
-     *  单段落超长(无空行长文/大段代码)按字符硬切, 与流式 appendContent 自动封段阈值一致 */
+     *  单段落超长(无空行长文/大段代码)按字符硬切, 与流式 appendContent 自动封段阈值一致。
+     *  表格不可拆(2026-10-18): 含表格语法的超长段落整体保留为一段(允许超阈值)——
+     *  按字符硬切会把表格从中间断开, 下半段丢失表头/分隔行后不再被识别为表格, 渲染为空白 */
     internal fun splitLongContent(raw: String): List<String> {
         if (raw.length <= SPLIT_CONTENT_LEN) return listOf(raw)
         val out = ArrayList<String>()
@@ -461,12 +530,17 @@ import android.util.LruCache
             if (para.length > SPLIT_CONTENT_LEN) {
                 // 单段落超长: 先清空缓冲, 再按字符硬切
                 if (sb.isNotEmpty()) { out.add(sb.toString().trim()); sb.setLength(0) }
-                var rest = para
-                while (rest.length > SPLIT_CONTENT_LEN) {
-                    out.add(rest.take(SPLIT_CONTENT_LEN))
-                    rest = rest.drop(SPLIT_CONTENT_LEN)
+                if (containsTableSyntax(para) || paraHasTableRows(para)) {
+                    // 含表格: 整段不切, 单独成段(宁超阈值不拆表格)
+                    out.add(para.trim())
+                } else {
+                    var rest = para
+                    while (rest.length > SPLIT_CONTENT_LEN) {
+                        out.add(rest.take(SPLIT_CONTENT_LEN))
+                        rest = rest.drop(SPLIT_CONTENT_LEN)
+                    }
+                    sb.append(rest)
                 }
-                sb.append(rest)
             } else {
                 if (sb.isNotEmpty()) sb.append("\n\n")
                 sb.append(para)

@@ -28,7 +28,7 @@
         </intent>
     </queries>
 
-    <application
+    <application android:name=".NyralApp"
         android:label="Nyral"
         android:icon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light"
@@ -258,6 +258,27 @@
             android:name=".AITerminalService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <activity
+            android:name=".KnowledgeBaseActivity"
+            android:exported="false"
+            android:label="知识库"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".KnowledgeEntryActivity"
+            android:exported="false"
+            android:label="知识详情"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".KnowledgeTrashActivity"
+            android:exported="false"
+            android:label="回收区"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
+            android:name=".KnowledgeAuditActivity"
+            android:exported="false"
+            android:label="变更审计"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
 
     </application>
 </manifest>

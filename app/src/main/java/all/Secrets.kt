@@ -18,16 +18,21 @@ object Secrets {
     private const val KEY_ALIAS = "nyral_app_secrets"
 
     fun encrypt(context: Context, plain: String): String {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(context))
-        val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
-        val iv = cipher.iv
-        val out = ByteArray(4 + iv.size + ct.size)
-        out[0] = (iv.size ushr 24).toByte(); out[1] = (iv.size ushr 16).toByte()
-        out[2] = (iv.size ushr 8).toByte(); out[3] = iv.size.toByte()
-        System.arraycopy(iv, 0, out, 4, iv.size)
-        System.arraycopy(ct, 0, out, 4 + iv.size, ct.size)
-        return Base64.encodeToString(out, Base64.NO_WRAP)
+        return try {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(context))
+            val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+            val iv = cipher.iv
+            val out = ByteArray(4 + iv.size + ct.size)
+            out[0] = (iv.size ushr 24).toByte(); out[1] = (iv.size ushr 16).toByte()
+            out[2] = (iv.size ushr 8).toByte(); out[3] = iv.size.toByte()
+            System.arraycopy(iv, 0, out, 4, iv.size)
+            System.arraycopy(ct, 0, out, 4 + iv.size, ct.size)
+            Base64.encodeToString(out, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            LogStore.e("SEC", "Keystore encrypt failed, fallback plain: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
+            plain
+        }
     }
 
     fun decrypt(context: Context, encoded: String): String? {

@@ -2,6 +2,7 @@ package io.github.aixtin.nyral
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 import org.json.JSONObject
@@ -162,6 +163,18 @@ object ToolExecutor {
                 val raw = jo?.optString("name") ?: ""
                 val name = raw.removePrefix("att://")
                 if (name.isBlank()) return@run "错误: 缺少 name(附件文件名)"
+                // 2026-10-19 防 PDF/二进制被当文本直读(曾把 PDF 原始字节返回模型, 撑爆 tools 字段导致闪退):
+                // 仅允许文本类附件; PDF 明确引导 pdf_page, 其他二进制引导对应工具。
+                val mime = AttachmentStore.mimeOf(context, name)
+                val ext = name.substringAfterLast('.', "").lowercase()
+                val isPdf = mime == "application/pdf" || ext == "pdf"
+                if (isPdf) {
+                    return@run "[attach_read] 附件 $name 是 PDF 文件，attach_read 只读 UTF-8 文本，不能直接读 PDF(会读到二进制结构)。请改用 pdf_page(name=\"att://$name\", page=页码, mode=\"image\"或\"text\") 按页查看；扫描件无文本层时用 mode=\"image\" 渲染页面图阅读。"
+                }
+                val textExts = setOf("txt", "md", "markdown", "log", "csv", "json", "xml", "html", "htm", "css", "js", "mjs", "ts", "java", "kt", "kts", "c", "cpp", "cc", "h", "hpp", "sh", "bash", "zsh", "py", "rb", "php", "go", "rs", "sql", "yml", "yaml", "toml", "ini", "cfg", "conf", "env", "properties", "bat", "cmd", "ps1", "gradle", "lock")
+                if (!mime.startsWith("text/") && !mime.startsWith("application/json") && !mime.startsWith("application/xml") && ext !in textExts) {
+                    return@run "[attach_read] 附件 $name 类型为 $mime，非 UTF-8 文本附件，attach_read 无法读取。请按类型使用对应工具：视频→video_frame、图片→image_view、音频→audio_read、PDF→pdf_page，或 file_export 导出到工作目录后处理。"
+                }
                 val offset = jo?.optInt("offset", 0) ?: 0
                 val limit = jo?.optInt("limit", 4000) ?: 4000
                 val total = AttachmentStore.textLength(context, name)
@@ -180,27 +193,125 @@ object ToolExecutor {
                     "grep" -> WorkTools.grep(context, arg)
                     "head" -> WorkTools.head(context, arg)
                     "stats" -> WorkTools.stats(context, arg)
-                    else -> "workdir 需指定 action: list/read/write/grep/head/stats"
+                    else -> "参数错误: workdir 必须带 action 字段(list/read/write/grep/head/stats), 当前调用缺少有效 action, 请带正确参数重试"
+                }
+            }
+            "pdf_page" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val rawName = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
+                if (rawName.isBlank()) return@run "错误: 缺少 name(附件PDF文件名)"
+                val page = jo?.optInt("page", 1) ?: 1
+                val mode = jo?.optString("mode", "image") ?: "image"
+                val f = AttachmentStore.fileOf(context, rawName) ?: return@run "错误: 附件未落盘(仅落库PDF可读取): $rawName"
+                val total = pdfPageCount(f)
+                if (total <= 0) return@run "错误: PDF 解析失败: $rawName"
+                if (page < 1 || page > total) return@run "错误: 页码超范围(共 $total 页): $page"
+                if (mode == "text") {
+                    val txt = try { PdfTextExtractor.extractPage(f.readBytes(), page) } catch (e: Exception) { null }
+                    if (txt.isNullOrBlank()) return@run "[pdf_page] 第 $page 页无文本层(扫描件/矢量图), 无法提取文字; 若模型支持识图可改用 mode=\"image\" 渲染该页图片查看"
+                    "[pdf_page] $rawName 第 $page/$total 页文本:\n$txt"
+                } else {
+                    val (bytes, _) = renderPdfPageJpeg(f, page - 1)
+                    if (bytes == null) return@run "错误: 第 $page 页渲染失败: $rawName"
+                    val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    "[pdf_page] $rawName 第 $page/$total 页已渲染, 页图已注入本轮供查看 FRAME:data:image/jpeg;base64,$b64"
                 }
             }
             "video_frame" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
                 val rawName = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
                 if (rawName.isBlank()) return@run "错误: 缺少 name(附件视频文件名)"
-                val timeMs = jo?.optLong("timeMs", 0L) ?: 0L
                 val f = AttachmentStore.fileOf(context, rawName) ?: return@run "错误: 附件未落盘(超预算大视频落库后才可抽帧): $rawName"
-                val frame = videoFrameAt(f, timeMs) ?: return@run "错误: 取帧失败(时间点超出范围或解码不支持): $rawName"
-                val w = frame.width; val h = frame.height
+                if (jo?.has("timeMs") == true) {
+                    // 单帧: 模型显式指定 timeMs; 超限请求必须拦截, 否则 MediaMetadataRetriever 会返回最后一帧并按传入 timeMs 伪造 @sec 标签(10s 视频抽出 14s/20s 的根因)
+                    val timeMs = jo.optLong("timeMs", 0L)
+                    val durationMs = videoDurationMs(f)
+                    if (durationMs > 0L && (timeMs < 0L || timeMs >= durationMs)) {
+                        return@run "错误: timeMs=$timeMs 超出视频时长 ${durationMs / 1000}s(${durationMs}ms), 该视频共 ${durationMs / 1000}s, 请传 0~${((durationMs - 1).coerceAtLeast(0L)) / 1000}s 内取帧"
+                    }
+                    val frame = videoFrameAt(f, timeMs) ?: return@run "错误: 取帧失败(时间点超出范围或解码不支持): $rawName"
+                    val w = frame.width; val h = frame.height
+                    val maxSide = maxOf(w, h)
+                    val scale = if (maxSide > 640) 640f / maxSide else 1f
+                    val bmp = if (scale < 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame
+                    if (bmp != frame) frame.recycle()
+                    val out = ByteArrayOutputStream()
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                    val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                    bmp.recycle()
+                    val sec = (timeMs + 500) / 1000
+                    "[video_frame] $rawName @${sec}s (视频共${durationMs / 1000}s) 已抽帧(${w}x${h}), 帧图已注入本轮供查看 FRAME:data:image/jpeg;base64,$b64"
+                } else {
+                    // 多帧采样(默认): 0s/30%/60%/95% 全注入, 根治"抽一帧判全程"
+                    val durationMs = videoDurationMs(f)
+                    // 时长信息一并回报, 让模型知道视频实际长度, 防止编造时长
+                    val times = autoFrameTimes(durationMs)
+                    val frames = videoFramesAt(f, times)
+                    val ok = frames.mapIndexedNotNull { i, bm -> if (bm != null) i to bm else null }
+                    if (ok.isEmpty()) return@run "错误: 取帧失败(解码不支持或文件损坏): $rawName"
+                    val w = ok.first().second.width; val h = ok.first().second.height
+                    val secs = ok.map { (i, _) -> (times[i] + 500) / 1000 }
+                    val parts = ArrayList<String>(ok.size)
+                    for ((_, frame) in ok) {
+                        val maxSide = maxOf(w, h)
+                        val scale = if (maxSide > 640) 640f / maxSide else 1f
+                        val bmp = if (scale < 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame
+                        if (bmp != frame) frame.recycle()
+                        val out = ByteArrayOutputStream()
+                        bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                        val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                        bmp.recycle()
+                        parts.add("FRAME:data:image/jpeg;base64,$b64")
+                    }
+                    "[video_frame] $rawName 多帧采样@${secs.joinToString("/")}s (视频共${durationMs / 1000}s) 共${ok.size}/${times.size}帧(${w}x${h}), 帧图已注入本轮供查看 ${parts.joinToString(" ")}"
+                }
+            }
+            "image_view" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val rawName = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
+                if (rawName.isBlank()) return@run "错误: 缺少 name(附件图片文件名)"
+                val f = AttachmentStore.fileOf(context, rawName) ?: return@run "错误: 附件未落盘(图片统一落库后才可读取): $rawName"
+                val bytes = try { f.readBytes() } catch (e: Exception) { return@run "错误: 读取失败: $rawName" }
+                val bmp = try {
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                } catch (e: Exception) { null } ?: return@run "错误: 图片解码失败(非图片或已损坏): $rawName"
+                val w = bmp.width; val h = bmp.height
                 val maxSide = maxOf(w, h)
-                val scale = if (maxSide > 640) 640f / maxSide else 1f
-                val bmp = if (scale < 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame
-                if (bmp != frame) frame.recycle()
+                val scale = if (maxSide > 1024) 1024f / maxSide else 1f
+                val outBmp = if (scale < 1f) Bitmap.createScaledBitmap(bmp, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else bmp
+                if (outBmp != bmp) bmp.recycle()
                 val out = ByteArrayOutputStream()
-                bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                outBmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                outBmp.recycle()
                 val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                bmp.recycle()
-                val sec = (timeMs + 500) / 1000
-                "[video_frame] $rawName @${sec}s 已抽帧(${w}x${h}), 帧图已注入本轮供查看 FRAME:data:image/jpeg;base64,$b64"
+                "[image_view] $rawName 已读取(${w}x${h}), 图片已注入本轮供查看 FRAME:data:image/jpeg;base64,$b64"
+            }
+            "audio_read" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val rawName = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
+                if (rawName.isBlank()) return@run "错误: 缺少 name(附件音频文件名)"
+                val f = AttachmentStore.fileOf(context, rawName) ?: return@run "错误: 附件未落盘(音频统一落库后才可读取): $rawName"
+                // 注入上限: 与直发预算一致, 超预算音频无法整段注入(API 限制), 应转 file_export 导出
+                val maxBytes = UploadConfig.maxMb().toLong() * 1024 * 1024
+                if (f.length() > maxBytes) return@run "[audio_read] $rawName 音频过大(${f.length() / 1024 / 1024}MB), 无法整段注入对话; 请提示用户: 已落库可调 file_export(name=\"att://$rawName\") 导出听取"
+                val raw = try { f.readBytes() } catch (e: Exception) { return@run "错误: 读取失败: $rawName" }
+                // m4a brand 修正: isom/mp42 → M4A, 保证 input_audio 可解析
+                val finalRaw = if (raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
+                    raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
+                    val brand = String(raw, 8, 4)
+                    if (brand != "M4A " && brand != "M4A ") {
+                        val out = raw.clone()
+                        out[8] = 'M'.code.toByte(); out[9] = '4'.code.toByte()
+                        out[10] = 'A'.code.toByte(); out[11] = ' '.code.toByte()
+                        out
+                    } else raw
+                } else raw
+                val mime = try {
+                    AttachmentStore.metaOf(context, rawName)?.let { JSONObject(it).optString("mime") }
+                        ?.takeIf { it.startsWith("audio/") } ?: "audio/mpeg"
+                } catch (e: Exception) { "audio/mpeg" }
+                val b64 = Base64.encodeToString(finalRaw, Base64.NO_WRAP)
+                "[audio_read] $rawName 已读取(${finalRaw.size / 1024 / 1024}MB), 音频已注入本轮供听取 AUDIO:data:$mime;base64,$b64"
             }
             "file_export" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
@@ -265,7 +376,11 @@ object ToolExecutor {
                 val timeout = jo?.optLong("timeoutMs", 8000L) ?: 8000L
                 if (code.isBlank()) "请指定 code(要执行的 JS 脚本)" else ScriptEngine.runJs(code, timeout)
             }
-            "sh_run" -> ScriptEngine.runShConfirmed(context, arg)
+            "sh_run" -> run {
+                val scriptRaw = try { JSONObject(arg.trim()).optString("script", "") } catch (e: Exception) { arg.trim() }
+                if (scriptRaw.isBlank()) return@run "错误: sh_run 缺少 script 参数(需提供要执行的脚本), 空调用无效, 请带 script 字段重试"
+                ScriptEngine.runShConfirmed(context, arg)
+            }
             "security_set" -> SecurityConfig.set(context, arg)
             "timer_task_create" -> timerTaskCreate(context, arg, silent)
             "tool_detail" -> {

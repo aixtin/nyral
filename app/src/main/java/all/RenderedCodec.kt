@@ -29,7 +29,7 @@ import org.json.JSONObject
  */
 object RenderedCodec {
 
-    const val VERSION = 1
+    const val VERSION = 2
 
     private const val KEY_V = "v"
     private const val KEY_TEXT = "text"

@@ -129,8 +129,11 @@ object LocalEngine {
         ToolSpec("ask_user", "当用户指令模糊/多义/缺关键信息、无法可靠推断时, 向用户当面澄清: 在手机弹原生选择框, 列出候选选项让用户点选(可选自定义输入)。用户的选择会作为本工具结果返回, 据此继续。仅在确实拿不准时才调用, 不要滥用", "JSON: {\"question\":\"要确认的问题\",\"options\":[\"选项1\",\"选项2\"],\"allow_custom\":true}"),
         ToolSpec("tool_detail", "查询未在回调列表中列出的工具的完整规格(描述+参数格式)并临时激活; 激活后该工具会加入本轮回调列表, 可直接 function calling 调用。当你想用 system 索引里看到但不在回调列表中的工具时, 先调本工具获取规格。", "JSON: {\"name\":\"工具名\"}"),
         ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
-        ToolSpec("video_frame", "从已落盘附件视频抽指定时间点画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(默认0)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(超预算大视频)。", "JSON: {\"name\":\"att://xxx.mp4\",\"timeMs\":10000}"),
-        ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}"),
+        ToolSpec("pdf_page", "从已落盘附件PDF按需读取指定页(按需翻页): 参数 {name: 附件文件名或 att:// 引用, page: 页码从1开始, mode: \"image\"渲染该页为图片注入对话(默认, 适合支持识图的模型) | \"text\"返回该页文字(适合无识图能力模型, 扫描件无文本层时会明确告知)}。PDF 附件发送时已落私有附件库, 首轮仅预览前几页; 需要看任意页(如用户指定页码)时调用, 按自身识图能力自行选择 mode", "JSON: {\"name\":\"att://xxx.pdf\",\"page\":89,\"mode\":\"text\"}"),
+        ToolSpec("video_frame", "从已落盘附件视频抽画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(选填; 不传时自动多帧采样 0/30%/60%/95% 时间点全部注入, 供整体判断视频内容; 传了则只抽该时间点单帧)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(统一落库后所有视频均已落盘)。用户要求拿到/交付帧图或视频文件时, 抽帧后必须调用 file_export 导出原视频。", "JSON: {\"name\":\"att://xxx.mp4\"} 或 {\"name\":\"att://xxx.mp4\",\"timeMs\":8000}"),
+        ToolSpec("image_view", "从已落盘附件图片按需读取查看(图片注入对话): 参数 {name: 附件文件名或 att:// 引用}。图片附件发送时已统一落私有附件库, 首轮仅放索引卡不发字节; 需要看图片内容时调用, 图片会注入本轮对话供模型参考(仅支持识图能力的模型有效)。", "JSON: {\"name\":\"att://xxx.jpg\"}"),
+        ToolSpec("audio_read", "从已落盘附件音频按需读取注入对话(供支持音频输入的模型听取): 参数 {name: 附件文件名或 att:// 引用}。音频附件发送时已统一落私有附件库, 首轮仅放索引卡不发字节; 仅支持音频输入能力的模型可调用注入听取, 不支持音频输入的模型不要调用, 应提示用户 file_export 导出。", "JSON: {\"name\":\"att://xxx.mp3\"}"),
+        ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}"),
         ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}"),
         ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}"),
         ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}")
@@ -169,7 +172,7 @@ object LocalEngine {
     /** 跨场景核心工具白名单: 永远注入完整 schema, 防冷启动雪藏 */
     private val TOOL_WHITELIST = setOf(
         "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
-        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "file_export", "security_set",
+        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "pdf_page", "image_view", "audio_read", "file_export", "security_set",
         "timer_task_create", "write_clipboard"
     )
 
@@ -372,6 +375,10 @@ object LocalEngine {
             "video_frame" -> obj(listOf("name", "timeMs"),
                 "name" to str("附件文件名(可带 att:// 前缀)"),
                 "timeMs" to int("目标时间点毫秒(默认0)", 0))
+            "image_view" -> obj(listOf("name"),
+                "name" to str("附件文件名(可带 att:// 前缀)"))
+            "audio_read" -> obj(listOf("name"),
+                "name" to str("附件文件名(可带 att:// 前缀)"))
             "write_clipboard" -> obj(listOf("text"),
                 "text" to str("要复制到手机系统剪贴板的完整文本(用户可粘贴到其他 App)"))
             "tool_detail" -> obj(listOf("name"),
@@ -510,7 +517,9 @@ object LocalEngine {
                         messages.put(JSONObject().put("role", "assistant").put("content",
                             "(已发起工具调用: " + toolCalls.joinToString(", ") { it.first } + ")"))
                         for ((name, result) in execResults) {
-                            val clean = if (name == "video_frame") result.substringBefore(" FRAME:data:image/jpeg;base64,") else result
+                            val clean = if (name == "video_frame" || name == "pdf_page" || name == "image_view") result.substringBefore(" FRAME:data:image/jpeg;base64,")
+                            else if (name == "audio_read") result.substringBefore(" AUDIO:data:")
+                            else result
                             messages.put(JSONObject().put("role", "user").put("content",
                                 "[工具 $name 执行结果]\n" + capOut(wrapToolResult(name, clean))))
                         }
@@ -520,21 +529,56 @@ object LocalEngine {
                             // 按 toolCalls 序号取对应 id: 并行同名工具各自独立, 防回填重复 tool_call_id
                             val toolCallId = res.idAt(i) ?: "call_${er.first}_$toolCount"
                             // video_frame 帧图剥离: tool 消息只回填文本摘要, 帧图由下方 user 消息注入(防 capOut 截断)
-                            val clean = if (er.first == "video_frame") er.second.substringBefore(" FRAME:data:image/jpeg;base64,") else er.second
+                            val clean = if (er.first == "video_frame" || er.first == "pdf_page" || er.first == "image_view") er.second.substringBefore(" FRAME:data:image/jpeg;base64,")
+                            else if (er.first == "audio_read") er.second.substringBefore(" AUDIO:data:")
+                            else er.second
                             messages.put(JSONObject().put("role", "tool")
                                 .put("tool_call_id", toolCallId)
                                 .put("content", capOut(wrapToolResult(er.first, clean))))
                         }
                     }
-                    // video_frame 帧图注入: 抽帧 base64 作为 image_url 追加 user 消息, 让模型本轮看到画面
+                    // 媒体注入: 按当前模型能力分流 —— 有 CAP_IMAGE 才注入 image_url, 有 CAP_AUDIO 才注入 input_audio;
+                    // 无对应能力时不发字节, 改为注入能力边界提示(避免非视觉/非音频模型收到媒体占位符误判通道故障)
+                    val curPid = ApiConfig.providerId()
+                    val curModel = ApiConfig.model()
+                    val canSeeImage = ApiConfig.modelHasCap(curPid, curModel, ApiConfig.CAP_IMAGE)
+                    val canHearAudio = ApiConfig.modelHasCap(curPid, curModel, ApiConfig.CAP_AUDIO)
                     for ((vName, vResult) in execResults) {
-                        if (vName == "video_frame" && vResult.contains(" FRAME:data:image/jpeg;base64,")) {
-                            val b64 = vResult.substringAfter(" FRAME:data:image/jpeg;base64,").trim()
-                            val imgArr = JSONArray()
-                                .put(JSONObject().put("type", "image_url")
-                                    .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$b64")))
-                                .put(JSONObject().put("type", "text").put("text", "（以上为 video_frame 抽取的视频帧图，请结合查看后继续）"))
-                            messages.put(JSONObject().put("role", "user").put("content", imgArr))
+                        if ((vName == "video_frame" || vName == "pdf_page" || vName == "image_view") && vResult.contains(" FRAME:data:image/jpeg;base64,")) {
+                            if (canSeeImage) {
+                                val b64 = vResult.substringAfter(" FRAME:data:image/jpeg;base64,").trim()
+                                val imgArr = JSONArray()
+                                    .put(JSONObject().put("type", "image_url")
+                                        .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$b64")))
+                                    .put(JSONObject().put("type", "text").put("text", "（以上为工具读取的画面图，请结合查看后继续）"))
+                                messages.put(JSONObject().put("role", "user").put("content", imgArr))
+                            } else {
+                                messages.put(JSONObject().put("role", "user").put("content",
+                                    "（工具 $vName 读取的画面图未能注入：当前模型 $curModel 不支持图片输入。请告知用户：当前模型无法识图，如需查看图片请切换到支持图片输入的模型，或使用 file_export 导出图片查看。）"))
+                            }
+                        } else if (vName == "audio_read" && vResult.contains(" AUDIO:data:")) {
+                            if (canHearAudio) {
+                                // data uri 形如 data:{mime};base64,{b64}, format 从 mime 归一化
+                                val dataUri = vResult.substringAfter(" AUDIO:data:").trim()
+                                val mime = dataUri.substringBefore(";base64,").removePrefix("data:")
+                                val b64 = dataUri.substringAfter(";base64,")
+                                val norm: Pair<String, String> = when {
+                                    mime.startsWith("audio/wav") || mime.startsWith("audio/x-wav") || mime.startsWith("audio/wave") -> "audio/wav" to "wav"
+                                    mime.startsWith("audio/mpeg") || mime.startsWith("audio/mp3") -> "audio/mpeg" to "mp3"
+                                    mime.startsWith("audio/mp4") || mime.startsWith("audio/x-m4a") || mime.startsWith("audio/m4a") -> "audio/mp4" to "m4a"
+                                    mime.startsWith("audio/flac") || mime.startsWith("audio/x-flac") -> "audio/flac" to "flac"
+                                    mime.startsWith("audio/ogg") || mime.startsWith("audio/opus") -> "audio/ogg" to "ogg"
+                                    else -> mime to mime.removePrefix("audio/").substringBefore("+").substringBefore(";")
+                                }
+                                val audArr = JSONArray()
+                                    .put(JSONObject().put("type", "input_audio")
+                                        .put("input_audio", JSONObject().put("data", "data:${norm.first};base64,$b64").put("format", norm.second)))
+                                    .put(JSONObject().put("type", "text").put("text", "（以上为工具读取的音频，请结合听取后继续）"))
+                                messages.put(JSONObject().put("role", "user").put("content", audArr))
+                            } else {
+                                messages.put(JSONObject().put("role", "user").put("content",
+                                    "（工具 audio_read 读取的音频未能注入：当前模型 $curModel 不支持音频输入。请告知用户：当前模型无法听取音频，如需听取请切换到支持音频输入的模型，或使用 file_export 导出音频。）"))
+                            }
                         }
                     }
                     // 若无有效输出且未达上限, 给模型一个继续指令
@@ -1227,6 +1271,12 @@ object LocalEngine {
                 names.joinToString("/") +
                 "。标记所在位置即气泡顺序(在正文前=表情先出现, 在末尾=正文先出现); 每轮最多 1~2 个, 仅在你觉得自然时使用, 严禁滥用或连续刷屏。\n"
         } else ""
+        // 视觉/视频多帧分析规则(2026-10-20): 根治"抽多帧仍按首帧概括全程"的模型端偷懒
+        val visionBlock = "\n【视频/多帧画面分析规则(重要)】当收到 video_frame 抽出的多帧画面(帧图带 @秒数 标签)或需要描述视频内容时:\n" +
+            "1. 必须逐帧分别描述: 按时间顺序逐帧列出一句话(如 帧1@0s:..., 帧2@4s:...), 明确指出各帧内容与光线/色彩差异;\n" +
+            "2. 禁止用第一帧或开头画面代表整个视频; 下“全程/整段/整体如何”结论前, 必须先确认你实际看到的所有时间点帧画面确实一致;\n" +
+            "3. 若各帧差异明显(明暗、饱和度、内容变化等), 必须如实指出前后反差, 严禁说“全程一样”;\n" +
+            "4. 视频整体判断必须基于全部已注入帧, 而不是只看其中一帧。\n"
         messages.put(JSONObject().put("role", "system").put("content",
             personaBlock +
             "根据用户需求选择工具。工具清单(名称+用途):\n" +
@@ -1238,7 +1288,7 @@ object LocalEngine {
             "调用方式: 使用系统提供的 function calling 原生工具调用(工具名与 JSON 参数已由系统给出 schema), 一次(轮)可并行发起多个工具; 不要自己发明不存在的工具名。" +
             "记忆使用: 若所需信息可能来自与此用户过去的对话且当前上下文未提及, 应调用 memory_search 查证后再回答; 工具调用过程中拿不准时也先查记忆再作答。\n" +
             (if (memInject.isNullOrBlank()) "" else memInject + "\n") +
-            (if (patHint.isNullOrBlank()) "" else patHint + "\n") + fmtRules + mdBan + emojiBlock))
+            (if (patHint.isNullOrBlank()) "" else patHint + "\n") + fmtRules + mdBan + emojiBlock + visionBlock))
         if (attachments.isEmpty()) {
             messages.put(JSONObject().put("role", "user").put("content", history))
         } else {
@@ -1247,12 +1297,25 @@ object LocalEngine {
             parts.put(JSONObject().put("type", "text").put("text", history))
             for (a in attachments) {
                 when {
-                    a.mime.startsWith("image/") ->
-                        parts.put(JSONObject().put("type", "image_url")
-                            .put("image_url", JSONObject().put("url", "data:${a.mime};base64,${a.base64}")))
+                    a.mime.startsWith("image/") -> {
+                        if (a.stored) {
+                            // 图片统一落私有附件库(2026-10-18): 不发 base64, 只放索引卡, AI 按需 image_view 注入
+                            val meta = try { AttachmentStore.metaOf(context, a.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
+                            val sizeB = meta?.optLong("size", 0L) ?: 0L
+                            val sizeStr = if (sizeB >= 1024 * 1024) String.format("%.1fMB", sizeB / 1024.0 / 1024.0)
+                                else if (sizeB >= 1024) String.format("%.1fKB", sizeB / 1024.0)
+                                else "${sizeB}B"
+                            val disp = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: a.name
+                            parts.put(JSONObject().put("type", "text")
+                                .put("text", "[图片附件 $disp | ${a.mime} | $sizeStr | 已落私有附件库 att://${a.name} | 图片字节未发送, 需看图片时调 image_view(name=\"att://${a.name}\") 注入查看]"))
+                        } else {
+                            parts.put(JSONObject().put("type", "image_url")
+                                .put("image_url", JSONObject().put("url", "data:${a.mime};base64,${a.base64}")))
+                        }
+                    }
                     a.mime.startsWith("audio/") -> {
                         if (a.stored) {
-                            // 大音频落私有附件库: 不发 base64, 只放索引卡, AI 按需 file_export 导出
+                            // 音频统一落私有附件库(2026-10-18): 不发 base64, 只放索引卡, AI 按需 audio_read(支持音频输入的模型) / file_export
                             val meta = try { AttachmentStore.metaOf(context, a.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
                             val durS = meta?.optLong("durationSec", 0L) ?: 0L
                             val sizeB = meta?.optLong("size", 0L) ?: 0L
@@ -1261,7 +1324,7 @@ object LocalEngine {
                                 else "${sizeB}B"
                             val disp = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: a.name
                             parts.put(JSONObject().put("type", "text")
-                                .put("text", "[大音频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 音频字节未发送, 需处理时调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
+                                .put("text", "[音频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 音频字节未发送: 支持音频输入的模型可调 audio_read(name=\"att://${a.name}\") 注入听取; 否则调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
                         } else {
                             // format/MIME 归一化: m4a/mp4/x-m4a→m4a, x-wav/wave→wav, mp3/mpeg→mp3, x-flac→flac, opus→ogg
                             val norm: Pair<String, String> = when {
@@ -1278,7 +1341,7 @@ object LocalEngine {
                     }
                     a.mime.startsWith("video/") -> {
                         if (a.stored) {
-                            // 大视频落私有附件库(阶段C): 不发 base64, 只放索引卡, AI 按需 video_frame 抽帧 / file_export 导出
+                            // 视频统一落私有附件库(2026-10-18): 不发 base64, 只放索引卡, AI 按需 video_frame 抽帧 / file_export 导出
                             val meta = try { AttachmentStore.metaOf(context, a.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
                             val durS = meta?.optLong("durationSec", 0L) ?: 0L
                             val sizeB = meta?.optLong("size", 0L) ?: 0L
@@ -1287,7 +1350,7 @@ object LocalEngine {
                                 else "${sizeB}B"
                             val disp = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: a.name
                             parts.put(JSONObject().put("type", "text")
-                                .put("text", "[大视频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 视频字节未发送, 需看画面时调 video_frame(name=\"att://${a.name}\", timeMs) 抽帧, 或调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
+                                .put("text", "[视频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 视频字节未发送, 需看画面时调 video_frame(name=\"att://${a.name}\", timeMs) 抽帧, 或调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
                         } else {
                             // MiMo 视频理解: content 数组 type=video_url, url 用 data:{mime};base64 内联
                             // 官方限制: base64 后 ≤50MB(原始约 ≤37MB), 支持 MP4/MOV/AVI/WMV

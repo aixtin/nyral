@@ -221,6 +221,7 @@ class MemoryListActivity : Activity() {
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
         row.addView(Ui.dangerBtn(this, getString(R.string.memory_btn_delete), {
             db.deleteMany(selectedIds.toList())
+            MemoryKeeper.rebuildSummary()
             dlg.dismiss()
             Toast.makeText(this, getString(R.string.memory_toast_deleted_selected, selectedIds.size), Toast.LENGTH_SHORT).show()
             exitMultiMode()
@@ -484,6 +485,7 @@ class MemoryListActivity : Activity() {
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
         row.addView(Ui.dangerBtn(this, getString(R.string.memory_btn_delete), {
             db.delete(mem.id)
+            MemoryKeeper.rebuildSummary()
             dlg.dismiss()
             refresh()
         }), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(8) })

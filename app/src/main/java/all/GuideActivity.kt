@@ -899,6 +899,8 @@ class GuideActivity : Activity() {
         fun score(m: String): Int {
             val s = m.lowercase()
             var sc = 0
+            // DeepSeek 特例(2026-10-18): 官方 V4.1 Flash 全面超越 V4 Pro 且已路由 v4-pro, 引导页须默认选 flash
+            if (s.contains("deepseek") && s.contains("flash")) return 10
             if (listOf("pro", "max", "plus", "ultra", "premium", "reasoner", "thinking", "think", "r1", "o1").any { s.contains(it) }) sc += 3
             if (listOf("vision", "vl", "omni", "multimodal").any { s.contains(it) }) sc += 1
             if (Regex("v?[0-9]+").containsMatchIn(s)) sc += 1

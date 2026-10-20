@@ -745,10 +745,10 @@ fun videoFrameAt(f: File, timeMs: Long): Bitmap? {
         }
         val t = timeMs.coerceAtLeast(0L)
         val attempts = arrayOf(
-            longArrayOf(t, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
             longArrayOf(t, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
-            longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
-            longArrayOf(1_000L, MediaMetadataRetriever.OPTION_CLOSEST.toLong())
+            longArrayOf(t, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
+            longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
+            longArrayOf(1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong())
         )
         var frame: Bitmap? = null
         for (a in attempts) {
@@ -757,6 +757,122 @@ fun videoFrameAt(f: File, timeMs: Long): Bitmap? {
         mmr.release()
         frame
     } catch (e: Exception) { null }
+}
+
+/** 视频时长(ms), 失败返回 0 */
+fun videoDurationMs(f: File): Long {
+    return try {
+        val mmr = MediaMetadataRetriever()
+        try {
+            val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
+        } catch (t: Throwable) {
+            mmr.setDataSource(f.absolutePath)
+        }
+        val d = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        mmr.release()
+        d
+    } catch (e: Exception) { 0L }
+}
+
+/** 自动采样点: 0s / 30% / 60% / 95% 处, 去重升序; 时长未知时兜底 0/1s/2s */
+fun autoFrameTimes(durationMs: Long): List<Long> {
+    if (durationMs <= 0L) return listOf(0L, 1_000L, 2_000L)
+    return listOf(
+        0L,
+        (durationMs * 0.3).toLong(),
+        (durationMs * 0.6).toLong(),
+        (durationMs * 0.95).toLong()
+    ).distinct().sorted()
+}
+
+/** 多帧采样: 一次打开 mmr 按 times 逐点抽帧(CLOSEST 优先 + CLOSEST_SYNC 兜底), 返回帧列表(单点失败为 null) */
+fun videoFramesAt(f: File, times: List<Long>): List<Bitmap?> {
+    return try {
+        val mmr = MediaMetadataRetriever()
+        try {
+            val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
+        } catch (t: Throwable) {
+            mmr.setDataSource(f.absolutePath)
+        }
+        val out = ArrayList<Bitmap?>(times.size)
+        for (t in times) {
+            val tc = t.coerceAtLeast(0L)
+            val attempts = arrayOf(
+                longArrayOf(tc, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
+                longArrayOf(tc, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
+                longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
+                longArrayOf(1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong())
+            )
+            var frame: Bitmap? = null
+            for (a in attempts) {
+                try { frame = mmr.getFrameAtTime(a[0], a[1].toInt()); if (frame != null) break } catch (t: Throwable) {}
+            }
+            out.add(frame)
+        }
+        mmr.release()
+        out
+    } catch (e: Exception) { emptyList() }
+}
+
+/** PDF 总页数(轻量, 仅打开拿 pageCount): 失败返回 0 */
+fun pdfPageCount(f: File): Int {
+    var pfd: android.os.ParcelFileDescriptor? = null
+    var renderer: android.graphics.pdf.PdfRenderer? = null
+    return try {
+        pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+        renderer = android.graphics.pdf.PdfRenderer(pfd)
+        renderer.pageCount
+    } catch (e: Exception) {
+        0
+    } finally {
+        try { renderer?.close() } catch (e: Exception) { }
+        try { pfd?.close() } catch (e: Exception) { }
+    }
+}
+
+/** PDF 指定页渲染为 JPEG(pdf_page 工具/发送预览用): FileDescriptor 直连 PdfRenderer, 返回 (JPEG字节, 总页数); 失败返回 (null, 0) */
+fun renderPdfPageJpeg(f: File, pageIndex: Int, maxSide: Int = 2048): Pair<ByteArray?, Int> {
+    var pfd: android.os.ParcelFileDescriptor? = null
+    var renderer: android.graphics.pdf.PdfRenderer? = null
+    return try {
+        pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+        renderer = android.graphics.pdf.PdfRenderer(pfd)
+        val total = renderer.pageCount
+        if (pageIndex < 0 || pageIndex >= total) {
+            null to total
+        } else {
+            val page = renderer.openPage(pageIndex)
+            try {
+                val w = page.width
+                val h = page.height
+                val scale = if (maxOf(w, h) > maxSide) maxSide.toFloat() / maxOf(w, h) else 1f
+                val bmp = Bitmap.createBitmap(
+                    (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1),
+                    Bitmap.Config.ARGB_8888)
+                bmp.eraseColor(Color.WHITE)
+                page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                val out = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 82, out)
+                if (out.size() > 3 * 1024 * 1024) {
+                    out.reset()
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 68, out)
+                }
+                val bytes = out.toByteArray()
+                bmp.recycle()
+                bytes to total
+            } finally {
+                try { page.close() } catch (e: Exception) { }
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.w("UiKit", "renderPdfPageJpeg 失败 pageIndex=$pageIndex", e)
+        null to 0
+    } finally {
+        try { renderer?.close() } catch (e: Exception) { }
+        try { pfd?.close() } catch (e: Exception) { }
+    }
 }
 
 /** 无重编码 remux 到 cache: 部分解码栈拒绝原文件(视频/容器兼容性问题), 用 MediaExtractor+MediaMuxer 原样重写容器后可正常播放; 失败返回 null */

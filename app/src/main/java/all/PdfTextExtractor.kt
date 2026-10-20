@@ -13,9 +13,18 @@ object PdfTextExtractor {
     /** 提取 PDF 文本, 最多 maxChars 字符(防止注入过大); 提取不到返回空串 */
     fun extract(data: ByteArray, maxChars: Int = 8000): String {
         try {
+            return extractPages(data).joinToString("\n").take(maxChars)
+        } catch (e: Exception) {
+            return ""
+        }
+    }
+
+    /** 提取全部页文本(不截断, 按 stream 近似一页): 无文本层的页不在结果中; 异常返回空列表 */
+    fun extractPages(data: ByteArray): List<String> {
+        val pages = mutableListOf<String>()
+        try {
             val text = String(data, Charsets.ISO_8859_1)
             val streamRe = Regex("stream\\r?\\n", RegexOption.IGNORE_CASE)
-            val pages = mutableListOf<String>()
             for (m in streamRe.findAll(text)) {
                 val start = m.range.last + 1
                 val endMark = text.indexOf("endstream", start)
@@ -30,10 +39,16 @@ object PdfTextExtractor {
                     if (pageTxt.isNotBlank()) pages.add(pageTxt)
                 }
             }
-            return pages.joinToString("\n").take(maxChars)
         } catch (e: Exception) {
-            return ""
+            return emptyList()
         }
+        return pages
+    }
+
+    /** 提取第 index 页(1-based)文本; 越界或无文本层返回 null */
+    fun extractPage(data: ByteArray, index: Int): String? {
+        val pages = extractPages(data)
+        return pages.getOrNull(index - 1)?.takeIf { it.isNotBlank() }
     }
 
     private fun tryInflate(raw: String): String? {

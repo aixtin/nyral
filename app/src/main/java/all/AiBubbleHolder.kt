@@ -31,15 +31,16 @@ internal var BUBBLE_AI_TEXT: Int = DefaultTheme.bubbleAiText
 internal var THINK_TEXT: Int = DefaultTheme.thinkText
 internal var THINK_BG: Int = DefaultTheme.thinkBg
 
-// 浏览器悬浮模式: 打开浏览器时文字类气泡背景透明化(看清内容同时透出浏览器), 图片/视频气泡不参与(背景为 null 或打 NO_FLOAT_TAG 标记)
-internal var chatFloatMode = false
-internal const val FLOAT_BUBBLE_ALPHA = 140   // 悬浮模式气泡背景 alpha, 约55%不透明, 可调
-/** 视频气泡等要求始终不透明的 view 打此 tag, 悬浮动画收集背景时跳过 */
+// 全局消息气泡透明度: 文字类气泡背景统一按 msgBubbleAlpha(0-255) 带 alpha, 与浏览器展开态解耦
+// 滑条 0-100 语义: 0=完全不透明(alpha 255), 100=全透明(alpha 0), 默认 60(alpha 102)
+// 图片/视频/文件气泡不跟随: 背景为 null 或打 NO_FLOAT_TAG 标记, 刷新遍历时跳过
+internal var msgBubbleAlpha = 255   // 由聊天背景页滑条换算后由 MainActivity 刷新, 255=完全不透明
+/** 图片/视频/文件等要求始终不透明的 view 打此 tag, 全局透明度遍历时跳过 */
 internal const val NO_FLOAT_TAG = "nyral_no_float_alpha"
 
-/** 悬浮模式取色: 文字类气泡背景色带 alpha, 普通模式原色 */
+/** 全局取色: 文字类气泡背景色统一带全局 alpha(0-255) */
 internal fun floatBubbleColor(base: Int): Int =
-    if (chatFloatMode) (base and 0x00FFFFFF) or (FLOAT_BUBBLE_ALPHA shl 24) else base
+    (base and 0x00FFFFFF) or (msgBubbleAlpha shl 24)
 
 /** 单段正文上限(字符): 流式累计超过立即封段另起气泡, 历史恢复按同阈值分片,
  *  避免超长回复单行超大 TextView 一次性全量 markdown 渲染卡顿(阶段2 content 分片) */
@@ -88,6 +89,14 @@ internal fun statusSummaryText(thinkChars: Int, toolCount: Int): String = buildS
 /** 脉络时间线(原地展开形态): 左侧竖线贯穿 + 段首 9dp 圆点衔接(手串意象),
  *  思考段=💭头深色块全文 / 工具段=🔧头深色块(名称/参数/结果), 事件间以圆点分段;
  *  onBody(事件序号, 内容块): 流式侧借此建立 block->视图映射实现展开态实时刷新 */
+/** 时间线全文安全截断(2026-10-20 v2): 思考与工具全文统一, 防超长 selectable 文本 DynamicLayout reflow 打爆主线程 */
+private fun safeTimelineText(raw: String, max: Int = 12000): String {
+    val text = raw.ifBlank { "…" }
+    val cnt = text.codePointCount(0, text.length)
+    return if (cnt <= max) text
+    else text.substring(0, text.offsetByCodePoints(0, max)) + "\n\n[内容过长, 已截断显示]"
+}
+
 internal fun buildStatusTimeline(
     host: MainActivity, events: List<StatusEvent>,
     onBody: ((Int, TextView) -> Unit)? = null
@@ -131,18 +140,23 @@ internal fun buildStatusTimeline(
             setTextColor(THINK_TEXT)
             maxWidth = host.chatMaxW()
             setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
-            background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
+            // 展开态思考/工具全文块: 不跟随全局透明度(透明会看不清全文), 打标记防就地刷新改色
+            tag = NO_FLOAT_TAG
+            background = rounded(host.dp(10), THINK_BG)
             elevation = host.dp(2).toFloat()   // 状态块阴影(2dp 次级)
             text = if (e.type == "think") {
-                if (e.text.isBlank()) "…" else e.text
+                if (e.text.isBlank()) "…" else safeTimelineText(e.text)
             } else {
-                buildString {
+                safeTimelineText(buildString {
                     append("工具：").append(e.name)
                     if (e.arg.isNotBlank()) append("\n参数：").append(e.arg)
                     if (e.result.isNotBlank()) append("\n结果：").append(e.result)
-                }
+                })
             }
             setTextIsSelectable(true)
+            // 2026-10-20 卡死修复 v2: 09:15 真机复现 LineBreaker ANR(3002ms) 证明 v1 未挡住; 策略移后防 selectable 重置
+            breakStrategy = 0   // TextView.BREAK_STRATEGY_SIMPLE
+            hyphenationFrequency = 0   // TextView.HYPHENATION_FREQUENCY_NONE
         }
         onBody?.invoke(i, body)
         val row = LinearLayout(host).apply {
@@ -203,6 +217,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val text = StringBuilder()
         var view: TextView? = null
         var done = false               // 该段已封段/整体完成: 不再追加, 剩余字符打完即收尾排版
+        var isTable = false            // 表格独立气泡(2026-10-18 方案C): 表格块独占一段, 不与其他内容混段
         var shownLen = 0
         var lastFrameNs = 0L
         var typeActive = false
@@ -562,7 +577,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             text = titleText
             textSize = 14f
             setTextColor(THINK_TEXT)
-            maxWidth = host.chatMaxW() - host.dp(24)
+            maxWidth = host.chatMaxW()
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
@@ -570,7 +585,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val detail = TextView(host).apply {
             textSize = 14f
             setTextColor(THINK_TEXT)
-            maxWidth = host.chatMaxW() - host.dp(24)
+            maxWidth = host.chatMaxW()
             setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
             background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
             elevation = host.dp(2).toFloat()   // 状态块阴影(2dp 次级)
@@ -947,6 +962,94 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         }
     }
 
+    /** 末尾是否处于未完成的表格行内(2026-10-18 表格不可拆, 10-18 加强):
+     *  取【最后一个非空行】判断——表格行输出后常跟 \n 或模型在行间插入空行,
+     *  只看末行会因空行/缩进误判而提前封段, 把表格拦腰截断。
+     *  改为跳过尾部空行, 最近的非空行以 | 开头且含 >=2 竖线即视为表格行,
+     *  延迟封段到表格输出完整(出现非表格内容)后再拆 */
+    private fun inTableTail(buf: StringBuilder): Boolean {
+        val s = buf.toString()
+        var end = s.length
+        while (end > 0 && (s[end - 1] == '\n' || s[end - 1] == '\r' || s[end - 1] == ' ')) end--
+        if (end <= 0) return false
+        var start = 0
+        for (j in end - 1 downTo 0) {
+            if (s[j] == '\n') { start = j + 1; break }
+        }
+        val line = s.substring(start, end).trim()
+        if (!line.startsWith("|")) return false
+        var pipes = 0
+        for (c in line) if (c == '|') pipes++
+        return pipes >= 2
+    }
+
+    /** 封段并挂占位/静默排版(超长分片与表格切段共用) */
+    private fun sealBlock(b: ContentBlock) {
+        b.done = true
+        activeContent = null
+        sealContentPlaceholder(b)   // 挂占位保持时间线顺序
+        renderSilent(b)             // 静默排版暂存
+    }
+
+    /** 新建正文段(独立气泡), 登记时间线 */
+    private fun newContentBlock(): ContentBlock {
+        val nb = ContentBlock()
+        activeContent = nb
+        contentBlocks.add(nb)
+        timelineEvents.add(nb)
+        return nb
+    }
+
+    /** 单行是否为表格行: trim 后以 | 开头且含 >=2 个竖线 */
+    private fun isTableLine(line: String): Boolean {
+        val t = line.trim()
+        if (!t.startsWith("|")) return false
+        var pipes = 0
+        for (c in t) if (c == '|') pipes++
+        return pipes >= 2
+    }
+
+    /** 从末尾往前找最后一个表格块的字符区间 [start, end):
+     *  表格行序列(| 开头且含 >=2 竖线), 允许块内空行与行前缩进; 跳过块尾空行;
+     *  若块尾有换行则包含进区间, 保证表格段行边界完整(缺换行会与后续文本粘连成一行);
+     *  找不到返回 null */
+    private fun findLastTableBlock(s: String): IntRange? {
+        val n = s.length
+        var end = n
+        while (end > 0 && (s[end - 1] == '\n' || s[end - 1] == '\r' || s[end - 1] == ' ')) end--
+        if (end <= 0) return null
+        var lineStart = 0
+        for (j in end - 1 downTo 0) { if (s[j] == '\n') { lineStart = j + 1; break } }
+        if (!isTableLine(s.substring(lineStart, end))) return null
+        var blockStart = lineStart
+        var cursor = lineStart - 1
+        while (cursor > 0) {
+            var ls = 0
+            for (j in cursor - 1 downTo 0) { if (s[j] == '\n') { ls = j + 1; break } }
+            val prev = s.substring(ls, cursor)
+            if (prev.trim().isEmpty()) { cursor = ls - 1; continue }
+            if (isTableLine(prev)) { blockStart = ls; cursor = ls - 1; continue }
+            break
+        }
+        var endEx = end
+        if (endEx < n && s[endEx] == '\n') endEx++
+        return IntRange(blockStart, endEx)
+    }
+
+    /** 从末尾往前找最后一个表格行的末尾索引(表格结束位置); 找不到返回 -1 */
+    private fun findLastTableLineEnd(s: String): Int {
+        var i = s.length
+        while (i > 0) {
+            var ls = 0
+            for (j in i - 1 downTo 0) { if (s[j] == '\n') { ls = j + 1; break } }
+            val line = s.substring(ls, i)
+            if (line.trim().isEmpty()) { i = ls - 1; continue }
+            if (isTableLine(line)) return i
+            i = ls - 1
+        }
+        return -1
+    }
+
     fun appendContent(text: String) {
         waitStage = ""   // 正文开始输出: 等待计时结束
         removeStatus()
@@ -968,13 +1071,49 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             timelineEvents.add(b)
         }
         b.text.append(text)
-        // 阶段2 超长分片: 累计超过阈值立即封段另起气泡(渲染压力分散——静默期排版暂存,
-        // 收尾直接上屏), 避免单段超大 TextView 收尾一次性全量 markdown 解析卡顿
-        if (b.text.length >= SPLIT_CONTENT_LEN) {
-            b.done = true
-            activeContent = null
-            sealContentPlaceholder(b)   // 挂占位保持时间线顺序
-            renderSilent(b)             // 静默排版暂存
+        // ===== 表格独立气泡(2026-10-18 方案C) =====
+        // 表格块识别为独立消息段, 不再与其他内容混在一个气泡, 从根本上消灭"表格被分片切断"。
+        // 判定: 段末尾处于表格行内 => 该段应为表格段; 否则应为普通段。
+        // 1) 普通段中出现表格行 -> 截出末尾表格块, 封普通段, 另起表格段
+        // 2) 表格段中出现非表格内容 -> 表格已结束, 封表格段, 另起普通段
+        // 3) 普通段累计超阈值封段(表格段不按阈值, 保证表格完整)
+        val tailInTable = inTableTail(b.text)
+        if (tailInTable && !b.isTable) {
+            val range = findLastTableBlock(b.text.toString())
+            if (range != null) {
+                val tablePart = b.text.substring(range.first, range.last)
+                b.text.setLength(range.first)
+                if (b.text.trim().isEmpty()) {
+                    // 表格从段开头开始: 不封段, 直接把当前段标记为表格段
+                    b.isTable = true
+                    b.text.append(tablePart)
+                } else {
+                    // 封掉前面的普通文本, 表格块单独成段
+                    sealBlock(b)
+                    b = newContentBlock()
+                    b.isTable = true
+                    b.text.append(tablePart)
+                }
+            }
+        } else if (!tailInTable && b.isTable) {
+            // 表格段内出现了非表格内容(表格已结束)
+            val end = findLastTableLineEnd(b.text.toString())
+            if (end > 0) {
+                val normalPart = b.text.substring(end)
+                b.text.setLength(end)
+                sealBlock(b)
+                b = newContentBlock()
+                b.text.append(normalPart)
+            } else if (end < 0) {
+                // 误标记(段内其实无表格行): 改回普通段
+                b.isTable = false
+            }
+        }
+        // 阶段2 超长分片: 普通段累计超过阈值立即封段另起气泡(渲染压力分散——静默期排版暂存,
+        // 收尾直接上屏), 避免单段超大 TextView 收尾一次性全量 markdown 解析卡顿。
+        // 表格段不按阈值封段——表格已独立成段, 允许超长, 完整性优先
+        if (!b.isTable && b.text.length >= SPLIT_CONTENT_LEN) {
+            sealBlock(b)
         }
         // 跟踪模型吐字速率: 用本次 delta 的字符数/间隔 更新 EMA(字符/秒), 供 tickFrame 自适应打字速度
         val nowNs = System.nanoTime()

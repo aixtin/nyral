@@ -441,8 +441,8 @@ private fun MainActivity.buildUploadGrid(): LinearLayout {
     }
     val cells = listOf(
         Triple(R.drawable.ic_upload_camera, "拍照", { Toast.makeText(this, "原型占位: 拍照待接入", Toast.LENGTH_SHORT).show() }),
-        Triple(R.drawable.ic_upload_image, "图片", { pickImage(); hideEmojiDrawer() }),
-        Triple(R.drawable.ic_upload_video, "视频", { pickVideo(); hideEmojiDrawer() }),
+        Triple(R.drawable.ic_upload_image, "相册", { pickMedia(); hideEmojiDrawer() }),
+        Triple(R.drawable.ic_upload_location, "位置", { Toast.makeText(this, "原型占位: 位置待接入", Toast.LENGTH_SHORT).show() }),
         Triple(R.drawable.ic_upload_file, "文件", { pickFile(); hideEmojiDrawer() })
     )
     cells.chunked(2).forEachIndexed { rowIdx, row ->
@@ -807,7 +807,7 @@ private fun MainActivity.refreshEmojiLib() {
 
 /** 选择表情库图片(多选), 选完走 handleEmojiLibPick 存库而非聊天发送 */
 internal fun MainActivity.pickEmojiLibImage() {
-    startPick(Intent.ACTION_GET_CONTENT, "image/*", REQ_EMOJI_PICK, "选择表情图片")
+    startPick(Intent.ACTION_OPEN_DOCUMENT, "image/*", REQ_EMOJI_PICK, "选择表情图片")
 }
 
 /** 系统选择器回调分流: 图片压缩落库到 filesDir/emoji_lib/, 随后逐个命名 */

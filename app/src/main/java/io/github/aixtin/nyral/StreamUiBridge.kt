@@ -17,6 +17,8 @@ internal class StreamUiBridge(
     private val session: ChatSessionState,
     private val uiScope: CoroutineScope,
 ) {
+    /** 本轮工具调用轨迹(name to argJSON), 供知识库沉淀解析 PDF 引用页快照; 每轮 new 实例天然清零 */
+    private val toolTrace = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String>>())
     /** 创建流式占位行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器 */
     fun prepareStreamingRow(holder: AiBubbleHolder) {
         // 流式行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器
@@ -53,6 +55,7 @@ internal class StreamUiBridge(
                 uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.collapseThinking() }
             }
             override fun onTool(name: String, arg: String) {
+                toolTrace.add(name to arg)
                 LogStore.i(LogStore.MAIN, "调用工具: $name")
                 activity.debugSseSink?.invoke("tool", "$name|$arg")
                 uiScope.launch {
@@ -128,11 +131,13 @@ internal class StreamUiBridge(
                             for ((pi, p) in replyParts.withIndex()) {
                                 val snap = if (pi == 0) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
                                 activity.messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))
-                                MemoryKeeper.push("assistant", p)
+                                MemoryKeeper.push("assistant", p, activity.replySessionId, activity.messages.size - 1)
                             }
                             activity.currentSaved = false
                             // 回复完成即时落库, 防止进程被杀丢失最后一条回复
                             activity.maybeSaveCurrent()
+                            // 阶段2 知识库自动沉淀: 一轮(用户+AI)完整落库后异步触发, 开关关/失败均静默, 不阻塞聊天
+                            KnowledgeSinker.maybeSink(activity, activity.currentSessionId, activity.sessionBaseSeq, activity.messages, toolTrace.toList())
                             // 兜底: 引擎重试后仍无正文时给出明确提示, 避免"思考了但没输出"静默空白
                             // 仅在仍是原会话时追加, 防止切会话后提示写入新会话
                             if (reply.isBlank()) activity.appendSys(activity.getString(R.string.ma_sys_no_reply))

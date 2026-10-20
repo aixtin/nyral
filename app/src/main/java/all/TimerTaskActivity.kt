@@ -68,7 +68,7 @@ class TimerTaskActivity : Activity() {
             setOnClickListener { finish() }
         })
         titleBar.addView(TextView(this).apply {
-            text = "定时任务"
+            text = "任务"
             textSize = 17f
             setTextColor(0xFF1A1A1A.toInt())
             gravity = Gravity.CENTER
@@ -105,7 +105,7 @@ class TimerTaskActivity : Activity() {
         val tasks = db.all()
         if (tasks.isEmpty()) {
             listBox.addView(TextView(this).apply {
-                text = "暂无定时任务\n点击右上角「＋ 新建」创建"
+                text = "暂无任务\n点击右上角「＋ 新建」创建"
                 textSize = 14f
                 setTextColor(0xFF9A9A9A.toInt())
                 gravity = Gravity.CENTER
@@ -237,7 +237,7 @@ class TimerTaskActivity : Activity() {
             }
         }
         AlertDialog.Builder(this)
-            .setTitle("停用定时任务")
+            .setTitle("停用任务")
             .setMessage(msg)
             .setPositiveButton("停用") { _, _ ->
                 db.setEnabled(t.id, false)
@@ -269,7 +269,7 @@ class TimerTaskActivity : Activity() {
             }
         }
         AlertDialog.Builder(this)
-            .setTitle("删除定时任务")
+            .setTitle("删除任务")
             .setMessage(msg)
             .setPositiveButton("删除") { _, _ ->
                 db.delete(t.id)
@@ -336,7 +336,7 @@ class TimerTaskActivity : Activity() {
         box.addView(cronEt)
         box.addView(allowTv)
         val dialog = AlertDialog.Builder(this)
-            .setTitle("新建定时任务")
+            .setTitle("新建任务")
             .setView(box)
             .setPositiveButton("创建", null)
             .setNegativeButton("取消", null)
@@ -387,7 +387,7 @@ class TimerTaskActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(12), dp(24), dp(4))
             addView(TextView(context).apply {
-                text = "勾选后, 定时任务静默执行时可直接使用这些危险工具, 不再逐次确认; 未勾选的仍会自动拒绝。"
+                text = "勾选后, 任务静默执行时可直接使用这些危险工具, 不再逐次确认; 未勾选的仍会自动拒绝。"
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setTextColor(0xFF888888.toInt())
             })

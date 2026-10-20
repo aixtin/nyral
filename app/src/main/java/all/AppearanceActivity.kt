@@ -3,6 +3,7 @@ package io.github.aixtin.nyral
 import io.github.aixtin.nyral.R
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -29,9 +30,6 @@ class AppearanceActivity : Activity() {
     private lateinit var mainTitleInput: EditText
     private lateinit var drawerTitleInput: EditText
     private lateinit var drawerNoteInput: EditText
-    private var mainTitleReady = false
-    private var drawerTitleReady = false
-    private var drawerNoteReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,12 +86,10 @@ class AppearanceActivity : Activity() {
             multiline = true
         ))
         cardTitle.addView(saveRow(getString(R.string.appr_11), getString(R.string.appr_12), {
-            if (mainTitleReady && drawerTitleReady && drawerNoteReady) {
                 TitleConfig.setMainTitle(mainTitleInput.text.toString().trim())
                 TitleConfig.setDrawerTitle(drawerTitleInput.text.toString().trim())
                 TitleConfig.setDrawerNote(drawerNoteInput.text.toString().trim())
                 Toast.makeText(this, getString(R.string.appr_13), Toast.LENGTH_SHORT).show()
-            }
         }))
         content.addView(cardTitle)
 
@@ -123,7 +119,7 @@ class AppearanceActivity : Activity() {
                 }) { showThemePicker() },
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
             })
-            // 行2：显示 MD / 输入澄清（设置页移入）
+            // 行2：显示 MD / 知识库 / 输入澄清
             addView(LinearLayout(this@AppearanceActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -132,11 +128,15 @@ class AppearanceActivity : Activity() {
                 addView(gridSwitch(R.drawable.ic_appr_md, 16, getString(R.string.appr_26), {
                     if (ModeConfig.chatMarkdown()) getString(R.string.appr_33) else getString(R.string.appr_34)
                 }) { ModeConfig.setChatMarkdown(!ModeConfig.chatMarkdown()) },
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(3) })
+                addView(gridSwitch(R.drawable.ic_appr_kb, 31, getString(R.string.appr_kb), {
+                    if (KnowledgeBaseConfig.isEnabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)
+                }) { toggleKnowledgeBase() },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(3); rightMargin = dp(3) })
                 addView(gridSwitch(R.drawable.ic_appr_ask, 22, getString(R.string.settings_ask_user), {
                     if (AskUserConfig.enabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)
                 }) { AskUserConfig.setEnabled(this@AppearanceActivity, !AskUserConfig.enabled(this@AppearanceActivity)) },
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(3) })
             })
             // 行3：AI 悬浮终端 / 行动轨道（方案A 原型开关）
             addView(LinearLayout(this@AppearanceActivity).apply {
@@ -157,6 +157,24 @@ class AppearanceActivity : Activity() {
         content.addView(cardGrid)
 
         setContentView(root)
+    }
+
+    /** 知识库开关(2026-10-19 老板): 关闭→直接关; 开启→弹实验性确认, 确定后才开启 */
+    private fun toggleKnowledgeBase() {
+        if (KnowledgeBaseConfig.isEnabled(this)) {
+            KnowledgeBaseConfig.setEnabled(this, false)
+            gridRefreshers.forEach { it() }
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.appr_kb_dialog_title))
+            .setMessage(getString(R.string.appr_kb_dialog_msg))
+            .setPositiveButton(getString(R.string.dialog_ok)) { _, _ ->
+                KnowledgeBaseConfig.setEnabled(this, true)
+                gridRefreshers.forEach { it() }
+            }
+            .setNegativeButton(getString(R.string.dialog_cancel), null)
+            .show()
     }
 
     /** 跳转卡状态刷新器（onResume 统一刷新，返回后反映最新背景/主题） */
@@ -268,6 +286,7 @@ class AppearanceActivity : Activity() {
             }
             fun refresh() { statusTv.text = status() }
             refresh()
+            gridRefreshers.add { refresh() }
             addView(Ui.iconBadgeRes(this@AppearanceActivity, iconRes, seed, sizeDp = 38))
             addView(TextView(this@AppearanceActivity).apply {
                 text = title

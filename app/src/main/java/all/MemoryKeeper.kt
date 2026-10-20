@@ -27,14 +27,19 @@ object MemoryKeeper {
     private const val IDLE_TIMEOUT_MS = 30 * 60 * 1000L // 30 分钟无消息 = 会话结束, 归档
     private const val CHUNK_CHARS = 800            // 归档块大小(字符), 每块一条向量
     private const val MAX_INDEX_TEXT = 6000        // 索引生成输入上限
+    private const val BATCH_SIZE = 10              // 每次向量化+落库的条数上限(2026-10-20 发热修复)
+    private const val BATCH_GAP_MS = 800L          // 批次间隔, 让出 CPU 防止持续 200% 占用
 
     private lateinit var appContext: Context
     private lateinit var db: MemoryDb
     private lateinit var embedder: MemoryEmbedder
 
-    // 独立单线程: 与主对话线程池互不干扰
+    // 独立单线程: 与主对话线程池互不干扰; 低优先级避免与前台交互抢 CPU(2026-10-20 发热修复)
     private val executor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "memory-keeper").apply { isDaemon = true }
+        Thread(r, "memory-keeper").apply {
+            isDaemon = true
+            priority = Thread.MIN_PRIORITY
+        }
     }
     private val archiving = AtomicBoolean(false)
 
@@ -50,9 +55,9 @@ object MemoryKeeper {
     }
 
     /** 主对话每轮消息实时入队(落盘, 不阻塞) */
-    fun push(role: String, content: String) {
+    fun push(role: String, content: String, sessionId: Long? = null, msgNo: Int? = null) {
         if (!::db.isInitialized) return
-        db.addPending(role, content)
+        db.addPending(role, content, sessionId, msgNo)
         // 用户明确表达"记住"意图时立即归档, 不等攒够阈值/空闲超时
         maybeArchive(force = role == "user" && content.contains("记住"))
     }
@@ -68,7 +73,7 @@ object MemoryKeeper {
         if (!archiving.compareAndSet(false, true)) return
         executor.execute {
             val ok = try {
-                archive(); true
+                archive()
             } catch (e: Exception) {
                 android.util.Log.e("MemoryKeeper", "归档异常", e)
                 false
@@ -79,16 +84,17 @@ object MemoryKeeper {
         }
     }
 
-    private fun archive() {
-        try {
+    private fun archive(): Boolean {
+        return try {
             // 语义模型未就绪: 触发下载, 本次归档暂缓(pending 保留, 下载完成后下次触发再归档)
+            // 2026-10-20 发热修复: 未就绪返回 false, 不再视为"成功"导致 maybeArchive 立即递归空转
             if (!embedder.isReady()) {
                 LogStore.i(LogStore.MEM, "语义模型未就绪, 触发下载, 归档暂缓")
                 ModelUpdater.ensureDownloaded()
-                return
+                return false
             }
             val batch = db.pendingAll()
-            if (batch.isEmpty()) return
+            if (batch.isEmpty()) return true
             // 每条消息带时间戳(如 user[09-02 14:30]: ...), 让原文记忆与主题索引都具备时间观念
             val text = batch.joinToString("\n") { p ->
                 val t = MemoryDb.fmtTs(p.ts)
@@ -96,14 +102,28 @@ object MemoryKeeper {
             }
             LogStore.i(LogStore.MEM, "开始归档: ${batch.size} 条 / ${text.length} 字符")
 
-            // 1) 原文分块 + 向量化(失败则整体放弃, pending 保留, 下次重试)
-            val chunks = chunkText(text, CHUNK_CHARS)
-                .filter { it.isNotBlank() }
-                .map { it to embedder.embed(it) }
-            LogStore.i(LogStore.MEM, "原文向量化完成: ${chunks.size} 块")
-
-            // 2) 原子"入库 + 清队列": 同一事务, 索引生成即使失败也不会导致同一批 pending 重复入库
-            db.consumePending(batch.map { it.id }, chunks, MemoryTools.sessionTitleProvider?.invoke())
+            // 1) 原文分块 + 向量化: 每条消息独立成块(不跨消息混合), 超长消息内部按行切块
+            //    每块携带来源指针(session_id + msg_no), 删除时按来源联动清同源块
+            // 2026-10-20 发热修复: 分批处理, 批间 sleep 让出 CPU, 防止大量 pending 一口气全量向量化导致持续 200% 占用
+            var processed = 0
+            while (processed < batch.size) {
+                val sub = batch.subList(processed, minOf(processed + BATCH_SIZE, batch.size))
+                val chunks = ArrayList<MemoryDb.PendingChunk>()
+                for (p in sub) {
+                    val line = if (MemoryDb.fmtTs(p.ts).isEmpty()) "${p.role}: ${p.content}" else "${p.role}[${MemoryDb.fmtTs(p.ts)}]: ${p.content}"
+                    for (seg in chunkText(line, CHUNK_CHARS)) {
+                        if (seg.isBlank()) continue
+                        chunks.add(MemoryDb.PendingChunk(seg, embedder.embed(seg), p.sessionId, p.msgNo))
+                    }
+                }
+                // 2) 原子"入库 + 清队列": 同一事务, 索引生成即使失败也不会导致同一批 pending 重复入库
+                db.consumePending(sub.map { it.id }, chunks, MemoryTools.sessionTitleProvider?.invoke())
+                processed += sub.size
+                if (processed < batch.size) {
+                    LogStore.i(LogStore.MEM, "批次 ${processed}/${batch.size} 已入库, 让出 CPU ${BATCH_GAP_MS}ms")
+                    Thread.sleep(BATCH_GAP_MS)
+                }
+            }
             LogStore.i(LogStore.MEM, "原文已入库")
 
             // 3) 生成主题索引(3~5条要点)合并进 summary, 供主AI自动注入当导航
@@ -124,10 +144,12 @@ object MemoryKeeper {
                 LogStore.w(LogStore.MEM, "索引生成失败(不影响原文): ${e.message}")
                 android.util.Log.w("MemoryKeeper", "索引生成失败(不影响原文): ${e.message}")
             }
+            true
         } catch (e: Exception) {
             // 归档失败(embed/DB异常): 队列保留, 下次触发自动重试
             LogStore.e(LogStore.MEM, "归档失败: ${e.message}")
             android.util.Log.e("MemoryKeeper", "归档失败", e)
+            false
         }
     }
 
@@ -145,6 +167,35 @@ object MemoryKeeper {
         }
         if (sb.isNotBlank()) chunks.add(sb.toString().trim())
         return chunks
+    }
+
+    /**
+     * 删除记忆后重建主题索引: 基于现存 memory 原文重新提炼, 丢弃已删内容;
+     * 失败静默不影响删除结果。执行于后台线程。
+     */
+    fun rebuildSummary() {
+        executor.execute {
+            try {
+                val rows = db.allContents()
+                if (rows.isEmpty()) {
+                    db.saveSummary("")
+                    LogStore.i(LogStore.MEM, "记忆已清空, summary 已清空")
+                    return@execute
+                }
+                val text = rows.joinToString("\n") { "[" + MemoryDb.fmtTs(it.ts) + "] " + it.content }
+                LogStore.i(LogStore.MEM, "重建主题索引: ${rows.size} 条 / ${text.length} 字符")
+                val newIdx = callIndex(text.take(MAX_INDEX_TEXT))
+                if (newIdx.isNotBlank()) {
+                    db.saveSummary(newIdx)
+                    LogStore.i(LogStore.MEM, "索引重建成功: ${newIdx.length} 字符")
+                } else {
+                    LogStore.w(LogStore.MEM, "索引重建为空, 跳过")
+                }
+            } catch (e: Exception) {
+                LogStore.w(LogStore.MEM, "索引重建失败: ${e.message}")
+                android.util.Log.w("MemoryKeeper", "索引重建失败: ${e.message}")
+            }
+        }
     }
 
     private fun callIndex(text: String): String {

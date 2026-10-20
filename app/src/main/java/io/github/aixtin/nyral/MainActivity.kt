@@ -300,6 +300,7 @@ class MainActivity : Activity() {
     internal val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
     private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
     internal val REQ_EMOJI_PICK = 1008  // 表情库选图: 结果存表情库而非聊天发送
+    internal val REQ_MEDIA = 1009  // 相册(图片+视频混合): 系统 Photo Picker, 低版本降级 DocumentsUI
     // 图片压缩上限: 最长边/质量
     internal val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
     // 录音: 上限 60 秒 / 10MB(语音消息足够, 超限直接拒)
@@ -379,6 +380,8 @@ class MainActivity : Activity() {
     private lateinit var mainTitleText: TextView
     internal lateinit var drawerTitleText: TextView
     internal lateinit var drawerNoteText: TextView
+    /** 汉堡页知识库入口按钮(2026-10-19): 默认隐藏, 外观快捷开关开启知识库后 openDrawer 显示 */
+    internal var kbEntryBtn: TextView? = null
     internal lateinit var tokenPanelCtx: TextView
     internal lateinit var tokenPanelSess: TextView
     // 抽屉头部右上角搜索迷你框: 初始仅图标, 点击向左展开成可输入态
@@ -1323,88 +1326,6 @@ class MainActivity : Activity() {
         root.addView(browserPage.root, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END))
         root.addView(main)
-        // 悬浮切换动画结束后: 把所有流式行 bubbleBox 内部文字类气泡背景统一到目标色(颜色通道带目标 alpha),
-        // 流式行是独立 View 常驻 bubbleBox, 不随 item 重绘, 需主动收尾(滚出滚回不再闪变)
-        // 关键: 只改颜色值, 不再碰 drawable.alpha——否则与颜色里的 alpha 叠加相乘, 会出现 30% 级过透(用户反馈"100→30→50")
-        // 注: Kotlin 局部函数不可前向引用, 必须先于 animateBubbleFloat 声明
-        fun applyFloatAlphaToStreaming(float: Boolean) {
-            val list = chatAdapter.currentList
-            for (i in list.indices) {
-                val row = list[i]
-                if (row !is ChatRow.Streaming) continue
-                row.bubbleBox?.let { box ->
-                    fun apply(v: View) {
-                        if (v.tag == NO_FLOAT_TAG) return
-                        (v.background as? android.graphics.drawable.GradientDrawable)?.let { d ->
-                            val cur = d.color?.defaultColor ?: 0
-                            if (cur != 0) {
-                                val rgb = cur and 0x00FFFFFF
-                                val g = d.mutate() as android.graphics.drawable.GradientDrawable
-                                g.setColor(
-                                    if (float) rgb or (FLOAT_BUBBLE_ALPHA shl 24)
-                                    else rgb or 0xFF000000.toInt()
-                                )
-                            }
-                        }
-                        if (v is ViewGroup) for (j in 0 until v.childCount) apply(v.getChildAt(j))
-                    }
-                    apply(box)
-                }
-            }
-        }
-
-        // 悬浮模式气泡背景渐变: 打开浏览器 原色→半透明色, 关闭还原; 全程只做颜色值渐变(ofArgb 思路),
-        // 与 floatBubbleColor 的"颜色里带 alpha"保持同一通道, 杜绝 drawable.alpha × 颜色 alpha 双重叠加;
-        // 图片/视频气泡(背景 null 或 NO_FLOAT_TAG)跳过; 普通消息滚出视野的行由 notifyDataSetChanged 重绘兜底,
-        // 流式行(bubbleBox 常驻)由 applyFloatAlphaToStreaming 统一到目标色(滚出滚回一致)
-        // 注: Kotlin 局部函数不可前向引用, 两个辅助函数必须先于 setChatFloatMode 声明
-        fun animateBubbleFloat(float: Boolean) {
-            // 关键: 先切全局取色状态, 动画结束后的 notifyDataSetChanged 重绘/新建气泡才能取到带 alpha 的目标色,
-            // 否则动画只改了可见行背景, 重绘瞬间又按普通模式原色弹回(表现为"闪一下恢复原样")
-            chatFloatMode = float
-            // 注意: 不做 notifyDataSetChanged 全量重绑——重绑+scrollToPositionWithOffset 恢复位置会触发整表重绘两帧,
-            // 表现为气泡"闪/抖动"; 普通行滚回时 onBind 会按 chatFloatMode 取目标色, 流式行由 applyFloatAlphaToStreaming 兜底
-            val targets = ArrayList<android.graphics.drawable.GradientDrawable>()
-            val fromColors = ArrayList<Int>()
-            fun collect(v: View) {
-                if (v.tag == NO_FLOAT_TAG) return
-                (v.background as? android.graphics.drawable.GradientDrawable)?.let { g ->
-                    val cur = g.color?.defaultColor ?: 0
-                    if (cur != 0) {
-                        targets.add(g.mutate() as android.graphics.drawable.GradientDrawable)
-                        fromColors.add(cur)
-                    }
-                }
-                if (v is ViewGroup) for (i in 0 until v.childCount) collect(v.getChildAt(i))
-            }
-            for (i in 0 until chatRec.childCount) collect(chatRec.getChildAt(i))
-            if (targets.isEmpty()) {
-                // 无可见气泡: 流式兜底保证状态一致(不重绑, 避免整表闪动)
-                applyFloatAlphaToStreaming(float)
-                return
-            }
-            android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 250
-                addUpdateListener { va ->
-                    val t = va.animatedValue as Float
-                    val evaluator = android.animation.ArgbEvaluator()
-                    for (idx in targets.indices) {
-                        val g = targets[idx]
-                        val rgb = fromColors[idx] and 0x00FFFFFF
-                        val to = if (float) rgb or (FLOAT_BUBBLE_ALPHA shl 24) else rgb or 0xFF000000.toInt()
-                        g.setColor(evaluator.evaluate(t, fromColors[idx], to) as Int)
-                    }
-                }
-                addListener(object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: android.animation.Animator) {
-                        // 流式行背景统一目标色(普通行滚回 onBind 自动取新色, 不做全量重绑防闪动)
-                        applyFloatAlphaToStreaming(float)
-                    }
-                })
-                start()
-            }
-        }
-
         // 悬浮聊天模式: 浏览器打开时 main 底部让出接管按钮区并半透明化; 接管时聊天层沉底(GONE)
         fun setChatFloatMode(float: Boolean) {
             // 接管按钮/欢迎文字已上移到输入框上方控制条, main 不再让出底部空间(输入框贴底)
@@ -1446,7 +1367,6 @@ class MainActivity : Activity() {
                 browserBarToggle.rotation = 0f
                 removeCollapseMasks()
             }
-            animateBubbleFloat(float)
         }
         // 动画开始前先收缩浏览器窗口到中间区域(标题栏下~输入框上), 消除"先全屏再跳变"闪一下
         browserPage.onPreOpen = {
@@ -2010,6 +1930,29 @@ class MainActivity : Activity() {
         }
         // 顶栏/输入框栏透明化(普通透明 / 静态毛玻璃), 消息区不参与
         applyBarStyle()
+        // 全局消息气泡透明度: 按聊天背景页滑条换算 alpha 并刷新已渲染气泡(文字类; 图片/视频/文件跳过)
+        msgBubbleAlpha = (100 - ChatBackgroundActivity.loadMsgAlpha(this)) * 255 / 100
+        refreshMsgAlphaOnBubbles()
+    }
+
+    /** 全局消息气泡透明度就地刷新: 遍历已渲染气泡背景, 统一写入全局 alpha;
+     *  图片(背景 null)/视频/文件(NO_FLOAT_TAG)跳过; 流式行 bubbleBox 常驻同样刷新 */
+    private fun refreshMsgAlphaOnBubbles() {
+        val alpha = msgBubbleAlpha
+        fun apply(v: View) {
+            if (v.tag == NO_FLOAT_TAG) return
+            (v.background as? android.graphics.drawable.GradientDrawable)?.let { d ->
+                val cur = d.color?.defaultColor ?: 0
+                if (cur != 0) {
+                    val g = d.mutate() as android.graphics.drawable.GradientDrawable
+                    g.setColor((cur and 0x00FFFFFF) or (alpha shl 24))
+                }
+            }
+            if (v is ViewGroup) for (j in 0 until v.childCount) apply(v.getChildAt(j))
+        }
+        for (i in 0 until chatRec.childCount) apply(chatRec.getChildAt(i))
+        val list = chatAdapter.currentList
+        for (row in list) if (row is ChatRow.Streaming) row.bubbleBox?.let { apply(it) }
     }
 
     /** 顶栏/输入框栏透明样式: 按聊天背景页设置重挂背景
@@ -2108,10 +2051,22 @@ class MainActivity : Activity() {
         lastAvatarStamp = stamp
         // AI 正在输出时跳过, 避免打断流式渲染(其后的新气泡自然使用新头像)
         if (session.aiBusy || messages.isEmpty() || !::chatAdapter.isInitialized) return
-        val lm = chatRec.layoutManager as? LinearLayoutManager
-        val pos = lm?.findFirstVisibleItemPosition() ?: 0
-        buildRowsFromMessages()
-        chatRec.post { lm?.scrollToPosition(pos) }
+        // DiffUtil 不感知头像(areContentsTheSame 只比较文本字段), 池化行 bind 也不更新头像,
+        // 重建列表无法让旧气泡换图, 只能遍历可见 ViewHolder 直接替换头像内容
+        // 同时清空形态池: 池化行复用旧 View 树不重建, 换头像时未在屏上的行滚回仍显旧图(新旧头像交替)
+        chatAdapter.clearPool()
+        aiAvatarPool.clear()
+        chatRec.post {
+            val lm = chatRec.layoutManager as? LinearLayoutManager ?: return@post
+            val first = lm.findFirstVisibleItemPosition()
+            val last = lm.findLastVisibleItemPosition()
+            if (first < 0 || last < first) return@post
+            for (i in first..last) {
+                val root = chatRec.findViewHolderForAdapterPosition(i)?.itemView ?: continue
+                root.findViewWithTag<TextView>(AVATAR_AI_TAG)?.let { bindAvatar(it, isAi = true) }
+                root.findViewWithTag<TextView>(AVATAR_USER_TAG)?.let { bindAvatar(it, isAi = false) }
+            }
+        }
     }
 
 
@@ -2168,7 +2123,8 @@ class MainActivity : Activity() {
 
     /** 折叠手柄点按: 展开/收起控制条(接管按钮+状态), 手柄 ⌃→⌄ 旋转 */
     internal fun toggleBrowserBar() {
-        browserBarExpanded = !browserBarExpanded
+        try {
+            browserBarExpanded = !browserBarExpanded
         browserBar.animate().cancel()
         browserBarToggle.animate().cancel()
         if (browserBarExpanded) {
@@ -2184,6 +2140,9 @@ class MainActivity : Activity() {
             removeCollapseMasks()
         }
         browserBarToggle.animate().rotation(if (browserBarExpanded) 180f else 0f).setDuration(160).start()
+        } catch (e: Exception) {
+            Log.e(TAG, "toggleBrowserBar error", e)
+        }
     }
 
     /** 展开控制条时盖住其它区域: 点击浏览器/聊天区自动收回; 控制条与手柄在遮罩之上不受影响 */
@@ -2363,6 +2322,8 @@ class MainActivity : Activity() {
     // ===== 滑动丝滑优化（09-28）：形态池化 =====
     // 气泡定位标记：chatWrap 容器内唯一标识气泡 View（User/Ai 池化行使用）
     private val POOLED_BUBBLE_TAG = "nyral_pooled_bubble_" + System.identityHashCode(this)
+    private val AVATAR_AI_TAG = "nyral_avatar_ai_" + System.identityHashCode(this)
+    private val AVATAR_USER_TAG = "nyral_avatar_user_" + System.identityHashCode(this)
     // ===== 滑动丝滑优化（09-28 第二波）：AiRich 行内部池化 =====
     internal val aiRichSegPool = ArrayList<TextView>()      // AiRich 正文分片 TextView 池
     internal val aiRichWrapPool = ArrayList<LinearLayout>() // AiRich chatWrap(横向容器)池
@@ -2396,7 +2357,7 @@ class MainActivity : Activity() {
                 if (b is TextView) {
                     b.text = renderUserContent(row.content)
                     val userMaxW = if (ModeConfig.chatMode()) chatMaxW()
-                    else (chatMaxW() - dp(24)).coerceAtLeast(dp(120))
+                    else chatMaxW()
                     (b.layoutParams as? LinearLayout.LayoutParams)?.width =
                         if (row.content.length > 60) userMaxW else ViewGroup.LayoutParams.WRAP_CONTENT
                 }
@@ -2405,7 +2366,7 @@ class MainActivity : Activity() {
                 val b = v.findViewWithTag<View>(POOLED_BUBBLE_TAG)
                 if (b is TextView) {
                     if (ModeConfig.chatPlainText()) b.text = ModeConfig.stripMarkdownForChat(row.content.trim())
-                    else setMarkdownCached(b, ModeConfig.stripChatProtocolPrefix(row.content.trim()), row.rendered) { spanned -> writeBackRendered(row.id, spanned) }
+                    else setMarkdownCached(b, ModeConfig.stripChatProtocolPrefix(row.content.trim()), row.rendered, writeback = { spanned -> writeBackRendered(row.id, spanned) })
                 }
             }
             is ChatRow.Sys -> if (v is TextView) v.text = row.text
@@ -2795,7 +2756,7 @@ class MainActivity : Activity() {
         val maxW = chatMaxW()
         // Agent 模式用户右气泡最大宽=chatBox内容宽(屏宽-左右padding 12dp*2), 与AI同为全屏幅宽且左右对称;
         // 不可用全屏w: 全屏w+END右对齐且可用区<气泡宽时左边缘偏移为负→左边越出屏幕
-        val userMaxW = if (ModeConfig.chatMode()) maxW else (maxW - dp(24)).coerceAtLeast(dp(120))
+        val userMaxW = if (ModeConfig.chatMode()) maxW else maxW
         // 专门表情气泡(微信式96dp小图贴边): 表情库项统一入口, 优先于视频/图片链路;
         // 识别 [表情:xxx] 新标记 + 历史兼容(emoji_lib/ 路径的视频/图片消息); 非表情/异常回退原链路
         val emojiView = try { emojiBubble(content, isUser, if (isUser) userMaxW else maxW) } catch (e: Exception) { null }
@@ -2847,7 +2808,11 @@ class MainActivity : Activity() {
                 if (fname != null) setOnClickListener { togglePlayAudio(fname) }
             }
             // 纯图/纯视频气泡: 背景改透明, 气泡形态完全由图片圆角(dp14)体现, 彻底消除四角蓝色边线
-            background = if (edgeImage) null else rounded(dp(14), floatBubbleColor(if (isUser) BUBBLE_USER else BUBBLE_AI))
+            // 文件气泡不跟随全局透明度: 打 NO_FLOAT_TAG + 原色背景, 刷新遍历跳过
+            if (isFileCard) tag = NO_FLOAT_TAG
+            background = if (edgeImage) null else rounded(dp(14),
+                if (isFileCard) (if (isUser) BUBBLE_USER else BUBBLE_AI)
+                else floatBubbleColor(if (isUser) BUBBLE_USER else BUBBLE_AI))
             if (!edgeImage) elevation = dp(3).toFloat()   // 历史气泡阴影(媒体气泡无背景不投影)
             maxWidth = if (isUser) userMaxW else maxW
             layoutParams = LinearLayout.LayoutParams(
@@ -3520,8 +3485,16 @@ class MainActivity : Activity() {
                         }
                     }
                 } else if (bmp != null) {
-                    // 图片: 圆角化贴合气泡贴边, 替换为缩略图, 同时保留点击打开原图
-                    val rb = roundedBitmap(bmp, dp(14))
+                    // 图片: 等比缩放到气泡可用宽内再圆角化, 替换为缩略图, 同时保留点击打开原图。
+                    // 修超宽大图(如 4096x2304)采样后仍 > 气泡可用宽时, span 按原宽绘制右侧被
+                    // TextView maxWidth 直切 -> 右上/右下圆角整块丢失; 先缩到 <= 可用宽杜绝裁剪
+                    val imgTw = chatMaxW()
+                    val sc = (imgTw.toFloat() / bmp.width).coerceAtMost(1f)
+                    val dw = (bmp.width * sc).toInt().coerceAtLeast(1)
+                    val dh = (bmp.height * sc).toInt().coerceAtLeast(1)
+                    val src = if (dw == bmp.width && dh == bmp.height) bmp.copy(Bitmap.Config.ARGB_8888, true)
+                              else Bitmap.createScaledBitmap(bmp, dw, dh, true)
+                    val rb = roundedBitmap(src, dp(14))
                     val d = BitmapDrawable(resources, rb)
                     d.setBounds(0, 0, rb.width, rb.height)
                     sb.setSpan(BubbleImageSpan(d), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -3532,7 +3505,7 @@ class MainActivity : Activity() {
                     // 视频: 首帧缩略图(带播放三角) 像图片一样内嵌气泡, 点击进入 App 内视频预览
                     // 统一 16:9 全宽卡片(与 videoLoopBubble 内嵌播放器同尺寸策略): 名额满/大视频降级路径
                     // 若按 200dp 自然尺寸渲染, 竖屏视频会变成窄条小气泡(用户 09-19 反馈), 故 center-crop 到全宽卡片
-                    val tw = (if (ModeConfig.chatMode()) chatMaxW() else chatMaxW() - dp(24)).coerceAtLeast(dp(120))
+                    val tw = chatMaxW()
                     val th = (tw * 9 / 16).coerceAtMost(dp(340)).coerceAtLeast(dp(60))
                     // 纯画面卡片, 不叠加播放三角(用户 09-19 反馈"播放按钮能不能去掉"):
                     // 内嵌播放器本就无按钮, 缩略图保持一致观感, 点击气泡进全屏预览
@@ -3547,7 +3520,7 @@ class MainActivity : Activity() {
                     // 取帧进行中: 先渲染 16:9 深色占位(与缩略图同尺寸同圆角), 避免"文件卡片(矮)→16:9缩略图"
                     // 整行高度突变导致 重启/切会话/积压消息涌入 时整屏反复跳动闪烁(09-19 用户反馈首屏闪烁);
                     // 取帧完成回调重建文本时只换画面不跳高度, 视觉平滑无闪烁
-                    val tw = (if (ModeConfig.chatMode()) chatMaxW() else chatMaxW() - dp(24)).coerceAtLeast(dp(120))
+                    val tw = chatMaxW()
                     val th = (tw * 9 / 16).coerceAtMost(dp(340)).coerceAtLeast(dp(60))
                     val ph = android.graphics.Bitmap.createBitmap(tw, th, android.graphics.Bitmap.Config.ARGB_8888)
                     ph.eraseColor(0xFF101318.toInt())
@@ -3651,21 +3624,9 @@ class MainActivity : Activity() {
     /** 从会话历史恢复的 AI 回复: 思考/工具/正文各自独立气泡, 按 timeline 记录的真实顺序竖向排列 */
     /** AI 头像: 圆形深灰蓝底 + 固定 N(Nyral), 放气泡上方(与 MD 排版解耦) */
     private fun aiAvatar(): TextView = TextView(this@MainActivity).apply {
-        val s = dp(30)
-        val custom = AvatarConfig.avatarDrawable(AvatarConfig.aiAvatarFile(), s)
-        if (custom != null) {
-            background = custom
-        } else {
-            text = "N"
-            textSize = 15f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#5A6478"))
-            }
-        }
-        layoutParams = LinearLayout.LayoutParams(s, s).apply {
+        tag = AVATAR_AI_TAG
+        bindAvatar(this, isAi = true)
+        layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply {
             bottomMargin = dp(4)
         }
         // 点击 AI 头像进入 AI 个性化（原设置页入口已移除）
@@ -3676,21 +3637,29 @@ class MainActivity : Activity() {
 
     /** 用户头像: 圆形蓝底"我", 聊天模式用户消息右侧并排 */
     private fun userAvatar(): TextView = TextView(this@MainActivity).apply {
+        tag = AVATAR_USER_TAG
+        bindAvatar(this, isAi = false)
+        layoutParams = LinearLayout.LayoutParams(dp(30), dp(30))
+    }
+
+    /** 按当前 AvatarConfig 填充头像: 自定义圆形图优先, 否则默认文字圆(换头像后旧气泡实时更新复用) */
+    private fun bindAvatar(v: TextView, isAi: Boolean) {
         val s = dp(30)
-        val custom = AvatarConfig.avatarDrawable(AvatarConfig.userAvatarFile(), s)
+        val file = if (isAi) AvatarConfig.aiAvatarFile() else AvatarConfig.userAvatarFile()
+        val custom = AvatarConfig.avatarDrawable(file, s)
         if (custom != null) {
-            background = custom
+            v.background = custom
+            v.text = ""
         } else {
-            text = getString(R.string.ma_me)
-            textSize = 15f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
+            v.text = if (isAi) "N" else getString(R.string.ma_me)
+            v.textSize = 15f
+            v.setTextColor(Color.WHITE)
+            v.gravity = Gravity.CENTER
+            v.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Ui.PRIMARY)
+                setColor(if (isAi) Color.parseColor("#5A6478") else Ui.PRIMARY)
             }
         }
-        layoutParams = LinearLayout.LayoutParams(s, s)
     }
 
     /** 聊天模式: 气泡与头像并排(AI头像左/用户头像右); Agent 模式原样返回 */
@@ -3753,6 +3722,7 @@ class MainActivity : Activity() {
     private fun bindAiRichPooled(container: LinearLayout, row: ChatRow.AiRich) {
         recycleAiRichChildren(container)
         fillAiRich(container, row.thinking, row.content, row.tools, row.timeline, row.rendered) { spanned -> writeBackRendered(row.id, spanned) }
+
     }
 
     /** 回收 AiRich 容器子树：chatWrap 容器/分片 TextView/AI 头像各自入池，保证下次 bind 干净复用 */
@@ -3836,7 +3806,7 @@ class MainActivity : Activity() {
                     }
                     isLongClickable = true
                 }
-                bv.setRenderContext(chatMaxW(), chatMaxW() - dp(24), BUBBLE_AI_TEXT, Ui.PRIMARY, Ui.INPUT_BG)
+                bv.setRenderContext(chatMaxW(), chatMaxW(), BUBBLE_AI_TEXT, Ui.PRIMARY, Ui.INPUT_BG)
                 bv.bindBlocks(blocks)
                 return bv
             }
@@ -4080,7 +4050,7 @@ class MainActivity : Activity() {
             isClickable = true   // 拦截点击不穿透到底层
         }
         panel.addView(tl, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         // 定位: summary 窗口坐标 -> chatArea 内坐标(锚点正下方, 窗帘向下垂)
         val sLoc = IntArray(2); summary.getLocationInWindow(sLoc)
         val cLoc = IntArray(2); chatArea.getLocationInWindow(cLoc)
@@ -4088,7 +4058,16 @@ class MainActivity : Activity() {
         val gap = dp(8)   // 面板与气泡间距(09-27 用户反馈: 顶部边框贴太近)
         val top = sLoc[1] - cLoc[1] + summary.height + gap
         // 目标高度: 内容全高 clamp 到聊天区可视下边界(dp(12) 留白), 超高时面板内 ScrollView 可滚动
-        val wMax = summary.width.coerceAtLeast(dp(120)).coerceAtMost(chatMaxW())
+        // 宽度解耦(2026-10-20): 展开面板不固定跟随 summary 宽; 先按内容自然宽测量,
+        // 再 clamp 到 [max(summary宽,120dp), 各模式最大宽 chatMaxW] 之间, 宽度随内容自适应
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        val naturalW = panel.measuredWidth.coerceAtLeast(dp(120))
+        val rightLimit = (chatArea.width - dp(12) - left).coerceAtLeast(dp(120))
+        val wMaxLimit = minOf(chatMaxW(), rightLimit)
+        val wMax = naturalW.coerceIn(summary.width.coerceAtLeast(dp(120)), wMaxLimit)
+        // 最终宽度重测高度(宽度 clamp 后文本换行变化, 高度需按最终宽重算)
         panel.measure(
             View.MeasureSpec.makeMeasureSpec(wMax, View.MeasureSpec.AT_MOST),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
@@ -4330,19 +4309,49 @@ class MainActivity : Activity() {
 
 
     internal fun pickImage() {
-        startPick(Intent.ACTION_GET_CONTENT, "image/*", REQ_IMAGE, "选择图片")
+        startPick(Intent.ACTION_OPEN_DOCUMENT, "image/*", REQ_IMAGE, "选择图片")
     }
 
     internal fun pickVideo() {
-        startPick(Intent.ACTION_GET_CONTENT, "video/*", REQ_VIDEO, "选择视频")
+        startPick(Intent.ACTION_OPEN_DOCUMENT, "video/*", REQ_VIDEO, "选择视频")
     }
 
     internal fun pickFile() {
-        startPick(Intent.ACTION_GET_CONTENT, "*/*", REQ_FILE, "选择文件")
+        startPick(Intent.ACTION_OPEN_DOCUMENT, "*/*", REQ_FILE, "选择文件")
+    }
+
+    /** 相册: 图片+视频混合选择. 13+ 走系统 Photo Picker(可多选), 低版本降级 DocumentsUI 混合 MIME */
+    internal fun pickMedia() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            try {
+                startActivityForResult(
+                    Intent(MediaStore.ACTION_PICK_IMAGES)
+                        .putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, 6)
+                        .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*")),
+                    REQ_MEDIA
+                )
+                return
+            } catch (e: Exception) {
+                // 设备无 Photo Picker 组件, 降级 DocumentsUI
+            }
+        }
+        startPickMixedMime(REQ_MEDIA)
+    }
+
+    /** 低版本混合 MIME 选择: OPEN_DOCUMENT 同时放行 image 与 video */
+    internal fun startPickMixedMime(code: Int) {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
+            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        try {
+            startActivityForResult(i, code)
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.toast_picker_fail, e.message), Toast.LENGTH_SHORT).show()
+        }
     }
 
     internal fun pickAudio() {
-        startPick(Intent.ACTION_GET_CONTENT, "audio/*", REQ_AUDIO, "选择音频")
+        startPick(Intent.ACTION_OPEN_DOCUMENT, "audio/*", REQ_AUDIO, "选择音频")
     }
 
     /** 表情库项发送转发: attachmentSender 为 private, 扩展函数经此入口调用 */
@@ -4361,7 +4370,7 @@ class MainActivity : Activity() {
         val i = Intent(action).setType(type).addCategory(Intent.CATEGORY_OPENABLE)
             .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         try {
-            startActivityForResult(Intent.createChooser(i, title), code)
+            startActivityForResult(i, code)
         } catch (e: Exception) {
             Toast.makeText(this, getString(R.string.toast_picker_fail, e.message), Toast.LENGTH_SHORT).show()
         }

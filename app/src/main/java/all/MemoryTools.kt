@@ -68,7 +68,7 @@ object MemoryTools {
             if (e.isReady()) {
                 try {
                     val qv = e.embed(query)
-                    val scored = d.all().map { mem ->
+                    val scored = d.allCached().map { mem ->
                         Triple(mem, e.cosine(qv, mem.embedding), mem.ts)
                     }.sortedWith(compareByDescending<Triple<MemoryDb.Mem, Float, Long>> { it.second }.thenByDescending { it.third })
                     for ((mem, _, _) in scored.take(3)) {
