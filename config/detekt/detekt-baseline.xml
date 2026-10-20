@@ -2,7 +2,7 @@
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
-    <ID>ComplexCondition:AttachmentSender.kt$AttachmentSender$(effMime.startsWith("audio/") || name.lowercase().endsWith(".m4a")) &amp;&amp; raw.size &gt;= 16 &amp;&amp; raw[4].toInt().toChar() == 'f' &amp;&amp; raw[5].toInt().toChar() == 't' &amp;&amp; raw[6].toInt().toChar() == 'y' &amp;&amp; raw[7].toInt().toChar() == 'p'</ID>
+    <ID>ComplexCondition:AiBubbleHolder.kt$AiBubbleHolder$end &gt; 0 &amp;&amp; (s[end - 1] == '\n' || s[end - 1] == '\r' || s[end - 1] == ' ')</ID>
     <ID>ComplexCondition:AttachmentStore.kt$LocalFileProvider$name.isEmpty() || name.contains('/') || name == ".." || name.contains("../") || java.io.File(name).name != name</ID>
     <ID>ComplexCondition:AvatarCropActivity.kt$CropImageView$x &gt;= r.left &amp;&amp; x &lt;= r.right &amp;&amp; y &gt;= r.bottom - t &amp;&amp; y &lt;= r.bottom + t</ID>
     <ID>ComplexCondition:AvatarCropActivity.kt$CropImageView$x &gt;= r.left &amp;&amp; x &lt;= r.right &amp;&amp; y &gt;= r.top - t &amp;&amp; y &lt;= r.top + t</ID>
@@ -30,6 +30,8 @@
     <ID>ComplexCondition:GifToMp4.kt$GifToMp4$bytes.size &lt; 13 || bytes[0] != 'G'.code.toByte() || bytes[1] != 'I'.code.toByte() || bytes[2] != 'F'.code.toByte() || bytes[3] != '8'.code.toByte()</ID>
     <ID>ComplexCondition:GifToMp4.kt$GifToMp4$bytes.size &lt; 16 || bytes[0] != 'G'.code.toByte() || bytes[1] != 'I'.code.toByte() || bytes[2] != 'F'.code.toByte() || bytes[3] != '8'.code.toByte()</ID>
     <ID>ComplexCondition:GifToMp4.kt$GifToMp4$idx &gt;= 0 &amp;&amp; idx != transparent &amp;&amp; palArray != null &amp;&amp; idx &lt; palArray.size</ID>
+    <ID>ComplexCondition:KnowledgeSinker.kt$KnowledgeSinker$bookTitle.isEmpty() || chapterTitle.isEmpty() || entryTitle.isEmpty() || entryContent.isEmpty()</ID>
+    <ID>ComplexCondition:LocalEngine.kt$LocalEngine$(vName == "video_frame" || vName == "pdf_page" || vName == "image_view") &amp;&amp; vResult.contains(" FRAME:data:image/jpeg;base64,")</ID>
     <ID>ComplexCondition:LocalEngine.kt$LocalEngine$toolCalls.isEmpty() &amp;&amp; res.accumulated.isBlank() &amp;&amp; toolCount &gt; 0 &amp;&amp; !retriedEmpty</ID>
     <ID>ComplexCondition:MainActivity.kt$MainActivity$!::titleBarBg.isInitialized || !::inputBarBg.isInitialized || !::inputBar.isInitialized || !::titleBar.isInitialized</ID>
     <ID>ComplexCondition:MainActivity.kt$MainActivity$!inImeAnim &amp;&amp; edd != null &amp;&amp; (emojiOpen || (edd.visibility == View.VISIBLE &amp;&amp; edd.height &gt; dp(1)))</ID>
@@ -39,15 +41,19 @@
     <ID>ComplexCondition:MainActivity.kt$MainActivity.&lt;no name provided&gt;$ev.action == MotionEvent.ACTION_UP &amp;&amp; emojiOpen &amp;&amp; ::inputBar.isInitialized &amp;&amp; !isTouchInsideEmojiDrawer(ev.rawX, ev.rawY) &amp;&amp; !isTouchInsideAttachPreview(ev.rawX, ev.rawY)</ID>
     <ID>ComplexCondition:MainActivity.kt$MainActivity.&lt;no name provided&gt;$fabV != null &amp;&amp; (fabV.visibility == View.VISIBLE) != (!session.aiBusy &amp;&amp; !session.contentFollow &amp;&amp; rv.canScrollVertically(1))</ID>
     <ID>ComplexCondition:MainActivity.kt$MainActivity.&lt;no name provided&gt;$holder == null || (!typing &amp;&amp; !status) || chatAdapter.itemCount == 0</ID>
-    <ID>ComplexCondition:MainActivityMd.kt$l1.startsWith("|") &amp;&amp; l1.count { it == '|' } &gt;= 2 &amp;&amp; l1.filter { it != '|' &amp;&amp; it != '-' &amp;&amp; it != ':' &amp;&amp; it != ' ' }.isEmpty()</ID>
     <ID>ComplexCondition:MainActivityMd.kt$t.contains("|") &amp;&amp; t.contains("-") &amp;&amp; t.all { it == '|' || it == '-' || it == ':' || it.isWhitespace() }</ID>
     <ID>ComplexCondition:MediaPreviews.kt$w != null &amp;&amp; h != null &amp;&amp; w &gt; 0 &amp;&amp; h &gt; 0</ID>
     <ID>ComplexCondition:MemModelConfigActivity.kt$MemModelConfigActivity$enabled &amp;&amp; (base.isEmpty() || key.isEmpty() || model.isEmpty())</ID>
     <ID>ComplexCondition:PdfTextExtractor.kt$PdfTextExtractor$end &gt; 0 &amp;&amp; (bytes[end - 1] == 0x0a.toByte() || bytes[end - 1] == 0x0d.toByte() || bytes[end - 1] == 0x20.toByte())</ID>
+    <ID>ComplexCondition:ScriptEngine.kt$ScriptEngine$j &lt; toks.size &amp;&amp; !toks[j].startsWith("$") &amp;&amp; toks[j] !in setOf("&amp;&amp;", "||", ";", "|")</ID>
     <ID>ComplexCondition:SshTools.kt$SshTools$cfg.proxyPrivateKey.isNullOrEmpty() &amp;&amp; cfg.proxyPassword.isNullOrEmpty() &amp;&amp; cfg.privateKey.isNullOrEmpty() &amp;&amp; cfg.password.isNullOrEmpty()</ID>
+    <ID>ComplexCondition:ToolExecutor.kt$ToolExecutor$!mime.startsWith("text/") &amp;&amp; !mime.startsWith("application/json") &amp;&amp; !mime.startsWith("application/xml") &amp;&amp; ext !in textExts</ID>
+    <ID>ComplexCondition:ToolExecutor.kt$ToolExecutor$raw.size &gt;= 16 &amp;&amp; raw[4].toInt().toChar() == 'f' &amp;&amp; raw[5].toInt().toChar() == 't' &amp;&amp; raw[6].toInt().toChar() == 'y' &amp;&amp; raw[7].toInt().toChar() == 'p'</ID>
     <ID>ComplexCondition:UiControlService.kt$UiControlService$n.isClickable || n.isLongClickable || n.isCheckable || n.isEditable</ID>
+    <ID>CyclomaticComplexMethod:AiBubbleHolder.kt$AiBubbleHolder$fun appendContent(text: String)</ID>
     <ID>CyclomaticComplexMethod:AiBubbleHolder.kt$AiBubbleHolder$fun renderedSnapshot(): CharSequence?</ID>
     <ID>CyclomaticComplexMethod:AiBubbleHolder.kt$AiBubbleHolder$private fun appendTrackEvent(b: Any)</ID>
+    <ID>CyclomaticComplexMethod:AiBubbleHolder.kt$AiBubbleHolder$private fun findLastTableBlock(s: String): IntRange?</ID>
     <ID>CyclomaticComplexMethod:AiBubbleHolder.kt$AiBubbleHolder$private fun stepBlock(b: ContentBlock, frameNs: Long): Boolean</ID>
     <ID>CyclomaticComplexMethod:AiBubbleHolder.kt$internal fun buildStatusTimeline( host: MainActivity, events: List&lt;StatusEvent&gt;, onBody: ((Int, TextView) -&gt; Unit)? = null ): View</ID>
     <ID>CyclomaticComplexMethod:ApiClientTest.kt$MockServer$private fun handle(sock: Socket)</ID>
@@ -56,7 +62,8 @@
     <ID>CyclomaticComplexMethod:ApiConfig.kt$ApiConfig$fun thinkingEffortParams(id: String, model: String, effort: String): JSONObject?</ID>
     <ID>CyclomaticComplexMethod:AppearanceActivity.kt$AppearanceActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>CyclomaticComplexMethod:AttachmentSender.kt$AttachmentSender$fun sendAttachmentFromUri(uri: Uri)</ID>
-    <ID>CyclomaticComplexMethod:AttachmentSender.kt$AttachmentSender$private fun audioOrStore(uri: Uri, name: String, realMime: String, claimedMime: String): List&lt;LocalEngine.Attachment&gt;</ID>
+    <ID>CyclomaticComplexMethod:AttachmentSender.kt$AttachmentSender$private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List&lt;LocalEngine.Attachment&gt;</ID>
+    <ID>CyclomaticComplexMethod:AttachmentSender.kt$AttachmentSender$private fun imageAttachments(uri: Uri, name: String, real: String): List&lt;LocalEngine.Attachment&gt;</ID>
     <ID>CyclomaticComplexMethod:AuditActivity.kt$AuditActivity$private fun auditCard(e: AuditEntry): View</ID>
     <ID>CyclomaticComplexMethod:AvatarCropActivity.kt$CropImageView$override fun onTouchEvent(event: MotionEvent): Boolean</ID>
     <ID>CyclomaticComplexMethod:AvatarCropActivity.kt$CropImageView$private fun hitHandle(x: Float, y: Float): Int</ID>
@@ -72,6 +79,7 @@
     <ID>CyclomaticComplexMethod:BrowserSlideController.kt$BrowserSlideController$fun onTouch(ev: MotionEvent): Boolean</ID>
     <ID>CyclomaticComplexMethod:ChatBackgroundActivity.kt$ChatBackgroundActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>CyclomaticComplexMethod:ChatFlowController.kt$ChatFlowController$internal fun doSend(attachments: List&lt;LocalEngine.Attachment&gt;)</ID>
+    <ID>CyclomaticComplexMethod:ChatFlowController.kt$ChatFlowController$internal fun submitDebugChat(text: String, attachments: List&lt;LocalEngine.Attachment&gt; = emptyList(), onDone: () -&gt; Unit): Boolean</ID>
     <ID>CyclomaticComplexMethod:ChatFlowController.kt$ChatFlowController$private fun continueSend(text: String, dispList: List&lt;String&gt;, attachments: List&lt;LocalEngine.Attachment&gt;)</ID>
     <ID>CyclomaticComplexMethod:DebugRoutes.kt$DebugRoutes$fun routeOf(method: String, path: String): String?</ID>
     <ID>CyclomaticComplexMethod:DebugServer.kt$DebugServer$private fun chat(c: Context, out: OutputStream, body: String)</ID>
@@ -96,10 +104,11 @@
     <ID>CyclomaticComplexMethod:GuideActivity.kt$GuideActivity$private fun buildStep2(c: LinearLayout, bottom: LinearLayout)</ID>
     <ID>CyclomaticComplexMethod:GuideActivity.kt$GuideActivity$private fun modeCard(iconRes: Int, title: String, desc: String, points: List&lt;Triple&lt;Int, String, String&gt;&gt;): LinearLayout</ID>
     <ID>CyclomaticComplexMethod:GuideActivity.kt$GuideActivity$private fun showAgreementDialog(title: String, body: String, onAgree: () -&gt; Unit)</ID>
+    <ID>CyclomaticComplexMethod:KnowledgeSinker.kt$KnowledgeSinker$private fun sinkOnce(context: Context, sessionId: Long, sessionBaseSeq: Int, messages: List&lt;MemoryDb.SessionMsg&gt;, toolTrace: List&lt;Pair&lt;String, String&gt;&gt;)</ID>
     <ID>CyclomaticComplexMethod:LocalEngine.kt$LocalEngine$@Suppress("SameParameterValue") private fun processRow( row: String, mode: Int, accumulated: StringBuilder, cb: Callback, setMode: (Int) -&gt; Unit, answerGate: () -&gt; String?, restartOut: MutableList&lt;String&gt; ): Pair&lt;String, String&gt;?</ID>
-    <ID>CyclomaticComplexMethod:LocalEngine.kt$LocalEngine$fun chat(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
     <ID>CyclomaticComplexMethod:LocalEngine.kt$LocalEngine$private fun buildRouteMessages(context: Context, history: String, attachments: List&lt;Attachment&gt; = emptyList(), memInject: String? = null, patHint: String? = null): JSONArray</ID>
     <ID>CyclomaticComplexMethod:LocalEngine.kt$LocalEngine$private fun builtinSchema(name: String): JSONObject</ID>
+    <ID>CyclomaticComplexMethod:LocalEngine.kt$LocalEngine$private fun chatImpl(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
     <ID>CyclomaticComplexMethod:LocalEngine.kt$LocalEngine$private fun streamOnce( context: Context, messages: JSONArray, cb: Callback, answerGate: () -&gt; String?, injectedTools: MutableSet&lt;String&gt;, hotLoaded: Set&lt;String&gt;, forceNoTools: Boolean = false, taskId: Long = 0L ): StreamResult</ID>
     <ID>CyclomaticComplexMethod:LogActivity.kt$LogActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$internal fun buildRowView(row: ChatRow): View</ID>
@@ -116,7 +125,6 @@
     <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun reconcileVideoBubbles(rv: RecyclerView)</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun setupBodyAndInputArea()</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun setupBrowserBar()</ID>
-    <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun setupBrowserLayerAndCallbacks()</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun setupKeyboardInsets()</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun videoLoopBubble(content: String, isUser: Boolean, maxW: Int): View?</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$MainActivity$private fun welcomeCardView(): View</ID>
@@ -142,6 +150,7 @@
     <ID>CyclomaticComplexMethod:MemModelConfigActivity.kt$MemModelConfigActivity$private fun testConnectivity(base: String, key: String, model: String): TestResult</ID>
     <ID>CyclomaticComplexMethod:MemoryDb.kt$MemoryDb$override fun onOpen(db: SQLiteDatabase)</ID>
     <ID>CyclomaticComplexMethod:MemoryDb.kt$MemoryDb$override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int)</ID>
+    <ID>CyclomaticComplexMethod:MemoryKeeper.kt$MemoryKeeper$private fun archive(): Boolean</ID>
     <ID>CyclomaticComplexMethod:MemoryListActivity.kt$MemoryListActivity$private fun memItem(mem: MemoryDb.Mem): LinearLayout</ID>
     <ID>CyclomaticComplexMethod:ModelEditActivity.kt$ModelEditActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>CyclomaticComplexMethod:ModelEditActivity.kt$ModelEditActivity$private fun doSave(setAsCurrent: Boolean): String?</ID>
@@ -150,6 +159,7 @@
     <ID>CyclomaticComplexMethod:ModelEditActivity.kt$ModelEditActivity$private fun showModelPicker(models: List&lt;String&gt;)</ID>
     <ID>CyclomaticComplexMethod:ModelEditActivity.kt$ModelEditActivity$private fun testConnectivity(base: String, key: String, model: String): TestResult</ID>
     <ID>CyclomaticComplexMethod:ModelUpdater.kt$ModelUpdater$private fun downloadResume(urlStr: String, target: File, md5: String, size: Long): Boolean</ID>
+    <ID>CyclomaticComplexMethod:NyralApp.kt$NyralApp$private fun exportPendingCrashes()</ID>
     <ID>CyclomaticComplexMethod:PdfTextExtractor.kt$PdfTextExtractor$private fun unescape(s: String): String</ID>
     <ID>CyclomaticComplexMethod:PermissionsActivity.kt$PermissionsActivity$private fun buildRow(item: PermItem): LinearLayout</ID>
     <ID>CyclomaticComplexMethod:PersonalityActivity.kt$PersonalityActivity$override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)</ID>
@@ -158,6 +168,7 @@
     <ID>CyclomaticComplexMethod:RenderedCodec.kt$RenderedCodec$private fun spanToJson(sp: Any, s: Int, e: Int): JSONObject?</ID>
     <ID>CyclomaticComplexMethod:ScanDeduper.kt$ScanDeduper$fun dedup(list: List&lt;Cand&gt;): List&lt;Cand&gt;</ID>
     <ID>CyclomaticComplexMethod:ScanDeduper.kt$ScanDeduper$fun dropContainers(list: List&lt;Cand&gt;): List&lt;Cand&gt;</ID>
+    <ID>CyclomaticComplexMethod:ScriptEngine.kt$ScriptEngine$private fun blockReasonSemantic(script: String): String?</ID>
     <ID>CyclomaticComplexMethod:SecurityCenterActivity.kt$SecurityCenterActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>CyclomaticComplexMethod:SettingsActivity.kt$SettingsActivity$private fun showDebugDialog()</ID>
     <ID>CyclomaticComplexMethod:SettingsActivity.kt$SettingsActivity$private fun showTokenStats()</ID>
@@ -184,7 +195,6 @@
     <ID>EmptyCatchBlock:AITerminal.kt$AITerminalService${}</ID>
     <ID>EmptyCatchBlock:AITerminal.kt$AITerminalService.Companion${}</ID>
     <ID>EmptyCatchBlock:AppearanceActivity.kt$AppearanceActivity${ }</ID>
-    <ID>EmptyCatchBlock:AttachmentSender.kt$AttachmentSender${ }</ID>
     <ID>EmptyCatchBlock:AttachmentStore.kt$AttachmentStore${ }</ID>
     <ID>EmptyCatchBlock:BrowserPageJsBridge.kt$BrowserPageJsBridge${}</ID>
     <ID>EmptyCatchBlock:BrowserPageSync.kt${ }</ID>
@@ -204,13 +214,14 @@
     <ID>EmptyElseBlock:GifToMp4.kt$GifToMp4$if (oi &gt;= expect) break</ID>
     <ID>EmptyElseBlock:MainActivityMd.kt${ }</ID>
     <ID>EmptyElseBlock:MdSpans.kt$MdToSpans$if (c is Text) t.append(c.literal)</ID>
-    <ID>EmptyElseBlock:MdSpans.kt$MdToSpans$if (ch is Text) t.append(ch.literal)</ID>
     <ID>EmptyElseBlock:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$if (!session.isCurrent(epoch)) return@launch</ID>
     <ID>EmptyElseBlock:WorkDir.kt$WorkDir$if (uri != null) indexed.set(true)</ID>
     <ID>EmptyFunctionBlock:AppearanceActivity.kt$AppearanceActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:ChatBackgroundActivity.kt$ChatBackgroundActivity.&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:KnowledgeBaseDb.kt$KnowledgeBaseDb${}</ID>
     <ID>EmptyFunctionBlock:MainActivity.kt$MainActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:MediaPreviews.kt$&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:NyralApp.kt$NyralApp.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:PatternStore.kt$PatternDb${}</ID>
     <ID>EmptyFunctionBlock:PersonalityActivity.kt$PersonalityActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:RoundedBlockBgSpan.kt$RoundedBlockBgSpan${}</ID>
@@ -266,6 +277,7 @@
     <ID>InvalidPackageDeclaration:BubbleSpans.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:ChatAdapter.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:ChatBackgroundActivity.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:CrashReportConfig.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:DebugRoutes.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:DebugServer.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:DebugService.kt$package io.github.aixtin.nyral</ID>
@@ -281,6 +293,13 @@
     <ID>InvalidPackageDeclaration:GifToMp4.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:GuideActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:HrSpan.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:KnowledgeAuditActivity.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:KnowledgeBaseActivity.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:KnowledgeBaseConfig.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:KnowledgeBaseDb.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:KnowledgeEntryActivity.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:KnowledgeSinker.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:KnowledgeTrashActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:LocalEngine.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:LogActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:LogStore.kt$package io.github.aixtin.nyral</ID>
@@ -311,6 +330,7 @@
     <ID>InvalidPackageDeclaration:ModelConfigActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:ModelEditActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:ModelUpdater.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:NyralApp.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:NyralLayoutManager.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:NyralRecyclerView.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:PatternStore.kt$package io.github.aixtin.nyral</ID>
@@ -377,6 +397,7 @@
     <ID>LongMethod:AiBubbleHolder.kt$internal fun buildStatusTimeline( host: MainActivity, events: List&lt;StatusEvent&gt;, onBody: ((Int, TextView) -&gt; Unit)? = null ): View</ID>
     <ID>LongMethod:ApiConfig.kt$ApiConfig$fun providers(): List&lt;Provider&gt;</ID>
     <ID>LongMethod:AppearanceActivity.kt$AppearanceActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
+    <ID>LongMethod:AttachmentSender.kt$AttachmentSender$private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List&lt;LocalEngine.Attachment&gt;</ID>
     <ID>LongMethod:AuditActivity.kt$AuditActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:AuditActivity.kt$AuditActivity$private fun auditCard(e: AuditEntry): View</ID>
     <ID>LongMethod:AvatarCropActivity.kt$AvatarCropActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
@@ -404,13 +425,16 @@
     <ID>LongMethod:GuideActivity.kt$GuideActivity$private fun buildStep2(c: LinearLayout, bottom: LinearLayout)</ID>
     <ID>LongMethod:GuideActivity.kt$GuideActivity$private fun modeCard(iconRes: Int, title: String, desc: String, points: List&lt;Triple&lt;Int, String, String&gt;&gt;): LinearLayout</ID>
     <ID>LongMethod:GuideActivity.kt$GuideActivity$private fun showAgreementDialog(title: String, body: String, onAgree: () -&gt; Unit)</ID>
+    <ID>LongMethod:KnowledgeSinker.kt$KnowledgeSinker$private fun sinkOnce(context: Context, sessionId: Long, sessionBaseSeq: Int, messages: List&lt;MemoryDb.SessionMsg&gt;, toolTrace: List&lt;Pair&lt;String, String&gt;&gt;)</ID>
     <ID>LongMethod:LocalEngine.kt$LocalEngine$@Suppress("SameParameterValue") private fun processRow( row: String, mode: Int, accumulated: StringBuilder, cb: Callback, setMode: (Int) -&gt; Unit, answerGate: () -&gt; String?, restartOut: MutableList&lt;String&gt; ): Pair&lt;String, String&gt;?</ID>
-    <ID>LongMethod:LocalEngine.kt$LocalEngine$fun chat(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
     <ID>LongMethod:LocalEngine.kt$LocalEngine$private fun buildRouteMessages(context: Context, history: String, attachments: List&lt;Attachment&gt; = emptyList(), memInject: String? = null, patHint: String? = null): JSONArray</ID>
     <ID>LongMethod:LocalEngine.kt$LocalEngine$private fun builtinSchema(name: String): JSONObject</ID>
+    <ID>LongMethod:LocalEngine.kt$LocalEngine$private fun chatImpl(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
     <ID>LongMethod:LocalEngine.kt$LocalEngine$private fun streamOnce( context: Context, messages: JSONArray, cb: Callback, answerGate: () -&gt; String?, injectedTools: MutableSet&lt;String&gt;, hotLoaded: Set&lt;String&gt;, forceNoTools: Boolean = false, taskId: Long = 0L ): StreamResult</ID>
     <ID>LongMethod:LogActivity.kt$LogActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:MainActivity.kt$MainActivity$internal fun renderUserContent(content: String): CharSequence</ID>
+    <ID>LongMethod:MainActivity.kt$MainActivity$internal fun toggleStatusDrop(summary: View, events: List&lt;StatusEvent&gt;)</ID>
+    <ID>LongMethod:MainActivity.kt$MainActivity$private fun bubble(content: String, isUser: Boolean, rendered: String = "", writeback: ((Spanned) -&gt; Unit)? = null): View</ID>
     <ID>LongMethod:MainActivity.kt$MainActivity$private fun buildSecurityRow(row: ChatRow.SecurityConfirm): View</ID>
     <ID>LongMethod:MainActivity.kt$MainActivity$private fun emojiBubble(content: String, isUser: Boolean, maxW: Int): View?</ID>
     <ID>LongMethod:MainActivity.kt$MainActivity$private fun reconcileVideoBubbles(rv: RecyclerView)</ID>
@@ -426,6 +450,7 @@
     <ID>LongMethod:MainUi.kt$internal fun MainActivity.buildDrawer()</ID>
     <ID>LongMethod:MainUi.kt$internal fun MainActivity.showSearchResults(kw: String, hits: List&lt;MemoryDb.SearchHit&gt;)</ID>
     <ID>LongMethod:McpConfigActivity.kt$McpConfigActivity$private fun showEditDialog(index: Int)</ID>
+    <ID>LongMethod:MdSpannable.kt$MdSpannable$fun toSpannable(md: MdSpans): CharSequence</ID>
     <ID>LongMethod:MdSpans.kt$MdToSpans$private fun walk( node: Node, sb: StringBuilder, spans: MutableList&lt;MdSpan&gt;, blockStart: Boolean, listPrefix: String?, indentLevel: Int = 0 )</ID>
     <ID>LongMethod:MdTableView.kt$MdTableView$fun bindTable( data: MdTableData, availW: Int, density: Float, scaledDensity: Float, border: Int, headerBgC: Int, textColor: Int, headerText: Int = Color.WHITE )</ID>
     <ID>LongMethod:MediaPreviews.kt$private fun Activity.createMediaPreviewContent(media: List&lt;String&gt;, startIndex: Int, d: Dialog, adaptH: Boolean = false): View</ID>
@@ -433,6 +458,7 @@
     <ID>LongMethod:MediaPreviews.kt$private fun Activity.showPdfPreviewDialog(fileName: String)</ID>
     <ID>LongMethod:MediaPreviews.kt$private fun Activity.showTextPreviewDialog(fileName: String)</ID>
     <ID>LongMethod:MemModelConfigActivity.kt$MemModelConfigActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
+    <ID>LongMethod:MemoryDb.kt$MemoryDb$override fun onOpen(db: SQLiteDatabase)</ID>
     <ID>LongMethod:MemoryDb.kt$MemoryDb$override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int)</ID>
     <ID>LongMethod:ModelEditActivity.kt$ModelEditActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:ModelEditActivity.kt$ModelEditActivity$private fun renderSelectedModels()</ID>
@@ -489,6 +515,7 @@
     <ID>LoopWithTooManyJumpStatements:MainActivityVoice.kt$for</ID>
     <ID>LoopWithTooManyJumpStatements:MainActivityVoice.kt$while</ID>
     <ID>LoopWithTooManyJumpStatements:MdBlocks.kt$MdBlocks$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MdSpannable.kt$MdSpannable$for</ID>
     <ID>LoopWithTooManyJumpStatements:ModelUpdater.kt$ModelUpdater$for</ID>
     <ID>LoopWithTooManyJumpStatements:PatternStore.kt$PatternStore$for</ID>
     <ID>LoopWithTooManyJumpStatements:PdfTextExtractor.kt$PdfTextExtractor$for</ID>
@@ -543,6 +570,7 @@
     <ID>MagicNumber:AiBubbleHolder.kt$18</ID>
     <ID>MagicNumber:AiBubbleHolder.kt$20</ID>
     <ID>MagicNumber:AiBubbleHolder.kt$24</ID>
+    <ID>MagicNumber:AiBubbleHolder.kt$255</ID>
     <ID>MagicNumber:AiBubbleHolder.kt$4</ID>
     <ID>MagicNumber:AiBubbleHolder.kt$6</ID>
     <ID>MagicNumber:AiBubbleHolder.kt$8</ID>
@@ -623,7 +651,10 @@
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$22</ID>
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$23</ID>
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$3</ID>
+    <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$31</ID>
+    <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$32</ID>
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$4</ID>
+    <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$40</ID>
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$6</ID>
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$7</ID>
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$8</ID>
@@ -632,26 +663,20 @@
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$1000</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$1000L</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$1024</ID>
-    <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$11</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$11f</ID>
-    <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$16</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$18</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$20</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$2048</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$3</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$30</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$37</ID>
-    <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$4</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$48</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$5</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$500</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$6</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$60</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$64</ID>
-    <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$68</ID>
-    <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$7</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$8</ID>
-    <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$82</ID>
     <ID>MagicNumber:AttachmentSender.kt$AttachmentSender$9</ID>
     <ID>MagicNumber:AttachmentStore.kt$AttachmentStore$50000</ID>
     <ID>MagicNumber:AttachmentStore.kt$AttachmentStore$8</ID>
@@ -681,7 +706,6 @@
     <ID>MagicNumber:AvatarCropActivity.kt$AvatarCropActivity$18</ID>
     <ID>MagicNumber:AvatarCropActivity.kt$AvatarCropActivity$2048</ID>
     <ID>MagicNumber:AvatarCropActivity.kt$AvatarCropActivity$24</ID>
-    <ID>MagicNumber:AvatarCropActivity.kt$AvatarCropActivity$26f</ID>
     <ID>MagicNumber:AvatarCropActivity.kt$AvatarCropActivity$33</ID>
     <ID>MagicNumber:AvatarCropActivity.kt$AvatarCropActivity$4</ID>
     <ID>MagicNumber:AvatarCropActivity.kt$AvatarCropActivity$8</ID>
@@ -829,6 +853,7 @@
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$3</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$360f</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$4</ID>
+    <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$45</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$48</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$5</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$56</ID>
@@ -838,9 +863,11 @@
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$90</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity$9f</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity.&lt;no name provided&gt;$100</ID>
+    <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity.&lt;no name provided&gt;$45</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity.&lt;no name provided&gt;$48</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity.&lt;no name provided&gt;$720</ID>
     <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity.Companion$100</ID>
+    <ID>MagicNumber:ChatBackgroundActivity.kt$ChatBackgroundActivity.Companion$45</ID>
     <ID>MagicNumber:ChatFlowController.kt$ChatFlowController$2000</ID>
     <ID>MagicNumber:ChatFlowController.kt$ChatFlowController$3</ID>
     <ID>MagicNumber:ChatFlowController.kt$ChatFlowController$300</ID>
@@ -879,8 +906,10 @@
     <ID>MagicNumber:DebugServer.kt$DebugServer$600L</ID>
     <ID>MagicNumber:DebugServer.kt$DebugServer$8000L</ID>
     <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$12</ID>
+    <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$14f</ID>
     <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$15f</ID>
     <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$16</ID>
+    <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$3</ID>
     <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$4</ID>
     <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$8</ID>
     <ID>MagicNumber:DocTextExtractor.kt$DocTextExtractor$100</ID>
@@ -1096,6 +1125,77 @@
     <ID>MagicNumber:HrSpan.kt$HrSpan$1.5f</ID>
     <ID>MagicNumber:HrSpan.kt$HrSpan$240f</ID>
     <ID>MagicNumber:HrSpan.kt$HrSpan$9f</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$11f</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$12</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$12f</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$13f</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$14f</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$16</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$24</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$3</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$4</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$40</ID>
+    <ID>MagicNumber:KnowledgeAuditActivity.kt$KnowledgeAuditActivity$8</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$10</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$12</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$12f</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$13f</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$14</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$14f</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$15f</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$16</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$18</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$22f</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$24</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$26f</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$3</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$4</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$40</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$6</ID>
+    <ID>MagicNumber:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$8</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$10</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$3</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$4</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$5</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$6</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$7</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$8</ID>
+    <ID>MagicNumber:KnowledgeBaseDb.kt$KnowledgeBaseDb$9</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$10</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$12</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$12f</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$14</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$14f</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$150</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$15f</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$16</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$18</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$19f</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$20</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$200</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$3</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$4</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$40</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$42</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$6</ID>
+    <ID>MagicNumber:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$8</ID>
+    <ID>MagicNumber:KnowledgeSinker.kt$KnowledgeSinker$0.1</ID>
+    <ID>MagicNumber:KnowledgeSinker.kt$KnowledgeSinker$1280</ID>
+    <ID>MagicNumber:KnowledgeSinker.kt$KnowledgeSinker$1600</ID>
+    <ID>MagicNumber:KnowledgeSinker.kt$KnowledgeSinker$600</ID>
+    <ID>MagicNumber:KnowledgeSinker.kt$KnowledgeSinker$8</ID>
+    <ID>MagicNumber:KnowledgeSinker.kt$KnowledgeSinker$80</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$12</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$12f</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$13f</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$14</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$15f</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$16</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$24</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$3</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$40</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$6</ID>
+    <ID>MagicNumber:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$8</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$0.3</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$1000L</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$1024</ID>
@@ -1164,6 +1264,7 @@
     <ID>MagicNumber:MainActivity.kt$MainActivity$1006</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$1007</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$1008</ID>
+    <ID>MagicNumber:MainActivity.kt$MainActivity$1009</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$1024</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$10_000</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$10_000L</ID>
@@ -1203,7 +1304,6 @@
     <ID>MagicNumber:MainActivity.kt$MainActivity$24</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$240</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$25</ID>
-    <ID>MagicNumber:MainActivity.kt$MainActivity$250</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$255</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$26</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$260</ID>
@@ -1215,6 +1315,7 @@
     <ID>MagicNumber:MainActivity.kt$MainActivity$300</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$30L</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$320L</ID>
+    <ID>MagicNumber:MainActivity.kt$MainActivity$33</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$340</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$36</ID>
     <ID>MagicNumber:MainActivity.kt$MainActivity$4</ID>
@@ -1422,6 +1523,8 @@
     <ID>MagicNumber:MemModelConfigActivity.kt$MemModelConfigActivity$6</ID>
     <ID>MagicNumber:MemModelConfigActivity.kt$MemModelConfigActivity$8</ID>
     <ID>MagicNumber:MemoryDb.kt$MemoryDb$10</ID>
+    <ID>MagicNumber:MemoryDb.kt$MemoryDb$11</ID>
+    <ID>MagicNumber:MemoryDb.kt$MemoryDb$12</ID>
     <ID>MagicNumber:MemoryDb.kt$MemoryDb$3</ID>
     <ID>MagicNumber:MemoryDb.kt$MemoryDb$30</ID>
     <ID>MagicNumber:MemoryDb.kt$MemoryDb$4</ID>
@@ -1514,6 +1617,15 @@
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$30000</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$5</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$64</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$10000</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$1000L</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$15000</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$200</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$2000L</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$28</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$3000L</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$401</ID>
+    <ID>MagicNumber:NyralApp.kt$NyralApp$429</ID>
     <ID>MagicNumber:PatternStore.kt$PatternStore$12</ID>
     <ID>MagicNumber:PatternStore.kt$PatternStore$200</ID>
     <ID>MagicNumber:PatternStore.kt$PatternStore$24</ID>
@@ -1589,6 +1701,7 @@
     <ID>MagicNumber:SecurityCenterActivity.kt$SecurityCenterActivity$8</ID>
     <ID>MagicNumber:SecurityConfig.kt$SecurityConfig$12</ID>
     <ID>MagicNumber:SecurityConfig.kt$SecurityConfig$200</ID>
+    <ID>MagicNumber:SecurityConfig.kt$SecurityConfig$8</ID>
     <ID>MagicNumber:SecurityUi.kt$SecurityUi$10</ID>
     <ID>MagicNumber:SecurityUi.kt$SecurityUi$12</ID>
     <ID>MagicNumber:SecurityUi.kt$SecurityUi$14</ID>
@@ -1663,14 +1776,13 @@
     <ID>MagicNumber:SshTools.kt$SshTools$20000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools$3</ID>
     <ID>MagicNumber:SshTools.kt$SshTools$30000</ID>
+    <ID>MagicNumber:SshTools.kt$SshTools$300000L</ID>
     <ID>MagicNumber:SshTools.kt$SshTools$50</ID>
-    <ID>MagicNumber:SshTools.kt$SshTools$60000L</ID>
     <ID>MagicNumber:SshTools.kt$SshTools$8000L</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$1000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$10000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$15000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$20</ID>
-    <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$27</ID>
     <ID>MagicNumber:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$150</ID>
     <ID>MagicNumber:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$3</ID>
     <ID>MagicNumber:TaskService.kt$TaskService$200</ID>
@@ -1782,16 +1894,30 @@
     <ID>MagicNumber:TimerTaskDb.kt$TimerTaskDb$8</ID>
     <ID>MagicNumber:TimerTaskDb.kt$TimerTaskDb$9</ID>
     <ID>MagicNumber:TokenStore.kt$TokenStore$800</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$10</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$100</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$1000</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$1024</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$1024f</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$11</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$12</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$16</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$200</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$3000</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$32</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$4</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$4000</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$5</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$500</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$6</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$640</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$640f</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$7</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$70</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$8</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$80</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$8000L</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$9</ID>
     <ID>MagicNumber:ToolHotStore.kt$ToolHotStore$86400000L</ID>
     <ID>MagicNumber:Typewriter.kt$TypewriterCenter.&lt;no name provided&gt;$60</ID>
     <ID>MagicNumber:Ui.kt$Ui$0.86</ID>
@@ -1816,7 +1942,6 @@
     <ID>MagicNumber:Ui.kt$Ui$200</ID>
     <ID>MagicNumber:Ui.kt$Ui$24f</ID>
     <ID>MagicNumber:Ui.kt$Ui$26</ID>
-    <ID>MagicNumber:Ui.kt$Ui$26f</ID>
     <ID>MagicNumber:Ui.kt$Ui$3</ID>
     <ID>MagicNumber:Ui.kt$Ui$35</ID>
     <ID>MagicNumber:Ui.kt$Ui$4</ID>
@@ -1834,8 +1959,11 @@
     <ID>MagicNumber:UiControlService.kt$UiControlService$60</ID>
     <ID>MagicNumber:UiControlService.kt$UiControlService.Companion$3000</ID>
     <ID>MagicNumber:UiKit.kt$0.18f</ID>
+    <ID>MagicNumber:UiKit.kt$0.3</ID>
     <ID>MagicNumber:UiKit.kt$0.4f</ID>
     <ID>MagicNumber:UiKit.kt$0.55f</ID>
+    <ID>MagicNumber:UiKit.kt$0.6</ID>
+    <ID>MagicNumber:UiKit.kt$0.95</ID>
     <ID>MagicNumber:UiKit.kt$0.9f</ID>
     <ID>MagicNumber:UiKit.kt$0xFF</ID>
     <ID>MagicNumber:UiKit.kt$1000</ID>
@@ -1853,6 +1981,8 @@
     <ID>MagicNumber:UiKit.kt$24</ID>
     <ID>MagicNumber:UiKit.kt$2500L</ID>
     <ID>MagicNumber:UiKit.kt$26</ID>
+    <ID>MagicNumber:UiKit.kt$2_000L</ID>
+    <ID>MagicNumber:UiKit.kt$3</ID>
     <ID>MagicNumber:UiKit.kt$300</ID>
     <ID>MagicNumber:UiKit.kt$36</ID>
     <ID>MagicNumber:UiKit.kt$4</ID>
@@ -1863,8 +1993,10 @@
     <ID>MagicNumber:UiKit.kt$60</ID>
     <ID>MagicNumber:UiKit.kt$600</ID>
     <ID>MagicNumber:UiKit.kt$61</ID>
+    <ID>MagicNumber:UiKit.kt$68</ID>
     <ID>MagicNumber:UiKit.kt$8</ID>
     <ID>MagicNumber:UiKit.kt$8000</ID>
+    <ID>MagicNumber:UiKit.kt$82</ID>
     <ID>MagicNumber:UiKit.kt$85</ID>
     <ID>MagicNumber:UiKit.kt$&lt;no name provided&gt;$0.10f</ID>
     <ID>MagicNumber:UiKit.kt$&lt;no name provided&gt;$0.16f</ID>
@@ -1958,19 +2090,27 @@
     <ID>MaxLineLength:AiBubbleHolder.kt$AiBubbleHolder$val vis = if (tv0 != null) { val r = android.graphics.Rect(); tv0.getGlobalVisibleRect(r); r.height() == 0 } else false</ID>
     <ID>MaxLineLength:ApiConfig.kt$ApiConfig$JSONObject().put("thinking", JSONObject().put("type", if (effort == THINK_OFF) "disabled" else "enabled"))</ID>
     <ID>MaxLineLength:ApiConfig.kt$ApiConfig$fun</ID>
+    <ID>MaxLineLength:ApiConfig.kt$ApiConfig$p.id == "deepseek" &amp;&amp; (m.contains("vision") || m.contains("flash")) -&gt; setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_TOOL)</ID>
     <ID>MaxLineLength:ApiConfig.kt$ApiConfig$prefs()?.edit()?.putString(K_PROVIDERS, app?.let { Secrets.encrypt(it, arr.toString()) } ?: arr.toString())?.apply()</ID>
     <ID>MaxLineLength:AppearanceActivity.kt$AppearanceActivity$LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(3); rightMargin = dp(3) }</ID>
+    <ID>MaxLineLength:AppearanceActivity.kt$AppearanceActivity$box.addView(btnRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })</ID>
     <ID>MaxLineLength:AppearanceActivity.kt$AppearanceActivity$if (AskUserConfig.enabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)</ID>
+    <ID>MaxLineLength:AppearanceActivity.kt$AppearanceActivity$if (CrashReportConfig.enabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)</ID>
+    <ID>MaxLineLength:AppearanceActivity.kt$AppearanceActivity$if (KnowledgeBaseConfig.isEnabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)</ID>
     <ID>MaxLineLength:AppearanceActivity.kt$AppearanceActivity$private</ID>
     <ID>MaxLineLength:AppearanceActivity.kt$AppearanceActivity$}</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()</ID>
+    <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$f.inputStream().use { ins -&gt; AttachmentStore.saveStream(host, mp4Name, "video/mp4", ins, meta?.toString()) }</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$host.uiScope.launch { Toast.makeText(host, host.getString(resId, *args.map { it ?: "" }.toTypedArray()), Toast.LENGTH_SHORT).show() }</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$private</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$return listOf(LocalEngine.Attachment(claimedMime, Base64.encodeToString(raw, Base64.NO_WRAP), name, text = txt))</ID>
+    <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$text = "（PDF 已落私有附件库，共 $total 页；需要看任意页请调 pdf_page(name=\"att://$key\", page=页码, mode=\"image\"或\"text\")，按自身识图能力选 mode）"</ID>
+    <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$text = "（PDF 已落私有附件库；需要看任意页请调 pdf_page(name=\"att://$key\", page=页码, mode=\"image\"或\"text\")，按自身识图能力选 mode）"</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(io.github.aixtin.nyral.R.string.att_label_audio))</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(io.github.aixtin.nyral.R.string.att_label_audio), e.message)</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_audio))</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_file))</ID>
+    <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_image))</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$val vAtt = buildVideoAttachment(uri, real, name, io.github.aixtin.nyral.R.string.att_label_video)</ID>
     <ID>MaxLineLength:AttachmentStore.kt$LocalFileProvider$if (name.isEmpty() || name.contains('/') || name == ".." || name.contains("../") || java.io.File(name).name != name) return null</ID>
     <ID>MaxLineLength:AvatarCropActivity.kt$CropImageView$intArrayOf(HANDLE_LB, if (x &gt;= r.left - t &amp;&amp; x &lt;= r.left + t &amp;&amp; y &gt;= r.bottom - t &amp;&amp; y &lt;= r.bottom + t) 1 else 0)</ID>
@@ -2101,33 +2241,84 @@
     <ID>MaxLineLength:GuideActivity.kt$GuideActivity$text = if (pendingKeys.containsKey(p.id)) getString(R.string.guide_key_saved) else getString(R.string.guide_key_tap_hint)</ID>
     <ID>MaxLineLength:GuideActivity.kt$GuideActivity$val unread = if (!disclaimerRead) getString(R.string.guide_disclaimer) else getString(R.string.guide_privacy)</ID>
     <ID>MaxLineLength:GuideActivity.kt$GuideActivity$}</ID>
+    <ID>MaxLineLength:KnowledgeBaseActivity.kt$KnowledgeBaseActivity$popup</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$"SELECT COUNT(*) FROM kb_entries e JOIN kb_chapters c ON e.chapter_id=c.id WHERE c.book_id=? AND e.deleted=0 AND c.deleted=0"</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$"SELECT id,title,keywords,summary,deleted,created_ts,updated_ts FROM kb_books WHERE deleted=0 AND (title LIKE ? OR ? LIKE title)"</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$arrayOf(chapterId.toString(), title, content, sourceSessionId.toString(), sourceMsgIds, now.toString(), now.toString())</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$db</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$db.execSQL("UPDATE kb_books SET deleted=0, updated_ts=? WHERE id=?", arrayOf(System.currentTimeMillis().toString(), id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$db.execSQL("UPDATE kb_books SET deleted=1, updated_ts=? WHERE id=?", arrayOf(System.currentTimeMillis().toString(), id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$db.execSQL("UPDATE kb_chapters SET deleted=0, updated_ts=? WHERE id=?", arrayOf(System.currentTimeMillis().toString(), id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$db.execSQL("UPDATE kb_chapters SET deleted=1, updated_ts=? WHERE id=?", arrayOf(System.currentTimeMillis().toString(), id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$db.execSQL("UPDATE kb_entries SET deleted=0, updated_ts=? WHERE id=?", arrayOf(System.currentTimeMillis().toString(), id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$db.execSQL("UPDATE kb_entries SET deleted=1, updated_ts=? WHERE id=?", arrayOf(System.currentTimeMillis().toString(), id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$fun</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$private fun bookRow(c: Cursor)</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$private fun chapterRow(c: Cursor)</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$private fun entryRow(c: Cursor)</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT COUNT(*) FROM kb_chapters WHERE book_id=? AND deleted=0", arrayOf(bookId.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT COUNT(*) FROM kb_entries WHERE chapter_id=? AND deleted=0", arrayOf(chapterId.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT id,book_id,title,keywords,summary,seq,deleted,created_ts,updated_ts FROM kb_chapters WHERE book_id=?$cond ORDER BY updated_ts DESC, id DESC", arrayOf(bookId.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT id,book_id,title,keywords,summary,seq,deleted,created_ts,updated_ts FROM kb_chapters WHERE id = ?", arrayOf(id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT id,chapter_id,title,content,img_refs,source_session_id,source_msg_ids,version,deleted,created_ts,updated_ts FROM kb_entries WHERE chapter_id=?$cond ORDER BY created_ts DESC, id DESC", arrayOf(chapterId.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT id,chapter_id,title,content,img_refs,source_session_id,source_msg_ids,version,deleted,created_ts,updated_ts FROM kb_entries WHERE deleted = 1 ORDER BY updated_ts DESC", null)</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT id,chapter_id,title,content,img_refs,source_session_id,source_msg_ids,version,deleted,created_ts,updated_ts FROM kb_entries WHERE id = ?", arrayOf(id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT id,title,keywords,summary,deleted,created_ts,updated_ts FROM kb_books WHERE id = ?", arrayOf(id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT id,title,keywords,summary,deleted,created_ts,updated_ts FROM kb_books$cond ORDER BY updated_ts DESC, id DESC", null)</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$readableDatabase.rawQuery("SELECT session_id,book_id,last_msg_id,updated_ts FROM kb_cursors WHERE session_id=?", arrayOf(sessionId.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$val seq = db.rawQuery("SELECT COALESCE(MAX(seq),0)+1 FROM kb_chapters WHERE book_id=? AND deleted=0", arrayOf(bookId.toString())).use { if (it.moveToFirst()) it.getInt(0) else 1 }</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$while (c.moveToNext()) out.add(Audit(c.getLong(0), c.getString(1), c.getLong(2), c.getString(3), c.getString(4), c.getLong(5)))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb$writableDatabase.execSQL("UPDATE kb_books SET updated_ts=? WHERE id=?", arrayOf(System.currentTimeMillis().toString(), id.toString()))</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb.Audit$data</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb.Book$data</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb.Chapter$data</ID>
+    <ID>MaxLineLength:KnowledgeBaseDb.kt$KnowledgeBaseDb.Entry$data</ID>
+    <ID>MaxLineLength:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$box.addView(btnRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })</ID>
+    <ID>MaxLineLength:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$box.addView(contentEt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(150)).apply { topMargin = dp(10) })</ID>
+    <ID>MaxLineLength:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$box.addView(titleEt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })</ID>
+    <ID>MaxLineLength:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$container.addView(Ui.primaryBtn(this, getString(R.string.kb_restore)) { restore(e) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))</ID>
+    <ID>MaxLineLength:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$ops.addView(Ui.dangerBtn(this, getString(R.string.kb_delete)) { confirmDelete(e) }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(8) })</ID>
+    <ID>MaxLineLength:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$ops.addView(Ui.primaryBtn(this, getString(R.string.kb_edit)) { showEdit(e) }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) })</ID>
+    <ID>MaxLineLength:KnowledgeSinker.kt$KnowledgeSinker$append("- 书 = 话题容器(长期存在): 判断这段内容属于哪个话题。若与已有书是同一话题, 则 book 填该书书名(保持一致)且 is_new_book=false; 全新话题则起简洁新书名且 is_new_book=true。\n")</ID>
+    <ID>MaxLineLength:KnowledgeSinker.kt$KnowledgeSinker$append("{\"has_content\":true,\"book\":\"书名\",\"is_new_book\":true,\"chapter\":\"章名\",\"chapter_keywords\":\"关键词,逗号分隔\",\"chapter_summary\":\"本章一句话摘要\",\"entry_title\":\"条目标题\",\"entry_content\":\"MD正文\"}\n")</ID>
+    <ID>MaxLineLength:KnowledgeSinker.kt$KnowledgeSinker$fun</ID>
+    <ID>MaxLineLength:KnowledgeSinker.kt$KnowledgeSinker$private</ID>
+    <ID>MaxLineLength:KnowledgeSinker.kt$KnowledgeSinker$val finalContent = if (imgRefs.isEmpty()) entryContent else entryContent + "\n\n" + imgRefs.joinToString("\n")</ID>
+    <ID>MaxLineLength:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$Toast.makeText(this@KnowledgeTrashActivity, getString(R.string.kb_restored), Toast.LENGTH_SHORT).show()</ID>
+    <ID>MaxLineLength:KnowledgeTrashActivity.kt$KnowledgeTrashActivity$box.addView(btnRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"action" to str("操作", enums = listOf("open", "scan", "text", "scroll", "click", "type", "upload", "clear_cache", "save_cookies"))</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"action" to str("操作", enums = listOf("scan", "click", "text", "back", "home", "launch", "installed", "tap", "screenshot"))</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"app" to "第三方App控制: scan 扫屏幕元素(空树EMPTY_TREE), click 点击, text 输入, tap 坐标点击(x+y), screenshot 截图, back 返回, home 桌面, launch 启动App, installed 查已装"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"browser" to "全屏浏览器控制(用户可见): open 打开网页/搜索词, scan 扫元素, text 读文字, scroll 滚动, click 点击, type 输入, upload 上传文件, clear_cache 清缓存, save_cookies 存登录Cookie"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"ssh_run"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"搜索策略(重要·三级)：1) 一般搜索默认先用 web_search 后台静默快查(不打断用户界面)，拿到标题+摘要直接汇报，用户没要求看页面就不要开浏览器展示页；2) 仅当用户明确要\"看页面/看结果页/进某站\"，或 web_search 无有效结果、需要登录态、卡验证码/登录墙时，才升级调用 browser(action=open) 打开全屏浏览器页(用户可见)；3) 浏览器页内遇到验证码/登录墙：不要硬点，停下提示用户点底部\"接管\"按钮手动完成(输验证码/登录)，用户再点\"交还 AI\"后你可继续 browser 的 scan/click/type 等操作；用户登录成功后调用 browser(action=save_cookies) 把该站点登录 Cookie 存入 site_auth.json，此后 web_fetch/web_download 静默抓取自动带登录态，无需再开浏览器。\n"</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"（工具 $vName 读取的画面图未能注入：当前模型 $curModel 不支持图片输入。请告知用户：当前模型无法识图，如需查看图片请切换到支持图片输入的模型，或使用 file_export 导出图片查看。）"</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$"（工具 audio_read 读取的音频未能注入：当前模型 $curModel 不支持音频输入。请告知用户：当前模型无法听取音频，如需听取请切换到支持音频输入的模型，或使用 file_export 导出音频。）"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$(0 until a.length()).mapNotNull { i -&gt; a.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() } }</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$.</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ApiConfig.thinkingEffortParams(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.thinkingEffortOf(ApiConfig.providerId()))</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("app", "第三方App控制(需先授权无障碍): action=scan 扫描当前屏幕可操作元素清单(带索引, 空树返回EMPTY_TREE标记), click 点击第N元素(index), text 向输入框输入文本(index+text), tap 坐标注入点击(x+y, 视觉兜底用), screenshot 截当前屏保存工作目录返回路径(视觉兜底用), back 模拟返回键, home 回桌面, launch 按包名启动App(pkg), installed 列出已安装第三方应用", "JSON: {\"action\":\"scan|click|text|tap|screenshot|back|home|launch|installed\",...}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("ask_user", "当用户指令模糊/多义/缺关键信息、无法可靠推断时, 向用户当面澄清: 在手机弹原生选择框, 列出候选选项让用户点选(可选自定义输入)。用户的选择会作为本工具结果返回, 据此继续。仅在确实拿不准时才调用, 不要滥用", "JSON: {\"question\":\"要确认的问题\",\"options\":[\"选项1\",\"选项2\"],\"allow_custom\":true}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("audio_read", "从已落盘附件音频按需读取注入对话(供支持音频输入的模型听取): 参数 {name: 附件文件名或 att:// 引用}。音频附件发送时已统一落私有附件库, 首轮仅放索引卡不发字节; 仅支持音频输入能力的模型可调用注入听取, 不支持音频输入的模型不要调用, 应提示用户 file_export 导出。", "JSON: {\"name\":\"att://xxx.mp3\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("browser", "全屏浏览器控制(在用户手机上打开可见浏览器页): action=open 打开URL/搜索词(用户要求搜索/查资料/看网页时优先用), scan 读可操作元素清单(带索引), text 读整页文字, scroll 滚动(delta 像素正下负上), click 点击第N元素(index), type 向输入框输入文本(index+text), upload 上传工作目录文件到文件选择框(index+local), clear_cache 清缓存刷新(full=true 连登录Cookie一起清), save_cookies 把当前登录Cookie存入site_auth(site 可选域名)。页面遇验证码/登录墙时提示用户点\"接管\"手动完成。", "JSON: {\"action\":\"open|scan|text|scroll|click|type|upload|clear_cache|save_cookies\",...}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("file", "远端文件操作(SSH连接): action=list 列目录(conn+path), read 读文件(conn+path+lines), info 查看文件详情(conn+path), write 写/追加文件(conn+path+content+append), upload SFTP上传(conn+local+remote), download SFTP下载(conn+remote+local可选), ls SFTP列目录(conn+path)", "JSON: {\"action\":\"list|read|info|write|upload|download|ls\",\"conn\":\"连接名\",...}")</ID>
-    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 大视频/大文本落库后如需交付用户先调本工具", "JSON: {\"name\":\"att://xxx.mp4\"}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("image_view", "从已落盘附件图片按需读取查看(图片注入对话): 参数 {name: 附件文件名或 att:// 引用}。图片附件发送时已统一落私有附件库, 首轮仅放索引卡不发字节; 需要看图片内容时调用, 图片会注入本轮对话供模型参考(仅支持识图能力的模型有效)。", "JSON: {\"name\":\"att://xxx.jpg\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("js_run", "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 无文件/网络权限, 断网可用不依赖服务器)", "JSON: {\"code\":\"要执行的JS脚本\",\"timeoutMs\":8000}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("pdf_page", "从已落盘附件PDF按需读取指定页(按需翻页): 参数 {name: 附件文件名或 att:// 引用, page: 页码从1开始, mode: \"image\"渲染该页为图片注入对话(默认, 适合支持识图的模型) | \"text\"返回该页文字(适合无识图能力模型, 扫描件无文本层时会明确告知)}。PDF 附件发送时已落私有附件库, 首轮仅预览前几页; 需要看任意页(如用户指定页码)时调用, 按自身识图能力自行选择 mode", "JSON: {\"name\":\"att://xxx.pdf\",\"page\":89,\"mode\":\"text\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web_fetch/web_download 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("ssh_run", "通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数", "JSON: {\"command\":\"连接名:命令\"} 如 {\"command\":\"vps:ls /\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -&gt; \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("tool_detail", "查询未在回调列表中列出的工具的完整规格(描述+参数格式)并临时激活; 激活后该工具会加入本轮回调列表, 可直接 function calling 调用。当你想用 system 索引里看到但不在回调列表中的工具时, 先调本工具获取规格。", "JSON: {\"name\":\"工具名\"}")</ID>
-    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("video_frame", "从已落盘附件视频抽指定时间点画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(默认0)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(超预算大视频)。", "JSON: {\"name\":\"att://xxx.mp4\",\"timeMs\":10000}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("video_frame", "从已落盘附件视频抽画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(选填; 不传时自动多帧采样 0/30%/60%/95% 时间点全部注入, 供整体判断视频内容; 传了则只抽该时间点单帧)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(统一落库后所有视频均已落盘)。用户要求拿到/交付帧图或视频文件时, 抽帧后必须调用 file_export 导出原视频。", "JSON: {\"name\":\"att://xxx.mp4\"} 或 {\"name\":\"att://xxx.mp4\",\"timeMs\":8000}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("web_download", "下载网页/文件并保存到手机工作目录 下载/ 子目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("web_fetch", "抓取网页并提取正文文本; 若 site_auth.json 已配置该域名 Cookie 会自动注入, 无需重复传", "JSON: {\"url\":\"https://...\",\"max_chars\":3000}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("web_search", "后台静默联网搜索(Bing), 结果仅供AI参考阅读, 用户看不到页面; 若用户想看搜索结果页/网页请改用 browser(action=open)", "JSON: {\"q\":\"搜索关键词\",\"max_results\":5}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("workdir", "手机工作目录(Download/Nyral_work)文件操作: action=list 列文件, read 读文本文件(name), write 写文件(name+content, 同名覆盖), grep 全文搜索(kw, 可选ext扩展名过滤/case大小写), head 读前N行或N字符(name+lines或chars), stats 统计概览", "JSON: {\"action\":\"list|read|write|grep|head|stats\",...}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$a.mime.startsWith("audio/flac") || a.mime.startsWith("audio/x-flac") -&gt; "audio/flac" to "flac"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$a.mime.startsWith("audio/mp4") || a.mime.startsWith("audio/x-m4a") || a.mime.startsWith("audio/m4a") -&gt; "audio/mp4" to "m4a"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$a.mime.startsWith("audio/mpeg") || a.mime.startsWith("audio/mp3") -&gt; "audio/mpeg" to "mp3"</ID>
@@ -2139,13 +2330,18 @@
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$android.util.Log.w("Nyral", "DSML 半截 EOF 尽力解析: ${parsed.size} 个调用 [${parsed.joinToString { it.first }}]")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$android.util.Log.w("Nyral", "DSML 泄漏已拦截解析: " + parsed.size + " 个调用 [" + parsed.joinToString { it.first } + "]")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$else -&gt; a.mime to a.mime.removePrefix("audio/").substringBefore("+").substringBefore(";")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$else -&gt; mime to mime.removePrefix("audio/").substringBefore("+").substringBefore(";")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$fun</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$if</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$messages.put(JSONObject().put("role", "assistant").put("content", capOut(res.accumulated.trimEnd())))</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$mime.startsWith("audio/flac") || mime.startsWith("audio/x-flac") -&gt; "audio/flac" to "flac"</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$mime.startsWith("audio/mp4") || mime.startsWith("audio/x-m4a") || mime.startsWith("audio/m4a") -&gt; "audio/mp4" to "m4a"</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$mime.startsWith("audio/mpeg") || mime.startsWith("audio/mp3") -&gt; "audio/mpeg" to "mp3"</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$mime.startsWith("audio/ogg") || mime.startsWith("audio/opus") -&gt; "audio/ogg" to "ogg"</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$mime.startsWith("audio/wav") || mime.startsWith("audio/x-wav") || mime.startsWith("audio/wave") -&gt; "audio/wav" to "wav"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$private</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$val</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$val a = JSONArray(context.getSharedPreferences("emoji_drawer", Context.MODE_PRIVATE).getString("lib_items", "[]") ?: "[]")</ID>
-    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$val clean = if (er.first == "video_frame") er.second.substringBefore(" FRAME:data:image/jpeg;base64,") else er.second</ID>
-    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$val clean = if (name == "video_frame") result.substringBefore(" FRAME:data:image/jpeg;base64,") else result</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$val finalMsg = "工具调用预算已耗尽(已达 $MAX_TOOL_CALLS 次上限)。请仅基于已获得的工具执行结果, 直接向用户输出最终答案总结。不要发起任何工具调用, 不要重复执行工具, 不要输出思考过程。"</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$val invokeRe = Regex("&lt;[｜|]{1,2}DSML[｜|]{1,2}\\s*invoke\\s+name=\"([^\"]+)\"[^&gt;]*&gt;([\\s\\S]*?)(?=&lt;[｜|]{1,2}DSML[｜|]{1,2}\\s*invoke|&lt;/[｜|]{1,2}DSML|$)")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$val meta = try { AttachmentStore.metaOf(context, a.name)?.let { JSONObject(it) } } catch (e: Exception) { null }</ID>
@@ -2172,7 +2368,6 @@
     <ID>MaxLineLength:MainActivity.kt$MainActivity$android.util.Log.d("ReconcileV", "trigger first=$first last=$last lastVis=$lastVis count=${chatRows.size} sScrolling=$sScrolling sBatchLoad=$sBatchLoad players=${sBubblePlayers.size} gate=${ExoGate.INLINE_MAX}")</ID>
     <ID>MaxLineLength:MainActivity.kt$MainActivity$android.util.Log.i("NyralIme", "insets imeH=$imeH shown=$imeShown open=$emojiOpen eddH=${emojiDrawer?.height} tgt=$emojiDrawerTargetH kbH=$emojiDrawerKbH w=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).weight} h=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")</ID>
     <ID>MaxLineLength:MainActivity.kt$MainActivity$android.util.Log.i("NyralIme", "smoothRestore remain=$remain bwH=${lp0.height} full=$bodyWrapFullH anim=${imeAnimator?.isRunning}")</ID>
-    <ID>MaxLineLength:MainActivity.kt$MainActivity$background = if (edgeImage) null else rounded(dp(14), floatBubbleColor(if (isUser) BUBBLE_USER else BUBBLE_AI))</ID>
     <ID>MaxLineLength:MainActivity.kt$MainActivity$contentSegs.forEach { obtainSeg(it, segRendered, segWriteback)?.let { r -&gt; container.addView(obtainChatWrap(r)) } }</ID>
     <ID>MaxLineLength:MainActivity.kt$MainActivity$else</ID>
     <ID>MaxLineLength:MainActivity.kt$MainActivity$fillAiRich(container, row.thinking, row.content, row.tools, row.timeline, row.rendered) { spanned -&gt; writeBackRendered(row.id, spanned) }</ID>
@@ -2220,7 +2415,6 @@
     <ID>MaxLineLength:MainActivityMd.kt$&lt;no name provided&gt;$Log.d("DRIFTDBG", "skip-scrolling delta=" + delta + " b=" + b + " last=" + lastBottom + " watchers=" + driftPreDraws.size)</ID>
     <ID>MaxLineLength:MainActivityMd.kt$&lt;no name provided&gt;$while (row.parent is android.view.View &amp;&amp; row.parent !== chatRec) row = row.parent as android.view.View</ID>
     <ID>MaxLineLength:MainActivityMd.kt$if</ID>
-    <ID>MaxLineLength:MainActivityMd.kt$if (mdCache.get(md) == null) mdCache.put(md, synchronized(markwonRenderLock) { markwon.toMarkdown(md) })</ID>
     <ID>MaxLineLength:MainActivityMd.kt$if (t.contains("|") &amp;&amp; t.contains("-") &amp;&amp; t.all { it == '|' || it == '-' || it == ':' || it.isWhitespace() }) continue</ID>
     <ID>MaxLineLength:MainActivityMd.kt$internal</ID>
     <ID>MaxLineLength:MainActivityMd.kt$val dec = RenderedCodec.decode(m.rendered, markwon.configuration().theme(), mdTableTheme, resources.displayMetrics.density, chatMaxW())</ID>
@@ -2236,6 +2430,7 @@
     <ID>MaxLineLength:MainUi.kt$modelPopup</ID>
     <ID>MaxLineLength:MainUi.kt$sb.setSpan(Ui.centerDot(act, Ui.GREEN, 6), s, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)</ID>
     <ID>MaxLineLength:MainUi.kt$val allCaps = listOf(ApiConfig.CAP_TEXT, ApiConfig.CAP_IMAGE, ApiConfig.CAP_VIDEO, ApiConfig.CAP_AUDIO, ApiConfig.CAP_TOOL)</ID>
+    <ID>MaxLineLength:McpClientManager.kt$McpClientManager$/** serverName -&gt; 该 server 的工具清单(线程安全: reload 清空与并发 callTool/spec 读并存, 用 ConcurrentHashMap 避免 ConcurrentModificationException) */</ID>
     <ID>MaxLineLength:McpConfigActivity.kt$McpConfigActivity$bottom</ID>
     <ID>MaxLineLength:McpConfigActivity.kt$McpConfigActivity$content</ID>
     <ID>MaxLineLength:McpConfigActivity.kt$McpConfigActivity$if (url.isEmpty()) { Toast.makeText(this, getString(R.string.mcp_14), Toast.LENGTH_SHORT).show(); return@lightBtn }</ID>
@@ -2277,19 +2472,26 @@
     <ID>MaxLineLength:MemModelConfigActivity.kt$MemModelConfigActivity$models.isEmpty() -&gt; Toast.makeText(this@MemModelConfigActivity, getString(R.string.mmcfg_23), Toast.LENGTH_SHORT).show()</ID>
     <ID>MaxLineLength:MemModelConfigActivity.kt$MemModelConfigActivity$val tip = if (res.message.isNotEmpty()) getString(R.string.mmcfg_28, res.message) else getString(R.string.mmcfg_19)</ID>
     <ID>MaxLineLength:MemModelConfigActivity.kt$MemModelConfigActivity$}</ID>
-    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$"SELECT id, content, ts, embedding, session_title FROM memory WHERE content LIKE ? ORDER BY ts DESC LIMIT ?"</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$"INSERT INTO memory(content, ts, embedding, session_title, src_session_id, src_msg_no) VALUES(?, ?, ?, ?, ?, ?)"</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$"SELECT id, content, ts, embedding, session_title, src_session_id, src_msg_no FROM memory WHERE content LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?"</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb$"SELECT id, title, updated_at, pinned FROM sessions WHERE mode = ? ORDER BY pinned DESC, updated_at DESC LIMIT ?"</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb$"SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0), COALESCE(rendered, ''), COALESCE(rendered_version, 0), COALESCE(date, '') FROM session_msgs WHERE session_id = ? ORDER BY seq ASC"</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb$"SELECT role, content, thinking, tools, timeline, COALESCE(ts, 0), COALESCE(rendered, ''), COALESCE(rendered_version, 0), seq, COALESCE(date, '') FROM session_msgs "</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb$Mem</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$Pending</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$arrayOf(ch.content, System.currentTimeMillis(), FloatArrayToBytes(ch.vec), sessionTitle, ch.sessionId?.toString(), ch.msgNo?.toString())</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb$db.execSQL("DELETE FROM session_msgs WHERE session_id = ? AND seq &gt;= ?", arrayOf(id.toString(), baseSeq.toString()))</ID>
-    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$db.rawQuery("SELECT id, content, ts, embedding, session_title FROM memory ORDER BY ts DESC", null)</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$db.execSQL("UPDATE session_msgs SET " + col + " = substr(" + col + ", 1, " + maxLen + ") WHERE length(" + col + ") &gt; " + maxLen)</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$db.rawQuery("SELECT id, content, ts, embedding, session_title, src_session_id, src_msg_no FROM memory ORDER BY ts DESC", null)</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$db.rawQuery("SELECT src_session_id, src_msg_no FROM memory WHERE id IN ($ph1)", ids.map { it.toString() }.toTypedArray())</ID>
+    <ID>MaxLineLength:MemoryDb.kt$MemoryDb$val</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb.Companion$if (c.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR)) "MM-dd HH:mm" else "yy-MM-dd HH:mm"</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb.SessionMsg$/** 会话消息: role / content(正文) / thinking(AI 思考) / tools(工具调用序列 JSON) / timeline(思考+工具交错时间线 JSON, v8) / ts(消息时间戳 v10) / seq(会话内序号, 窗口化加载时用于定位) / date(消息日期 yyyy-MM-dd) */</ID>
     <ID>MaxLineLength:MemoryDb.kt$MemoryDb.SessionMsg$data</ID>
     <ID>MaxLineLength:MemoryEmbedder.kt$MemoryEmbedder$inputs["attention_mask"] = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(attn), longArrayOf(1L, seqLen.toLong()))</ID>
     <ID>MaxLineLength:MemoryEmbedder.kt$MemoryEmbedder$inputs["input_ids"] = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(inputIds), longArrayOf(1L, seqLen.toLong()))</ID>
     <ID>MaxLineLength:MemoryEmbedder.kt$MemoryEmbedder$inputs["token_type_ids"] = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(types), longArrayOf(1L, seqLen.toLong()))</ID>
+    <ID>MaxLineLength:MemoryKeeper.kt$MemoryKeeper$val line = if (MemoryDb.fmtTs(p.ts).isEmpty()) "${p.role}: ${p.content}" else "${p.role}[${MemoryDb.fmtTs(p.ts)}]: ${p.content}"</ID>
     <ID>MaxLineLength:MemoryListActivity.kt$MemoryListActivity$Toast.makeText(this, getString(R.string.memory_toast_deleted_selected, selectedIds.size), Toast.LENGTH_SHORT).show()</ID>
     <ID>MaxLineLength:MemoryListActivity.kt$MemoryListActivity$popup</ID>
     <ID>MaxLineLength:MemoryTools.kt$MemoryTools$}</ID>
@@ -2304,7 +2506,7 @@
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$card</ID>
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$card.addView(Ui.hint(this, if (p?.isPreset == true &amp;&amp; !isNew) getString(R.string.hint_caps_preset_locked) else getString(R.string.hint_caps_desc)))</ID>
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$else -&gt; TestResult(true, getString(R.string.toast_net_unverified, e?.message ?: getString(R.string.net_error)))</ID>
-    <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$if (model.trim().isNotEmpty() &amp;&amp; !containsKey(model.trim())) put(model.trim(), setOf(ApiConfig.CAP_TEXT))</ID>
+    <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$if (model.trim().isNotEmpty() &amp;&amp; !containsKey(model.trim())) put(model.trim(), ApiConfig.guessModelCaps(model.trim()).toSet())</ID>
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$models == null -&gt; Toast.makeText(this@ModelEditActivity, getString(R.string.toast_fetch_fail), Toast.LENGTH_SHORT).show()</ID>
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$models.isEmpty() -&gt; Toast.makeText(this@ModelEditActivity, getString(R.string.toast_empty_models), Toast.LENGTH_SHORT).show()</ID>
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$root</ID>
@@ -2314,6 +2516,12 @@
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$val caps: List&lt;String&gt; = ApiConfig.modelCapabilities(providerId ?: "", modelInput.text.toString().trim()).toList()</ID>
     <ID>MaxLineLength:ModelEditActivity.kt$ModelEditActivity$val id = ApiConfig.addCustomProvider(labelInput.text.toString().trim(), base, key, model, selectedModels, selectedEffort, selectedCaps, modelCapsMap, selectedAuthType, selectedAuthHeader.ifBlank { "Authorization" })</ID>
     <ID>MaxLineLength:ModelUpdater.kt$ModelUpdater$private val executor = Executors.newSingleThreadExecutor { r -&gt; Thread(r, "model-updater").apply { isDaemon = true } }</ID>
+    <ID>MaxLineLength:NyralApp.kt$NyralApp$Log.w("NyralApp", "upload crash http " + conn.responseCode + " (attempt " + (i + 1) + "/" + attempts + ")")</ID>
+    <ID>MaxLineLength:NyralApp.kt$NyralApp$files = dir.listFiles()?.filter { it.isFile &amp;&amp; (it.name.startsWith("crash_") || it.name.startsWith("anr_")) &amp;&amp; it.name.endsWith(".txt") } ?: return@Thread</ID>
+    <ID>MaxLineLength:NyralApp.kt$NyralApp$sb.append("android: ").append(Build.VERSION.RELEASE).append(" / SDK ").append(Build.VERSION.SDK_INT).append('\n')</ID>
+    <ID>MaxLineLength:NyralApp.kt$NyralApp$val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "nyral_crash")</ID>
+    <ID>MaxLineLength:NyralApp.kt$NyralApp$val hasLog = dir.listFiles()?.any { it.isFile &amp;&amp; (it.name.startsWith("crash_") || it.name.startsWith("anr_")) } ?: false</ID>
+    <ID>MaxLineLength:NyralApp.kt$NyralApp$var files = dir.listFiles()?.filter { it.isFile &amp;&amp; (it.name.startsWith("crash_") || it.name.startsWith("anr_")) &amp;&amp; it.name.endsWith(".txt") } ?: return@Thread</ID>
     <ID>MaxLineLength:PatternStore.kt$PatternStore$"(SELECT id FROM patterns ORDER BY (ok_count * 10 + hit_count) DESC, updated_ts DESC LIMIT ?)"</ID>
     <ID>MaxLineLength:PatternStore.kt$PatternStore$"AND id NOT IN (SELECT id FROM patterns ORDER BY (ok_count * 10 + hit_count) DESC, updated_ts DESC LIMIT ?)"</ID>
     <ID>MaxLineLength:PatternStore.kt$PatternStore$"INSERT INTO patterns(signature, tool_seq, ok_count, fail_count, hit_count, updated_ts) VALUES(?,?,?,?,0,?)"</ID>
@@ -2337,9 +2545,12 @@
     <ID>MaxLineLength:RenderedCodec.kt$RenderedCodec$"relsize" -&gt; sb.setSpan(RelativeSizeSpan(o.optDouble("prop", 1.0).toFloat()), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)</ID>
     <ID>MaxLineLength:RenderedCodec.kt$RenderedCodec$fun</ID>
     <ID>MaxLineLength:RenderedCodec.kt$RenderedCodec$private</ID>
+    <ID>MaxLineLength:ScriptEngine.kt$ScriptEngine$val recursive = shortOpts.any { it in setOf("-r", "-R", "-f", "-rf", "-fr", "-fR", "--recursive", "--force") }</ID>
+    <ID>MaxLineLength:Secrets.kt$Secrets$LogStore.e("SEC", "Keystore encrypt failed, fallback plain: " + e.javaClass.simpleName + ": " + (e.message ?: ""))</ID>
     <ID>MaxLineLength:SecurityCenterActivity.kt$SecurityCenterActivity$SecurityConfig.audit(this@SecurityCenterActivity, "security_mode", "off", "ui_user", "security_center")</ID>
     <ID>MaxLineLength:SecurityCenterActivity.kt$SecurityCenterActivity$SecurityConfig.audit(this@SecurityCenterActivity, "security_mode", newMode, "ui_user", "security_center")</ID>
     <ID>MaxLineLength:SecurityCenterActivity.kt$SecurityCenterActivity$text = "说明：\n严格 — 每次危险操作都需确认，禁用窗口期复用。\n自动 — 高危工具（sh/ssh/写文件等）需确认，5 分钟内同参数不再重复弹。\n放行 — 关闭门禁，AI 可自由执行危险操作，仅建议临时使用。"</ID>
+    <ID>MaxLineLength:SecurityConfig.kt$SecurityConfig$out</ID>
     <ID>MaxLineLength:SecurityConfig.kt$SecurityConfig$return sb.toString().ifEmpty { "security_set 需指定至少一项: danger_mode / danger_confirm / root_auto_grant / ssh_trust" }</ID>
     <ID>MaxLineLength:SecurityUi.kt$SecurityUi$fun</ID>
     <ID>MaxLineLength:SecurityUi.kt$SecurityUi$req.body ?: "工具 [${req.tool}] 请求执行危险操作。\n\n参数摘要:\n${(req.display ?: req.arg).take(300)}\n\n2 分钟内未操作将自动拒绝。"</ID>
@@ -2373,9 +2584,10 @@
     <ID>MaxLineLength:SshTools.kt$SshTools$.</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools$return "$head\n\n... [输出共 ${body.length} 字符, 已截断中间部分; 若需完整结果, 用 ssh_run 把输出重定向到文件再 ssh_download 拉取] ...\n\n$tail"</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools$return "错误: 参数需含 conn(连接名)/local(工作目录文件名)/remote(远端路径), 如 {\"conn\":\"vps\",\"local\":\"a.txt\",\"remote\":\"/tmp/a.txt\"}"</ID>
-    <ID>MaxLineLength:SshTools.kt$SshTools.JschProxyJump$" keyHead="</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools.JschProxyJump$Log.i("SshTools", "proxy connect: proxy=" + cfg.proxyHost + ":" + cfg.proxyPort + " -&gt; target=" + host + ":" + port)</ID>
+    <ID>MaxLineLength:SshTools.kt$SshTools.JschProxyJump$Log.i("SshTools", "proxy key: user=" + proxyUser + " keyLen=" + (effKey?.length ?: 0) + " hasPw=" + (!effPw.isNullOrEmpty()))</ID>
     <ID>MaxLineLength:SshTools.kt$SshTools.PrefsHostKeyRepository$return if (trusted().contains("$h ${hk.getFingerPrint(jschFp)}")) HostKeyRepository.OK else HostKeyRepository.NOT_INCLUDED</ID>
+    <ID>MaxLineLength:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$KnowledgeSinker.maybeSink(activity, activity.currentSessionId, activity.sessionBaseSeq, activity.messages, toolTrace.toList())</ID>
     <ID>MaxLineLength:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$activity.messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))</ID>
     <ID>MaxLineLength:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$android.util.Log.i("NyralIme", "onDone.rebuild scroll=${activity.scrollUserScrolled} itemCount=${activity.chatAdapter.itemCount} imeShown=${activity.imeShown}")</ID>
     <ID>MaxLineLength:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$try</ID>
@@ -2388,15 +2600,27 @@
     <ID>MaxLineLength:TimerTaskDb.kt$TimerTaskDb$"SELECT id, name, goal, cron_desc, enabled, last_run_ts, last_result, session_id, mode, allow_tools FROM timer_tasks WHERE id = ?"</ID>
     <ID>MaxLineLength:TimerTaskDb.kt$TimerTaskDb$"UPDATE timer_tasks SET name = ?, goal = ?, cron_desc = ?, allow_tools = ?, updated_ts = ? WHERE id = ?"</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$"[${name}] 第 ${offset + 1}..$next 字符 / 共 $total 字符(已读 ${((next.toFloat() / total) * 100).toInt()}%):\n$chunk"</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$"[video_frame] $rawName @${sec}s (视频共${durationMs / 1000}s) 已抽帧(${w}x${h}), 帧图已注入本轮供查看 FRAME:data:image/jpeg;base64,$b64"</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$"[video_frame] $rawName 多帧采样@${secs.joinToString("/")}s (视频共${durationMs / 1000}s) 共${ok.size}/${times.size}帧(${w}x${h}), 帧图已注入本轮供查看 ${parts.joinToString(" ")}"</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$// 单帧: 模型显式指定 timeMs; 超限请求必须拦截, 否则 MediaMetadataRetriever 会返回最后一帧并按传入 timeMs 伪造 @sec 标签(10s 视频抽出 14s/20s 的根因)</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$else -&gt; "定时任务「$name」已创建并预授权(${if (reqs.isEmpty()) "无危险工具" else reqs.joinToString("、") { "${it.first}(${it.second})" }}), $fullCron 静默执行; 删除/停用任务时授权同步回收。"</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$fun</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$if</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$if (f.length() &gt; maxBytes) return@run "[audio_read] $rawName 音频过大(${f.length() / 1024 / 1024}MB), 无法整段注入对话; 请提示用户: 已落库可调 file_export(name=\"att://$rawName\") 导出听取"</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$if (idx &lt; 0 || txt.isEmpty()) "请指定 index 与 text(来自 app_scan 结果)" else UiControlService.type(idx, txt)</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$if (ok) "已导出到工作目录 ${WorkDir.displaySubPath(WorkDir.SUB_DIR_FILES)}$raw (用户可见可改)" else "错误: 导出失败(工作目录不可写)"</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$if (txt.isNullOrBlank()) return@run "[pdf_page] 第 $page 页无文本层(扫描件/矢量图), 无法提取文字; 若模型支持识图可改用 mode=\"image\" 渲染该页图片查看"</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$return "【安全确认】静默定时任务已自动拒绝危险工具 [$n](未在任务能力授权内)。请改用非危险工具(memory_search/calc/get_time/file 只读等)完成目标，不要重试本工具。"</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$return "参数错误: allow_tools key \"$k\" 不在授权目录 ALLOW_CATALOG 中, 请改用以下合法 key 之一: ${SecurityConfig.ALLOW_CATALOG.keys.joinToString(", ")}。请修正参数后重新调用 timer_task_create。"</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$return@run "[attach_read] 附件 $name 是 PDF 文件，attach_read 只读 UTF-8 文本，不能直接读 PDF(会读到二进制结构)。请改用 pdf_page(name=\"att://$name\", page=页码, mode=\"image\"或\"text\") 按页查看；扫描件无文本层时用 mode=\"image\" 渲染页面图阅读。"</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$return@run "[attach_read] 附件 $name 类型为 $mime，非 UTF-8 文本附件，attach_read 无法读取。请按类型使用对应工具：视频→video_frame、图片→image_view、音频→audio_read、PDF→pdf_page，或 file_export 导出到工作目录后处理。"</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$return@run "错误: timeMs=$timeMs 超出视频时长 ${durationMs / 1000}s(${durationMs}ms), 该视频共 ${durationMs / 1000}s, 请传 0~${((durationMs - 1).coerceAtLeast(0L)) / 1000}s 内取帧"</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$val bmp = if (scale &lt; 1f) Bitmap.createScaledBitmap(frame, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else frame</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$val j = try { JSONObject(argRaw.trim()) } catch (e: Exception) { return "参数格式错误(需 JSON: name/goal/cron/allow_tools)" }</ID>
     <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$val j = try { JSONObject(argRaw.trim()) } catch (e: Exception) { return "参数格式错误(需 JSON: question/options/allow_custom)" }</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$val outBmp = if (scale &lt; 1f) Bitmap.createScaledBitmap(bmp, (w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), true) else bmp</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$val scriptRaw = try { JSONObject(arg.trim()).optString("script", "") } catch (e: Exception) { arg.trim() }</ID>
+    <ID>MaxLineLength:ToolExecutor.kt$ToolExecutor$val textExts = setOf("txt", "md", "markdown", "log", "csv", "json", "xml", "html", "htm", "css", "js", "mjs", "ts", "java", "kt", "kts", "c", "cpp", "cc", "h", "hpp", "sh", "bash", "zsh", "py", "rb", "php", "go", "rs", "sql", "yml", "yaml", "toml", "ini", "cfg", "conf", "env", "properties", "bat", "cmd", "ps1", "gradle", "lock")</ID>
     <ID>MaxLineLength:Ui.kt$Ui$fun</ID>
     <ID>MaxLineLength:Ui.kt$Ui.CenterDotSpan$class</ID>
     <ID>MaxLineLength:Ui.kt$Ui.CenterDotSpan$override</ID>
@@ -2426,8 +2650,8 @@
     <ID>NestedBlockDepth:ApiClientTest.kt$MockServer$private fun handle(sock: Socket)</ID>
     <ID>NestedBlockDepth:ApiConfig.kt$ApiConfig$fun providers(): List&lt;Provider&gt;</ID>
     <ID>NestedBlockDepth:AttachmentSender.kt$AttachmentSender$private fun addAttachPreview(att: LocalEngine.Attachment)</ID>
+    <ID>NestedBlockDepth:AttachmentSender.kt$AttachmentSender$private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List&lt;LocalEngine.Attachment&gt;</ID>
     <ID>NestedBlockDepth:AttachmentSender.kt$AttachmentSender$private fun imageAttachments(uri: Uri, name: String, real: String): List&lt;LocalEngine.Attachment&gt;</ID>
-    <ID>NestedBlockDepth:AttachmentSender.kt$AttachmentSender$private fun pdfToImageAttachments(uri: Uri, name: String): List&lt;LocalEngine.Attachment&gt;</ID>
     <ID>NestedBlockDepth:BertTokenizer.kt$BertTokenizer$fun encode(text: String, maxLen: Int = 512): IntArray</ID>
     <ID>NestedBlockDepth:BrowserPageSync.kt$private fun BrowserPage.clickWithEventDriven(i: Int, e: Element): String</ID>
     <ID>NestedBlockDepth:BrowserSlideController.kt$BrowserSlideController$fun onIntercept(ev: MotionEvent): Boolean</ID>
@@ -2448,8 +2672,8 @@
     <ID>NestedBlockDepth:GifToMp4.kt$GifToMp4$private fun countFramesInWindow(bytes: ByteArray, maxDurMs: Long): Pair&lt;Int, Long&gt;</ID>
     <ID>NestedBlockDepth:GifToMp4.kt$GifToMp4$private fun drain(encoder: MediaCodec, muxer: MediaMuxer, trackIdx: IntArray, all: Boolean)</ID>
     <ID>NestedBlockDepth:LocalEngine.kt$LocalEngine$@Suppress("SameParameterValue") private fun processRow( row: String, mode: Int, accumulated: StringBuilder, cb: Callback, setMode: (Int) -&gt; Unit, answerGate: () -&gt; String?, restartOut: MutableList&lt;String&gt; ): Pair&lt;String, String&gt;?</ID>
-    <ID>NestedBlockDepth:LocalEngine.kt$LocalEngine$fun chat(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
     <ID>NestedBlockDepth:LocalEngine.kt$LocalEngine$private fun buildRouteMessages(context: Context, history: String, attachments: List&lt;Attachment&gt; = emptyList(), memInject: String? = null, patHint: String? = null): JSONArray</ID>
+    <ID>NestedBlockDepth:LocalEngine.kt$LocalEngine$private fun chatImpl(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
     <ID>NestedBlockDepth:LocalEngine.kt$LocalEngine$private fun streamOnce( context: Context, messages: JSONArray, cb: Callback, answerGate: () -&gt; String?, injectedTools: MutableSet&lt;String&gt;, hotLoaded: Set&lt;String&gt;, forceNoTools: Boolean = false, taskId: Long = 0L ): StreamResult</ID>
     <ID>NestedBlockDepth:MainActivity.kt$MainActivity$internal fun buildRowView(row: ChatRow): View</ID>
     <ID>NestedBlockDepth:MainActivity.kt$MainActivity$internal fun renderUserContent(content: String): CharSequence</ID>
@@ -2457,24 +2681,30 @@
     <ID>NestedBlockDepth:MainActivity.kt$MainActivity$private fun applyChatBackground()</ID>
     <ID>NestedBlockDepth:MainActivity.kt$MainActivity$private fun fillAiRich(container: LinearLayout, thinking: String, content: String, toolsJson: String, timelineJson: String, rendered: String = "", writeback: ((Spanned) -&gt; Unit)? = null)</ID>
     <ID>NestedBlockDepth:MainActivity.kt$MainActivity$private fun recycleAiRichChildren(container: LinearLayout)</ID>
-    <ID>NestedBlockDepth:MainActivity.kt$MainActivity$private fun setupBrowserLayerAndCallbacks()</ID>
+    <ID>NestedBlockDepth:MainActivity.kt$MainActivity$private fun welcomeCardView(): View</ID>
     <ID>NestedBlockDepth:MainActivityMd.kt$internal fun MainActivity.writeBackRendered(seq: Long, spanned: Spanned)</ID>
+    <ID>NestedBlockDepth:MainActivityMd.kt$internal fun splitLongContent(raw: String): List&lt;String&gt;</ID>
     <ID>NestedBlockDepth:MainUi.kt$internal fun MainActivity.showModelList()</ID>
     <ID>NestedBlockDepth:McpClientManager.kt$McpClientManager$fun reload(context: Context)</ID>
     <ID>NestedBlockDepth:MdBlocksRender.kt$MdToBlocks$private fun tableBlock(parsed: MdSpans, s: Int, e: Int): MdRenderBlock.TableBlock?</ID>
+    <ID>NestedBlockDepth:MdSpannable.kt$MdSpannable$fun toSpannable(md: MdSpans): CharSequence</ID>
     <ID>NestedBlockDepth:MdSpans.kt$MdToSpans$private fun walk( node: Node, sb: StringBuilder, spans: MutableList&lt;MdSpan&gt;, blockStart: Boolean, listPrefix: String?, indentLevel: Int = 0 )</ID>
     <ID>NestedBlockDepth:MdSpans.kt$MdToSpans$private fun walkChildrenSkip(node: Node, sb: StringBuilder, spans: MutableList&lt;MdSpan&gt;, skipChars: Int)</ID>
     <ID>NestedBlockDepth:MediaFileUtils.kt$MediaFileUtils$fun motionVideoUriOf(cr: ContentResolver, imgUri: Uri): Uri?</ID>
     <ID>NestedBlockDepth:MediaPreviews.kt$private fun Activity.createMediaPreviewContent(media: List&lt;String&gt;, startIndex: Int, d: Dialog, adaptH: Boolean = false): View</ID>
     <ID>NestedBlockDepth:MemoryEmbedder.kt$MemoryEmbedder$@Synchronized fun reload(): Boolean</ID>
     <ID>NestedBlockDepth:MemoryEmbedder.kt$MemoryEmbedder$fun embed(text: String): FloatArray</ID>
+    <ID>NestedBlockDepth:MemoryKeeper.kt$MemoryKeeper$private fun archive(): Boolean</ID>
+    <ID>NestedBlockDepth:MemoryKeeper.kt$MemoryKeeper$private fun chunkText(text: String, size: Int): List&lt;String&gt;</ID>
     <ID>NestedBlockDepth:MemoryTools.kt$MemoryTools$fun search(context: android.content.Context, query: String): String</ID>
     <ID>NestedBlockDepth:ModelUpdater.kt$ModelUpdater$private fun downloadResume(urlStr: String, target: File, md5: String, size: Long): Boolean</ID>
-    <ID>NestedBlockDepth:PdfTextExtractor.kt$PdfTextExtractor$fun extract(data: ByteArray, maxChars: Int = 8000): String</ID>
+    <ID>NestedBlockDepth:NyralApp.kt$NyralApp$private fun exportToDownload(src: File): Boolean</ID>
+    <ID>NestedBlockDepth:PdfTextExtractor.kt$PdfTextExtractor$fun extractPages(data: ByteArray): List&lt;String&gt;</ID>
     <ID>NestedBlockDepth:PdfTextExtractor.kt$PdfTextExtractor$private fun extractTj(content: String): String</ID>
     <ID>NestedBlockDepth:PdfTextExtractor.kt$PdfTextExtractor$private fun unescape(s: String): String</ID>
     <ID>NestedBlockDepth:PersonalityActivity.kt$PersonalityActivity$private fun avatarBig(isAi: Boolean): TextView</ID>
     <ID>NestedBlockDepth:ScanDeduper.kt$ScanDeduper$fun dedup(list: List&lt;Cand&gt;): List&lt;Cand&gt;</ID>
+    <ID>NestedBlockDepth:ScriptEngine.kt$ScriptEngine$private fun blockReasonSemantic(script: String): String?</ID>
     <ID>NestedBlockDepth:SshConfigActivity.kt$SshConfigActivity$override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)</ID>
     <ID>NestedBlockDepth:SshTools.kt$SshTools$fun ls(context: Context, arg: String): String</ID>
     <ID>NestedBlockDepth:SshTools.kt$SshTools$private fun execOnce(context: Context, cfg: SshConfigStore.SshConfig, command: String): String</ID>
@@ -2482,7 +2712,9 @@
     <ID>NestedBlockDepth:ToolHotStore.kt$ToolHotStore$fun load(context: Context): Map&lt;String, HotStat&gt;</ID>
     <ID>NestedBlockDepth:UiKit.kt$fun decodeVideoThumbnail(f: File, density: Float, ctx: Context, allowGrab: Boolean = true, withPlayButton: Boolean = true): Bitmap?</ID>
     <ID>NestedBlockDepth:UiKit.kt$fun remuxToCache(ctx: Context, src: File): File?</ID>
+    <ID>NestedBlockDepth:UiKit.kt$fun renderPdfPageJpeg(f: File, pageIndex: Int, maxSide: Int = 2048): Pair&lt;ByteArray?, Int&gt;</ID>
     <ID>NestedBlockDepth:UiKit.kt$fun videoFrameAt(f: File, timeMs: Long): Bitmap?</ID>
+    <ID>NestedBlockDepth:UiKit.kt$fun videoFramesAt(f: File, times: List&lt;Long&gt;): List&lt;Bitmap?&gt;</ID>
     <ID>NestedBlockDepth:UiKit.kt$private fun thumbJobFail(job: ThumbJob)</ID>
     <ID>NestedBlockDepth:UiKit.kt$private fun writeThumbDisk(ctx: Context, key: String, bmp: Bitmap)</ID>
     <ID>NestedBlockDepth:VideoCompressor.kt$VideoCompressor$fun compress(context: Context, uri: Uri, outFile: File)</ID>
@@ -2493,9 +2725,12 @@
     <ID>NestedBlockDepth:WorkDir.kt$WorkDir$fun write(context: Context, name: String, bytes: ByteArray, subDir: String = ""): Boolean</ID>
     <ID>NestedBlockDepth:WorkDir.kt$WorkDir$private fun queryList(context: Context): String</ID>
     <ID>NestedBlockDepth:WorkTools.kt$WorkTools$fun grep(context: Context, arg: String): String</ID>
+    <ID>NewLineAtEndOfFile:AttachmentSender.kt$io.github.aixtin.nyral.AttachmentSender.kt</ID>
     <ID>NewLineAtEndOfFile:SshTools.kt$io.github.aixtin.nyral.SshTools.kt</ID>
     <ID>ReturnCount:AiBubbleHolder.kt$AiBubbleHolder$fun renderedSnapshot(): CharSequence?</ID>
     <ID>ReturnCount:AiBubbleHolder.kt$AiBubbleHolder$private fun currentSnippet(): String?</ID>
+    <ID>ReturnCount:AiBubbleHolder.kt$AiBubbleHolder$private fun findLastTableBlock(s: String): IntRange?</ID>
+    <ID>ReturnCount:AiBubbleHolder.kt$AiBubbleHolder$private fun inTableTail(buf: StringBuilder): Boolean</ID>
     <ID>ReturnCount:AiBubbleHolder.kt$AiBubbleHolder$private fun renderSilent(b: ContentBlock)</ID>
     <ID>ReturnCount:AiBubbleHolder.kt$AiBubbleHolder$private fun showSnippet()</ID>
     <ID>ReturnCount:AiBubbleHolder.kt$AiBubbleHolder$private fun stepBlock(b: ContentBlock, frameNs: Long): Boolean</ID>
@@ -2507,7 +2742,6 @@
     <ID>ReturnCount:AttachmentSender.kt$AttachmentSender$private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHintRes: Int): LocalEngine.Attachment?</ID>
     <ID>ReturnCount:AttachmentSender.kt$AttachmentSender$private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List&lt;LocalEngine.Attachment&gt;</ID>
     <ID>ReturnCount:AttachmentSender.kt$AttachmentSender$private fun imageAttachments(uri: Uri, name: String, real: String): List&lt;LocalEngine.Attachment&gt;</ID>
-    <ID>ReturnCount:AttachmentSender.kt$AttachmentSender$private fun pdfToImageAttachments(uri: Uri, name: String): List&lt;LocalEngine.Attachment&gt;</ID>
     <ID>ReturnCount:AttachmentStore.kt$AttachmentStore$fun fileOf(context: Context, fileName: String): File?</ID>
     <ID>ReturnCount:AttachmentStore.kt$AttachmentStore$fun readTextChunk(context: Context, fileName: String, offset: Int = 0, limit: Int = 4000): String?</ID>
     <ID>ReturnCount:AttachmentStore.kt$LocalFileProvider$override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor?</ID>
@@ -2551,8 +2785,13 @@
     <ID>ReturnCount:GifToMp4.kt$GifToMp4$private fun countFrames(bytes: ByteArray): Int</ID>
     <ID>ReturnCount:GifToMp4.kt$GifToMp4$private fun countFramesInWindow(bytes: ByteArray, maxDurMs: Long): Pair&lt;Int, Long&gt;</ID>
     <ID>ReturnCount:GuideActivity.kt$GuideActivity$private fun fetchModelsFromNetwork(p: ApiConfig.Provider, key: String): List&lt;String&gt;?</ID>
+    <ID>ReturnCount:KnowledgeSinker.kt$KnowledgeSinker$fun maybeSink(context: Context, sessionId: Long?, sessionBaseSeq: Int, messages: List&lt;MemoryDb.SessionMsg&gt;, toolTrace: List&lt;Pair&lt;String, String&gt;&gt; = emptyList())</ID>
+    <ID>ReturnCount:KnowledgeSinker.kt$KnowledgeSinker$private fun callSinkAi(transcript: String, catalog: String): JSONObject?</ID>
+    <ID>ReturnCount:KnowledgeSinker.kt$KnowledgeSinker$private fun sinkImage(context: Context, attRef: String, dir: File, seq: Int, idx: Int): String?</ID>
+    <ID>ReturnCount:KnowledgeSinker.kt$KnowledgeSinker$private fun sinkOnce(context: Context, sessionId: Long, sessionBaseSeq: Int, messages: List&lt;MemoryDb.SessionMsg&gt;, toolTrace: List&lt;Pair&lt;String, String&gt;&gt;)</ID>
+    <ID>ReturnCount:KnowledgeSinker.kt$KnowledgeSinker$private fun sinkPdfPage(context: Context, arg: String, dir: File, seq: Int, idx: Int): String?</ID>
     <ID>ReturnCount:LocalEngine.kt$LocalEngine$@Suppress("SameParameterValue") private fun processRow( row: String, mode: Int, accumulated: StringBuilder, cb: Callback, setMode: (Int) -&gt; Unit, answerGate: () -&gt; String?, restartOut: MutableList&lt;String&gt; ): Pair&lt;String, String&gt;?</ID>
-    <ID>ReturnCount:LocalEngine.kt$LocalEngine$fun chat(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
+    <ID>ReturnCount:LocalEngine.kt$LocalEngine$private fun chatImpl(context: Context, history: String, cb: Callback, attachments: List&lt;Attachment&gt; = emptyList(), silentMode: Boolean = false, allowTools: Set&lt;String&gt; = emptySet(), taskId: Long = 0L)</ID>
     <ID>ReturnCount:LocalEngine.kt$LocalEngine$private fun hotOrder(context: Context, specs: List&lt;ToolSpec&gt;): List&lt;ToolSpec&gt;</ID>
     <ID>ReturnCount:LogActivity.kt$LogActivity$private fun exportOne(tag: String, base: String, subDir: String): String?</ID>
     <ID>ReturnCount:LogStore.kt$LogStore$private fun parseLine(ln: String, tag: String): Entry?</ID>
@@ -2580,7 +2819,7 @@
     <ID>ReturnCount:MainActivity.kt$MainActivity.&lt;no name provided&gt;$override fun onTouchEvent(ev: MotionEvent): Boolean</ID>
     <ID>ReturnCount:MainActivityMd.kt$&lt;no name provided&gt;$override fun onPreDraw(): Boolean</ID>
     <ID>ReturnCount:MainActivityMd.kt$internal fun MainActivity.setMarkdownCached(tv: TextView, md: String, rendered: String? = null, writeback: ((Spanned) -&gt; Unit)? = null)</ID>
-    <ID>ReturnCount:MainActivityMd.kt$internal fun containsTableSyntax(md: String): Boolean</ID>
+    <ID>ReturnCount:MainActivityMd.kt$internal fun containsListSyntax(md: String): Boolean</ID>
     <ID>ReturnCount:MainActivityVoice.kt$internal fun MainActivity.finalizeRecord(): Triple&lt;ByteArray, String, Long&gt;?</ID>
     <ID>ReturnCount:MainActivityVoice.kt$internal fun MainActivity.handleSpeakTouch(ev: MotionEvent): Boolean</ID>
     <ID>ReturnCount:McpConfigStore.kt$McpConfigStore$fun load(context: Context): List&lt;McpServer&gt;</ID>
@@ -2594,17 +2833,20 @@
     <ID>ReturnCount:MemoryDb.kt$MemoryDb$private fun scoreOf(text: String, kw: String): Int</ID>
     <ID>ReturnCount:MemoryDb.kt$MemoryDb.Companion$@JvmStatic fun fmtTs(ts: Long): String</ID>
     <ID>ReturnCount:MemoryGate.kt$MemoryGate$fun recall(context: Context, recent: String): String?</ID>
+    <ID>ReturnCount:MemoryKeeper.kt$MemoryKeeper$private fun archive(): Boolean</ID>
     <ID>ReturnCount:MemoryKeeper.kt$MemoryKeeper$private fun maybeArchive(force: Boolean = false)</ID>
     <ID>ReturnCount:ModelEditActivity.kt$ModelEditActivity$private fun doSave(setAsCurrent: Boolean): String?</ID>
     <ID>ReturnCount:ModelEditActivity.kt$ModelEditActivity$private fun fetchModelsFromNetwork(base: String, key: String): List&lt;String&gt;?</ID>
     <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$fun ensureDownloaded(force: Boolean = false)</ID>
     <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun downloadFileWithResume(target: File, urls: List&lt;String&gt;, md5: String, size: Long): Boolean</ID>
     <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun downloadResume(urlStr: String, target: File, md5: String, size: Long): Boolean</ID>
+    <ID>ReturnCount:NyralApp.kt$NyralApp$private fun uploadCrash(f: File, attempts: Int = 4): Boolean</ID>
     <ID>ReturnCount:PersonalityActivity.kt$PersonalityActivity$override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)</ID>
     <ID>ReturnCount:RenderedCodec.kt$RenderedCodec$fun decode(json: String?, markwonTheme: MarkwonTheme?, tableTheme: TableTheme?, density: Float, tableMaxWidth: Int = MdSpannable.tableMaxWidth): Spanned?</ID>
     <ID>ReturnCount:ScriptEngine.kt$ScriptEngine$fun runSh(context: android.content.Context, argRaw: String): String</ID>
     <ID>ReturnCount:ScriptEngine.kt$ScriptEngine$fun runShConfirmed(context: android.content.Context, argRaw: String): String</ID>
     <ID>ReturnCount:ScriptEngine.kt$ScriptEngine$private fun blockReason(script: String): String?</ID>
+    <ID>ReturnCount:ScriptEngine.kt$ScriptEngine$private fun blockReasonSemantic(script: String): String?</ID>
     <ID>ReturnCount:Secrets.kt$Secrets$fun decrypt(context: Context, encoded: String): String?</ID>
     <ID>ReturnCount:SecurityConfig.kt$SecurityConfig$fun hasTicket(ctx: Context, name: String, arg: String): Boolean</ID>
     <ID>ReturnCount:SecurityConfig.kt$SecurityConfig$fun validateTicket(ctx: Context, name: String, arg: String): Boolean</ID>
@@ -2693,6 +2935,9 @@
     <ID>SwallowedException:GifToMp4.kt$GifToMp4$e: Exception</ID>
     <ID>SwallowedException:GuideActivity.kt$GuideActivity$e2: Exception</ID>
     <ID>SwallowedException:GuideActivity.kt$GuideActivity$e: Exception</ID>
+    <ID>SwallowedException:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$e: Exception</ID>
+    <ID>SwallowedException:KnowledgeSinker.kt$KnowledgeSinker$e: Exception</ID>
+    <ID>SwallowedException:KnowledgeSinker.kt$KnowledgeSinker$t: Throwable</ID>
     <ID>SwallowedException:LocalEngine.kt$LocalEngine$e: Exception</ID>
     <ID>SwallowedException:LocalEngine.kt$LocalEngine$e: IOException</ID>
     <ID>SwallowedException:LocalEngine.kt$LocalEngine$e: NoToolsException</ID>
@@ -2706,6 +2951,7 @@
     <ID>SwallowedException:MediaPreviews.kt$e: Exception</ID>
     <ID>SwallowedException:MemoryEmbedder.kt$MemoryEmbedder$e: Exception</ID>
     <ID>SwallowedException:MemoryTools.kt$MemoryTools$ex: Exception</ID>
+    <ID>SwallowedException:NyralApp.kt$NyralApp$e: Exception</ID>
     <ID>SwallowedException:PatternStore.kt$PatternStore$e: Exception</ID>
     <ID>SwallowedException:PdfTextExtractor.kt$PdfTextExtractor$e: Exception</ID>
     <ID>SwallowedException:PermissionsActivity.kt$PermissionsActivity$e2: Exception</ID>
@@ -2767,6 +3013,9 @@
     <ID>TooGenericExceptionCaught:GifToMp4.kt$GifToMp4$e: Exception</ID>
     <ID>TooGenericExceptionCaught:GuideActivity.kt$GuideActivity$e2: Exception</ID>
     <ID>TooGenericExceptionCaught:GuideActivity.kt$GuideActivity$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:KnowledgeSinker.kt$KnowledgeSinker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:KnowledgeSinker.kt$KnowledgeSinker$t: Throwable</ID>
     <ID>TooGenericExceptionCaught:LocalEngine.kt$LocalEngine$e: Exception</ID>
     <ID>TooGenericExceptionCaught:LogActivity.kt$LogActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$e: Exception</ID>
@@ -2787,6 +3036,7 @@
     <ID>TooGenericExceptionCaught:MemoryTools.kt$MemoryTools$e: Exception</ID>
     <ID>TooGenericExceptionCaught:MemoryTools.kt$MemoryTools$ex: Exception</ID>
     <ID>TooGenericExceptionCaught:ModelUpdater.kt$ModelUpdater$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:NyralApp.kt$NyralApp$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PatternStore.kt$PatternStore$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PdfTextExtractor.kt$PdfTextExtractor$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PermissionsActivity.kt$PermissionsActivity$e2: Exception</ID>
@@ -2853,6 +3103,8 @@
     <ID>TooManyFunctions:FirstRunSetupActivity.kt$FirstRunSetupActivity : Activity</ID>
     <ID>TooManyFunctions:GifToMp4.kt$GifToMp4</ID>
     <ID>TooManyFunctions:GuideActivity.kt$GuideActivity : Activity</ID>
+    <ID>TooManyFunctions:KnowledgeBaseActivity.kt$KnowledgeBaseActivity : Activity</ID>
+    <ID>TooManyFunctions:KnowledgeBaseDb.kt$KnowledgeBaseDb : SQLiteOpenHelper</ID>
     <ID>TooManyFunctions:LocalEngine.kt$LocalEngine</ID>
     <ID>TooManyFunctions:LogActivity.kt$LogActivity : Activity</ID>
     <ID>TooManyFunctions:MainActivity.kt$MainActivity : Activity</ID>
@@ -2865,6 +3117,7 @@
     <ID>TooManyFunctions:ModeConfig.kt$ModeConfig</ID>
     <ID>TooManyFunctions:ModelEditActivity.kt$ModelEditActivity : Activity</ID>
     <ID>TooManyFunctions:ModelUpdater.kt$ModelUpdater</ID>
+    <ID>TooManyFunctions:NyralApp.kt$NyralApp : Application</ID>
     <ID>TooManyFunctions:PermissionsActivity.kt$PermissionsActivity : Activity</ID>
     <ID>TooManyFunctions:PersonalityActivity.kt$PersonalityActivity : Activity</ID>
     <ID>TooManyFunctions:ScriptEngine.kt$ScriptEngine</ID>
@@ -2882,9 +3135,11 @@
     <ID>UnusedParameter:DebugServer.kt$DebugServer$c: Context</ID>
     <ID>UnusedParameter:FirstRunSetupActivity.kt$FirstRunSetupActivity$skip: Boolean</ID>
     <ID>UnusedParameter:GuideActivity.kt$GuideActivity$skip: Boolean</ID>
+    <ID>UnusedParameter:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$e: KnowledgeBaseDb.Entry</ID>
     <ID>UnusedParameter:LocalEngine.kt$LocalEngine$injectedTools: MutableSet&lt;String&gt;</ID>
     <ID>UnusedParameter:LocalEngine.kt$LocalEngine$required: Boolean = true</ID>
     <ID>UnusedParameter:MainActivity.kt$MainActivity$h: Int</ID>
+    <ID>UnusedParameter:MainActivity.kt$MainActivity$title: String</ID>
     <ID>UnusedParameter:MainActivity.kt$MainActivity$w: Int</ID>
     <ID>UnusedParameter:McpClientManager.kt$McpClientManager$context: Context</ID>
     <ID>UnusedParameter:MdSpans.kt$MdToSpans$blockStart: Boolean</ID>
@@ -2897,11 +3152,14 @@
     <ID>UnusedParameter:SshConfigStore.kt$SshConfigStore$context: Context</ID>
     <ID>UnusedParameter:SshTools.kt$SshTools$context: Context</ID>
     <ID>UnusedParameter:Ui.kt$Ui$a: Activity</ID>
+    <ID>UnusedParameter:Ui.kt$Ui$animate: Boolean = false</ID>
+    <ID>UnusedParameter:Ui.kt$Ui$jellyOvershoot: Float = 2.2f</ID>
     <ID>UnusedParameter:Ui.kt$Ui$seed: Int = 0</ID>
     <ID>UnusedParameter:UiKit.kt$job: ThumbJob</ID>
     <ID>UnusedParameter:VideoCompressor.kt$VideoCompressor$primaryMime: String</ID>
     <ID>UnusedParameter:WorkTools.kt$WorkTools$arg: String</ID>
     <ID>UnusedPrivateMember:AiBubbleHolder.kt$AiBubbleHolder$private fun dimBlock(b: ContentBlock, tv: TextView)</ID>
+    <ID>UnusedPrivateMember:AttachmentSender.kt$AttachmentSender$private fun writeVideoMeta(uri: Uri, name: String, size: Long)</ID>
     <ID>UnusedPrivateMember:BrowserSlideController.kt$BrowserSlideController$private fun panel()</ID>
     <ID>UnusedPrivateMember:DebugServer.kt$DebugServer$private fun rootOk(): Boolean</ID>
     <ID>UnusedPrivateMember:EmojiDrawer.kt$private fun MainActivity.confirmDeleteEmojiLibItem(obj: JSONObject)</ID>
@@ -2912,6 +3170,9 @@
     <ID>UnusedPrivateMember:PersonalityActivity.kt$PersonalityActivity$private fun settingsItem(title: String, subtitle: String, icon: String, seed: Int, onClick: () -&gt; Unit, subRef: ((TextView) -&gt; Unit)? = null): LinearLayout</ID>
     <ID>UnusedPrivateMember:PersonalityActivity.kt$PersonalityActivity$private fun showTitleEdit(title: String, current: String, onSave: (String) -&gt; Unit, hint: String = getString(R.string.persona_hint_edit, title), multiline: Boolean = false, maxLength: Int = 0)</ID>
     <ID>UnusedPrivateMember:ToolExecutor.kt$ToolExecutor$private fun dangerFingerprint(name: String, arg: String): String</ID>
+    <ID>UnusedPrivateProperty:AttachmentSender.kt$AttachmentSender$private val MAX_AUDIO_SEC = 10 * 60 * 1000L // 音频直发时长阈值: &gt;10min 不再直发, 改落库交 AI</ID>
+    <ID>UnusedPrivateProperty:AttachmentSender.kt$AttachmentSender$private val SMALL_VIDEO_BYTES = 10 * 1024 * 1024 // 阈值分流: 小视频≤10MB 直传(阶段E实测校准)</ID>
+    <ID>UnusedPrivateProperty:AttachmentSender.kt$AttachmentSender$private val SMALL_VIDEO_SEC = 30 * 1000L // 阈值分流: 小视频≤30秒 直传(阶段E实测校准)</ID>
     <ID>UnusedPrivateProperty:DebugServer.kt$DebugServer$private val acceptThread = LinkedBlockingQueue&lt;Thread&gt;()</ID>
     <ID>UnusedPrivateProperty:GuideActivity.kt$GuideActivity$private val selectedGuideModels = mutableListOf&lt;String&gt;()</ID>
     <ID>UnusedPrivateProperty:MainActivity.kt$MainActivity.&lt;no name provided&gt;$val imeAnim = runningAnimations.firstOrNull { (it.typeMask and android.view.WindowInsets.Type.ime()) != 0 } ?: return insets</ID>
@@ -2962,9 +3223,12 @@
     <ID>VariableNaming:MainActivity.kt$MainActivity$internal val FLUSH_BATCH = 6 // IDLE 后每帧最多执行的挂起替换数(09-28 第二波分批)</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$internal val MAX_AUDIO_BYTES = 10 * 1024 * 1024</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$internal val REQ_EMOJI_PICK = 1008 // 表情库选图: 结果存表情库而非聊天发送</ID>
+    <ID>VariableNaming:MainActivity.kt$MainActivity$internal val REQ_MEDIA = 1009 // 相册(图片+视频混合): 系统 Photo Picker, 低版本降级 DocumentsUI</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$internal val REQ_NOTIF = 1006 // Android 13+ 通知权限(前台服务通知展示用)</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$internal val REQ_RECORD = 1005</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$internal val TAG = "Nyral"</ID>
+    <ID>VariableNaming:MainActivity.kt$MainActivity$private val AVATAR_AI_TAG = "nyral_avatar_ai_" + System.identityHashCode(this)</ID>
+    <ID>VariableNaming:MainActivity.kt$MainActivity$private val AVATAR_USER_TAG = "nyral_avatar_user_" + System.identityHashCode(this)</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$private val REQ_AUDIO = 1003</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$private val REQ_FILE = 1002</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$private val REQ_GUIDE_PERMS = 1007 // 首启权限引导: 一次申请运行时权限</ID>
@@ -2972,6 +3236,8 @@
     <ID>VariableNaming:MainActivity.kt$MainActivity$private val SYS_TEXT = Ui.SUB</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$private var BUBBLE_USER_TEXT: Int = DefaultTheme.bubbleUserText</ID>
     <ID>VariableNaming:MainActivity.kt$MainActivity$val MAX = 6</ID>
+    <ID>VariableNaming:NyralApp.kt$NyralApp$/** 崩溃上报鉴权 token(构建时注入, 源码不含明文; 见 local.properties) */ private val CRASH_TOKEN = BuildConfig.CRASH_TOKEN</ID>
+    <ID>VariableNaming:NyralApp.kt$NyralApp$/** 崩溃报告匿名上报端点(零鉴权, 只收纯文本崩溃报告) */ private val UPLOAD_URL = "https://atin.asia/crash"</ID>
     <ID>VariableNaming:PersonalityActivity.kt$PersonalityActivity$private val REQ_AVATAR_AI = 3002</ID>
     <ID>VariableNaming:PersonalityActivity.kt$PersonalityActivity$private val REQ_AVATAR_USER = 3001</ID>
   </CurrentIssues>
