@@ -248,8 +248,22 @@ class NyralApp : Application() {
 
     private fun recentLogs(max: Int = 30): String {
         return try {
-            LogStore.snapshot(null).takeLast(max).joinToString("\n") { it.line() }
+            LogStore.snapshot(null).takeLast(max).joinToString("\n") { sanitizeLogLine(it.line()) }
         } catch (e: Exception) { "log unavailable" }
+    }
+
+    // 上传前清洗(2026-10-21): 守住 never PII 承诺——打码邮箱 / SSH user@host / URL query 参数值 / 绝对路径
+    private val EMAIL_RE = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
+    private val USERHOST_RE = Regex("""[A-Za-z0-9_.\-]+@[A-Za-z0-9_.\-]+(?::\d+)?""")
+    private val QUERY_PARAM_VALUE_RE = Regex("""([?&][A-Za-z0-9_\-]+\s*=\s*)[^&\s\"'<>]+""")
+    private val ABS_PATH_RE = Regex("""(?:/[A-Za-z0-9_][A-Za-z0-9_.\-]*){2,}""")
+    private fun sanitizeLogLine(line: String): String {
+        var s = line
+        s = EMAIL_RE.replace(s) { "[redacted]" }
+        s = USERHOST_RE.replace(s) { "[redacted]" }
+        s = QUERY_PARAM_VALUE_RE.replace(s) { m -> m.groupValues[1] + "[redacted]" }
+        s = ABS_PATH_RE.replace(s) { "[redacted]" }
+        return s
     }
 
     /**

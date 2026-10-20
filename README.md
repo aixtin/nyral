@@ -8,7 +8,7 @@
 
 # Nyral
 
-> **Project Completed (2026-10-16)** — maintenance mode; no new features planned. A 54-day build retrospective: [END.md](./END.md).
+> **Maintenance mode (2026-10-16)** — security & stability fixes only; no new features planned. A 54-day build retrospective: [END.md](./END.md).
 
 > Privacy-first · BYO model · Open source · No root · No account
 
@@ -29,7 +29,7 @@ Nyral is an open-source personal agent for Android: LLM chat, long-term local me
 - Documents (PDF/txt/md/docx/xlsx...): parsed locally, text injected straight into context without burning vision tokens; scanned PDFs auto-rendered to page images for the vision channel
 - Up to 6 attachments per message; in-app fullscreen preview (image zoom / video play / PDF paging / text copy)
 
-**Long-term Memory (self-hosted)**
+**Long-term Memory (on-device)**
 - bge-small ONNX on-device semantic vectors + keyword LIKE dual-path retrieval, SQLite storage
 - Rolling memory: short-term rolling window + single-slot rolling summary (overwritten via `INSERT OR REPLACE id=1`, compressed by auxiliary model) + long-term full text with semantic search
 - Retrieval decision is made per-turn by the auxiliary model over the network (blocks each turn; on failure it silently skips retrieval)
