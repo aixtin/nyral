@@ -8,7 +8,7 @@
 
 # Nyral
 
-> **Maintenance mode (2026-10-16)** — security & stability fixes only; no new features planned. A 54-day build retrospective: [END.md](./END.md).
+> **Completed (2026-10-16)** — the project concluded on October 16, 2026; later changes are just post-completion improvisation: no roadmap, no release schedule. The 54-day build retrospective: [END.md](./END.md).
 
 > Privacy-first · BYO model · Open source · No root · No account
 
