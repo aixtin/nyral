@@ -68,7 +68,7 @@ jobs:
           api-level: 34
           arch: x86_64
           disable-animations: true
-          emulator-options: -no-snapshot -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect
+          emulator-options: -no-snapshot -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -memory 3072 -cores 2
           script: |
             set -e
             echo "== 1. 安装 APK =="
@@ -93,6 +93,8 @@ jobs:
             adb shell am start -W -n $PKG/.GuideActivity
             adb forward tcp:8765 tcp:8765
             for i in $(seq 1 30); do python3 -c 'import socket,sys; s=socket.create_connection(("127.0.0.1",8765),timeout=1); s.close()' && { echo "DebugServer 就绪 (${i}s)"; break; }; sleep 1; done
+            echo "== 3.5 等待系统组件稳定 (软模拟易崩, 避免启动高峰撞测试) =="
+            sleep 25
 
             echo "== 4. 靶场回归 T1-T6 (决策③) =="
             mkdir -p build
