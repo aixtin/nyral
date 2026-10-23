@@ -77,6 +77,7 @@ jobs:
             echo "== 2. 注入 DebugServer 开关与 token (CI 新装默认关闭) =="
             printf '%s' '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><map><boolean name="enabled" value="true" /><string name="token">droid-nightly-'"$GITHUB_RUN_ID"'</string></map>' > /tmp/debug_server.xml
             adb push /tmp/debug_server.xml /data/local/tmp/debug_server.xml
+            adb shell run-as $PKG mkdir -p shared_prefs
             adb shell "run-as $PKG cp /data/local/tmp/debug_server.xml shared_prefs/debug_server.xml"
             adb shell run-as $PKG cat shared_prefs/debug_server.xml
 
