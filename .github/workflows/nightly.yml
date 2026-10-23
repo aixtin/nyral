@@ -94,7 +94,9 @@ jobs:
             for i in $(seq 1 30); do python3 -c 'import socket,sys; s=socket.create_connection(("127.0.0.1",8765),timeout=1); s.close()' && { echo "DebugServer 就绪 (${i}s)"; break; }; sleep 1; done
 
             echo "== 4. 靶场回归 T1-T6 (决策③) =="
-            python3 app/src/test/python/range_regression.py --emulator
+            mkdir -p build
+            adb logcat -c
+            python3 app/src/test/python/range_regression.py --emulator || { adb logcat -d -v time > build/range_logcat.txt 2>&1; tail -200 build/range_logcat.txt; exit 1; }
 
             echo "== 5. 性能采样 冷启动/内存/DebugServer延迟 (决策②) =="
             mkdir -p build
@@ -111,6 +113,7 @@ jobs:
           name: nightly-results
           path: |
             build/nightly-perf.json
+            build/range_logcat.txt
             app/build/test-results/
           retention-days: 7
           if-no-files-found: warn
