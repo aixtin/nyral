@@ -81,9 +81,15 @@ jobs:
             adb shell "run-as $PKG cp /data/local/tmp/debug_server.xml shared_prefs/debug_server.xml"
             adb shell run-as $PKG cat shared_prefs/debug_server.xml
 
+            echo "== 2.5 注入 guide_done=true (引导页直达主界面触发 DebugServer init) =="
+            printf '%s' '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><map><boolean name="guide_done" value="true" /></map>' > /tmp/app_prefs.xml
+            adb push /tmp/app_prefs.xml /data/local/tmp/app_prefs.xml
+            adb shell "run-as $PKG cp /data/local/tmp/app_prefs.xml shared_prefs/app_prefs.xml"
+            adb shell run-as $PKG cat shared_prefs/app_prefs.xml
+
             echo "== 3. 启动 App (触发 DebugServer init) =="
             adb shell am force-stop $PKG
-            adb shell am start -W -n $PKG/.MainActivity
+            adb shell am start -W -n $PKG/.GuideActivity
             adb forward tcp:8765 tcp:8765
             for i in $(seq 1 30); do python3 -c 'import socket,sys; s=socket.create_connection(("127.0.0.1",8765),timeout=1); s.close()' && { echo "DebugServer 就绪 (${i}s)"; break; }; sleep 1; done
 
@@ -108,3 +114,4 @@ jobs:
             app/build/test-results/
           retention-days: 7
           if-no-files-found: warn
+
