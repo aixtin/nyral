@@ -67,6 +67,7 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
+          target: aosp_atd
           disable-animations: true
           emulator-options: -no-snapshot -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -memory 3072 -cores 2
           script: |
@@ -98,7 +99,7 @@ jobs:
 
             echo "== 4. 靶场回归 T1-T6 (决策③) =="
             mkdir -p build
-            python3 app/src/test/python/range_regression.py --emulator || { adb logcat -d -v time > build/range_logcat.txt 2>&1; tail -300 build/range_logcat.txt; exit 1; }
+            python3 app/src/test/python/range_regression.py --emulator || { adb logcat -d -v time > build/range_logcat.txt 2>&1; tail -500 build/range_logcat.txt; exit 1; }
 
             echo "== 5. 性能采样 冷启动/内存/DebugServer延迟 (决策②) =="
             mkdir -p build
