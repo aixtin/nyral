@@ -88,6 +88,7 @@ jobs:
             adb shell run-as $PKG cat shared_prefs/app_prefs.xml
 
             echo "== 3. 启动 App (触发 DebugServer init) =="
+            adb logcat -c
             adb shell am force-stop $PKG
             adb shell am start -W -n $PKG/.GuideActivity
             adb forward tcp:8765 tcp:8765
@@ -95,8 +96,7 @@ jobs:
 
             echo "== 4. 靶场回归 T1-T6 (决策③) =="
             mkdir -p build
-            adb logcat -c
-            python3 app/src/test/python/range_regression.py --emulator || { adb logcat -d -v time > build/range_logcat.txt 2>&1; tail -200 build/range_logcat.txt; exit 1; }
+            python3 app/src/test/python/range_regression.py --emulator || { adb logcat -d -v time > build/range_logcat.txt 2>&1; tail -300 build/range_logcat.txt; exit 1; }
 
             echo "== 5. 性能采样 冷启动/内存/DebugServer延迟 (决策②) =="
             mkdir -p build
