@@ -58,9 +58,21 @@ object FileTools {
             if (path.isEmpty()) return "缺少 path 参数"
             val append = p.optBoolean("append", false)
             val b64 = Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-            val op = if (append) ">>" else ">"
-            val cmd = "echo '$b64' | base64 -d $op ${q(path)} && echo '[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符)' 2>&1"
-            runRemote(context, p.optString("conn"), cmd)
+            val conn = p.optString("conn")
+            // 单条 SSH 命令的 base64 上限; 超出则分块多次写入, 避免 ARG_MAX / 命令长度限制
+            val MAX_B64_PER_CMD = 32 * 1024
+            if (b64.length <= MAX_B64_PER_CMD) {
+                val op = if (append) ">>" else ">"
+                val cmd = "echo '$b64' | base64 -d $op ${q(path)} && echo '[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符)' 2>&1"
+                return runRemote(context, conn, cmd)
+            }
+            val chunks = b64.chunked(MAX_B64_PER_CMD)
+            val firstOp = if (append) ">>" else ">"
+            var result = runRemote(context, conn, "echo '${chunks[0]}' | base64 -d $firstOp ${q(path)} 2>&1")
+            for (i in 1 until chunks.size) {
+                result = runRemote(context, conn, "echo '${chunks[i]}' | base64 -d >> ${q(path)} 2>&1")
+            }
+            result + "\n[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符, 分 ${chunks.size} 块)" 
         } catch (e: Exception) {
             "file_write 失败: ${e.message}"
         }
