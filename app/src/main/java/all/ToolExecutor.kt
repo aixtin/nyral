@@ -306,7 +306,7 @@ object ToolExecutor {
                 val finalRaw = if (raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
                     raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
                     val brand = String(raw, 8, 4)
-                    if (brand != "M4A " && brand != "M4A ") {
+                    if (brand != "M4A " && brand != "M4A\u0000") {
                         val out = raw.clone()
                         out[8] = 'M'.code.toByte(); out[9] = '4'.code.toByte()
                         out[10] = 'A'.code.toByte(); out[11] = ' '.code.toByte()
