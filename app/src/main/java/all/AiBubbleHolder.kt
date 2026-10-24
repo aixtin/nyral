@@ -295,6 +295,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var collapsed = false   // 该段思考是否已封段
         var tlView: TextView? = null   // 脉络时间线里的全文块(展开状态下流式实时刷新)
         var titleView: TextView? = null   // 行动轨道: 标题行(尾部摘要, 实时刷新)
+        var capsule: LinearLayout? = null   // 单轨折叠流(2026-10-25): 折叠胶囊行(Agent 模式)
+        var capTitle: TextView? = null      // 单轨折叠流: 胶囊摘要文本(尾部摘要实时刷新)
         val count: Int get() = text.codePointCount(0, text.length)
     }
 
@@ -303,6 +305,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var result: String? = null
         var tlView: TextView? = null   // 脉络时间线里的详情块(展开状态下结果回填实时刷新)
         var titleView: TextView? = null   // 行动轨道: 标题行(工具名)
+        var capsule: LinearLayout? = null   // 单轨折叠流(2026-10-25): 折叠胶囊行(Agent 模式)
+        var capTitle: TextView? = null      // 单轨折叠流: 胶囊摘要文本
         fun expandedText(): String = buildString {
             append("工具：$name")
             if (arg.isNotBlank()) append("\n参数：$arg")
@@ -434,9 +438,98 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         loadingAnim = null
     }
 
+    // ===================== Agent 单轨折叠流(2026-10-25) =====================
+
+    /** Agent 折叠流判定: 非聊天模式(无头像模式)恒走折叠流; 聊天模式原气泡形态不动 */
+    private fun agentFold(): Boolean = !ModeConfig.chatMode()
+
+    /** 折叠胶囊行: [图标 + 单行摘要 + 查看] 深色圆角行, 点击弹底部抽屉时间线 */
+    private fun makeAgentCapsule(
+        icon: android.graphics.drawable.Drawable, summary: String,
+        onClick: () -> Unit
+    ): Pair<LinearLayout, TextView> {
+        val tv = TextView(host).apply {
+            textSize = 14f
+            setTextColor(THINK_TEXT)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        val cap = LinearLayout(host).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+            background = rounded(host.dp(12), floatBubbleColor(THINK_BG))
+            elevation = host.dp(1).toFloat()
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                host.markUserTakeover()   // 打开抽屉视同用户接管, 防自动滚动追底
+                onClick()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = host.dp(6)
+                bottomMargin = host.dp(2)
+            }
+        }
+        cap.addView(ImageView(host).apply {
+            setImageDrawable(icon)
+            contentDescription = "事件"
+        }, LinearLayout.LayoutParams(host.dp(18), host.dp(18)))
+        cap.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = host.dp(8)
+        })
+        cap.addView(ImageView(host).apply {
+            setImageDrawable(Ui.lucideEye(host, THINK_TEXT, 16))
+            contentDescription = "查看"
+        }, LinearLayout.LayoutParams(host.dp(20), host.dp(20)).apply {
+            marginStart = host.dp(6)
+        })
+        tv.text = summary
+        return cap to tv
+    }
+
+    /** 点击胶囊: 打开底部抽屉, 按该事件在时间线中的 index 定位并高亮 */
+    private fun openTimelineSheet(target: Any) {
+        val pairs = statusEvents()
+        val focus = pairs.indexOfFirst { it.second === target }
+        if (focus < 0) return
+        TimelineSheet(host).show(pairs.map { it.first }, focus)
+    }
+
     /** 思考段开始: 新建思考块(多轮思考按真实顺序进脉络时间线), 状态行切 💭 态启动片段轮播 */
     fun showThinking() {
         sealCurrentContent()   // 先冻结当前正文段, 后续正文新起气泡(思考/工具与正文交错时正文拆段)
+        if (agentFold()) {
+            // 单轨折叠流: 思考折叠成胶囊行直接上屏, 不建状态行/轮播/行动轨道
+            removeStatus()
+            stopLoading()
+            waitStage = "思考"
+            waitStartMs = System.currentTimeMillis()
+            statusSealed = true
+            var b = activeThinking
+            if (b == null || b.collapsed) {
+                b = ThinkingBlock()
+                thinkingBlocks.add(b)
+                timelineEvents.add(b)
+                activeThinking = b
+            } else {
+                // 同段内续写: 追加分隔
+                b.text.append("\n\n")
+            }
+            if (b.capsule == null) {
+                val blk = b   // 捕获前固定引用: var b 在 lambda 内不可智能转换
+                val (cap, tv) = makeAgentCapsule(Ui.lucideBrain(host, THINK_TEXT, 14), "思考中…") {
+                    openTimelineSheet(blk)
+                }
+                b.capsule = cap
+                b.capTitle = tv
+                bubbleBox?.addView(cap)
+            }
+            scheduleRefresh()
+            host.onStatusGrown()
+            return
+        }
         removeStatus()
         stopLoading()
         waitStage = "思考"
@@ -465,6 +558,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     fun appendThinking(text: String) {
         activeThinking?.let { it.text.append(text) }
+        if (agentFold()) {
+            // 折叠流: 胶囊尾部摘要实时滚动(思考全文在抽屉时间线)
+            activeThinking?.let { b ->
+                val s = snippet(tailThinking(b).replace("\n", " ").trim())
+                b.capTitle?.let { if (it.text.toString() != s) it.text = s }
+            }
+            return
+        }
         if (ModeConfig.actionTrack()) {
             // 行动轨道: 标题行实时滚动尾部摘要(保留轮播感), 展开态全文同步
             activeThinking?.titleView?.let { tv ->
@@ -903,6 +1004,27 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 工具调用开始: 状态行切 🔧 态(轮播工具名+参数), 工具块进脉络时间线 */
     fun showTool(name: String, arg: String) {
         sealCurrentContent()   // 工具调用同样先冻结当前正文段, 与恢复时间线一致
+        if (agentFold()) {
+            // 单轨折叠流: 工具折叠成胶囊行直接上屏, 点击弹抽屉看参数/结果
+            removeStatus()
+            stopLoading()
+            waitStage = "工具"
+            waitStartMs = System.currentTimeMillis()
+            statusSealed = true
+            val b = ToolBlock(name, arg)
+            toolBlocks.add(b)
+            timelineEvents.add(b)
+            val summary = snippet(if (arg.isNotBlank()) "$name · ${arg.replace("\n", " ").trim()}" else name)
+            val (cap, tv) = makeAgentCapsule(Ui.lucideWrench(host, THINK_TEXT, 14), summary) {
+                openTimelineSheet(b)
+            }
+            b.capsule = cap
+            b.capTitle = tv
+            bubbleBox?.addView(cap)
+            scheduleRefresh()
+            host.onStatusGrown()
+            return
+        }
         removeStatus()
         stopLoading()
         statusSealed = false
@@ -926,6 +1048,15 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val b = toolBlocks.lastOrNull() ?: return
         b.result = result
         b.tlView?.let { it.text = b.expandedText() }
+        if (agentFold()) {
+            // 折叠流: 结果回填只更新胶囊(工具名+完成标记), 完整结果在抽屉
+            b.capTitle?.let { tv ->
+                val s = if (result.isBlank()) snippet(b.name) else snippet(b.name + " ✓")
+                if (tv.text.toString() != s) tv.text = s
+            }
+            host.onStatusGrown()
+            return
+        }
         if (ModeConfig.actionTrack()) {
             // 行动轨道: 标题加完成标记(右侧 badge-check 图标), 详情含结果(展开可见)
             b.titleView?.let { tv ->
@@ -1144,7 +1275,16 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             setTextColor(BUBBLE_AI_TEXT)
             setLineSpacing(host.dp(3).toFloat(), 1f)
             includeFontPadding = false
-            if (ModeConfig.actionTrack()) {
+            if (agentFold()) {
+                // 单轨折叠流(2026-10-25): 正文全宽直排无框(无气泡背景/阴影, 不缩进), 打字机照旧
+                setPadding(0, host.dp(2), 0, host.dp(2))
+                maxWidth = host.chatMaxW()
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = host.dp(2)
+                    bottomMargin = host.dp(6)
+                }
+            } else if (ModeConfig.actionTrack()) {
                 // 行动轨道(方案A): 正文走无框文本轨道, 缩进到珠子列右侧, 打字机照旧
                 setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
                 maxWidth = maxW - host.dp(24)
@@ -1190,7 +1330,16 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             setTextColor(BUBBLE_AI_TEXT)
             setLineSpacing(host.dp(3).toFloat(), 1f)
             includeFontPadding = false
-            if (ModeConfig.actionTrack()) {
+            if (agentFold()) {
+                // 单轨折叠流(2026-10-25): 占位与正文一致全宽无框
+                setPadding(0, host.dp(2), 0, host.dp(2))
+                maxWidth = host.chatMaxW()
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = host.dp(2)
+                    bottomMargin = host.dp(6)
+                }
+            } else if (ModeConfig.actionTrack()) {
                 setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
                 maxWidth = maxW - host.dp(24)
                 layoutParams = LinearLayout.LayoutParams(
@@ -1272,7 +1421,11 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private fun ensureBlocksView(b: ContentBlock, tv: TextView): MdBlocksView {
         b.blocksView?.let { return it }
         val bv = MdBlocksView(host).apply {
-            if (ModeConfig.actionTrack()) {
+            if (agentFold()) {
+                // 单轨折叠流(2026-10-25): 块容器与占位一致全宽无框
+                setPadding(0, host.dp(2), 0, host.dp(2))
+                layoutParams = tv.layoutParams
+            } else if (ModeConfig.actionTrack()) {
                 // 行动轨道(方案A): 正文无框文本轨道, 块容器缩进与占位一致
                 setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
                 layoutParams = tv.layoutParams
@@ -1296,7 +1449,11 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         }
         // 可用宽 = 占位 maxWidth - 块容器自身左右 padding(表格实际可摆放空间,
         // 否则表格按未减 padding 的宽度计算 -> 恒超宽被横滑裁剪, 右边框缺失)
-        val padH = if (ModeConfig.actionTrack()) host.dp(8) else host.dp(24)
+        val padH = when {
+            agentFold() -> 0
+            ModeConfig.actionTrack() -> host.dp(8)
+            else -> host.dp(24)
+        }
         bv.setRenderContext(tv.maxWidth, tv.maxWidth - padH, BUBBLE_AI_TEXT, Ui.PRIMARY, Ui.INPUT_BG)
         // 长按复制(2026-10-02): 块容器取代占位 TextView 后原 makeCopyable 监听随 TextView 摘除,
         // 需在块容器上重建长按入口(与用户侧一致弹原文本对话框)
