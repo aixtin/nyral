@@ -17,6 +17,11 @@ import javax.crypto.SecretKey
 object Secrets {
     private const val KEY_ALIAS = "nyral_app_secrets"
 
+    /** 进程级 SecretKey 缓存: 避免每次加解密都走 keystore2 Binder（曾致主线程 ANR 60s） */
+    @Volatile private var cachedKey: SecretKey? = null
+    /** 解密结果缓存: 同一密文只解密一次 */
+    private val decryptCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     fun encrypt(context: Context, plain: String): String {
         try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -28,7 +33,7 @@ object Secrets {
             out[2] = (iv.size ushr 8).toByte(); out[3] = iv.size.toByte()
             System.arraycopy(iv, 0, out, 4, iv.size)
             System.arraycopy(ct, 0, out, 4 + iv.size, ct.size)
-            return Base64.encodeToString(out, Base64.NO_WRAP)
+            return Base64.encodeToString(out, Base64.NO_WRAP).also { decryptCache[it] = plain }
         } catch (e: Exception) {
             LogStore.e("SEC", "Keystore encrypt failed, refuse plaintext fallback: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
             throw IllegalStateException("Keystore encrypt failed", e)
@@ -36,6 +41,7 @@ object Secrets {
     }
 
     fun decrypt(context: Context, encoded: String): String? {
+        decryptCache[encoded]?.let { return it }
         return try {
             val data = Base64.decode(encoded, Base64.NO_WRAP)
             if (data.size < 5) return null
@@ -45,19 +51,24 @@ object Secrets {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(context),
                 javax.crypto.spec.GCMParameterSpec(128, data, 4, ivLen))
-            String(cipher.doFinal(data, 4 + ivLen, data.size - 4 - ivLen), Charsets.UTF_8)
+            String(cipher.doFinal(data, 4 + ivLen, data.size - 4 - ivLen), Charsets.UTF_8).also { decryptCache[encoded] = it }
         } catch (e: Exception) { null }
     }
 
     private fun getOrCreateKey(context: Context): SecretKey {
+        cachedKey?.let { return it }
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        (ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let {
+            val k = it.secretKey
+            cachedKey = k
+            return k
+        }
         val kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         kg.init(KeyGenParameterSpec.Builder(KEY_ALIAS,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .build())
-        return kg.generateKey()
+        return kg.generateKey().also { cachedKey = it }
     }
 }
