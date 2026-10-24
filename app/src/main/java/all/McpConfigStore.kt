@@ -50,7 +50,11 @@ object McpConfigStore {
                 put("token", s.token ?: "")
             })
         }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString("servers_json", Secrets.encrypt(context, arr.toString())).apply()
+        runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString("servers_json", Secrets.encrypt(context, arr.toString())).apply()
+        }.onFailure { e ->
+            LogStore.e("SEC", "McpConfigStore save failed, skip disk write: " + (e.message ?: e.javaClass.simpleName))
+        }
     }
 }

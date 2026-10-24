@@ -18,7 +18,7 @@ object Secrets {
     private const val KEY_ALIAS = "nyral_app_secrets"
 
     fun encrypt(context: Context, plain: String): String {
-        return try {
+        try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(context))
             val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
@@ -28,10 +28,10 @@ object Secrets {
             out[2] = (iv.size ushr 8).toByte(); out[3] = iv.size.toByte()
             System.arraycopy(iv, 0, out, 4, iv.size)
             System.arraycopy(ct, 0, out, 4 + iv.size, ct.size)
-            Base64.encodeToString(out, Base64.NO_WRAP)
+            return Base64.encodeToString(out, Base64.NO_WRAP)
         } catch (e: Exception) {
-            LogStore.e("SEC", "Keystore encrypt failed, fallback plain: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
-            plain
+            LogStore.e("SEC", "Keystore encrypt failed, refuse plaintext fallback: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
+            throw IllegalStateException("Keystore encrypt failed", e)
         }
     }
 

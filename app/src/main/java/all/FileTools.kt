@@ -77,9 +77,13 @@ object FileTools {
         } else JSONObject()
     }
 
-    /** ~ 放行交给远端 shell 展开, 其余路径单引号包裹 */
+    /** 仅 ~ 单独出现或空尾 ~/ 放行交给远端 shell 展开; ~/ 后的路径段必须单引号包裹防注入 */
     private fun q(path: String): String {
-        return if (path == "~" || path.startsWith("~/")) path else "'${shellQuote(path)}'"
+        return when {
+            path == "~" || path == "~/" -> path
+            path.startsWith("~/") -> "~/'${shellQuote(path.removePrefix("~/"))}'"
+            else -> "'${shellQuote(path)}'"
+        }
     }
 
     private fun shellQuote(path: String): String {

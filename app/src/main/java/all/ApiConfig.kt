@@ -254,7 +254,12 @@ object ApiConfig {
                 put("authHeader", p.authHeader)
             })
         }
-        prefs()?.edit()?.putString(K_PROVIDERS, app?.let { Secrets.encrypt(it, arr.toString()) } ?: arr.toString())?.apply()
+        try {
+            val encrypted = app?.let { Secrets.encrypt(it, arr.toString()) } ?: arr.toString()
+            prefs()?.edit()?.putString(K_PROVIDERS, encrypted)?.apply()
+        } catch (e: Exception) {
+            LogStore.e("SEC", "saveProviders encrypt failed, skip disk write: " + (e.message ?: e.javaClass.simpleName))
+        }
         cachedProviders = list.toList()
     }
 

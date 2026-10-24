@@ -59,13 +59,17 @@ object MemoryApiConfig {
     }
 
     fun save(c: Config) {
-        prefs()?.edit()?.apply {
-            putBoolean(K_ENABLED, c.enabled)
-            putString(K_LABEL, c.label)
-            putString(K_BASE, c.base)
-            putString(K_KEY, app?.let { Secrets.encrypt(it, c.key) } ?: c.key)
-            putString(K_MODEL, c.model)
-        }?.apply()
+        try {
+            prefs()?.edit()?.apply {
+                putBoolean(K_ENABLED, c.enabled)
+                putString(K_LABEL, c.label)
+                putString(K_BASE, c.base)
+                putString(K_KEY, app?.let { Secrets.encrypt(it, c.key) } ?: c.key)
+                putString(K_MODEL, c.model)
+            }?.apply()
+        } catch (e: Exception) {
+            LogStore.e("SEC", "MemoryApiConfig save failed, skip disk write: " + (e.message ?: e.javaClass.simpleName))
+        }
     }
 
     /** 独立配置是否真正可用（启用 + base/key/model 齐全） */
