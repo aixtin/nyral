@@ -28,6 +28,9 @@ object UpdateChecker {
     private const val UPDATE_URL = "https://api.github.com/repos/aixtin/nyral/releases/latest"
     // 跳转目标：仓库 Releases 页面
     private const val RELEASE_URL = "https://github.com/aixtin/nyral/releases/latest"
+    // 「此版本不再提醒」持久化
+    private const val PREFS = "app_prefs"
+    private const val KEY_IGNORED_VERSION = "update_ignored_version"
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -44,7 +47,13 @@ object UpdateChecker {
                 is FetchResult.Ok -> {
                     val current = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "0"
                     if (compareVersion(result.version, current) > 0) {
-                        main.post { showUpdateDialog(ctx, result.version) }
+                        val ignored = ignoredVersion(ctx)
+                        if (result.version == ignored) {
+                            // 该版本已被用户选择「此版本不再提醒」: 自动检查静默跳过, 手动检查给出提示
+                            if (manual) toast(ctx, "该版本已设置不再提醒，可前往 GitHub Releases 查看")
+                        } else {
+                            main.post { showUpdateDialog(ctx, result.version) }
+                        }
                     } else {
                         if (manual) toast(ctx, "已是最新版本")
                     }
@@ -92,6 +101,14 @@ object UpdateChecker {
         return 0
     }
 
+    /** 用户选择「此版本不再提醒」的版本号, 无则 null。 */
+    private fun ignoredVersion(c: Context): String? =
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_IGNORED_VERSION, null)
+
+    private fun ignoreVersion(c: Context, version: String) {
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_IGNORED_VERSION, version).apply()
+    }
+
     private fun showUpdateDialog(ctx: Context, version: String) {
         if (ctx !is Activity) return
         val (d, box) = Ui.dialog(ctx, "发现新版本 ${version}")
@@ -100,6 +117,14 @@ object UpdateChecker {
             d.dismiss()
             openReleasePage(ctx)
         })
+        val ignoreBtn = Ui.dialogCancelBtn(ctx, "此版本不再提醒") {
+            ignoreVersion(ctx, version)
+            d.dismiss()
+            toast(ctx, "已设置 v$version 不再提醒")
+        }
+        box.addView(ignoreBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = Ui.dp(ctx, 10) })
         val cancelBtn = Ui.dialogCancelBtn(ctx, "取消") { d.dismiss() }
         box.addView(cancelBtn, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
