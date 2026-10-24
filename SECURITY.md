@@ -42,10 +42,12 @@ DebugServer provides debugging capabilities: screenshots, simulated taps/input, 
 | REQUEST_INSTALL_PACKAGES | Self-update APK install |
 | FOREGROUND_SERVICE / FOREGROUND_SERVICE_DATA_SYNC | Foreground-service keep-alive |
 | POST_NOTIFICATIONS | Notifications |
-| POST_PROMOTED_NOTIFICATIONS | Android 15+ promoted notifications |
+| WAKE_LOCK | Keep-alive when screen off |
+| POST_PROMOTED_NOTIFICATIONS | Android 16+ promoted notifications (Live Updates) |
 | SYSTEM_ALERT_WINDOW | Overlay window |
+| SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM | Exact-alarm wakeup for scheduled shifts (setAlarmClock path, exempt from user grant) |
+| RECEIVE_BOOT_COMPLETED | Re-schedule timers after reboot |
 | MANAGE_EXTERNAL_STORAGE | All-files access |
-| WRITE_EXTERNAL_STORAGE (maxSdk 28) | Public-dir writes on pre-API-29 devices |
 
 ### Runtime dynamic requests (5 kinds)
 Notifications, microphone, overlay window, all-files access, install unknown apps. The last three are special authorizations; when root auto-elevation is enabled they are granted automatically via `pm grant` + `appops set` — off by default.

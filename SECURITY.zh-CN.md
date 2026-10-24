@@ -42,10 +42,12 @@ DebugServer 提供屏幕截图、模拟点击/输入、WebView JS 执行、Agent
 | REQUEST_INSTALL_PACKAGES | 自更新安装 APK |
 | FOREGROUND_SERVICE / FOREGROUND_SERVICE_DATA_SYNC | 前台服务保活 |
 | POST_NOTIFICATIONS | 通知 |
-| POST_PROMOTED_NOTIFICATIONS | Android 15+ 推广类通知 |
+| WAKE_LOCK | 黑屏保活 |
+| POST_PROMOTED_NOTIFICATIONS | Android 16+ 推广类通知（Live Updates） |
 | SYSTEM_ALERT_WINDOW | 悬浮窗 |
+| SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM | 定时岗位闹钟唤醒（setAlarmClock 路径豁免用户授权） |
+| RECEIVE_BOOT_COMPLETED | 开机后重排定时岗位 |
 | MANAGE_EXTERNAL_STORAGE | 所有文件访问 |
-| WRITE_EXTERNAL_STORAGE（maxSdk 28） | API<29 老设备写公共目录 |
 
 ### 运行时动态请求（5 类）
 通知、麦克风、悬浮窗、所有文件访问、安装未知应用。其中后三项为特殊授权；启用 root 自动补齐时通过 `pm grant` + `appops set` 自动完成，默认关闭。
