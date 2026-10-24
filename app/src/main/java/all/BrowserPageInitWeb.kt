@@ -10,6 +10,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.RenderProcessGoneDetail
 
 /**
  * BrowserPage 初始化域(第一刀拆分, BP7):
@@ -37,6 +38,12 @@ internal fun BrowserPage.initWebViews() {
                 val u = request?.url?.toString() ?: return false
                 if (u.startsWith("http://") || u.startsWith("https://") || u.startsWith("file://")) return false
                 return true // 拦截 intent:// / baiduboxapp:// 等非 http(s) scheme 拉起, 保持 H5 闭环
+            }
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                // renderer 崩溃不拖垮 App(软模拟/低内存真机高发): 返回 true 后 reload 复活; Crashpad 默认会 abort 整个进程
+                loadDoneLatch?.countDown(); loadDoneLatch = null
+                view?.postDelayed({ view.reload() }, 300)
+                return true
             }
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 super.onPageStarted(view, url, favicon)
