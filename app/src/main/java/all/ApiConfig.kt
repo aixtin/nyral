@@ -142,6 +142,7 @@ object ApiConfig {
     private const val DEFAULT_MODEL = "deepseek-v4-pro"
 
     @Volatile private var app: Context? = null
+    @Volatile private var cachedProviders: List<Provider>? = null
 
     /** 由每个 Activity.onCreate 调用一次注入 context（重复调用无害） */
     fun init(context: Context) {
@@ -162,6 +163,7 @@ object ApiConfig {
 
     /** 全部 Provider（预设 + 自定义），带用户已保存的 base/key/model */
     fun providers(): List<Provider> {
+        cachedProviders?.let { return it }
         val raw = prefs()?.getString(K_PROVIDERS, null)
         if (!raw.isNullOrEmpty()) {
             try {
@@ -205,6 +207,7 @@ object ApiConfig {
                 }
                 if (out.isNotEmpty()) {
                     if (migrated) saveProviders(out) // 旧明文迁移为加密存储
+                    cachedProviders = out
                     return out
                 }
             } catch (_: Exception) {}
@@ -212,7 +215,7 @@ object ApiConfig {
         // 兼容旧版单配置字段：旧版保存过 deepseek 配置则合并进预设
         val old = prefs()
         val oldId = old?.getString("provider", null)
-        return if (old != null && oldId != null) {
+        val result = if (old != null && oldId != null) {
             val o = old
             PRESETS.map {
                 if (it.id == oldId) it.copy(
@@ -222,6 +225,8 @@ object ApiConfig {
                 ) else it
             }
         } else PRESETS
+        cachedProviders = result
+        return result
     }
 
     private fun saveProviders(list: List<Provider>) {
@@ -250,6 +255,7 @@ object ApiConfig {
             })
         }
         prefs()?.edit()?.putString(K_PROVIDERS, app?.let { Secrets.encrypt(it, arr.toString()) } ?: arr.toString())?.apply()
+        cachedProviders = list.toList()
     }
 
     /** 解析 Provider 配置中的 capabilities JSONArray */
