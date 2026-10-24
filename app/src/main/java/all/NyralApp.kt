@@ -162,7 +162,12 @@ class NyralApp : Application() {
                         continue
                     }
                     if (anrInProgress.compareAndSet(false, true)) {
-                        writeAnrFile(mainThread, idle)
+                        // 2026-10-24 存活探测: 先 post 探测心跳再短等, 区分"仍卡住(命中现场)"与"已恢复(补报)"
+                        val probeHandled = AtomicBoolean(false)
+                        mainHandler.post { lastTick.set(SystemClock.uptimeMillis()); probeHandled.set(true) }
+                        Thread.sleep(600L)
+                        val stillBlocked = !probeHandled.get()
+                        writeAnrFile(mainThread, idle, stillBlocked)
                     }
                 } else {
                     anrInProgress.set(false)
@@ -182,7 +187,7 @@ class NyralApp : Application() {
         }
     }
 
-    private fun writeAnrFile(mainThread: Thread, idleMs: Long) {
+    private fun writeAnrFile(mainThread: Thread, idleMs: Long, stillBlocked: Boolean) {
         try {
             val sb = StringBuilder()
             sb.append("type: ANR\n")
@@ -191,6 +196,7 @@ class NyralApp : Application() {
             sb.append("device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n')
             sb.append("android: ").append(Build.VERSION.RELEASE).append(" / SDK ").append(Build.VERSION.SDK_INT).append('\n')
             sb.append("main blocked: ").append(idleMs).append("ms\n")
+            sb.append("captured_while_blocked: ").append(stillBlocked).append("\n")
             sb.append("thread: main\n")
             sb.append("stack:\n")
             mainThread.stackTrace.forEach { sb.append("\tat ").append(it).append('\n') }

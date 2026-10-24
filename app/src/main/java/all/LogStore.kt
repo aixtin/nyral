@@ -23,7 +23,7 @@ object LogStore {
 
     data class Entry(val ts: Long, val tag: String, val level: String, val msg: String) {
         fun line(): String {
-            val t = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(ts))
+            val t = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(ts))
             return "[$t] [$level] $msg"
         }
     }
@@ -113,16 +113,30 @@ object LogStore {
         }
     }
 
-    /** 解析文件行 "[HH:mm:ss] [LEVEL] msg" -> Entry(ts 用当天日期合成); tag 由文件名决定 */
+    /** 解析文件行 "[HH:mm:ss.SSS] [LEVEL] msg"(新)/"[HH:mm:ss] [LEVEL] msg"(旧) -> Entry; tag 由文件名决定 */
     private fun parseLine(ln: String, tag: String): Entry? {
         if (ln.length < 16 || ln[0] != '[') return null
-        val t = ln.substring(1, 9)                       // HH:mm:ss
-        val lev = ln.substring(12, 13)                   // I/W/E
-        val msg = if (ln.length > 16) ln.substring(16) else ""
         val base = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        val ts = try {
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).parse("$base $t").time
-        } catch (_: Exception) { return null }
-        return Entry(ts, tag, lev, msg)
+        // 毫秒格式 [HH:mm:ss.SSS] [I/W/E] msg
+        if (ln.length >= 20 && ln[13] == ']' && ln[15] == '[' && ln[17] == ']') {
+            val t = ln.substring(1, 13)                   // HH:mm:ss.SSS
+            val lev = ln.substring(16, 17)                // I/W/E
+            val msg = ln.substring(19)
+            val ts = try {
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).parse("$base $t").time
+            } catch (_: Exception) { return null }
+            return Entry(ts, tag, lev, msg)
+        }
+        // 旧格式回退 [HH:mm:ss] [I/W/E] msg
+        if (ln[9] == ']' && ln[11] == '[' && ln[13] == ']') {
+            val t = ln.substring(1, 9)                    // HH:mm:ss
+            val lev = ln.substring(12, 13)                // I/W/E
+            val msg = if (ln.length > 16) ln.substring(16) else ""
+            val ts = try {
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).parse("$base $t").time
+            } catch (_: Exception) { return null }
+            return Entry(ts, tag, lev, msg)
+        }
+        return null
     }
 }

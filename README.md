@@ -154,6 +154,7 @@ android-agent-app/
 
 ## Changelog
 
+- **[Latest] v2.8.4 (2026-10-24, versionCode 67)**: Crash-locality precision — recent-log timestamps now carry milliseconds (HH:mm:ss.SSS; old-format lines still parse); ANR watchdog probes liveness before dumping — after a stall is flagged, a probe heartbeat is posted and given ~600 ms to run, so dumps distinguish "still blocked (live stack captured)" from "recovered before dump (late report)"; ANR files gain a `captured_while_blocked` field marking capture quality.
 - **[Latest] v2.8.3 (2026-10-21, versionCode 66)**: Crash-report control & hardening — new on-device toggle (Appearance → Quick Toggles → Crash Report, on by default) lets users disable anonymous crash upload entirely (logs stay in private storage); upload pipeline hardened: auth token injected at build time (never in source), per-install ID with server-side quota, 401/429 treated as permanent failure to stop local log pileup; crash log lines sanitized before upload (emails / SSH user@host / URL query values / absolute paths → [redacted]); CI injects crashToken from GitHub secret, adds nightly workflow and doc-only CI skip; lint/detekt baselines frozen; privacy docs unified (sole external diagnostic = anonymous crash report, on by default and switchable); on-device inference declared unsupported (offline route dropped).
 - **v2.8.2 (2026-10-20, versionCode 65)**: Patch release — welcome-card danger-gate buttons: the unselected "auto" mode now uses an opaque Ui.PRIMARY_LIGHT background (same as "strict") instead of a 35% translucent PRIMARY fill that looked black on dark chat backgrounds.
 - **v2.8.1 (2026-10-20, versionCode 64)**: Patch release — memory-table robustness: MemoryDb v12 migration + onOpen idempotent column backfill (src_session_id/src_msg_no) fixing a guaranteed MemoryListActivity crash on old databases; app-wide theme migration from stock Material.Light to Theme.Nyral; back buttons switch from the "‹" glyph to the Lucide arrow icon; unified popup entrance animation fadeScaleShow (fade-in + 0.92→1.0 scale, replaces jelly bounce / ink bloom); page transition animations; MemoryListActivity popup no longer flips under the trigger button.
@@ -196,9 +197,9 @@ For model responses, the App sends your message content to the model service pro
 See [PRIVACY.md](PRIVACY.md) for details.
 
 
-## Development Collaboration
+## Maintainer
 
-This project is designed and validated by aixtin, with implementation assisted by Marvis, an AI coding assistant (powered by Tencent Hunyuan Hy3 + DeepSeek-V4 Pro). See [COLLABORATION.md](COLLABORATION.md) for details.
+This project is designed, implemented and maintained by [aixtin](https://github.com/aixtin).
 
 ## License
 
