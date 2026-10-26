@@ -57,11 +57,74 @@ object LocalEngine {
             "$result\n\n【注意】工具 $name 未成功执行, 结果不可用。不要假设它成功了, 请根据情况自行补救或向用户如实说明。"
         } else result
 
+    /** 请求 messages 中是否含 video_url 内容块(视频直发降级判定用) */
+    private fun hasVideoPart(messages: JSONArray): Boolean {
+        for (i in 0 until messages.length()) {
+            val parts = messages.optJSONObject(i)?.optJSONArray("content") ?: continue
+            for (j in 0 until parts.length()) {
+                if (parts.optJSONObject(j)?.optString("type") == "video_url") return true
+            }
+        }
+        return false
+    }
+
+    /** 请求 messages 中是否含 input_audio 内容块(音频直发降级判定用) */
+    private fun hasAudioPart(messages: JSONArray): Boolean {
+        for (i in 0 until messages.length()) {
+            val parts = messages.optJSONObject(i)?.optJSONArray("content") ?: continue
+            for (j in 0 until parts.length()) {
+                if (parts.optJSONObject(j)?.optString("type") == "input_audio") return true
+            }
+        }
+        return false
+    }
+
+    /** 剥离 messages 中的 video_url 内容块(同条的文字索引卡保留): 防止工具循环多轮重复上传原视频 */
+    private fun stripVideoParts(messages: JSONArray): Int {
+        var total = 0
+        for (i in 0 until messages.length()) {
+            val msg = messages.optJSONObject(i) ?: continue
+            val parts = msg.optJSONArray("content") ?: continue
+            val kept = JSONArray()
+            var hit = 0
+            for (j in 0 until parts.length()) {
+                val p = parts.optJSONObject(j)
+                if (p?.optString("type") == "video_url") { hit++; continue }
+                if (p != null) {
+                    // 直发卡的"禁止抽帧"措辞仅对看得见视频的首轮有效; 剥离后必须同步改写,
+                    // 否则后续轮次模型拿着"禁止调 video_frame"的卡却已看不到视频, 抽帧退路断裂
+                    if (p.optString("type") == "text") {
+                        val t = p.optString("text")
+                        if (t.contains(DIRECT_VIDEO_MARK)) {
+                            val name = Regex("att://[^\\s|\"]+").find(t)?.value ?: ""
+                            p.put("text", "[视频附件 $name | 已落私有附件库 $name | 原视频字节本轮已移除, 需看画面调 video_frame(name=\"$name\", times=[毫秒,毫秒]) 抽帧]")
+                        }
+                    }
+                    kept.put(p)
+                }
+            }
+            if (hit > 0) { msg.put("content", kept); total += hit }
+        }
+        return total
+    }
+
     /** 网络层可重试异常: 请求级断线, 整个 chat 流程自动重跑一次 */
     private class RetryableException(msg: String) : RuntimeException(msg)
 
     /** 当前 provider 不支持 tools: 已降级文本协议标志, 立即重跑请求(不计入网络重试额度) */
     private class NoToolsException(msg: String) : RuntimeException(msg)
+
+    /** 视频直发被服务端拒绝(格式/时长/大小不支持): 已置降级标志, 立即重跑请求改走抽帧索引卡 */
+    private class VideoDirectRejectedException(msg: String) : RuntimeException(msg)
+
+    /** 视频直发被拒的 provider|model 组合(2026-10-26): 命中后该组合一律走抽帧索引卡, 避免每轮重试 400 */
+    @Volatile private var videoDirectDisabledKey: String? = null
+
+    /** 音频直发被拒的 provider|model 组合(2026-10-26): 命中后该组合一律走 audio_read 索引卡 */
+    @Volatile private var audioDirectDisabledKey: String? = null
+
+    /** 直发索引卡措辞标记: stripVideoParts 靠它识别"直发卡"并在剥离后改写为抽帧指引 */
+    private const val DIRECT_VIDEO_MARK = "已直发原视频可直接观看"
 
     /** 发送附件: mime 类型 + Base64 内容 + 文件名; 图片走 image_url, 音频走 input_audio, 其余走 input_file;
      *  text 为附件本地解析出的纯文本(如 PDF 提取内容), 非空时随 history 一并注入给模型;
@@ -131,11 +194,11 @@ object LocalEngine {
         ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000}"),
         ToolSpec("ask_user", "当用户指令模糊/多义/缺关键信息、无法可靠推断时, 向用户当面澄清: 在手机弹原生选择框, 列出候选选项让用户点选(可选自定义输入)。用户的选择会作为本工具结果返回, 据此继续。仅在确实拿不准时才调用, 不要滥用", "JSON: {\"question\":\"要确认的问题\",\"options\":[\"选项1\",\"选项2\"],\"allow_custom\":true}"),
         ToolSpec("tool_detail", "查询未在回调列表中列出的工具的完整规格(描述+参数格式)并临时激活; 激活后该工具会加入本轮回调列表, 可直接 function calling 调用。当你想用 system 索引里看到但不在回调列表中的工具时, 先调本工具获取规格。", "JSON: {\"name\":\"工具名\"}"),
-        ToolSpec("attach_read", "分块读取对话中收到的附件解析文本(仅超预算附件落盘的 *.txt 文本): 参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
+        ToolSpec("attach_read", "分块读取对话中收到的落库附件的文本内容(2026-10-26 扩展): 支持 *.txt 等纯文本, 也支持 Word(docx)/Excel(xlsx)/PPT(pptx)/压缩包(zip/7z/rar/gz) 自动提取文本; PDF 请用 pdf_page。参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
         ToolSpec("pdf_page", "从已落盘附件PDF按需读取指定页(按需翻页): 参数 {name: 附件文件名或 att:// 引用, page: 页码从1开始, mode: \"image\"渲染该页为图片注入对话(默认, 适合支持识图的模型) | \"text\"返回该页文字(适合无识图能力模型, 扫描件无文本层时会明确告知)}。PDF 附件发送时已落私有附件库, 首轮仅预览前几页; 需要看任意页(如用户指定页码)时调用, 按自身识图能力自行选择 mode", "JSON: {\"name\":\"att://xxx.pdf\",\"page\":89,\"mode\":\"text\"}"),
         ToolSpec("video_frame", "从已落盘附件视频抽画面帧(按需观看): 参数 {name: 附件文件名或 att:// 引用, timeMs: 时间点毫秒(选填; 不传时自动多帧采样 0/30%/60%/95% 时间点全部注入, 供整体判断视频内容; 传了则只抽该时间点单帧)}。帧图会自动注入当前对话供模型参考; 仅支持已落盘附件(统一落库后所有视频均已落盘)。用户要求拿到/交付帧图或视频文件时, 抽帧后必须调用 file_export 导出原视频。", "JSON: {\"name\":\"att://xxx.mp4\"} 或 {\"name\":\"att://xxx.mp4\",\"timeMs\":8000}"),
-        ToolSpec("image_view", "从已落盘附件图片按需读取查看(图片注入对话): 参数 {name: 附件文件名或 att:// 引用}。图片附件发送时已统一落私有附件库, 首轮仅放索引卡不发字节; 需要看图片内容时调用, 图片会注入本轮对话供模型参考(仅支持识图能力的模型有效)。", "JSON: {\"name\":\"att://xxx.jpg\"}"),
-        ToolSpec("audio_read", "从已落盘附件音频按需读取注入对话(供支持音频输入的模型听取): 参数 {name: 附件文件名或 att:// 引用}。音频附件发送时已统一落私有附件库, 首轮仅放索引卡不发字节; 仅支持音频输入能力的模型可调用注入听取, 不支持音频输入的模型不要调用, 应提示用户 file_export 导出。", "JSON: {\"name\":\"att://xxx.mp3\"}"),
+        ToolSpec("image_view", "从已落库附件图片按需注入查看: 参数 {name: 附件文件名或 att:// 引用}。识图模型注意: 当前消息里的图片已直接内联可见, 无需调用本工具; 本工具主要用于查看历史消息中的旧图片(历史仅存 att:// 引用不发字节)。注入后图片仅供识图模型参考。", "JSON: {\"name\":\"att://xxx.jpg\"}"),
+        ToolSpec("audio_read", "从已落库附件音频按需注入听取(供支持音频输入的模型): 参数 {name: 附件文件名或 att:// 引用}。音频模型注意: 当前消息里的小音频(≤10MB 且 ≤120s)已直接内联可听, 无需调用; 本工具主要用于听取历史消息中的旧音频、超限大音频或直发被拒后的音频。不支持音频输入的模型不要调用, 应提示用户 file_export 导出。", "JSON: {\"name\":\"att://xxx.mp3\"}"),
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}"),
         ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}"),
         ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}"),
@@ -598,6 +661,9 @@ object LocalEngine {
                     }
                     // 若无有效输出且未达上限, 给模型一个继续指令
                     val schemaBlock = if (schemaBlocks.isEmpty()) "" else "本工具参数说明:\n$schemaBlocks"
+                    // 视频直发只保留首轮: 后续工具轮次剥离 video_url(保留索引卡), 避免原视频被重复上传计费
+                    val stripped = stripVideoParts(messages)
+                    if (stripped > 0) android.util.Log.i("Nyral", "strip $stripped video_url part(s) after first round, follow-up via video_frame")
                     messages.put(JSONObject().put("role", "user").put("content",
                         schemaBlock +
                         "已执行上述工具调用并返回结果。请根据结果继续: 若还需调用工具请继续发起 tool_calls; 若已能回答用户直接输出最终答案。"))
@@ -628,6 +694,11 @@ object LocalEngine {
         } catch (e: NoToolsException) {
             // 当前 provider 不支持 tools: 已置降级标志, 立即重跑请求(不计入网络重试额度), 文本协议兜底接管
             android.util.Log.w("Nyral", "no-tools fallback retry (attempt=${attempt})")
+            continue
+        } catch (e: VideoDirectRejectedException) {
+            // 视频直发被拒: 已记下 provider|model 组合, 重跑时 attachments 改走索引卡(附件已落库不丢),
+            // 模型会按索引卡指引调 video_frame 抽帧
+            android.util.Log.w("Nyral", "video direct rejected, fallback to frame extraction (attempt=${attempt})")
             continue
         } catch (e: RetryableException) {
             // 取消优先于自动重试: 取消引发的断线若被吞成重试, 会先污染 UI("[网络波动]")再空 onDone 丢整轮内容
@@ -762,6 +833,19 @@ object LocalEngine {
                 toolsUnsupported = true
                 android.util.Log.w("Nyral", "provider 不支持 tools, 降级文本协议: ${err.take(200)}")
                 throw NoToolsException("PROVIDER_NO_TOOLS")
+            }
+            // 视频直发被拒(2026-10-26): 请求里带 video_url 且 4xx -> 记下该 provider|model 组合,
+            // 立即重跑; 重跑时附件改发索引卡, 由 AI 调 video_frame 抽帧(附件已落库, 不丢内容)
+            if (code in 400..499 && hasVideoPart(messages)) {
+                videoDirectDisabledKey = ApiConfig.providerId() + "|" + ApiConfig.model()
+                android.util.Log.w("Nyral", "video_url 直发被拒($code), 降级抽帧: ${err.take(200)}")
+                throw VideoDirectRejectedException("VIDEO_DIRECT_REJECTED")
+            }
+            // 音频直发被拒(2026-10-26): 请求里带 input_audio 且 4xx -> 记组合, 重跑改走 audio_read 索引卡
+            if (code in 400..499 && hasAudioPart(messages)) {
+                audioDirectDisabledKey = ApiConfig.providerId() + "|" + ApiConfig.model()
+                android.util.Log.w("Nyral", "input_audio 直发被拒($code), 降级 audio_read: ${err.take(200)}")
+                throw VideoDirectRejectedException("AUDIO_DIRECT_REJECTED")
             }
             throw RuntimeException("API $code: $err")
         }
@@ -1341,6 +1425,12 @@ object LocalEngine {
                             parts.put(JSONObject().put("type", "text")
                                 .put("text", "[音频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 音频字节未发送: 支持音频输入的模型可调 audio_read(name=\"att://${a.name}\") 注入听取; 否则调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
                         } else {
+                            val audioOff = audioDirectDisabledKey == ApiConfig.providerId() + "|" + ApiConfig.model()
+                            if (audioOff) {
+                                // 音频直发被服务端拒过(本会话): 改走索引卡, 由 AI 按需 audio_read 注入
+                                parts.put(JSONObject().put("type", "text")
+                                    .put("text", "[音频附件 ${a.name} | 已落私有附件库 att://${a.name} | 音频直发被服务端拒绝, 支持音频输入的模型可调 audio_read(name=\"att://${a.name}\") 注入听取]"))
+                            } else {
                             // format/MIME 归一化: m4a/mp4/x-m4a→m4a, x-wav/wave→wav, mp3/mpeg→mp3, x-flac→flac, opus→ogg
                             val norm: Pair<String, String> = when {
                                 a.mime.startsWith("audio/wav") || a.mime.startsWith("audio/x-wav") || a.mime.startsWith("audio/wave") -> "audio/wav" to "wav"
@@ -1352,6 +1442,7 @@ object LocalEngine {
                             }
                             parts.put(JSONObject().put("type", "input_audio")
                                 .put("input_audio", JSONObject().put("data", "data:${norm.first};base64,${a.base64}").put("format", norm.second)))
+                            }
                         }
                     }
                     a.mime.startsWith("video/") -> {
@@ -1366,14 +1457,30 @@ object LocalEngine {
                             val disp = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: a.name
                             parts.put(JSONObject().put("type", "text")
                                 .put("text", "[视频附件 $disp | ${a.mime} | $sizeStr | 时长约${durS}s | 已落私有附件库 att://${a.name} | 视频字节未发送, 需看画面时调 video_frame(name=\"att://${a.name}\", timeMs) 抽帧, 或调 file_export(name=\"att://${a.name}\") 导出到公共工作目录]"))
+                        } else if (a.isEmoji) {
+                            // 表情动图(2026-10-26): 给用户看的装饰, 模型无需消费, 不直发 video_url 省 token/带宽
+                            parts.put(JSONObject().put("type", "text").put("text", "[用户发送了一个表情动画]"))
                         } else {
-                            // MiMo 视频理解: content 数组 type=video_url, url 用 data:{mime};base64 内联
-                            // 官方限制: base64 后 ≤50MB(原始约 ≤37MB), 支持 MP4/MOV/AVI/WMV
-                            val vurl = JSONObject().put("url", "data:${a.mime};base64,${a.base64}")
-                            parts.put(JSONObject().put("type", "video_url")
-                                .put("video_url", vurl)
-                                .put("fps", 2)
-                                .put("media_resolution", "default"))
+                            // 直发视频(2026-10-26): 支持视频输入的模型内联 video_url, 服务端自行抽帧理解;
+                            // 先放文字索引, 万一服务端拒绝直发(400)降级后这行仍在, 可指引 video_frame 抽帧
+                            val canVideo = ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_VIDEO)
+                            val directOff = videoDirectDisabledKey == ApiConfig.providerId() + "|" + ApiConfig.model()
+                            if (!canVideo || directOff) {
+                                parts.put(JSONObject().put("type", "text")
+                                    .put("text", "[视频附件 ${a.name} | 已落私有附件库 att://${a.name} | 视频字节未直发, 需看画面调 video_frame(name=\"att://${a.name}\", times=[毫秒,毫秒]) 抽帧]"))
+                            } else {
+                                // 索引卡与直发并存: 首轮模型直接看视频(官方服务端采样), 措辞禁止多余抽帧调用;
+                                // 后续工具轮次 stripVideoParts 剥离 video_url 并改写本卡为抽帧指引(DIRECT_VIDEO_MARK 标记)
+                                parts.put(JSONObject().put("type", "text")
+                                    .put("text", "[视频附件 ${a.name} | 已落私有附件库 att://${a.name} | $DIRECT_VIDEO_MARK, 描述视频直接基于你看到的画面即可, 禁止调用 video_frame 抽帧(仅当用户明确要求特定时间点特写画面时才调 video_frame(name=\"att://${a.name}\", times=[毫秒]))]"))
+                                // MiMo 视频理解: content 数组 type=video_url, url 用 data:{mime};base64 内联
+                                // 官方限制: base64 后 ≤50MB(原始约 ≤37MB), 支持 MP4/MOV/AVI/WMV
+                                val vurl = JSONObject().put("url", "data:${a.mime};base64,${a.base64}")
+                                parts.put(JSONObject().put("type", "video_url")
+                                    .put("video_url", vurl)
+                                    .put("fps", 2)
+                                    .put("media_resolution", "default"))
+                            }
                         }
                     }
                     else -> {

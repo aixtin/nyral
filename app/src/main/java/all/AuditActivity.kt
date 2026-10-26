@@ -1,19 +1,14 @@
 package io.github.aixtin.nyral
 
 import android.app.Activity
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.util.TypedValue
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,6 +17,7 @@ import java.util.Locale
  * 安全审计历史页(2026-10-04):
  * 读 filesDir/nyral_security_audit.log, 按时间倒序渲染决策记录卡片。
  * 第一版: 简单 ScrollView 卡片列表; 后续可扩展筛选/搜索/导出。
+ * 2026-10-27 整页接入 Ui.* 主题规范(语义色随 7 套主题)。
  */
 class AuditActivity : Activity() {
 
@@ -29,51 +25,17 @@ class AuditActivity : Activity() {
         super.onCreate(savedInstanceState)
         Ui.statusBar(this)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFFF2F3F7.toInt())
-            // targetSdk 36 强制 edge-to-edge(同 TimerTaskActivity): 消费状态栏 inset, 顶栏避开系统状态栏
-            if (android.os.Build.VERSION.SDK_INT >= 35) {
-                setOnApplyWindowInsetsListener { v, insets ->
-                    val top = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
-                    v.setPadding(0, top, 0, 0)
-                    insets
-                }
-            }
-        }
+        val root = Ui.pageRoot(this)
 
-        // 顶栏: 返回 + 标题
-        val titleBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(10), dp(16), dp(10))
-            background = rounded(dp(0), 0xFFFFFFFF.toInt())
-        }
-        titleBar.addView(TextView(this).apply {
-            text = "‹ 返回"
-            textSize = 16f
-            setTextColor(0xFF3D7FFF.toInt())
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            setOnClickListener { finish() }
-        })
-        titleBar.addView(TextView(this).apply {
-            text = "安全审计"
-            textSize = 17f
-            setTextColor(0xFF1A1A1A.toInt())
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        titleBar.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(48), dp(1))
-        })
-        root.addView(titleBar)
+        // 顶栏: 返回(lucide 箭头) + 标题
+        root.addView(Ui.titleBar(this, "安全审计"))
 
         // 统计条
         val summary = loadAudit()
         root.addView(TextView(this).apply {
             text = "共 ${summary.size} 条记录"
             textSize = 12f
-            setTextColor(0xFF8A8A8A.toInt())
+            setTextColor(Ui.SUB)
             setPadding(dp(16), dp(4), dp(16), dp(4))
         })
 
@@ -86,8 +48,8 @@ class AuditActivity : Activity() {
             list.addView(TextView(this).apply {
                 text = "暂无审计记录"
                 textSize = 14f
-                setTextColor(0xFF999999.toInt())
-                gravity = Gravity.CENTER
+                setTextColor(Ui.SUB)
+                gravity = android.view.Gravity.CENTER
                 setPadding(0, dp(48), 0, dp(48))
             })
         } else {
@@ -138,7 +100,7 @@ class AuditActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = rounded(dp(12), 0xFFFFFFFF.toInt())
+            background = rounded(dp(12), Ui.SURFACE)
             elevation = dp(1).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -148,12 +110,12 @@ class AuditActivity : Activity() {
         // 头行: 时间 + 结果徽标
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
         }
         head.addView(TextView(this).apply {
             text = fmt.format(Date(e.ts))
             textSize = 12f
-            setTextColor(0xFF8A8A8A.toInt())
+            setTextColor(Ui.SUB)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         val badgeText = when {
@@ -162,35 +124,34 @@ class AuditActivity : Activity() {
             e.approvedBy == "rejected" -> "已拒绝"
             else -> e.approvedBy
         }
-        val badgeColor = when {
-            allowed -> 0xFF2E8B57.toInt()
-            else -> 0xFFD9534F.toInt()
-        }
+        // 结果徽标: 同色系半透明底 + 同色文字, 浅色/暗色主题下都可读
+        val badgeFg = if (allowed) 0xFF2E8B57.toInt() else Ui.DANGER
+        val badgeBg = (badgeFg and 0x00FFFFFF) or 0x1A000000.toInt()
         head.addView(TextView(this).apply {
             text = badgeText
             textSize = 12f
-            setTextColor(Color.WHITE)
+            setTextColor(badgeFg)
             setPadding(dp(8), dp(2), dp(8), dp(2))
-            background = rounded(dp(8), badgeColor)
+            background = rounded(dp(8), badgeBg)
         })
         card.addView(head)
 
         // 工具名 + 通道
         val toolLine = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
         }
         toolLine.addView(TextView(this).apply {
             text = e.tool
             textSize = 15f
-            setTextColor(0xFF1A1A1A.toInt())
+            setTextColor(Ui.TEXT)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         toolLine.addView(TextView(this).apply {
             text = if (e.channel == "notification") "通知" else "气泡"
             textSize = 11f
-            setTextColor(0xFF8A8A8A.toInt())
+            setTextColor(Ui.SUB)
         })
         card.addView(toolLine)
 
@@ -198,14 +159,14 @@ class AuditActivity : Activity() {
         card.addView(TextView(this).apply {
             text = e.arg.ifBlank { "(无参数摘要)" }
             textSize = 12f
-            setTextColor(0xFF666666.toInt())
+            setTextColor(Ui.SUB)
             maxLines = 3
         })
         return card
     }
 
     private fun dp(v: Int): Int =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+        (v * resources.displayMetrics.density).toInt()
 
     private fun rounded(radius: Int, color: Int): GradientDrawable =
         GradientDrawable().apply {

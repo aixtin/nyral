@@ -35,8 +35,10 @@ internal class AttachmentSender(private val host: MainActivity) {
 
     private val MAX_IMAGE_SIDE = 2048
     private val MAX_VIDEO_BYTES = 37 * 1024 * 1024 // MiMo 视频 base64 ≤50MB(原始约 ≤37MB); 用于 GIF 转 MP4 产物校验
-    private val SMALL_VIDEO_BYTES = 10 * 1024 * 1024 // 阈值分流: 小视频≤10MB 直传(阶段E实测校准)
-    private val SMALL_VIDEO_SEC = 30 * 1000L          // 阈值分流: 小视频≤30秒 直传(阶段E实测校准)
+    private val SMALL_VIDEO_BYTES = 15 * 1024 * 1024 // 视频直发阈值: ≤15MB 且 ≤60s 直发(video_url), 超限落库抽帧
+    private val SMALL_VIDEO_SEC = 60 * 1000L
+    private val MAX_AUDIO_DIRECT_BYTES = 10 * 1024 * 1024 // 音频直发阈值: ≤10MB 且 ≤120s 直发(input_audio)
+    private val MAX_AUDIO_DIRECT_SEC = 120 * 1000L
     private val MAX_AUDIO_SEC = 10 * 60 * 1000L // 音频直发时长阈值: >10min 不再直发, 改落库交 AI
     private val GIF_ANIM_MAX_BYTES = 20 * 1024 * 1024 // 动图转视频的源 GIF 上限(超出回退静态图), 防超大内存占用
 
@@ -97,7 +99,7 @@ internal class AttachmentSender(private val host: MainActivity) {
     }
 
     private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHintRes: Int): LocalEngine.Attachment? {
-        // 统一落库(附件+meta 同生共死)发索引卡: 不再直发视频字节, 由 AI 按需 video_frame 抽帧 / file_export
+        // 统一落库(附件+meta 同生共死): 直发被服务端拒绝时可降级为 video_frame 抽帧, 需附件在库
         val durMs = videoDurationMs(uri)
         // 先取大小(不整文件进内存, 修复大视频 OOM 闪退): openAssetFileDescriptor 拿 length 即可
         val size = try {
@@ -114,6 +116,21 @@ internal class AttachmentSender(private val host: MainActivity) {
         } catch (e: Exception) {
             toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(failHintRes), e.message)
             return null
+        }
+        // 直发判定(2026-10-26): 模型支持视频输入 + (用户强制直发 或 文件/时长在阈值内) -> 内联 video_url 直发;
+        // 否则只发索引卡, 由 AI 按需 video_frame 抽帧(几百 KB), 避免大视频上传超时/内存溢出/服务端时长上限
+        val canVideo = ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_VIDEO)
+        val sizeOk = size in 1..SMALL_VIDEO_BYTES
+        val durOk = durMs <= 0L || durMs <= SMALL_VIDEO_SEC // 时长未知(retriever 失败)时以大小为准
+        if (canVideo && (UploadConfig.videoDirectAlways() || (sizeOk && durOk))) {
+            // 读落库后的附件(而不是原 uri): 保证直发字节与附件库一致, 且已被阈值保护
+            val bytes = try {
+                AttachmentStore.fileOf(host, key)?.let { MediaFileUtils.readAll(host.contentResolver, Uri.fromFile(it)) }
+            } catch (e: Exception) { null }
+            if (bytes != null && bytes.size in 1..SMALL_VIDEO_BYTES) {
+                // stored=false + name=附件 key: 走 LocalEngine video_url 直发; 400 时可降级回 att:// 抽帧
+                return LocalEngine.Attachment(mime, Base64.encodeToString(bytes, Base64.NO_WRAP), key)
+            }
         }
         toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(failHintRes))
         return LocalEngine.Attachment(mime, "", key, stored = true)
@@ -135,7 +152,7 @@ internal class AttachmentSender(private val host: MainActivity) {
             val meta = JSONObject().put("name", name).put("mime", "image/jpeg")
                 .put("size", bytes.size.toLong()).put("createdAt", System.currentTimeMillis())
             val key = AttachmentStore.save(host, name, "image/jpeg", bytes, meta.toString())
-            return listOf(LocalEngine.Attachment("image/jpeg", "", key, stored = true))
+            return listOf(imageAtt(bytes, key))
         }
         if (real == FormatSniffer.IMAGE_GIF) {
             val mp4Att: List<LocalEngine.Attachment>? = try {
@@ -165,11 +182,23 @@ internal class AttachmentSender(private val host: MainActivity) {
         // 普通图片/压缩失败回退: 统一压缩 JPEG 落库
         val bytes = MediaFileUtils.compressImage(host.contentResolver, uri, MAX_IMAGE_SIDE)
         // 压缩产物恒为 JPEG, mime 必须同步标 image/jpeg, 修复字节/mime 错配(如 .png 实为 JPEG/HEIC)
-        val meta = JSONObject().put("name", name).put("mime", "image/jpeg")
-            .put("size", bytes.size.toLong()).put("createdAt", System.currentTimeMillis())
-        val key = AttachmentStore.save(host, name, "image/jpeg", bytes, meta.toString())
+        val key = run {
+            val meta = JSONObject().put("name", name).put("mime", "image/jpeg")
+                .put("size", bytes.size.toLong()).put("createdAt", System.currentTimeMillis())
+            AttachmentStore.save(host, name, "image/jpeg", bytes, meta.toString())
+        }
         toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_image))
-        return listOf(LocalEngine.Attachment("image/jpeg", "", key, stored = true))
+        return listOf(imageAtt(bytes, key))
+    }
+
+    /** 图片附件统一出口(2026-10-26): 识图模型内联 image_url 直发(图片已压缩几百KB, 省一轮 image_view 往返);
+     *  非识图模型维持落库索引卡(字节不发送)。两种情况附件均已落库, att:// 引用与 image_view 均可用 */
+    private fun imageAtt(bytes: ByteArray, key: String): LocalEngine.Attachment {
+        return if (ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_IMAGE)) {
+            LocalEngine.Attachment("image/jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP), key)
+        } else {
+            LocalEngine.Attachment("image/jpeg", "", key, stored = true)
+        }
     }
 
     /** 音频统一落库(魔数真实 mime 为准): 不再直发音频字节, 由 AI 按需 audio_read(支持音频输入的模型) / file_export */
@@ -192,6 +221,15 @@ internal class AttachmentSender(private val host: MainActivity) {
         } catch (e: Exception) {
             toast(io.github.aixtin.nyral.R.string.toast_video_store_fail, host.getString(io.github.aixtin.nyral.R.string.att_label_audio), e.message)
             return listOf()
+        }
+        // 音频直发(2026-10-26): 支持音频输入的模型 + 小音频(≤10MB 且 ≤120s) 内联 input_audio, 省一轮 audio_read 往返;
+        // 超限/不支持音频的模型落库索引卡。直发被服务端 400 拒绝时 LocalEngine 会记组合并降级 audio_read
+        val canAudio = ApiConfig.modelHasCap(ApiConfig.providerId(), ApiConfig.model(), ApiConfig.CAP_AUDIO)
+        if (canAudio && size in 1..MAX_AUDIO_DIRECT_BYTES && (dur <= 0L || dur <= MAX_AUDIO_DIRECT_SEC)) {
+            val bytes = try { AttachmentStore.fileOf(host, key)?.readBytes() } catch (e: Exception) { null }
+            if (bytes != null && bytes.size in 1..MAX_AUDIO_DIRECT_BYTES) {
+                return listOf(LocalEngine.Attachment(effMime, Base64.encodeToString(bytes, Base64.NO_WRAP), key))
+            }
         }
         toast(io.github.aixtin.nyral.R.string.toast_video_stored_lib, host.getString(io.github.aixtin.nyral.R.string.att_label_audio))
         return listOf(LocalEngine.Attachment(effMime, "", key, stored = true))

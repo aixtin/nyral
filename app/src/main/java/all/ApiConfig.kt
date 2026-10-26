@@ -77,7 +77,8 @@ object ApiConfig {
         val m = model.lowercase()
         return when {
             p.id == "mimo" || m.contains("mimo") -> setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_AUDIO, CAP_TOOL)
-            p.id == "deepseek" && (m.contains("vision") || m.contains("flash")) -> setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_TOOL)
+            // deepseek-flash 仅 text+image(官方 models 接口 input_modalities 实测, 2026-10-26), 无视频输入
+            p.id == "deepseek" && (m.contains("vision") || m.contains("flash")) -> setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)
             p.id == "deepseek" -> setOf(CAP_TEXT, CAP_TOOL)
             p.id == "zhipu" || m.contains("glm") -> setOf(CAP_TEXT, CAP_TOOL)
             m.contains("vl") || m.contains("vision") || m.contains("omni") -> setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)

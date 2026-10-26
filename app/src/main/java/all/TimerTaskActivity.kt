@@ -1,14 +1,11 @@
 package io.github.aixtin.nyral
 
 import android.app.Activity
-import android.app.AlertDialog
-import android.content.Context
 import android.content.Intent
-import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -24,7 +21,7 @@ import android.widget.Toast
  * - 顶部: 返回 + 标题 + "＋ 新建任务"
  * - 列表: 任务名 / 触发时间 / 开关 / 上次执行结果
  * - 每项点击: 操作菜单(立即执行 / 停用-启用 / 删除)
- * 全部代码式 UI, 与 AuditActivity/SecurityCenterActivity 风格一致。
+ * 全部代码式 UI, 2026-10-27 整页接入 Ui.* 主题规范(语义色随 7 套主题 + 自绘圆角弹窗)。
  */
 class TimerTaskActivity : Activity() {
 
@@ -40,48 +37,20 @@ class TimerTaskActivity : Activity() {
         db = TimerTaskDb(this)
         listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFFF2F3F7.toInt())
-            // targetSdk 36 强制 edge-to-edge(同 Ui.pageRoot): 消费状态栏 inset, 顶栏避开系统状态栏
-            if (android.os.Build.VERSION.SDK_INT >= 35) {
-                setOnApplyWindowInsetsListener { v, insets ->
-                    val top = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
-                    v.setPadding(0, top, 0, 0)
-                    insets
-                }
-            }
-        }
+        val root = Ui.pageRoot(this)
 
-        // 顶栏: 返回 + 标题 + 新建
-        val titleBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(10), dp(16), dp(10))
-            background = rounded(dp(0), 0xFFFFFFFF.toInt())
-        }
-        titleBar.addView(TextView(this).apply {
-            text = "‹ 返回"
-            textSize = 16f
-            setTextColor(0xFF3D7FFF.toInt())
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            setOnClickListener { finish() }
+        // 顶栏: 返回(lucide 箭头) + 标题 + 右侧"＋ 新建"
+        root.addView(Ui.titleBar(this, "任务") { bar ->
+            bar.addView(TextView(this).apply {
+                text = "＋ 新建"
+                textSize = 15f
+                setTextColor(Ui.PRIMARY)
+                isClickable = true
+                setPadding(dp(10), dp(6), dp(4), dp(6))
+                Ui.press(this)
+                setOnClickListener { showCreateDialog() }
+            })
         })
-        titleBar.addView(TextView(this).apply {
-            text = "任务"
-            textSize = 17f
-            setTextColor(0xFF1A1A1A.toInt())
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        titleBar.addView(TextView(this).apply {
-            text = "＋ 新建"
-            textSize = 16f
-            setTextColor(0xFF3D7FFF.toInt())
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            setOnClickListener { showCreateDialog() }
-        })
-        root.addView(titleBar)
 
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -107,7 +76,7 @@ class TimerTaskActivity : Activity() {
             listBox.addView(TextView(this).apply {
                 text = "暂无任务\n点击右上角「＋ 新建」创建"
                 textSize = 14f
-                setTextColor(0xFF9A9A9A.toInt())
+                setTextColor(Ui.SUB)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(40), 0, dp(40))
             })
@@ -125,7 +94,7 @@ class TimerTaskActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = rounded(dp(12), 0xFFFFFFFF.toInt())
+            background = rounded(dp(12), Ui.SURFACE)
             isClickable = true
             setOnClickListener { showActionDialog(t) }
         }
@@ -136,15 +105,16 @@ class TimerTaskActivity : Activity() {
             addView(TextView(this@TimerTaskActivity).apply {
                 text = t.name
                 textSize = 16f
-                setTextColor(0xFF1A1A1A.toInt())
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(Ui.TEXT)
+                setTypeface(typeface, Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             addView(TextView(this@TimerTaskActivity).apply {
                 text = if (t.enabled) "启用中" else "已停用"
                 textSize = 12f
-                setTextColor(if (t.enabled) 0xFF34A853.toInt() else 0xFF9A9A9A.toInt())
-                background = rounded(dp(10), if (t.enabled) 0x1A34A853.toInt() else 0x1A9A9A9A.toInt())
+                // 状态徽标: 同色系半透明底 + 同色文字, 浅色/暗色主题下都可读
+                setTextColor(if (t.enabled) 0xFF34A853.toInt() else Ui.SUB)
+                background = rounded(dp(10), if (t.enabled) 0x1A34A853.toInt() else (Ui.SUB and 0x00FFFFFF or 0x1A000000.toInt()))
                 setPadding(dp(10), dp(3), dp(10), dp(3))
             })
         })
@@ -152,14 +122,14 @@ class TimerTaskActivity : Activity() {
         card.addView(TextView(this).apply {
             text = "触发: ${t.cronDesc}"
             textSize = 13f
-            setTextColor(0xFF5A5A5A.toInt())
+            setTextColor(Ui.SUB)
             setPadding(0, dp(6), 0, 0)
         })
         // 第二行半: 能力授权状态(2026-10-13)
         card.addView(TextView(this).apply {
             text = "授权: " + allowLabel(t.allowTools)
             textSize = 12f
-            setTextColor(0xFF8A8A8A.toInt())
+            setTextColor(Ui.SUB)
             maxLines = 2
             setPadding(0, dp(4), 0, 0)
         })
@@ -167,7 +137,7 @@ class TimerTaskActivity : Activity() {
         card.addView(TextView(this).apply {
             text = "目标: ${t.goal}"
             textSize = 13f
-            setTextColor(0xFF5A5A5A.toInt())
+            setTextColor(Ui.SUB)
             maxLines = 2
             setPadding(0, dp(4), 0, 0)
         })
@@ -178,7 +148,7 @@ class TimerTaskActivity : Activity() {
                     .format(java.util.Date(t.lastRunTs))
                 text = "上次(${time}): ${t.lastResult ?: "执行中/无结果"}"
                 textSize = 12f
-                setTextColor(0xFF9A9A9A.toInt())
+                setTextColor(Ui.SUB)
                 maxLines = 2
                 setPadding(0, dp(6), 0, 0)
             })
@@ -187,32 +157,39 @@ class TimerTaskActivity : Activity() {
     }
 
     private fun showActionDialog(t: TimerTaskDb.Task) {
-        val items = ArrayList<String>()
-        items.add("立即执行")
-        items.add(if (t.enabled) "停用" else "启用")
-        items.add("能力授权")
-        items.add("删除")
-        AlertDialog.Builder(this)
-            .setTitle(t.name)
-            .setItems(items.toTypedArray()) { _, which ->
-                when (which) {
-                    0 -> runNow(t)
-                    1 -> {
-                        if (t.enabled) disable(t) else enable(t)
-                    }
-                    2 -> {
-                        val cur = t.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                        showAllowToolsDialog("能力授权(${t.name})", cur) { s ->
-                            db.updateAllowTools(t.id, s)
-                            SecurityConfig.audit(this, "timer_task_allow", "${t.name}(id=${t.id}) -> $s", "ui_user", "timer_task")
-                            render()
-                        }
-                    }
-                    3 -> delete(t)
-                }
+        val (dlg, box) = Ui.dialog(this, t.name)
+        fun row(label: String, danger: Boolean = false, onClick: () -> Unit) {
+            box.addView(TextView(this).apply {
+                text = label
+                textSize = 15f
+                gravity = Gravity.CENTER
+                isClickable = true
+                setTextColor(if (danger) Ui.DANGER else Ui.PRIMARY)
+                background = Ui.rounded(if (danger) Ui.DANGER_LIGHT else Ui.PRIMARY_LIGHT, 12, this@TimerTaskActivity)
+                setPadding(dp(12), dp(11), dp(12), dp(11))
+                Ui.press(this)
+                setOnClickListener { onClick() }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = if (danger) dp(14) else dp(10)
+            })
+        }
+        row("立即执行") { dlg.dismiss(); runNow(t) }
+        row(if (t.enabled) "停用" else "启用") {
+            dlg.dismiss()
+            if (t.enabled) disable(t) else enable(t)
+        }
+        row("能力授权") {
+            dlg.dismiss()
+            val cur = t.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            showAllowToolsDialog("能力授权(${t.name})", cur) { s ->
+                db.updateAllowTools(t.id, s)
+                SecurityConfig.audit(this, "timer_task_allow", "${t.name}(id=${t.id}) -> $s", "ui_user", "timer_task")
+                render()
             }
-            .setNegativeButton("取消", null)
-            .show()
+        }
+        row("删除", danger = true) { dlg.dismiss(); delete(t) }
+        dlg.show()
     }
 
     private fun runNow(t: TimerTaskDb.Task) {
@@ -236,18 +213,24 @@ class TimerTaskActivity : Activity() {
                 append(auth.mapNotNull { SecurityConfig.ALLOW_CATALOG[it] }.joinToString("、"))
             }
         }
-        AlertDialog.Builder(this)
-            .setTitle("停用任务")
-            .setMessage(msg)
-            .setPositiveButton("停用") { _, _ ->
-                db.setEnabled(t.id, false)
-                TimerScheduler.cancel(this, t.id)
-                SecurityConfig.audit(this, "timer_task_disable", "${t.name}(id=${t.id})", "ui_user", "timer_task")
-                TimerKeepAliveService.ensure(this)
-                render()
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        val (dlg, box) = Ui.dialog(this, "停用任务")
+        box.addView(Ui.dialogText(this, msg))
+        box.addView(Ui.dangerBtn(this, "停用") {
+            dlg.dismiss()
+            db.setEnabled(t.id, false)
+            TimerScheduler.cancel(this, t.id)
+            SecurityConfig.audit(this, "timer_task_disable", "${t.name}(id=${t.id})", "ui_user", "timer_task")
+            TimerKeepAliveService.ensure(this)
+            render()
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+        dlg.show()
     }
 
     private fun enable(t: TimerTaskDb.Task) {
@@ -268,61 +251,54 @@ class TimerTaskActivity : Activity() {
                 append("\n\n任务专属会话一并清理, 授权范围=任务生命周期。")
             }
         }
-        AlertDialog.Builder(this)
-            .setTitle("删除任务")
-            .setMessage(msg)
-            .setPositiveButton("删除") { _, _ ->
-                db.delete(t.id)
-                TimerScheduler.cancel(this, t.id)
-                SecurityConfig.audit(this, "timer_task_delete", "${t.name}(id=${t.id})", "ui_user", "timer_task")
-                if (t.sessionId > 0L) {
-                    // 级联清理任务专属会话(2026-10-16): 删除任务时同步清理 MemoryDb 绑定的 session 与其消息, 避免孤儿会话
-                    MemoryDb(this).deleteSession(t.sessionId)
-                    SecurityConfig.audit(
-                        this, "timer_task_session_cleanup",
-                        "${t.name}(session=${t.sessionId})", "ui_user", "timer_task"
-                    )
-                }
-                TimerKeepAliveService.ensure(this)
-                render()
+        val (dlg, box) = Ui.dialog(this, "删除任务")
+        box.addView(Ui.dialogText(this, msg))
+        box.addView(Ui.dangerBtn(this, "删除") {
+            dlg.dismiss()
+            db.delete(t.id)
+            TimerScheduler.cancel(this, t.id)
+            SecurityConfig.audit(this, "timer_task_delete", "${t.name}(id=${t.id})", "ui_user", "timer_task")
+            if (t.sessionId > 0L) {
+                // 级联清理任务专属会话(2026-10-16): 删除任务时同步清理 MemoryDb 绑定的 session 与其消息, 避免孤儿会话
+                MemoryDb(this).deleteSession(t.sessionId)
+                SecurityConfig.audit(
+                    this, "timer_task_session_cleanup",
+                    "${t.name}(session=${t.sessionId})", "ui_user", "timer_task"
+                )
             }
-            .setNegativeButton("取消", null)
-            .show()
+            TimerKeepAliveService.ensure(this)
+            render()
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+        dlg.show()
     }
 
     private fun showCreateDialog() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(10), dp(20), 0)
-        }
-        val nameEt = EditText(this).apply {
-            hint = "任务名(如: 早报整理)"
-            textSize = 15f
+        val (dialog, box) = Ui.dialog(this, "新建任务", maxHeightRatio = 0.8)
+        val nameEt = Ui.input(this, "任务名(如: 早报整理)").apply {
             inputType = InputType.TYPE_CLASS_TEXT
-            setTextColor(0xFF1A1A1A.toInt())
-            setHintTextColor(0xFF9A9A9A.toInt())
         }
-        val goalEt = EditText(this).apply {
-            hint = "目标(要 AI 做什么)"
-            textSize = 15f
+        val goalEt = Ui.input(this, "目标(要 AI 做什么)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 3
-            setTextColor(0xFF1A1A1A.toInt())
-            setHintTextColor(0xFF9A9A9A.toInt())
+            gravity = Gravity.TOP or Gravity.START
         }
-        val cronEt = EditText(this).apply {
-            hint = "触发时间(每天 HH:mm, 如 09:00)"
-            textSize = 15f
+        val cronEt = Ui.input(this, "触发时间(每天 HH:mm, 如 09:00)").apply {
             inputType = InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME
-            setTextColor(0xFF1A1A1A.toInt())
-            setHintTextColor(0xFF9A9A9A.toInt())
         }
         // 能力预授权(2026-10-13): 勾选危险工具白名单, 静默执行时直接放行
         var allowTools = ""
         val allowTv = TextView(this).apply {
             text = "能力授权: 未授权(点击配置)"
             textSize = 13f
-            setTextColor(0xFF3D7FFF.toInt())
+            setTextColor(Ui.PRIMARY)
+            isClickable = true
             setPadding(0, dp(8), 0, 0)
             setOnClickListener {
                 showAllowToolsDialog("能力授权(危险工具)", emptySet()) { s ->
@@ -331,42 +307,47 @@ class TimerTaskActivity : Activity() {
                 }
             }
         }
-        box.addView(nameEt)
-        box.addView(goalEt)
-        box.addView(cronEt)
-        box.addView(allowTv)
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("新建任务")
-            .setView(box)
-            .setPositiveButton("创建", null)
-            .setNegativeButton("取消", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val name = nameEt.text.toString().trim()
-                val goal = goalEt.text.toString().trim()
-                val cron = cronEt.text.toString().trim()
-                if (name.isEmpty() || goal.isEmpty() || cron.isEmpty()) {
-                    Toast.makeText(this, "三项都要填写", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                val fullCron = if (cron.startsWith("每天")) cron else "每天 $cron"
-                if (TimerScheduler.parseCron(fullCron) == null) {
-                    Toast.makeText(this, "触发时间格式: 每天 HH:mm(如 09:00)", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                // 每开启一个任务即开启一个新会话绑定它(2026-10-13): 会话按创建时模式归属, 聊天/Agent 两模式互不串
-                val mode = ModeConfig.modeValue()
-                val id = db.insert(name, goal, fullCron, mode, allowTools)
-                val sessionId = MemoryDb(this).saveSession(name, emptyList(), mode)
-                db.bindSession(id, sessionId)
-                TimerScheduler.schedule(this, id, fullCron)
-                SecurityConfig.audit(this, "timer_task_register", "$name / $goal", "ui_user", "timer_task")
-                TimerKeepAliveService.ensure(this)
-                dialog.dismiss()
-                render()
-            }
+        fun field(v: View, top: Int) {
+            box.addView(v, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(top)
+            })
         }
+        field(nameEt, 4)
+        field(goalEt, 10)
+        field(cronEt, 10)
+        field(allowTv, 4)
+        box.addView(Ui.primaryBtn(this, "创建") {
+            val name = nameEt.text.toString().trim()
+            val goal = goalEt.text.toString().trim()
+            val cron = cronEt.text.toString().trim()
+            if (name.isEmpty() || goal.isEmpty() || cron.isEmpty()) {
+                Toast.makeText(this, "三项都要填写", Toast.LENGTH_SHORT).show()
+                return@primaryBtn
+            }
+            val fullCron = if (cron.startsWith("每天")) cron else "每天 $cron"
+            if (TimerScheduler.parseCron(fullCron) == null) {
+                Toast.makeText(this, "触发时间格式: 每天 HH:mm(如 09:00)", Toast.LENGTH_SHORT).show()
+                return@primaryBtn
+            }
+            // 每开启一个任务即开启一个新会话绑定它(2026-10-13): 会话按创建时模式归属, 聊天/Agent 两模式互不串
+            val mode = ModeConfig.modeValue()
+            val id = db.insert(name, goal, fullCron, mode, allowTools)
+            val sessionId = MemoryDb(this).saveSession(name, emptyList(), mode)
+            db.bindSession(id, sessionId)
+            TimerScheduler.schedule(this, id, fullCron)
+            SecurityConfig.audit(this, "timer_task_register", "$name / $goal", "ui_user", "timer_task")
+            TimerKeepAliveService.ensure(this)
+            dialog.dismiss()
+            render()
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(14)
+        })
+        box.addView(Ui.dialogCancelBtn(this, "取消") { dialog.dismiss() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
         dialog.show()
     }
 
@@ -383,32 +364,35 @@ class TimerTaskActivity : Activity() {
     private fun showAllowToolsDialog(title: String, current: Set<String>, onSave: (String) -> Unit) {
         val keys = SecurityConfig.ALLOW_CATALOG.keys.toList()
         val checked = keys.map { it in current }.toBooleanArray()
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(12), dp(24), dp(4))
-            addView(TextView(context).apply {
-                text = "勾选后, 任务静默执行时可直接使用这些危险工具, 不再逐次确认; 未勾选的仍会自动拒绝。"
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setTextColor(0xFF888888.toInt())
+        val (dlg, box) = Ui.dialog(this, title, maxHeightRatio = 0.75)
+        box.addView(TextView(this).apply {
+            text = "勾选后, 任务静默执行时可直接使用这些危险工具, 不再逐次确认; 未勾选的仍会自动拒绝。"
+            textSize = 13f
+            setTextColor(Ui.SUB)
+            setPadding(0, 0, 0, dp(4))
+        })
+        keys.forEachIndexed { i, k ->
+            box.addView(CheckBox(this).apply {
+                text = SecurityConfig.ALLOW_CATALOG[k] + "  ($k)"
+                textSize = 14f
+                setTextColor(Ui.TEXT)
+                isChecked = checked[i]
+                setOnCheckedChangeListener { _, b -> checked[i] = b }
             })
-            keys.forEachIndexed { i, k ->
-                addView(CheckBox(context).apply {
-                    text = SecurityConfig.ALLOW_CATALOG[k] + "  ($k)"
-                    isChecked = checked[i]
-                    setOnCheckedChangeListener { _, b -> checked[i] = b }
-                })
-            }
         }
-        val sc = ScrollView(this).apply { addView(content) }
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setView(sc)
-            .setPositiveButton("保存") { _, _ ->
-                val picked = keys.filterIndexed { i, _ -> checked[i] }
-                onSave(picked.joinToString(","))
-            }
-            .setNegativeButton("取消", null)
-            .show()
+        box.addView(Ui.primaryBtn(this, "保存") {
+            dlg.dismiss()
+            val picked = keys.filterIndexed { i, _ -> checked[i] }
+            onSave(picked.joinToString(","))
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+        dlg.show()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

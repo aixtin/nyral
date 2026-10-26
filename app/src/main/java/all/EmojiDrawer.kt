@@ -1,6 +1,5 @@
 package io.github.aixtin.nyral
 
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Context.INPUT_METHOD_SERVICE
 import android.content.Intent
@@ -16,7 +15,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -861,50 +859,54 @@ private fun MainActivity.showEmojiNameDialog(files: List<File>, items: MutableLi
         return
     }
     val f = files[idx]
-    val input = EditText(this).apply {
-        hint = "输入名字(必填, AI 按此检索)"
-        textSize = 15f
+    val (dlg, box) = Ui.dialog(this, "命名表情 (${idx + 1}/${files.size})")
+    val input = Ui.input(this, "输入名字(必填, AI 按此检索)").apply {
         inputType = InputType.TYPE_CLASS_TEXT
     }
-    val dlg = AlertDialog.Builder(this)
-        .setTitle("命名表情 (${idx + 1}/${files.size})")
-        .setView(input)
-        .setPositiveButton("保存", null)
-        .setNegativeButton("跳过", null)
-        .create()
-    dlg.setOnShowListener {
-        dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-            val name = input.text.toString().trim()
-            if (name.isEmpty()) {
-                Toast.makeText(this, "名字不能为空", Toast.LENGTH_SHORT).show()
-            } else {
-                items.add(JSONObject().put("name", name).put("file", "emoji_lib/" + f.name))
-                dlg.dismiss()
-                showEmojiNameDialog(files, items, idx + 1)
-            }
-        }
-        dlg.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-            f.delete()
+    box.addView(input)
+    box.addView(Ui.primaryBtn(this, "保存") {
+        val name = input.text.toString().trim()
+        if (name.isEmpty()) {
+            Toast.makeText(this, "名字不能为空", Toast.LENGTH_SHORT).show()
+        } else {
+            items.add(JSONObject().put("name", name).put("file", "emoji_lib/" + f.name))
             dlg.dismiss()
             showEmojiNameDialog(files, items, idx + 1)
         }
-    }
+    }, LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = dp(12)
+    })
+    box.addView(Ui.dialogCancelBtn(this, "跳过") {
+        f.delete()
+        dlg.dismiss()
+        showEmojiNameDialog(files, items, idx + 1)
+    }, LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = dp(10)
+    })
     dlg.show()
 }
 
 /** 长按删除表情库项 */
 private fun MainActivity.confirmDeleteEmojiLibItem(obj: JSONObject) {
-    AlertDialog.Builder(this)
-        .setTitle("删除表情")
-        .setMessage("确定删除「${obj.optString("name")}」?")
-        .setPositiveButton("删除") { _, _ ->
-            try { File(filesDir, obj.optString("file")).delete() } catch (e: Exception) {}
-            val items = emojiLibItems().filterNot { it.optString("file") == obj.optString("file") }
-            saveEmojiLibItems(items)
-            refreshEmojiLib()
-        }
-        .setNegativeButton("取消", null)
-        .show()
+    val (dlg, box) = Ui.dialog(this, "删除表情")
+    box.addView(Ui.dialogText(this, "确定删除「${obj.optString("name")}」?"))
+    box.addView(Ui.dangerBtn(this, "删除") {
+        dlg.dismiss()
+        try { File(filesDir, obj.optString("file")).delete() } catch (e: Exception) {}
+        val items = emojiLibItems().filterNot { it.optString("file") == obj.optString("file") }
+        saveEmojiLibItems(items)
+        refreshEmojiLib()
+    }, LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = dp(12)
+    })
+    box.addView(Ui.dialogCancelBtn(this, "取消") { dlg.dismiss() }, LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = dp(10)
+    })
+    dlg.show()
 }
 
 /** 切换表情库编辑模式: 进入=多选删除, 退出=清空勾选恢复发送 */

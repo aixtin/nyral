@@ -901,7 +901,8 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xCC333333.toInt())
+                // 主题主色 + 80% 透明度: 暗色主题(OLED 纯黑)下不再隐身, 浅色下作点缀
+                setColor((Ui.PRIMARY and 0x00FFFFFF) or 0xCC000000.toInt())
             }
             visibility = View.GONE
             elevation = dp(6).toFloat()
@@ -1066,7 +1067,7 @@ class MainActivity : Activity() {
             textSize = 15f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = rounded(dp(22), Color.parseColor("#9AA0A6"))
+            background = rounded(dp(22), Ui.SUB)
             setPadding(dp(14), dp(10), dp(14), dp(10))
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)

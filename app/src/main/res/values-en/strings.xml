@@ -119,6 +119,10 @@
     <string name="settings_log_sub">Main log / assist AI log</string>
     <string name="settings_upload_size">Upload Size Limit</string>
     <string name="settings_upload_size_sub">Attachment limit · current %1$d MB</string>
+    <string name="settings_video_direct">Send Video Directly</string>
+    <string name="settings_video_direct_sub">Videos ≤15MB and ≤60s are sent as-is to video-capable models · enabling ignores limits</string>
+    <string name="settings_video_direct_on">Video direct send on: size/duration limits ignored</string>
+    <string name="settings_video_direct_off">Off: videos sent within limits, otherwise frame extraction</string>
     <string name="settings_token">Token Stats</string>
     <string name="settings_token_sub">Cumulative tokens / requests</string>
     <string name="settings_anim_scale">Animation Slow-mo</string>

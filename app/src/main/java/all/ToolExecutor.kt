@@ -178,6 +178,24 @@ object ToolExecutor {
                 if (isPdf) {
                     return@run "[attach_read] 附件 $name 是 PDF 文件，attach_read 只读 UTF-8 文本，不能直接读 PDF(会读到二进制结构)。请改用 pdf_page(name=\"att://$name\", page=页码, mode=\"image\"或\"text\") 按页查看；扫描件无文本层时用 mode=\"image\" 渲染页面图阅读。"
                 }
+                // OOXML/压缩包(2026-10-26): 超预算落库的 docx/xlsx/pptx/zip 此前 AI 无法读内容(attach_read 拒二进制,
+                // file_export 后也无工具可读); 走 DocTextExtractor 提取文本分块返回, 修复大 Word/Excel/PPT 读不了
+                val docExts = setOf("docx", "xlsx", "xlsm", "pptx", "zip", "7z", "rar", "gz", "tgz")
+                val isDoc = ext in docExts || mime.contains("openxmlformats") || mime.contains("msword") ||
+                    mime.contains("msexcel") || mime.contains("mspowerpoint")
+                if (isDoc) {
+                    val f = AttachmentStore.fileOf(context, name) ?: return@run "错误: 附件未落盘(仅落库文件可读取): $name"
+                    val txt = try { DocTextExtractor.extract(name, f.readBytes()) } catch (e: Exception) { null }
+                    if (txt.isNullOrBlank()) {
+                        return@run "[attach_read] $name 无法提取文本(可能是纯二进制/加密/损坏文件)。建议 file_export(name=\"att://$name\") 导出到工作目录后用其他方式处理。"
+                    }
+                    val dOffset = jo?.optInt("offset", 0) ?: 0
+                    val dLimit = jo?.optInt("limit", 4000) ?: 4000
+                    val from = dOffset.coerceIn(0, txt.length)
+                    val to = (from + dLimit.coerceAtLeast(1)).coerceAtMost(txt.length)
+                    val pct = if (txt.isEmpty()) 100 else ((to.toFloat() / txt.length) * 100).toInt()
+                    return@run "[${name}] 提取文本 第 ${from + 1}..$to 字符 / 共 ${txt.length} 字符(已读 $pct%):\n" + txt.substring(from, to)
+                }
                 val textExts = setOf("txt", "md", "markdown", "log", "csv", "json", "xml", "html", "htm", "css", "js", "mjs", "ts", "java", "kt", "kts", "c", "cpp", "cc", "h", "hpp", "sh", "bash", "zsh", "py", "rb", "php", "go", "rs", "sql", "yml", "yaml", "toml", "ini", "cfg", "conf", "env", "properties", "bat", "cmd", "ps1", "gradle", "lock")
                 if (!mime.startsWith("text/") && !mime.startsWith("application/json") && !mime.startsWith("application/xml") && ext !in textExts) {
                     return@run "[attach_read] 附件 $name 类型为 $mime，非 UTF-8 文本附件，attach_read 无法读取。请按类型使用对应工具：视频→video_frame、图片→image_view、音频→audio_read、PDF→pdf_page，或 file_export 导出到工作目录后处理。"

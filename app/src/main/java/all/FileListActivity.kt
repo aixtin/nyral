@@ -3,7 +3,7 @@ package io.github.aixtin.nyral
 import io.github.aixtin.nyral.R
 
 import android.app.Activity
-import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -159,7 +159,7 @@ class FileListActivity : Activity() {
             // 白色圆角卡片 + 浅灰描边（区别于全局无描边 card, 文件卡片更立体）
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Ui.SURFACE)
-                setStroke(dp(1), Color.parseColor("#E3E6EB"))
+                setStroke(dp(1), Ui.STROKE)
                 cornerRadius = dp(16).toFloat()
             }
             addView(FrameLayout(this@FileListActivity).apply {
@@ -275,17 +275,24 @@ class FileListActivity : Activity() {
 
     /** 删除确认(附件不可恢复) */
     private fun confirmDelete(fileName: String) {
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.files_delete_title))
-            .setMessage(getString(R.string.files_delete_msg, displayName(fileName)))
-            .setNegativeButton(getString(R.string.dialog_cancel), null)
-            .setPositiveButton(getString(R.string.files_delete_confirm)) { _, _ ->
-                val ok = AttachmentStore.delete(this, fileName)
-                Toast.makeText(this, if (ok) getString(R.string.files_deleted)
-                    else getString(R.string.files_delete_fail), Toast.LENGTH_SHORT).show()
-                refresh()
-            }
-            .show()
+        val (dlg, box) = Ui.dialog(this, getString(R.string.files_delete_title))
+        box.addView(Ui.dialogText(this, getString(R.string.files_delete_msg, displayName(fileName))))
+        box.addView(Ui.dangerBtn(this, getString(R.string.files_delete_confirm)) {
+            dlg.dismiss()
+            val ok = AttachmentStore.delete(this, fileName)
+            Toast.makeText(this, if (ok) getString(R.string.files_deleted)
+                else getString(R.string.files_delete_fail), Toast.LENGTH_SHORT).show()
+            refresh()
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            })
+        dlg.show()
     }
 
     /** 落库 fileName = <时间戳>_<uuid8>_<原名>, 展示时去前缀还原原始名 */

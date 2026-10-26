@@ -141,6 +141,10 @@
     <string name="settings_log_sub">主日志 / 辅助 AI 日志</string>
     <string name="settings_upload_size">上传大小上限</string>
     <string name="settings_upload_size_sub">附件上传限制 · 当前 %1$d MB</string>
+    <string name="settings_video_direct">视频直发</string>
+    <string name="settings_video_direct_sub">≤15MB 且 ≤60秒的视频直接发给支持视频输入的模型 · 开启后忽略阈值</string>
+    <string name="settings_video_direct_on">已开启视频直发：忽略大小/时长阈值</string>
+    <string name="settings_video_direct_off">已关闭：视频按阈值直发，超限转抽帧</string>
     <string name="settings_token">Token 统计</string>
     <string name="settings_token_sub">累计 token 用量 / 请求次数</string>
     <string name="settings_anim_scale">动画慢放</string>

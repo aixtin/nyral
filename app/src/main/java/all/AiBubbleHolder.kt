@@ -1897,7 +1897,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         removeStatusRow()   // 出错: 状态行(轮播/计数)整体移除, 不再残留活动指示
         contentBlocks.forEach { it.typeActive = false }   // 出错即停打
         TypewriterCenter.unregister(this)
-        addLine(msg, Color.parseColor("#D93025"), italic = false)
+        addLine(msg, Ui.DANGER, italic = false)
         done = true
     }
 

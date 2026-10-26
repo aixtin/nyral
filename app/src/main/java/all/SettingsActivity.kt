@@ -121,6 +121,9 @@ class SettingsActivity : Activity() {
         cardModel.addView(settingsItem(getString(R.string.settings_mem_model), getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()) + " · " + ModelUpdater.statusText(), R.drawable.ic_settings_mem_model, 6, {
             startActivity(Intent(this@SettingsActivity, MemModelConfigActivity::class.java))
         }) { memModelSubtitle = it })
+        // 视频直发开关(2026-10-26 临时位置: 后续按产品安排迁移, 移除只需删下面两行)
+        cardModel.addView(Ui.divider(this))
+        cardModel.addView(buildVideoDirectRow())
         content.addView(cardModel)
 
         // 分组4：其他
@@ -206,6 +209,29 @@ class SettingsActivity : Activity() {
         }
     }
 
+
+    /** 视频直发开关(2026-10-26 临时位置): 关闭=按阈值直发/超限抽帧; 开启=总是直发视频字节 */
+    private fun buildVideoDirectRow(): View {
+        val ctx = this@SettingsActivity
+        val sw = Switch(ctx)
+        sw.isChecked = UploadConfig.videoDirectAlways()
+        sw.setOnCheckedChangeListener { _, on ->
+            UploadConfig.setVideoDirectAlways(on)
+            Toast.makeText(ctx, getString(if (on) R.string.settings_video_direct_on else R.string.settings_video_direct_off), Toast.LENGTH_SHORT).show()
+        }
+        return LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(14), dp(12), dp(14))
+            addView(LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(Ui.itemTitle(ctx, getString(R.string.settings_video_direct)))
+                addView(Ui.hint(ctx, getString(R.string.settings_video_direct_sub)).apply { setPadding(0, dp(3), 0, 0) })
+            })
+            addView(sw)
+        }
+    }
 
     /** 悬浮慢放球开关: 显示可拖动悬浮球, 一键切换全局慢放(免进设置页) */
     private fun buildSlowBallRow(): View {

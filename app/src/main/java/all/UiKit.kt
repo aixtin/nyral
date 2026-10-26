@@ -22,6 +22,7 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import android.text.SpannableString
 import android.text.Spanned
@@ -33,6 +34,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import android.graphics.SurfaceTexture
+import android.view.Surface
 import android.view.TextureView
 import android.view.ViewGroup
 import android.app.Activity
@@ -733,30 +735,133 @@ private fun retrieveFrameRetry(mmr: MediaMetadataRetriever, f: File): Bitmap? {
     return null
 }
 
-/** 指定时间点取帧(video_frame 工具用): FileDescriptor 直连 + 多策略重试, 失败返回 null */
+/** MediaExtractor + MediaCodec 取帧(绕过 MediaMetadataRetriever seek bug)
+ *  原理: 直接调 extractor.seekTo(最近关键帧) → decoder → SurfaceTexture, 逐帧前进直到目标时间, 再 PixelCopy 拷帧
+ *  MediaTek c2.mtk.avc.decoder 在部分机型上 MMR 内部 seek 完全失效(无论调用几次都返回首帧),
+ *  必须自己走 extractor + decoder 链路; 纯 Google/MediaCodec 原生实现, 无三方依赖
+ */
+private fun videoFrameMc(f: File, timeMs: Long): Bitmap? {
+    val targetUs = timeMs.coerceAtLeast(0L) * 1_000L
+    val extractor = MediaExtractor()
+    var decoder: MediaCodec? = null
+    var surface: Surface? = null
+    var surfaceTexture: SurfaceTexture? = null
+    var bitmapOut: Bitmap? = null
+    try {
+        extractor.setDataSource(f.absolutePath)
+        val vIdx = (0 until extractor.trackCount).firstOrNull { i ->
+            extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true
+        } ?: return null
+        extractor.selectTrack(vIdx)
+        val format = extractor.getTrackFormat(vIdx)
+        val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
+        val width = format.getInteger(MediaFormat.KEY_WIDTH)
+        val height = format.getInteger(MediaFormat.KEY_HEIGHT)
+
+        // 用 SurfaceTexture 接收 decoder 输出, 再 PixelCopy 拷到普通 Bitmap
+        // 不用 ImageReader.getPlanes(): MTK 机型上 NewDirectByteBuffer 会 native abort
+        val st = SurfaceTexture(0)
+        st.setDefaultBufferSize(width, height)
+        surfaceTexture = st
+        val sf = Surface(st)
+        surface = sf
+
+        val dec = MediaCodec.createDecoderByType(mime)
+        decoder = dec
+        dec.configure(format, sf, null, 0)
+        dec.start()
+        extractor.seekTo(targetUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+
+        val outputInfo = MediaCodec.BufferInfo()
+        var inputDone = false
+        var decodedCount = 0
+        var guard = 0
+        val ht = HandlerThread("pcopy").apply { start() }
+        val h = Handler(ht.looper)
+        while (guard++ < 1000) {
+            if (!inputDone) {
+                val inIdx = dec.dequeueInputBuffer(10_000)
+                if (inIdx >= 0) {
+                    val buf = dec.getInputBuffer(inIdx) ?: continue
+                    val sz = extractor.readSampleData(buf, 0)
+                    if (sz < 0) {
+                        dec.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        inputDone = true
+                    } else {
+                        dec.queueInputBuffer(inIdx, 0, sz, extractor.sampleTime, 0)
+                        extractor.advance()
+                    }
+                }
+            }
+            val outIdx = dec.dequeueOutputBuffer(outputInfo, 10_000)
+            when {
+                outIdx == MediaCodec.INFO_TRY_AGAIN_LATER -> if (inputDone) break
+                outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {}
+                outIdx >= 0 -> {
+                    decodedCount++
+                    if (outputInfo.presentationTimeUs >= targetUs) {
+                        // 渲染到 Surface
+                        dec.releaseOutputBuffer(outIdx, true)
+                        // 等 Surface 收到帧
+                        Thread.sleep(40)
+                        // PixelCopy 从 Surface 拷到普通 ARGB_8888 Bitmap
+                        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        val latch = java.util.concurrent.CountDownLatch(1)
+                        var ok = false
+                        try {
+                            android.view.PixelCopy.request(sf, bmp, { r: Int -> ok = (r == android.view.PixelCopy.SUCCESS); latch.countDown() }, h)
+                            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+                        } catch (e: Throwable) { Log.w("UiKit", "videoFrameMc: PixelCopy err: ${e.message}") }
+                        if (ok) bitmapOut = bmp else bmp.recycle()
+                        break
+                    } else {
+                        dec.releaseOutputBuffer(outIdx, false)
+                    }
+                    if (outputInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+        }
+        ht.quitSafely()
+        if (bitmapOut != null) {
+            // 帧质量守卫(2026-10-26): MediaCodec 偶尔解出全黑/占位/超小帧, 下游 ToolExecutor 会把它
+            // 压缩成 JPEG 塞进 image_url, mimo 等 API 报 400 "invalid base64 data"
+            val w = bitmapOut.width; val h = bitmapOut.height
+            if (w < 4 || h < 4) {
+                Log.w("UiKit", "videoFrameMc: frame too small ${w}x${h} @${timeMs}ms, drop")
+                bitmapOut.recycle(); bitmapOut = null
+            } else {
+                // 抽 10 个像素点, 如果全相同说明是占位帧(HardwareBuffer 未正确渲染)
+                val pixels = IntArray(10)
+                val xs = intArrayOf(0, w/4, w/2, w*3/4, w-1, 0, w-1, w/2, w/4, w*3/4)
+                val ys = intArrayOf(0, h/4, h/2, h*3/4, h-1, h/2, h/2, 0, h-1, h-1)
+                for (i in pixels.indices) pixels[i] = bitmapOut.getPixel(xs[i], ys[i])
+                val allSame = pixels.all { it == pixels[0] }
+                // 全黑 (0xFF000000) 或全透明 (0x00000000) 都是无效帧
+                val c = pixels[0]
+                val solidBlack = (c.toLong() == 0xFF000000L)
+                val solidTransparent = (c == 0)
+                if (allSame && (solidBlack || solidTransparent)) {
+                    Log.w("UiKit", "videoFrameMc: solid placeholder frame @${timeMs}ms, drop")
+                    bitmapOut.recycle(); bitmapOut = null
+                }
+            }
+        }
+        if (bitmapOut == null && decodedCount > 0) Log.w("UiKit", "videoFrameMc: no valid frame after $decodedCount decoded for ${timeMs}ms")
+    } catch (e: Throwable) {
+        Log.w("UiKit", "videoFrameMc exception: ${e.message}", e)
+    } finally {
+        try { decoder?.stop() } catch (_: Throwable) {}
+        try { decoder?.release() } catch (_: Throwable) {}
+        try { surface?.release() } catch (_: Throwable) {}
+        try { surfaceTexture?.release() } catch (_: Throwable) {}
+        try { extractor.release() } catch (_: Throwable) {}
+    }
+    return bitmapOut
+}
+
+/** 指定时间点取帧(video_frame 工具用): 直接走 MediaExtractor+MediaCodec 绕过 MMR seek bug */
 fun videoFrameAt(f: File, timeMs: Long): Bitmap? {
-    return try {
-        val mmr = MediaMetadataRetriever()
-        try {
-            val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-            try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
-        } catch (t: Throwable) {
-            mmr.setDataSource(f.absolutePath)
-        }
-        val t = timeMs.coerceAtLeast(0L)
-        val attempts = arrayOf(
-            longArrayOf(t, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
-            longArrayOf(t, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
-            longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
-            longArrayOf(1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong())
-        )
-        var frame: Bitmap? = null
-        for (a in attempts) {
-            try { frame = mmr.getFrameAtTime(a[0], a[1].toInt()); if (frame != null) break } catch (t: Throwable) {}
-        }
-        mmr.release()
-        frame
-    } catch (e: Exception) { null }
+    return videoFrameMc(f, timeMs)
 }
 
 /** 视频时长(ms), 失败返回 0 */
@@ -786,32 +891,20 @@ fun autoFrameTimes(durationMs: Long): List<Long> {
     ).distinct().sorted()
 }
 
-/** 多帧采样: 一次打开 mmr 按 times 逐点抽帧(CLOSEST 优先 + CLOSEST_SYNC 兜底), 返回帧列表(单点失败为 null) */
+/** 多帧采样: 逐帧新建 MediaMetadataRetriever, 直接用路径 setDataSource 确保 retriever 能 seek
+ * 旧实现三大坑:
+ *  1. 共用 retriever 循环 getFrameAtTime -> Android 某些编解码器上第二次起永远返回首帧(AOSP issue)
+ *  2. 共用一个 ParcelFileDescriptor -> fd seek 互相干扰, retriever 读到上一次的位置
+ *  3. 用 FileDescriptor 模式 setDataSource -> Android 某些机型 retriever 不支持对不可 seek 的 fd 做时间 seek
+ *     (文件流 fd 在 retriever 内部可能被当作 forward-only stream 处理, getFrameAtTime 直接返回首帧)
+ *  4. 0L/1_000L 兜底掩盖 seek 失败, 让多帧路径看起来永远同一张图
+ */
 fun videoFramesAt(f: File, times: List<Long>): List<Bitmap?> {
     return try {
-        val mmr = MediaMetadataRetriever()
-        try {
-            val pfd = android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-            try { mmr.setDataSource(pfd.fileDescriptor) } finally { pfd.close() }
-        } catch (t: Throwable) {
-            mmr.setDataSource(f.absolutePath)
-        }
         val out = ArrayList<Bitmap?>(times.size)
         for (t in times) {
-            val tc = t.coerceAtLeast(0L)
-            val attempts = arrayOf(
-                longArrayOf(tc, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
-                longArrayOf(tc, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong()),
-                longArrayOf(0L, MediaMetadataRetriever.OPTION_CLOSEST.toLong()),
-                longArrayOf(1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC.toLong())
-            )
-            var frame: Bitmap? = null
-            for (a in attempts) {
-                try { frame = mmr.getFrameAtTime(a[0], a[1].toInt()); if (frame != null) break } catch (t: Throwable) {}
-            }
-            out.add(frame)
+            out.add(videoFrameAt(f, t))
         }
-        mmr.release()
         out
     } catch (e: Exception) { emptyList() }
 }

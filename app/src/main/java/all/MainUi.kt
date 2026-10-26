@@ -244,7 +244,7 @@ import android.widget.Toast
             })
             // 竖分隔线
             addView(View(this@buildDrawer).apply {
-                setBackgroundColor(0x1AFFFFFF)
+                setBackgroundColor(Ui.DIVIDER)
                 layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT).apply {
                     setMargins(0, dp(2), 0, dp(2))
                 }
@@ -275,7 +275,7 @@ import android.widget.Toast
             })
             // 竖分隔线
             addView(View(this@buildDrawer).apply {
-                setBackgroundColor(0x1AFFFFFF)
+                setBackgroundColor(Ui.DIVIDER)
                 layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT).apply {
                     setMargins(0, dp(2), 0, dp(2))
                 }
