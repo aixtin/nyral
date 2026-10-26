@@ -1771,19 +1771,32 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         // 未封段的正文章节在此一并收尾(整体完成不再追加)
         activeContent?.let { it.done = true }
         activeContent = null
-        for (b in contentBlocks) {
-            b.done = true
-            // 静默分层(阶段4): 未封段段此刻才挂视图(封段段 sealContentPlaceholder 已挂占位)
-            if (b.view == null && b.text.isNotBlank()) attachContentView(b)
-            // 未封段段此刻排版暂存(封段段幂等跳过), 有暂存走动画原位显现, 无暂存(att://)现场排版
-            renderSilent(b)
-            if (b.pendingSpanned != null) {
-                revealContent(b)      // 占位淡出+成品淡入(打字显现), 不再 finishTypeRender 避免闪帧
-            } else {
-                finishTypeRender(b)   // att:// 走 markwon / 纯文本直接上屏
-                revealContent(b)      // 兜底直接可见
+        // 弱机防 ANR(2026-10-27): 收尾显现不再单帧循环全部块——长文/多工具场景的排版+首帧
+        // 布局全部挤在一个绘制帧会超 ANR 阈值(努比亚 NX741J 实测 4s~74s 阻塞);
+        // 改为每帧最多显现 2 块、间隔 40ms 错开, 主线程无连续阻塞, 视觉上为快速逐段淡入
+        var idx = 0
+        val revealStep = object : Runnable {
+            override fun run() {
+                var n = 0
+                while (idx < contentBlocks.size && n < 2) {
+                    val b = contentBlocks[idx++]
+                    n++
+                    b.done = true
+                    // 静默分层(阶段4): 未封段段此刻才挂视图(封段段 sealContentPlaceholder 已挂占位)
+                    if (b.view == null && b.text.isNotBlank()) attachContentView(b)
+                    // 未封段段此刻排版暂存(封段段幂等跳过), 有暂存走动画原位显现, 无暂存(att://)现场排版
+                    renderSilent(b)
+                    if (b.pendingSpanned != null) {
+                        revealContent(b)      // 占位淡出+成品淡入(打字显现), 不再 finishTypeRender 避免闪帧
+                    } else {
+                        finishTypeRender(b)   // att:// 走 markwon / 纯文本直接上屏
+                        revealContent(b)      // 兜底直接可见
+                    }
+                }
+                if (idx < contentBlocks.size) uiHandler.postDelayed(this, 40)
             }
         }
+        revealStep.run()
     }
 
     /** 收尾定格: 停轮播藏计数, 状态行定格为摘要(可点击展开时间线);

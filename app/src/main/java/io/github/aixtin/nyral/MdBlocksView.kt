@@ -1,6 +1,8 @@
 package io.github.aixtin.nyral
 
 import android.content.Context
+import android.text.Spanned
+import android.text.SpannedString
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -18,6 +20,11 @@ import android.widget.TextView
  *  - 性能基准: bindBlocks 计时 + 块数量上报 Log.i(PerfB), 供性能基准测试采样。
  */
 internal class MdBlocksView(context: Context) : LinearLayout(context) {
+
+    companion object {
+        /** 单个文本子块最大字符数: 超出按段落边界切碎(弱机防 ANR, 详见 addTextChunks) */
+        private const val TEXT_CHUNK_CHARS = 1500
+    }
 
     private var textColor = 0xFFFFFFFF.toInt()
     private var borderColor = 0
@@ -67,12 +74,40 @@ internal class MdBlocksView(context: Context) : LinearLayout(context) {
         val t0 = System.nanoTime()
         for (b in list) {
             when (b) {
-                is MdRenderBlock.TextBlock -> addView(makeTextBlock(b.spanned))
+                is MdRenderBlock.TextBlock -> addTextChunks(b.spanned)
                 is MdRenderBlock.TableBlock -> addView(makeTableBlock(b.table))
             }
         }
         val dtUs = (System.nanoTime() - t0) / 1000
         android.util.Log.i("PerfB", "bindBlocks blocks=${list.size} dtUs=$dtUs availW=$availW maxW=$maxW")
+    }
+
+    /**
+     * 2026-10-27 弱机防 ANR: 超长文本块按段落边界切碎成多个 TextView(单块上限 TEXT_CHUNK_CHARS)。
+     * 单个 TextView 的 LineBreaker 重排成本随文本长度增长, 弱机上 2 万字密集中文单块重排
+     * 实测可超 ANR 阈值(努比亚 NX741J 崩溃日志 4s~74s); 切碎后单视图布局成本封顶。
+     * 切点优先取窗口内最近的换行(段落/行边界视觉无缝), 无换行(如 PDF 提取的整段无换行文本)
+     * 才硬切——硬切点会多一个断行, 可接受。
+     */
+    private fun addTextChunks(spanned: CharSequence) {
+        var s = 0
+        val n = spanned.length
+        while (s < n) {
+            var e = minOf(s + TEXT_CHUNK_CHARS, n)
+            if (e < n) {
+                val nl = spanned.lastIndexOf('\n', e - 1)
+                if (nl >= s + TEXT_CHUNK_CHARS / 2) e = nl + 1
+            }
+            addView(makeTextBlock(immutableSlice(spanned, s, e)))
+            s = e
+        }
+    }
+
+    /** 切出 [s,e) 并转不可变: Editable(SpannableStringBuilder)会让 TextView 走 DynamicLayout
+     *  (为编辑场景设计, 布局更重); 只读成品转 SpannedString 走 StaticLayout, 弱机显著更省 */
+    private fun immutableSlice(cs: CharSequence, s: Int, e: Int): CharSequence {
+        val sub = cs.subSequence(s, e)
+        return if (sub is Spanned) SpannedString(sub) else sub.toString()
     }
 
     private fun makeTextBlock(spanned: CharSequence): TextView {
