@@ -113,8 +113,8 @@ class TimerTaskActivity : Activity() {
                 text = if (t.enabled) "启用中" else "已停用"
                 textSize = 12f
                 // 状态徽标: 同色系半透明底 + 同色文字, 浅色/暗色主题下都可读
-                setTextColor(if (t.enabled) 0xFF34A853.toInt() else Ui.SUB)
-                background = rounded(dp(10), if (t.enabled) 0x1A34A853.toInt() else (Ui.SUB and 0x00FFFFFF or 0x1A000000.toInt()))
+                setTextColor(if (t.enabled) Ui.OK else Ui.SUB)
+                background = rounded(dp(10), if (t.enabled) (Ui.OK and 0x00FFFFFF or 0x1A000000.toInt()) else (Ui.SUB and 0x00FFFFFF or 0x1A000000.toInt()))
                 setPadding(dp(10), dp(3), dp(10), dp(3))
             })
         })

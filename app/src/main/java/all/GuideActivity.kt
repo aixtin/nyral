@@ -753,10 +753,10 @@ class GuideActivity : Activity() {
             }
             runOnUiThread {
                 if (ok) {
-                    connTv?.setTextColor(0xFF4CAF50.toInt())
+                    connTv?.setTextColor(Ui.OK)
                     connTv?.text = getString(R.string.guide_test_ok)
                 } else {
-                    connTv?.setTextColor(0xFFE53935.toInt())
+                    connTv?.setTextColor(Ui.DANGER)
                     connTv?.text = getString(R.string.guide_test_fail) + " " + msg
                 }
             }
@@ -771,7 +771,7 @@ class GuideActivity : Activity() {
             val models = fetchModelsFromNetwork(p, key)
             runOnUiThread {
                 if (models != null && models.isNotEmpty()) {
-                    connTv?.setTextColor(0xFF4CAF50.toInt())
+                    connTv?.setTextColor(Ui.OK)
                     connTv?.text = getString(R.string.guide_test_ok)
                     saveAndFinish(p, key, models)
                 } else {
@@ -818,7 +818,7 @@ class GuideActivity : Activity() {
             val models = fetchModelsFromNetwork(p, key)
             runOnUiThread {
                 if (models == null || models.isEmpty()) {
-                    connTv?.setTextColor(0xFFE53935.toInt())
+                    connTv?.setTextColor(Ui.DANGER)
                     connTv?.text = getString(R.string.toast_fetch_fail)
                     Toast.makeText(this, getString(R.string.toast_fetch_fail), Toast.LENGTH_SHORT).show()
                     return@runOnUiThread
@@ -828,7 +828,7 @@ class GuideActivity : Activity() {
                 selectedModels[p.id] = best
                 modelInput?.text = best
                 modelInput?.setTextColor(Ui.TEXT)
-                connTv?.setTextColor(0xFF4CAF50.toInt())
+                connTv?.setTextColor(Ui.OK)
                 connTv?.text = getString(R.string.guide_test_ok) + "，已自动选择最优模型"
             }
         }.start()
@@ -1155,7 +1155,7 @@ class GuideActivity : Activity() {
             addView(ImageView(this@GuideActivity).apply {
                 setImageResource(item.iconRes)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setColorFilter(if (granted) 0xFF2E7D32.toInt() else Ui.TEXT)
+                setColorFilter(if (granted) Ui.OK else Ui.TEXT)
                 layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
             })
             addView(LinearLayout(this@GuideActivity).apply {
@@ -1193,7 +1193,7 @@ class GuideActivity : Activity() {
                     }
                     granted -> {
                         text = getString(R.string.guide_perm_done)
-                        setTextColor(0xFF2E7D32.toInt())
+                        setTextColor(Ui.OK)
                     }
                     else -> {
                         text = getString(R.string.guide_perm_go)

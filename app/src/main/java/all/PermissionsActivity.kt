@@ -84,7 +84,7 @@ class PermissionsActivity : Activity() {
             addView(TextView(this@PermissionsActivity).apply {
                 text = getString(R.string.perm_02)
                 textSize = 24f
-                setTextColor(0xFF2E7D32.toInt())
+                setTextColor(Ui.OK)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 sumText = this
@@ -195,7 +195,7 @@ class PermissionsActivity : Activity() {
         }
         sumText?.apply {
             text = if (total == 0) getString(R.string.perm_15) else getString(R.string.perm_16)
-            setTextColor(if (granted == total) 0xFF2E7D32.toInt() else 0xFFD32F2F.toInt())
+            setTextColor(if (granted == total) Ui.OK else Ui.DANGER)
         }
 
         var first = true
@@ -248,8 +248,8 @@ class PermissionsActivity : Activity() {
                 setTextColor(when {
                     !required -> Ui.SUB
                     detecting -> Ui.SUB
-                    granted -> 0xFF2E7D32.toInt()
-                    else -> 0xFFD32F2F.toInt()
+                    granted -> Ui.OK
+                    else -> Ui.DANGER
                 })
                 val showBtn = required && !granted && !detecting
                 typeface = if (showBtn) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT

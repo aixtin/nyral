@@ -27,8 +27,12 @@ import org.json.JSONArray
  * 标题按 level 分级倍率对齐 markwon headingTextSizeMultipliers, 代码块整块圆角背景。
  */
 object MdSpannable {
-    const val LINK_COLOR = 0xFF1565C0.toInt()     // 链接蓝
-    const val HEADING_COLOR = 0xFF0D47A1.toInt()  // 标题深蓝
+    // 链接/标题/引用竖线色随主题注入（Ui.applyTheme），暗色主题下不再深蓝/深色不可读
+    const val LINK_COLOR = 0xFF1565C0.toInt()     // 链接蓝（浅色兜底）
+    const val HEADING_COLOR = 0xFF0D47A1.toInt()  // 标题深蓝（浅色兜底）
+    @Volatile var linkColor: Int = LINK_COLOR
+    @Volatile var headingColor: Int = HEADING_COLOR
+    @Volatile var quoteBarColor: Int = HEADING_COLOR
     const val CODE_BG = 0x1437474F                // 代码块底色
     const val INLINE_CODE_BG = 0x2237474F         // 行内代码底色
 
@@ -73,19 +77,18 @@ object MdSpannable {
                 }
                 MdSpanType.LINK -> {
                     sp.extra?.let { sb.setSpan(URLSpan(it), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
-                    sb.setSpan(ForegroundColorSpan(LINK_COLOR), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(ForegroundColorSpan(linkColor), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 MdSpanType.HEADING -> {
                     val level = sp.extra?.toIntOrNull() ?: 1
                     val scale = HEADING_SCALE.getOrElse(level - 1) { 1.0f }
                     sb.setSpan(StyleSpan(Typeface.BOLD), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     sb.setSpan(RelativeSizeSpan(scale), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    sb.setSpan(ForegroundColorSpan(HEADING_COLOR), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(ForegroundColorSpan(headingColor), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 MdSpanType.QUOTE -> {
                     // 引用块: 左侧竖线+缩进(系统 QuoteSpan 竖线在流式 TextView 不绘制, 自绘 QuoteBarSpan)
-                    val qColor = 0xFF0D47A1.toInt()
-                    sb.setSpan(QuoteBarSpan(qColor, (3f * density).toInt(), (12f * density).toInt()), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    sb.setSpan(QuoteBarSpan(quoteBarColor, (3f * density).toInt(), (12f * density).toInt()), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 MdSpanType.TABLE_ROW -> { /* 方案B(2026-10-01): 表格已块化, 行 span 残留直接跳过(文本流内不再构造表格) */ }
                 MdSpanType.TABLE_BLOCK -> { /* 方案B(2026-10-01): 表格块区间由 MdToBlocks 切出, 文本流内不再设 TableSpan */ }
@@ -97,7 +100,8 @@ object MdSpannable {
                     // 无序列表: 圆点+缩进(前缀已在 parse 层剥离, 嵌套缩进由文本空格承担)
                     // 嵌套列表圆点不跟随修复: 按 indentLevel 右移圆点, 与缩进后的内容对齐
                     val level = sp.extra?.toIntOrNull() ?: 0
-                    sb.setSpan(LevelBulletSpan((12f * density).toInt(), level), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    // 圆点随主题正文色（默认黑在暗色气泡上不可见）
+                    sb.setSpan(LevelBulletSpan((12f * density).toInt(), level, Ui.TEXT), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 MdSpanType.IMAGE -> {
                     // 知识库图片池: 相对路径 -> 本地 Bitmap -> ImageSpan(等比缩放, 不超可用宽)

@@ -125,7 +125,7 @@ class AuditActivity : Activity() {
             else -> e.approvedBy
         }
         // 结果徽标: 同色系半透明底 + 同色文字, 浅色/暗色主题下都可读
-        val badgeFg = if (allowed) 0xFF2E8B57.toInt() else Ui.DANGER
+        val badgeFg = if (allowed) Ui.OK else Ui.DANGER
         val badgeBg = (badgeFg and 0x00FFFFFF) or 0x1A000000.toInt()
         head.addView(TextView(this).apply {
             text = badgeText

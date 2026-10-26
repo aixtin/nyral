@@ -17,11 +17,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.text.Editable
 import android.text.TextWatcher
-import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
@@ -213,9 +211,9 @@ class SettingsActivity : Activity() {
     /** 视频直发开关(2026-10-26 临时位置): 关闭=按阈值直发/超限抽帧; 开启=总是直发视频字节 */
     private fun buildVideoDirectRow(): View {
         val ctx = this@SettingsActivity
-        val sw = Switch(ctx)
+        val sw = Ui.switch(ctx)
         sw.isChecked = UploadConfig.videoDirectAlways()
-        sw.setOnCheckedChangeListener { _, on ->
+        sw.setOnCheckedChangeListener { on ->
             UploadConfig.setVideoDirectAlways(on)
             Toast.makeText(ctx, getString(if (on) R.string.settings_video_direct_on else R.string.settings_video_direct_off), Toast.LENGTH_SHORT).show()
         }
@@ -236,9 +234,9 @@ class SettingsActivity : Activity() {
     /** 悬浮慢放球开关: 显示可拖动悬浮球, 一键切换全局慢放(免进设置页) */
     private fun buildSlowBallRow(): View {
         val ctx = this@SettingsActivity
-        val sw = Switch(ctx)
+        val sw = Ui.switch(ctx)
         sw.isChecked = SlowBall.isEnabled(ctx)
-        sw.setOnCheckedChangeListener { _, on ->
+        sw.setOnCheckedChangeListener { on ->
             if (on == SlowBall.isEnabled(ctx)) return@setOnCheckedChangeListener
             if (on) {
                 Thread {
@@ -279,9 +277,9 @@ class SettingsActivity : Activity() {
     /** 动画慢放开关: root 写 animator_duration_scale, 10x 慢速排查动画 bug */
     private fun buildAnimScaleRow(): View {
         val ctx = this@SettingsActivity
-        val sw = Switch(ctx)
+        val sw = Ui.switch(ctx)
         sw.isChecked = animScaleOn()
-        sw.setOnCheckedChangeListener { _, on ->
+        sw.setOnCheckedChangeListener { on ->
             if (on == animScaleOn()) return@setOnCheckedChangeListener
             if (on && !RootCheck.isGranted()) {
                 Toast.makeText(ctx, getString(R.string.settings_anim_scale_noroot), Toast.LENGTH_SHORT).show()
@@ -337,7 +335,7 @@ class SettingsActivity : Activity() {
         val debuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
         // 启用开关
-        val swEnable = Switch(ctx)
+        val swEnable = Ui.switch(ctx)
         swEnable.isChecked = DebugServer.isEnabled(ctx)
         swEnable.isEnabled = debuggable
         box.addView(LinearLayout(ctx).apply {
@@ -356,7 +354,7 @@ class SettingsActivity : Activity() {
         })
 
         // 局域网访问开关
-        val swLan = Switch(ctx)
+        val swLan = Ui.switch(ctx)
         swLan.isChecked = DebugServer.lanEnabled(ctx)
         box.addView(LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -423,7 +421,7 @@ class SettingsActivity : Activity() {
             }
         }
 
-        swEnable.setOnCheckedChangeListener { _: CompoundButton, on: Boolean ->
+        swEnable.setOnCheckedChangeListener { on: Boolean ->
             DebugServer.setEnabled(ctx, on)
             if (on) {
                 DebugServer.stop()
@@ -435,7 +433,7 @@ class SettingsActivity : Activity() {
                 if (::debugSubtitle.isInitialized) debugSubtitle.text = DebugServer.statusText(ctx)
             }
         }
-        swLan.setOnCheckedChangeListener { _: CompoundButton, on: Boolean ->
+        swLan.setOnCheckedChangeListener { on: Boolean ->
             DebugServer.setLan(ctx, on)
             if (DebugServer.isEnabled(ctx) && DebugServer.running()) {
                 // 局域网开关变更需重启服务

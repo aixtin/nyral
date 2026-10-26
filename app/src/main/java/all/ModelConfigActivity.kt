@@ -132,7 +132,7 @@ class ModelConfigActivity : Activity() {
                 setPadding(dp(8), dp(3), dp(8), dp(3))
                 background = roundedBg(when {
                     isCurrent -> Ui.PRIMARY
-                    configured -> 0xFF34C759.toInt()
+                    configured -> Ui.OK
                     else -> Ui.SUB
                 })
             })

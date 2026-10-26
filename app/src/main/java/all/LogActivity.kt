@@ -223,7 +223,7 @@ class LogActivity : Activity() {
             addView(TextView(this@LogActivity).apply {
                 text = getString(R.string.log_12)
                 textSize = 15f
-                setTextColor(0xFFE53935.toInt())
+                setTextColor(Ui.DANGER)
                 setPadding(dp(20), dp(10), dp(4), dp(10))
                 setOnClickListener {
                     LogStore.clear(currentTag)

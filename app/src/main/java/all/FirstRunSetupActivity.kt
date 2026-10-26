@@ -259,7 +259,7 @@ class FirstRunSetupActivity : Activity() {
                     }
                     granted -> {
                         text = getString(R.string.guide_perm_done)
-                        setTextColor(0xFF2E7D32.toInt())
+                        setTextColor(Ui.OK)
                     }
                     else -> {
                         text = getString(R.string.guide_perm_go)

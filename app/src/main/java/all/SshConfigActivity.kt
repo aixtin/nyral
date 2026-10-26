@@ -267,7 +267,7 @@ class SshConfigActivity : Activity() {
             val delBtn = TextView(this).apply {
                 text = getString(R.string.ssh_delete)
                 textSize = 13f
-                setTextColor(0xFFE53935.toInt())
+                setTextColor(Ui.DANGER)
                 setPadding(dp(8), 0, 0, 0)
                 visibility = View.GONE
             }

@@ -1,9 +1,12 @@
 package io.github.aixtin.nyral
 
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.Dialog
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -42,6 +45,8 @@ object Ui {
     @Volatile var SURFACE: Int = DefaultTheme.surface
     /** 选中圆点绿（勾选标记统一用绿色点，LED 荧光绿） */
     val GREEN = 0xFF00E676.toInt()
+    /** 成功状态绿（状态徽标/已授权文案，深浅底都可读，iOS 系绿） */
+    val OK = 0xFF34C759.toInt()
 
     /** 应用主题：刷新全局语义色（MainActivity 启动/切换主题时调用一次） */
     fun applyTheme(t: AppTheme) {
@@ -56,6 +61,11 @@ object Ui {
         DANGER = t.danger
         DANGER_LIGHT = t.dangerLight
         SURFACE = t.surface
+        // Markdown 流内语义色随主题：标题=正文色（加粗+字号强调），链接/引用竖线=主色
+        // （原硬编码深蓝在 KiwiDark/Oled 暗色气泡上几乎不可读）
+        MdSpannable.headingColor = t.text
+        MdSpannable.linkColor = t.primary
+        MdSpannable.quoteBarColor = t.primary
     }
 
     /**
@@ -135,6 +145,12 @@ object Ui {
 
     fun rounded(color: Int, radiusDp: Int, a: Activity): GradientDrawable =
         GradientDrawable().apply { setColor(color); cornerRadius = dp(a, radiusDp).toFloat() }
+
+    /**
+     * 主题化开关（自绘 View）：胶囊轨道 INPUT_BG→PRIMARY 随进度过渡 + 白色圆点滑块，180ms 减速动画。
+     * 不用原生 Switch——MIUI/HyperOS 等皮肤在运行时覆盖其轨道资源，trackTintList/替换 drawable 均无效。
+     */
+    fun switch(a: Activity): SwitchView = SwitchView(a)
 
     /** 圆角描边框：无填充，仅 stroke */
     fun roundedBorder(strokeColor: Int, radiusDp: Int, strokeDp: Int, a: Activity): GradientDrawable =
@@ -668,4 +684,78 @@ object Ui {
             super.onMeasure(widthMeasureSpec, capped)
         }
     }
+}
+
+/**
+ * 主题化开关（自绘）：胶囊轨道 INPUT_BG→PRIMARY 随进度过渡 + 白色圆点滑块 + 180ms 减速动画。
+ * 语义对齐平台 Switch：setChecked 静默置位不触发回调，点击翻转才回调。
+ * 不用原生 Switch——MIUI/HyperOS 等皮肤在运行时覆盖其轨道资源，tint 与替换 drawable 均无效。
+ */
+class SwitchView(context: Context) : View(context) {
+    init { isClickable = true }
+    var isChecked: Boolean = false
+        set(on) {
+            field = on
+            anim?.cancel(); anim = null
+            progress = if (on) 1f else 0f
+            invalidate()
+        }
+    private var checkListener: ((Boolean) -> Unit)? = null
+    private var progress = 0f
+    private var anim: ValueAnimator? = null
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x22000000
+    }
+
+    fun setOnCheckedChangeListener(l: ((Boolean) -> Unit)?) { checkListener = l }
+
+    override fun performClick(): Boolean {
+        val to = !isChecked
+        isChecked = to
+        progress = if (to) 0f else 1f   // 从另一端起步做过渡动画
+        animateTo(to)
+        checkListener?.invoke(to)
+        return true
+    }
+
+    private fun animateTo(target: Boolean) {
+        anim?.cancel()
+        anim = ValueAnimator.ofFloat(progress, if (target) 1f else 0f).apply {
+            duration = 180
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { progress = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        setMeasuredDimension(dp(44), dp(26))
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        // 轨道：禁用置灰，否则 INPUT_BG→PRIMARY 随开合进度过渡
+        trackPaint.color = if (!isEnabled) Ui.STROKE else lerp(Ui.INPUT_BG, Ui.PRIMARY, progress)
+        canvas.drawRoundRect(0f, 0f, w, h, h / 2f, h / 2f, trackPaint)
+        // 滑块：白色圆点 + 极淡描边增强浅底可见性
+        val pad = h * 0.12f
+        val r = (h - pad * 2f) / 2f
+        val cx = pad + progress * (w - pad * 2f - r * 2f) + r
+        thumbPaint.alpha = if (!isEnabled) 178 else 255
+        canvas.drawCircle(cx, h / 2f, r, thumbPaint)
+        canvas.drawCircle(cx, h / 2f, r - ringPaint.strokeWidth / 2f, ringPaint)
+    }
+
+    private fun lerp(a: Int, b: Int, t: Float): Int = Color.argb(
+        255,
+        (Color.red(a) + (Color.red(b) - Color.red(a)) * t).toInt(),
+        (Color.green(a) + (Color.green(b) - Color.green(a)) * t).toInt(),
+        (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).toInt()
+    )
+
+    private fun dp(v: Int) = (v * context.resources.displayMetrics.density).toInt()
 }

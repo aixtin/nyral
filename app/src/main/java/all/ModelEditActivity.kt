@@ -458,7 +458,7 @@ class ModelEditActivity : Activity() {
             card.addView(body)
             // 右侧 ✕：相对整卡垂直居中
             card.addView(android.widget.ImageView(this).apply {
-                setImageDrawable(Ui.lucideTrash(this@ModelEditActivity, 0xFFE53935.toInt(), 16))
+                setImageDrawable(Ui.lucideTrash(this@ModelEditActivity, Ui.DANGER, 16))
                 setPadding(dp(8), dp(4), dp(16), dp(4))
                 setOnClickListener {
                     selectedModels.remove(m)

@@ -114,7 +114,7 @@ import kotlinx.coroutines.launch
                     speakCancel = cancelZone
                     speakBar.text = if (speakCancel) "松开手指，取消发送" else "松开 发送"
                     speakBar.background = rounded(dp(22),
-                        if (speakCancel) Color.parseColor("#9AA0A6") else Color.parseColor("#07C160"))
+                        if (speakCancel) Ui.SUB else Color.parseColor("#07C160"))
                 }
             }
             MotionEvent.ACTION_UP -> {
@@ -263,7 +263,7 @@ import kotlinx.coroutines.launch
         speaking = false
         speakCancel = false
         speakBar.text = getString(R.string.ma_hold_to_speak)
-        speakBar.background = rounded(dp(22), Color.parseColor("#9AA0A6"))
+        speakBar.background = rounded(dp(22), Ui.SUB)
     }
 
     /** 音频附件点击: 播放/停止当前 m4a 文件 */
