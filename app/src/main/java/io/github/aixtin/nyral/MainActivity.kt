@@ -2357,7 +2357,7 @@ class MainActivity : Activity() {
                 if (b is TextView) {
                     b.text = renderUserContent(row.content)
                     val userMaxW = if (ModeConfig.chatMode()) chatMaxW()
-                    else chatMaxW()
+                    else (chatMaxW() - dp(24)).coerceAtLeast(dp(120))
                     (b.layoutParams as? LinearLayout.LayoutParams)?.width =
                         if (row.content.length > 60) userMaxW else ViewGroup.LayoutParams.WRAP_CONTENT
                 }
@@ -2768,7 +2768,7 @@ class MainActivity : Activity() {
         val maxW = chatMaxW()
         // Agent 模式用户右气泡最大宽=chatBox内容宽(屏宽-左右padding 12dp*2), 与AI同为全屏幅宽且左右对称;
         // 不可用全屏w: 全屏w+END右对齐且可用区<气泡宽时左边缘偏移为负→左边越出屏幕
-        val userMaxW = if (ModeConfig.chatMode()) maxW else maxW
+        val userMaxW = if (ModeConfig.chatMode()) maxW else (maxW - dp(24)).coerceAtLeast(dp(120))
         // 专门表情气泡(微信式96dp小图贴边): 表情库项统一入口, 优先于视频/图片链路;
         // 识别 [表情:xxx] 新标记 + 历史兼容(emoji_lib/ 路径的视频/图片消息); 非表情/异常回退原链路
         val emojiView = try { emojiBubble(content, isUser, if (isUser) userMaxW else maxW) } catch (e: Exception) { null }
@@ -3450,6 +3450,10 @@ class MainActivity : Activity() {
 
     /** 用户气泡渲染: [图片](att://file) 直接内嵌缩略图(点击打开原图); 其他附件保持蓝色链接, 其余文本原样 */
     internal fun renderUserContent(content: String): CharSequence {
+        // 媒体卡片(span)可用宽: 须落在行容器内容宽内(chatRec 左右各 12dp padding)。
+        // Agent 模式 chatMaxW()=全屏宽, 直接用作 span 宽会比 TextView 实际可测宽(屏宽-24dp)大 24dp,
+        // 图片/视频缩略图右缘被 TextView 裁成直角(内嵌播放器路径则用显式宽, 越出方向相反在左侧)
+        val mediaW = if (ModeConfig.chatMode()) chatMaxW() else (chatMaxW() - dp(24)).coerceAtLeast(dp(120))
         val sb = SpannableStringBuilder(content)
         try {
             val re = Regex("\\[(.+?)\\]\\(att://([^)]+)\\)")
@@ -3500,7 +3504,7 @@ class MainActivity : Activity() {
                     // 图片: 等比缩放到气泡可用宽内再圆角化, 替换为缩略图, 同时保留点击打开原图。
                     // 修超宽大图(如 4096x2304)采样后仍 > 气泡可用宽时, span 按原宽绘制右侧被
                     // TextView maxWidth 直切 -> 右上/右下圆角整块丢失; 先缩到 <= 可用宽杜绝裁剪
-                    val imgTw = chatMaxW()
+                    val imgTw = mediaW
                     val sc = (imgTw.toFloat() / bmp.width).coerceAtMost(1f)
                     val dw = (bmp.width * sc).toInt().coerceAtLeast(1)
                     val dh = (bmp.height * sc).toInt().coerceAtLeast(1)
@@ -3517,7 +3521,7 @@ class MainActivity : Activity() {
                     // 视频: 首帧缩略图(带播放三角) 像图片一样内嵌气泡, 点击进入 App 内视频预览
                     // 统一 16:9 全宽卡片(与 videoLoopBubble 内嵌播放器同尺寸策略): 名额满/大视频降级路径
                     // 若按 200dp 自然尺寸渲染, 竖屏视频会变成窄条小气泡(用户 09-19 反馈), 故 center-crop 到全宽卡片
-                    val tw = chatMaxW()
+                    val tw = mediaW
                     val th = (tw * 9 / 16).coerceAtMost(dp(340)).coerceAtLeast(dp(60))
                     // 纯画面卡片, 不叠加播放三角(用户 09-19 反馈"播放按钮能不能去掉"):
                     // 内嵌播放器本就无按钮, 缩略图保持一致观感, 点击气泡进全屏预览
@@ -3532,7 +3536,7 @@ class MainActivity : Activity() {
                     // 取帧进行中: 先渲染 16:9 深色占位(与缩略图同尺寸同圆角), 避免"文件卡片(矮)→16:9缩略图"
                     // 整行高度突变导致 重启/切会话/积压消息涌入 时整屏反复跳动闪烁(09-19 用户反馈首屏闪烁);
                     // 取帧完成回调重建文本时只换画面不跳高度, 视觉平滑无闪烁
-                    val tw = chatMaxW()
+                    val tw = mediaW
                     val th = (tw * 9 / 16).coerceAtMost(dp(340)).coerceAtLeast(dp(60))
                     val ph = android.graphics.Bitmap.createBitmap(tw, th, android.graphics.Bitmap.Config.ARGB_8888)
                     ph.eraseColor(0xFF101318.toInt())
@@ -3868,6 +3872,8 @@ class MainActivity : Activity() {
                     setTextColor(THINK_TEXT)
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
+                    // 2026-10-25: 同流式壳, 历史恢复摘要也设最小宽度=图标宽兜底, 防转静态瞬间被斩
+                    minimumWidth = this@MainActivity.dp(42)
                     text = statusSummaryText(
                         events.filter { it.type == "think" }
                             .sumOf { it.text.codePointCount(0, it.text.length) },

@@ -1,5 +1,6 @@
 # Nyral 待办
 
+- [x] v2.8.7 发版（2026-10-26，versionCode 70）：修复 Agent 模式用户视频/图片气泡左右越界与圆角被裁直角（v2.8.0 回归：用户气泡最大宽误用全屏宽）、思考/工具胶囊塌缩成半个图标、流式淡出被取消导致气泡空白；补齐 98 个英文资源；双端 Release 发布
 - [x] v2.8.4 发版（2026-10-24，versionCode 67）：近期日志毫秒时间戳（HH:mm:ss.SSS，兼容旧格式）+ ANR 存活探测抓现场（captured_while_blocked 标记）；双端 Release 发布
 - [x] v2.8.2 发版（2026-10-20，versionCode 65）：欢迎卡片门禁按钮 auto 档未选中改不透明实底（与 strict 一致），不再深色背景显黑；双端 Release 发布
 - [x] v2.8.1 发版（2026-10-20，versionCode 64）：记忆库 v12 迁移 + onOpen 幂等补列（src_session_id/src_msg_no）修复老库必崩；全 App 主题化 Theme.Nyral；返回按钮 Lucide 化；全局弹窗动画统一 fadeScaleShow；页面切换动画；双端 Release 发布
@@ -25,6 +26,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-10-26: v2.8.7 发布（versionCode 70）：Agent 模式媒体气泡越界/圆角裁切、思考胶囊塌缩、流式淡出取消致空白三项修复 + 英文资源补齐，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-24: v2.8.4 发布（versionCode 67）：近期日志毫秒时间戳 + ANR 存活探测抓现场（captured_while_blocked），GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-15: v2.6.0 发布（versionCode 47）：定时岗位 MVP（AI 创建定时任务 timer_task_create + 任务级能力预授权 + X-Nyral-Task-ID 请求头 + 执行完成系统通知 + 闹钟续期/重排修复）+ 审计页状态栏遮挡修复，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-10: v2.5.3 发布（versionCode 46）：聊天背景顶栏/输入框栏透明化（不透明/普通透明/静态毛玻璃）+ 全圆角与分隔线避弧 + 表情抽屉图标主题化，GitHub/Gitee 双端 Release 附正式签名 APK

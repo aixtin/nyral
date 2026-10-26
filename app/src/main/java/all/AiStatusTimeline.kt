@@ -47,6 +47,9 @@ internal fun makeStatusShell(host: MainActivity): LinearLayout = LinearLayout(ho
     orientation = LinearLayout.HORIZONTAL
     gravity = Gravity.CENTER_VERTICAL
     setPadding(host.dp(12), host.dp(8), host.dp(12), host.dp(8))
+    // 2026-10-25 用户修复思路: 最小宽度=一个图标宽(18dp)+两侧 padding(24dp)=42dp,
+    // 防转静态瞬间行宽塌缩把左侧图标竖斩一半; 覆盖流式状态行与历史恢复壳两条路径
+    minimumWidth = host.dp(42)
     background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
     elevation = host.dp(2).toFloat()   // 状态块阴影(2dp 次级)
     layoutParams = LinearLayout.LayoutParams(
@@ -134,8 +137,8 @@ internal fun buildStatusTimeline(
             }
             setTextIsSelectable(true)
             // 2026-10-20 卡死修复 v2: 09:15 真机复现 LineBreaker ANR(3002ms) 证明 v1 未挡住; 策略移后防 selectable 重置
-            breakStrategy = 0   // TextView.BREAK_STRATEGY_SIMPLE
-            hyphenationFrequency = 0   // TextView.HYPHENATION_FREQUENCY_NONE
+            breakStrategy = android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE
+            hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
         }
         onBody?.invoke(i, body)
         val row = LinearLayout(host).apply {

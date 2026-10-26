@@ -318,10 +318,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 onClick()
             }
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = host.dp(6)
                 bottomMargin = host.dp(2)
             }
+            // 宽度必须 WRAP_CONTENT: bubbleBox 是 WRAP_CONTENT 父容器, LinearLayout 会把
+            // MATCH_PARENT 子视图按其终测宽度做第二轮 EXACTLY 重测——一旦某帧父容器测出窄宽度,
+            // 胶囊被强制压窄, 0dp+weight 的摘要 TextView 被压成 0, 右侧眼睛图标被裁出界
+            // (用户看到思考/工具胶囊只剩半个图标)。WRAP 后胶囊宽度只由内容决定, 链路断开。
         }
         cap.addView(ImageView(host).apply {
             setImageDrawable(icon)
@@ -1249,6 +1253,17 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 bv.animate().alpha(1f).setDuration(140).setInterpolator(AccelerateInterpolator()).start()
                 android.util.Log.i("NyralTbl", "fadeEnd done bvAlpha=" + bv.alpha + " bvAttached=" + bv.isAttachedToWindow)
             }
+            // 兜底(动画取消): 滑出屏幕 detach 会取消淡出, withEndAction 不执行 -> 块容器永不挂载、
+            // 气泡永久空白; onAnimationCancel 在此直接原位上屏成品(无动画), 正常结束路径不受影响
+            fadeOut.setListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    tv.alpha = 1f
+                    val bv = ensureBlocksView(b, tv)
+                    bv.bindBlocks(blocks)
+                    keepBubbleWidth(b, bv)
+                    bv.alpha = 1f
+                }
+            })
             fadeOut.start()
         } else if (b.pendingSpanned != null) {
             // 旧路径暂存(att:// 走 markwon 等): 占位淡出 -> 成品淡入
@@ -1259,6 +1274,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 keepBubbleWidth(b, tv)
                 tv.animate().alpha(1f).setDuration(140).setInterpolator(AccelerateInterpolator()).start()
             }
+            // 兜底(动画取消): 与块化路径同理, 淡出被取消时直接上屏成品防空白
+            fadeOut.setListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    tv.text = spanned
+                    keepBubbleWidth(b, tv)
+                    tv.alpha = 1f
+                }
+            })
             fadeOut.start()
         } else {
             // 无暂存段(att:// 走 markwon 上屏等): 文本已就位, 直接可见, 不做二次动画
@@ -1776,8 +1799,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             return
         }
         statusCounter?.visibility = View.GONE
-        lastSnippet = statusSummaryText(thinkChars, tools)
-        statusSwitcher?.setText(lastSnippet)
+        // 2026-10-25 用户确认: 输出正文时不回退/不转换为"已思考X字",
+        // 保留"调用了什么工具、思考了什么"的展示, 正文输出后正常定格
+        // 定格 = 保留轮播最后片段(思考尾部摘要/工具名), 仅停轮播隐藏计数; 片段为空才兜底摘要文案
+        val cur = (statusSwitcher?.currentView as? TextView)?.text?.toString()
+        if (cur.isNullOrBlank()) {
+            lastSnippet = statusSummaryText(thinkChars, tools)
+            statusSwitcher?.setText(lastSnippet)
+        }
     }
 
     private fun removeStatusRow() {
