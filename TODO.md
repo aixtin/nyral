@@ -26,6 +26,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-10-26: v2.8.13 发布（versionCode 96）：全 UI 主题化收口（自绘 SwitchView 主题开关 + Markdown 语义色随主题 + 状态色收敛 Ui.OK/DANGER）+ 视频抽帧 SurfaceTexture+PixelCopy 修复 MTK 原生崩溃 + 附件链路优化（识图/音频内联直发、Office 文档可读、表情动图不再误判视频），GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-26: v2.8.7 发布（versionCode 70）：Agent 模式媒体气泡越界/圆角裁切、思考胶囊塌缩、流式淡出取消致空白三项修复 + 英文资源补齐，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-24: v2.8.4 发布（versionCode 67）：近期日志毫秒时间戳 + ANR 存活探测抓现场（captured_while_blocked），GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-15: v2.6.0 发布（versionCode 47）：定时岗位 MVP（AI 创建定时任务 timer_task_create + 任务级能力预授权 + X-Nyral-Task-ID 请求头 + 执行完成系统通知 + 闹钟续期/重排修复）+ 审计页状态栏遮挡修复，GitHub/Gitee 双端 Release 附正式签名 APK
