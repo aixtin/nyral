@@ -4237,6 +4237,55 @@ class MainActivity : Activity() {
     /** AI 是否正在打字输出: 供块容器长按复制守卫(与 makeCopyable 打字中不弹窗一致, 2026-10-02) */
     internal fun aiTypewriting(): Boolean = activeAiHolder?.hasActiveTypewriter() == true
 
+    /** 流式收尾定位(2026-10-27 用户反馈): 旧行为收尾无条件贴底, 长回答会把视口拽到回答末尾,
+     *  用户想从头读却被丢到结尾。现长短分流:
+     *  - 回答整体能在一屏内完整放下(短回复) → 照旧贴底(防末行被输入框遮挡)
+     *  - 超长 → 定位到回答开头(首条 AI 行顶对齐列表顶, 开卷即读)
+     *  firstIdx = 本轮回答首条 AI 行下标。 */
+    internal fun scrollAnswerFinish(firstIdx: Int) {
+        if (scrollUserScrolled) return
+        val n = chatAdapter.itemCount
+        if (n == 0) return
+        val lm = chatRec.layoutManager as? LinearLayoutManager ?: return
+        chatRec.stopScroll()
+        // 先滚到末条让布局撑开, preDraw 里量首尾可见性决定贴底还是置顶
+        chatRec.scrollToPosition(n - 1)
+        val decide = Runnable {
+            if (scrollUserScrolled) return@Runnable
+            if (chatAdapter.itemCount != n) return@Runnable
+            val bottomEdge = chatRec.height - chatRec.paddingTop - chatRec.paddingBottom
+            val first = lm.findViewByPosition(firstIdx)
+            val last = lm.findViewByPosition(n - 1)
+            val fits = first != null && last != null &&
+                first.top >= chatRec.paddingTop && last.bottom <= bottomEdge + chatRec.paddingTop
+            if (fits) {
+                // 短回复: 照旧贴底(含 150ms 延迟补一次, 覆盖渲染后增高的末行)
+                scrollToBottom(auto = true, force = true)
+                chatRec.postDelayed({
+                    if (!scrollUserScrolled) scrollToBottom(auto = true, force = true)
+                }, 150)
+            } else {
+                // 长回复: 首条 AI 行顶对齐列表顶(scrollToPositionWithOffset 一次性精确到位)
+                lm.scrollToPositionWithOffset(firstIdx, chatRec.paddingTop)
+                // 程序化滚动后刷新回到底部悬浮球; scrollToPositionWithOffset 下一帧才布局,
+                // 立即判断 canScrollVertically 仍是旧位置, 延迟到布局完成后刷新
+                chatRec.postDelayed({ updateJumpFab() }, 120)
+            }
+        }
+        val vto = chatRec.viewTreeObserver
+        val preDraw = object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                chatRec.viewTreeObserver.removeOnPreDrawListener(this)
+                decide.run()
+                return true
+            }
+        }
+        vto.addOnPreDrawListener(preDraw)
+        chatRec.postDelayed({
+            chatRec.viewTreeObserver.removeOnPreDrawListener(preDraw)
+        }, 200)
+    }
+
     /** 长按进入"原文本模式": 弹窗展示该条消息的原始文本, 在该模式下自由选择/复制全文或片段;
      *  AI 输出(打字机活跃)期间长按不弹窗(09-25): 打字中长按多为"想按住暂停/滑动阅读",
      *  复制窗抢占触摸会打断滚动让位; 静态(输出完成)后再放行长按复制 */

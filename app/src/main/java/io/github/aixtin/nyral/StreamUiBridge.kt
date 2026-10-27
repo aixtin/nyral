@@ -116,6 +116,7 @@ internal class StreamUiBridge(
                     // 阶段4 增量落库索引: 正文首条在 messages 中的位置(写回 rendered 用);
                     // 声明在最外层供 finishContent 后写回使用; 取消/无正文保持 -1 不写
                     var contentIdx = -1
+                    var replyPartCount = 0   // 本轮新增 AI 行数: 收尾 scrollAnswerFinish 定位回答开头用
                     if (LocalEngine.cancelRequested) {
                         // 用户主动停止: 不写入对话/记忆
                         holder.appendContent("\n(已停止)")
@@ -127,6 +128,7 @@ internal class StreamUiBridge(
                             // AI 表情气泡(2026-09-20): 按 [表情:名] 白名单标记把回复拆为 正文+独立表情气泡 多条消息;
                             // 第一条(通常正文)挂 thinking/tools 快照, 表情行独立无快照
                             val replyParts = activity.splitAiEmojiReply(reply)
+                            replyPartCount = replyParts.size
                             contentIdx = if (replyParts.isEmpty()) -1 else activity.messages.size
                             for ((pi, p) in replyParts.withIndex()) {
                                 val snap = if (pi == 0) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
@@ -165,13 +167,10 @@ internal class StreamUiBridge(
                         // 键盘收起同样追底——用户复现场景 imeShown=false 时旧条件直接跳过)
                         activity.buildRowsFromMessages(onCommitted = {
                             android.util.Log.i("NyralIme", "onDone.rebuild scroll=${activity.scrollUserScrolled} itemCount=${activity.chatAdapter.itemCount} imeShown=${activity.imeShown}")
-                            if (!activity.scrollUserScrolled) activity.scrollToBottom(auto = true, force = true)
-                            // 收尾渲染延迟增高(09-25): rebuild 后 markwon 静态渲染/收尾排版可能在
-                            // align 之后才使气泡变高, pendingAlign 已扣到 0 不再补; 延迟再对齐一次
-                            // 覆盖最终高度, 防最后几行被输入框遮住(用户现场: 末两行在输入框下边)
-                            activity.chatRec.postDelayed({
-                                if (!activity.scrollUserScrolled) activity.scrollToBottom(auto = true, force = true)
-                            }, 150)
+                            // 2026-10-27: 收尾定位改为长短分流(scrollAnswerFinish): 短回复照旧贴底,
+                            // 长回复定位到回答开头, 不再无条件拽到末尾
+                            val firstAiIdx = (activity.chatAdapter.itemCount - replyPartCount).coerceIn(0, (activity.chatAdapter.itemCount - 1).coerceAtLeast(0))
+                            activity.scrollAnswerFinish(firstAiIdx)
                         })
                     }
                     session.endRequest()
