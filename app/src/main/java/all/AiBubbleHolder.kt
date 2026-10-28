@@ -42,6 +42,9 @@ internal const val NO_FLOAT_TAG = "nyral_no_float_alpha"
  *  避免超长回复单行超大 TextView 一次性全量 markdown 渲染卡顿(阶段2 content 分片) */
 internal const val SPLIT_CONTENT_LEN = 4000
 
+/** 活段逐字刷新节流间隔(ms): raw 文本增量上屏节奏, 弱机 setText 重排成本封顶 */
+internal const val LIVE_TICK_MS = 200L
+
 // ==== 单行状态行(09-24 重构) ====
 /** 片段轮播停留时长(ms): 展示→停约1s→切下一片段(快速刷新形态) */
 internal const val STATUS_CAROUSEL_MS = 1000L
@@ -269,6 +272,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 静默分层: 确保正文三点占位在气泡盒末尾(请求期 loadingRow 直接接管, 避免重建闪烁) */
     private fun ensureBodyDots() {
         if (bodyDots != null) return
+        // 流式渐显(2026-10-29): 已有真实正文视图(活段逐字/封段成品)在屏, 三点占位不再复活
+        if (contentBlocks.any { it.view != null }) return
         if (loadingRow != null) {
             bodyDots = loadingRow
             loadingRow = null
@@ -280,6 +285,35 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private fun removeBodyDots() {
         bodyDots?.let { (it.parent as? ViewGroup)?.removeView(it) }
         bodyDots = null
+    }
+
+    // ===== 流式渐显(2026-10-29 两段式): 活段逐字(raw 纯文本节流上屏, 不跑 markdown 排版) =====
+    // ①封段即显现: sealBlock 时立即 renderSilent+revealContent, 长文流式期逐段上屏;
+    // ②活段逐字: 首个非空白字符即挂 raw 文本视图, 本 tick 每 200ms 增量刷新;
+    // 收尾 finishContent 对该段照常 renderSilent+revealContent, 一次 120ms fade 升级为成品
+    private var liveTicking = false
+    private val liveTick = object : Runnable {
+        override fun run() {
+            val b = activeContent
+            if (done || b == null || b.done || b.isTable) { liveTicking = false; return }
+            val tv = b.view
+            // 触摸冻结(同旧打字机): 用户拖动列表时不改布局, 松手后下一 tick 自动追平
+            if (tv != null && b.blocksView == null && !userTakeover) {
+                val raw = suppressCards(ModeConfig.stripChatProtocolPrefix(b.text.toString()))
+                if (tv.text?.toString() != raw) {
+                    tv.text = raw
+                    keepBubbleWidth(b, tv)
+                    host.onTypeGrownFrame(false)   // 内容增长同帧锚底(用户上翻时自动让位)
+                }
+            }
+            uiHandler.postDelayed(this, LIVE_TICK_MS)
+        }
+    }
+
+    private fun startLiveTick() {
+        if (liveTicking) return
+        liveTicking = true
+        uiHandler.postDelayed(liveTick, LIVE_TICK_MS)
     }
 
     private fun stopLoading() {
@@ -969,12 +1003,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return pipes >= 2
     }
 
-    /** 封段并挂占位/静默排版(超长分片与表格切段共用) */
+    /** 封段并挂占位/静默排版(超长分片与表格切段共用);
+     *  流式渐显(2026-10-29): 封段即显现——排版产物直接原位 reveal, 不等收尾整屏突现 */
     private fun sealBlock(b: ContentBlock) {
         b.done = true
         activeContent = null
-        sealContentPlaceholder(b)   // 挂占位保持时间线顺序
+        sealContentPlaceholder(b)   // 未挂过视图的段挂占位保持时间线顺序(活段已有视图, 幂等跳过)
         renderSilent(b)             // 静默排版暂存
+        revealContent(b)            // 封段即显现: 占位/raw 淡出, 成品淡入
     }
 
     /** 新建正文段(独立气泡), 登记时间线 */
@@ -1101,6 +1137,17 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (!b.isTable && b.text.length >= SPLIT_CONTENT_LEN) {
             sealBlock(b)
         }
+        // 流式渐显(2026-10-29 两段式): 活段首个非空白字符即挂 raw 文本视图逐字上屏,
+        // 不再全程静默等收尾"拍脸"; 表格段不逐字(封段后一次性显现, 完整性优先)
+        if (!b.done && !b.isTable && b.view == null && b.text.isNotBlank()) {
+            attachContentView(b)?.let { tv ->
+                tv.text = suppressCards(ModeConfig.stripChatProtocolPrefix(b.text.toString()))
+                keepBubbleWidth(b, tv)
+            }
+            removeBodyDots()              // 真实内容上屏, 三点占位退役
+            host.onTypeGrownFrame(false)  // 挂视图即增长, 注册同帧锚底
+            startLiveTick()
+        }
         // 跟踪模型吐字速率: 用本次 delta 的字符数/间隔 更新 EMA(字符/秒), 供 tickFrame 自适应打字速度
         val nowNs = System.nanoTime()
         if (lastDeltaNs != 0L) {
@@ -1171,8 +1218,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return tv
     }
 
-    /** 是否存在正在打字(未收尾)的正文段: 供 MainActivity.scrollToBottom 判断打字期分支 */
-    fun hasActiveTypewriter(): Boolean = contentBlocks.any { it.typeActive }
+    /** 是否存在正在输出(打字/逐字未收尾)的正文段: 供 MainActivity 锚底注册/长按守卫判断;
+     *  流式渐显(2026-10-29): 活段逐字上屏期(已挂视图未封段的非表格段)视同打字期 */
+    fun hasActiveTypewriter(): Boolean =
+        contentBlocks.any { it.typeActive || (!it.done && !it.isTable && it.view != null) }
 
     // ===== 静默分层(阶段4): 正文输出期排版与 UI 解耦, 收尾原位显现 =====
 
@@ -1242,16 +1291,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val tv = b.view ?: return
         val blocks = b.pendingBlocks
         if (blocks != null) {
-            // 块化成品: 空占位(alpha 1, 无内容)淡出 -> 块容器淡入原位切换
-            android.util.Log.i("NyralTbl", "reveal blocks=" + blocks.size + " tvAttached=" + tv.isAttachedToWindow + " tvAlpha=" + tv.alpha)
+            // 块化成品: 空占位/raw(alpha 1)淡出 -> 块容器淡入原位切换
             val fadeOut = tv.animate().alpha(0f).setDuration(120).setInterpolator(DecelerateInterpolator())
             fadeOut.withEndAction {
-                android.util.Log.i("NyralTbl", "fadeEnd start replace")
                 val bv = ensureBlocksView(b, tv)
                 bv.bindBlocks(blocks)
                 keepBubbleWidth(b, bv)
+                bv.alpha = 0f   // 换上的成品从 0 淡入, 与占位淡出衔接成一次交叉淡变
                 bv.animate().alpha(1f).setDuration(140).setInterpolator(AccelerateInterpolator()).start()
-                android.util.Log.i("NyralTbl", "fadeEnd done bvAlpha=" + bv.alpha + " bvAttached=" + bv.isAttachedToWindow)
             }
             // 兜底(动画取消): 滑出屏幕 detach 会取消淡出, withEndAction 不执行 -> 块容器永不挂载、
             // 气泡永久空白; onAnimationCancel 在此直接原位上屏成品(无动画), 正常结束路径不受影响
@@ -1312,14 +1359,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         }
         // 替换: 占位淡出后摘除原 TextView, 在原位挂块容器(保持气泡顺序/边距)
         val parent = tv.parent as? ViewGroup
-        android.util.Log.i("NyralTbl", "ensureBV parent=" + (parent?.javaClass?.simpleName ?: "NULL") + " tvAttached=" + tv.isAttachedToWindow + " hasBv=" + (b.blocksView != null))
         if (parent != null) {
             val idx = parent.indexOfChild(tv)
             parent.removeView(tv)
             parent.addView(bv, idx)
-            android.util.Log.i("NyralTbl", "REPLACED idx=" + idx + " bvAttached=" + bv.isAttachedToWindow + " bvAlpha=" + bv.alpha)
-        } else {
-            android.util.Log.i("NyralTbl", "PARENT_NULL skipReplace")
         }
         // 可用宽 = 占位 maxWidth - 块容器自身左右 padding(表格实际可摆放空间,
         // 否则表格按未减 padding 的宽度计算 -> 恒超宽被横滑裁剪, 右边框缺失)
@@ -1782,12 +1825,23 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                     val b = contentBlocks[idx++]
                     n++
                     b.done = true
-                    // 静默分层(阶段4): 未封段段此刻才挂视图(封段段 sealContentPlaceholder 已挂占位)
+                    // 流式渐显: 封段段流式期已显现——块化成品在屏直接跳过; 无块化产物
+                    // (纯文本/att:// 段收尾才排版)补一次 finishTypeRender 上成品, 不再二次 reveal
+                    if (b.revealed) {
+                        // 块化段 blocksView 由 reveal 动画链挂载; 动画在途(fadeEnd 未执行)时
+                        // blocksView 仍为 null, 但 pendingBlocks 非空说明产物在, 动画链会完成
+                        // 挂载, finishTypeRender 抢跑会瞬时换块+动画链二次挂载造成闪动
+                        if (b.blocksView == null && b.pendingBlocks == null) finishTypeRender(b)
+                        continue
+                    }
+                    // 静默分层(阶段4): 未封段段此刻才挂视图(活段逐字已挂视图, 幂等跳过)
                     if (b.view == null && b.text.isNotBlank()) attachContentView(b)
                     // 未封段段此刻排版暂存(封段段幂等跳过), 有暂存走动画原位显现, 无暂存(att://)现场排版
                     renderSilent(b)
-                    if (b.pendingSpanned != null) {
-                        revealContent(b)      // 占位淡出+成品淡入(打字显现), 不再 finishTypeRender 避免闪帧
+                    if (b.pendingBlocks != null || b.pendingSpanned != null) {
+                        // 有排版暂存: 直接 revealContent 做 raw/占位 fade 原位切换(不再
+                        // finishTypeRender 瞬时换块——旧顺序 fade 形同虚设, 收尾整屏突现"拍脸")
+                        revealContent(b)
                     } else {
                         finishTypeRender(b)   // att:// 走 markwon / 纯文本直接上屏
                         revealContent(b)      // 兜底直接可见
