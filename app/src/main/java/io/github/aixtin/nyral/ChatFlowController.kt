@@ -180,6 +180,39 @@ internal class ChatFlowController(
     }
 
     /**
+     * 出错重试(2026-10-29 温和错误卡): 复用最后一条用户消息重发 AI 轮次——
+     * 用户气泡/落库在首次发送已完成, 此处只重建历史+流式行+引擎请求;
+     * 附件解析文本(docTexts)未随 messages 持久化, 重试不携带(原附件 att:// 引用仍在历史里)。
+     * 返回 false 表示正忙或末条非用户消息(调用方保留错误卡)。
+     */
+    internal fun retryLast(): Boolean {
+        if (session.aiBusy) return false
+        if (activity.messages.lastOrNull()?.role != "user") return false
+        LogStore.i(LogStore.MAIN, "出错重试: 重发最后一轮 会话=${activity.currentSessionId}")
+        TokenStore.currentSessionId = activity.currentSessionId
+        LocalEngine.cancelRequested = false
+        session.markBusy()
+        activity.scrollUserScrolled = false
+        try { TaskService.start(activity) } catch (e: Exception) { LogStore.e(LogStore.MAIN, "前台服务启动失败: ${e.message}") }
+        val history = activity.buildHistory()
+        val epoch = session.beginRequest()   // 占忙+推进代际: 上一轮迟到回调(若存在)全部失效
+        activity.replySessionId = activity.currentSessionId
+        activity.attachBtn2.visibility = View.GONE
+        activity.attachBtn.visibility = View.GONE
+        activity.sendBtn.visibility = View.GONE
+        activity.stopBtn.visibility = View.VISIBLE
+        activity.stopBtn.isEnabled = true
+        executor.execute {
+            val holder = AiBubbleHolder(activity)
+            activity.activeAiHolder = holder
+            val streamUi = StreamUiBridge(activity, session, uiScope)
+            uiScope.launch { streamUi.prepareStreamingRow(holder) }
+            LocalEngine.chat(activity, history, streamUi.createCallback(epoch, holder), emptyList())
+        }
+        return true
+    }
+
+    /**
      * 调试服务入口: 由 DebugServer(/v1/chat) 调用, 走与真实发送一致的完整链路
      * (渲染气泡 -> 落库 -> 构建历史 -> LocalEngine 工具循环 -> SSE 事件转发)。
      * 必须在主线程调用。返回 false 表示 AI 正忙, 请求被拒绝。

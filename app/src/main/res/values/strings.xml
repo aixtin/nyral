@@ -580,6 +580,8 @@
 <string name='ma_thinking_prefix'>思考中: </string>
 <string name='ma_sys_no_reply'>模型未返回内容，请再发一次</string>
 <string name='ma_error_fmt'>出错了: %1$s</string>
+<string name='ma_error_card_title'>这轮回复断开了</string>
+<string name='ma_error_retry'>重试</string>
     <!-- 首启引导页 -->
     <string name="guide_app_name">Nyral</string>
     <string name="guide_slogan">手机上的 AI 助手</string>

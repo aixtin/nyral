@@ -2313,6 +2313,11 @@ class MainActivity : Activity() {
         chatAdapter.add(ChatRow.Sys(nextTempRowId(), content)) { scrollToBottom(true) }
     }
 
+    /** 温和错误卡(带重试): 流式出错入行, 取代原红字 Sys 行(2026-10-29) */
+    internal fun appendError(msg: String) {
+        chatAdapter.add(ChatRow.Error(nextTempRowId(), msg)) { scrollToBottom(true) }
+    }
+
     /** 新会话开场介绍卡片：首启/新建会话时展示（文案集中在 strings.xml 便于迭代，预留可进化接口） */
     internal fun appendWelcomeIntro() {
         chatAdapter.add(ChatRow.Welcome(nextTempRowId())) { scrollToBottom() }
@@ -2338,6 +2343,7 @@ class MainActivity : Activity() {
         is ChatRow.Welcome -> ChatAdapter.PT_WELCOME
         is ChatRow.AiRich -> ChatAdapter.PT_AI_RICH
         is ChatRow.SecurityConfirm -> ChatAdapter.PT_NONE
+        is ChatRow.Error -> ChatAdapter.PT_NONE   // 含重试点击监听, 不入池
         else -> ChatAdapter.PT_NONE
     }
 
@@ -2463,6 +2469,85 @@ class MainActivity : Activity() {
         return box
     }
 
+    /** 温和错误卡(2026-10-29): 流式出错不再红字直弹——软红圆角卡(图标+简述+详情)+重试按钮;
+     *  重试复用最后一条用户消息重发 AI 轮次(不重复落库/不重复渲染用户气泡) */
+    private fun buildErrorRow(row: ChatRow.Error): View {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = Ui.rounded(Ui.DANGER_LIGHT, 14, this@MainActivity)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4); bottomMargin = dp(4)
+            }
+        }
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_warn_triangle)
+            setColorFilter(Ui.DANGER)
+            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(6) }
+        })
+        head.addView(TextView(this).apply {
+            text = getString(R.string.ma_error_card_title)
+            textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Ui.TEXT)
+        })
+        box.addView(head)
+        if (row.msg.isNotBlank()) {
+            box.addView(TextView(this).apply {
+                // 原始错误详情: 小号灰字两行截断, 不喧宾夺主
+                text = if (row.msg.length > 200) row.msg.take(200) + "…" else row.msg
+                textSize = 12f
+                setTextColor(0xFF666666.toInt())
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.END
+                maxWidth = chatMaxW() - dp(24)
+                setPadding(0, dp(4), 0, 0)
+            })
+        }
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            setPadding(0, dp(8), 0, 0)
+        }
+        btnRow.addView(TextView(this).apply {
+            text = getString(R.string.ma_error_retry)
+            textSize = 13f
+            setTextColor(android.graphics.Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = Ui.rounded(Ui.PRIMARY, 14, this@MainActivity)
+            setPadding(dp(16), dp(6), dp(16), dp(6))
+            Ui.press(this)
+            setOnClickListener {
+                // 重试成功发起才摘卡; 未能发起(正忙/末条非用户消息)保留卡片
+                if (chatFlow.retryLast()) chatAdapter.remove(row)
+            }
+        })
+        box.addView(btnRow)
+        return box
+    }
+
+    /** AI 侧无头像行包装(聊天模式): 与普通 AI 气泡左缘对齐(头像40dp+间距8dp占位), Agent 模式直出 */
+    private fun aiSideRowWrap(v: View): View {
+        if (!ModeConfig.chatMode()) return v
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            isBaselineAligned = false
+            gravity = Gravity.START or Gravity.TOP
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.START
+            }
+            addView(View(this@MainActivity).apply { layoutParams = LinearLayout.LayoutParams(dp(48), 0) })
+            addView(v)
+        }
+    }
+
     private fun securityStatusBadge(status: String): TextView = TextView(this).apply {
         val (txt, color, bg) = when (status) {
             "PENDING" -> Triple("待确认", 0xFFB26A00.toInt(), 0xFFFFF3D6.toInt())
@@ -2515,22 +2600,8 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, dp(6))
         }
-        is ChatRow.SecurityConfirm -> buildSecurityRow(row).let { v ->
-            if (ModeConfig.chatMode()) {
-                // 聊天模式: 与普通 AI 气泡左缘对齐(头像40dp+间距8dp占位), 不带头像
-                LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    isBaselineAligned = false
-                    gravity = Gravity.START or Gravity.TOP
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        gravity = Gravity.START
-                    }
-                    addView(View(this@MainActivity).apply { layoutParams = LinearLayout.LayoutParams(dp(48), 0) })
-                    addView(v)
-                }
-            } else v
-        }
+        is ChatRow.SecurityConfirm -> aiSideRowWrap(buildSecurityRow(row))
+        is ChatRow.Error -> aiSideRowWrap(buildErrorRow(row))
         is ChatRow.Welcome -> welcomeCardView()
         is ChatRow.TimeTag -> TextView(this).apply {
             text = row.text

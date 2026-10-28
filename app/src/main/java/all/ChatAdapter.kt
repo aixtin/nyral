@@ -18,6 +18,9 @@ internal sealed class ChatRow(val id: Long) {
     data class Ai(val rowId: Long, val content: String, val rendered: String = "") : ChatRow(rowId)
     data class AiRich(val rowId: Long, val thinking: String, val content: String, val tools: String, val timeline: String, val rendered: String = "") : ChatRow(rowId)
     data class Sys(val rowId: Long, val text: String) : ChatRow(rowId)
+    /** 温和错误卡行(2026-10-29): 流式出错替代红字系统行——圆角卡片(图标+简述+详情)+重试按钮;
+     *  临时行不落库, 全量重建时自然消失(与 Sys 行同生命周期) */
+    data class Error(val rowId: Long, val msg: String) : ChatRow(rowId)
     /** 新会话开场介绍卡片行 */
     data class Welcome(val rowId: Long) : ChatRow(rowId)
     /** 阶段4 时间标签行: 首条消息或与上条消息间隔>=30分钟时插入(数据层保留 ts, 纯展示层分组) */

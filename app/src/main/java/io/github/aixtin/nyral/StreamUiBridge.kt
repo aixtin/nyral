@@ -186,11 +186,12 @@ internal class StreamUiBridge(
                 AITerminal.push("error", msg)
                 uiScope.launch {
                     if (!session.isCurrent(epoch)) return@launch
-                    holder.showError(activity.getString(R.string.ma_error_fmt, msg))
-                    // 错误行收尾: 移除流式行, 错误提示以系统行保留(避免重建时僵尸行重复渲染)
+                    holder.showError()
+                    // 错误行收尾: 移除流式行, 温和错误卡(简述+详情+重试)取代原红字系统行
+                    // (卡片为独立临时行, 避免重建时流式行僵尸重复渲染)
                     val errRow = session.detachStreaming()
                     if (errRow != null) activity.chatAdapter.remove(errRow)
-                    activity.appendSys(activity.getString(R.string.ma_error_fmt, msg))
+                    activity.appendError(msg)
                     LocalEngine.cancelRequested = false
                     session.endRequest()
                     TaskService.stop(activity)

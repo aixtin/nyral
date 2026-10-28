@@ -1956,7 +1956,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return sb.toString()
     }
 
-    fun showError(msg: String) {
+    /** 出错清理(2026-10-29 温和化): 停活动指示/停逐字, 不再气泡内红字——错误卡由 MainActivity 成行展示 */
+    fun showError() {
         waitStage = ""   // 错误: 等待计时结束
         waitStartMs = 0L
         removeStatus()
@@ -1964,7 +1965,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         removeStatusRow()   // 出错: 状态行(轮播/计数)整体移除, 不再残留活动指示
         contentBlocks.forEach { it.typeActive = false }   // 出错即停打
         TypewriterCenter.unregister(this)
-        addLine(msg, Ui.DANGER, italic = false)
+        removeBodyDots()   // 三点占位一并撤掉, 流式行随后整体移除
         done = true
     }
 
