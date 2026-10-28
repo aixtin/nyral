@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 返回：当前页向右 8% 滑出并淡出 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
-    android:duration="220"
+    android:duration="240"
     android:interpolator="@android:interpolator/accelerate_cubic">
+    <translate
+        android:fromXDelta="0%"
+        android:toXDelta="8%" />
     <alpha
         android:fromAlpha="1.0"
         android:toAlpha="0.0" />
-    <scale
-        android:fromXScale="1.0"
-        android:toXScale="0.97"
-        android:fromYScale="1.0"
-        android:toYScale="0.97"
-        android:pivotX="50%"
-        android:pivotY="50%" />
 </set>

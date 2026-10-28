@@ -39,7 +39,7 @@
         <activity
             android:name=".GuideActivity"
             android:exported="true"
-            android:theme="@style/Theme.Nyral.NoActionBar">
+            android:theme="@style/Theme.Nyral.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

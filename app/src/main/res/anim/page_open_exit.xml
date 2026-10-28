@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 前进：旧页向左 3% 让位并淡出 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="260"
+    android:interpolator="@android:interpolator/decelerate_cubic">
+    <translate
+        android:fromXDelta="0%"
+        android:toXDelta="-3%" />
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.0" />
+</set>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 窗口背景：冷启动/页面首帧前显示，避免纯白闪屏；夜间跟随系统深色 -->
+    <color name="window_bg">#F7F7F8</color>
+    <color name="splash_bg">#F7F7F8</color>
+</resources>

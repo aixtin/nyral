@@ -4,16 +4,28 @@
         <item name="android:windowEnterAnimation">@anim/popup_up</item>
         <item name="android:windowExitAnimation">@anim/popup_down</item>
     </style>
-<style name="NyralWindowAnim">
-    <item name="android:activityOpenEnterAnimation">@anim/nyral_page_in</item>
-    <item name="android:activityOpenExitAnimation">@anim/nyral_page_out</item>
-    <item name="android:activityCloseEnterAnimation">@anim/nyral_page_in</item>
-    <item name="android:activityCloseExitAnimation">@anim/nyral_page_out</item>
-</style>
-<style name="Theme.Nyral" parent="@android:style/Theme.Material.Light">
-    <item name="android:windowAnimationStyle">@style/NyralWindowAnim</item>
-</style>
-<style name="Theme.Nyral.NoActionBar" parent="@android:style/Theme.Material.Light.NoActionBar">
-    <item name="android:windowAnimationStyle">@style/NyralWindowAnim</item>
-</style>
+
+    <!-- 全局页面转场：前进右滑入 / 返回左滑回，带方向感（替代原 3% 缩放的"伪瞬切"） -->
+    <style name="NyralWindowAnim">
+        <item name="android:activityOpenEnterAnimation">@anim/page_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/page_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/page_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/page_close_exit</item>
+    </style>
+
+    <style name="Theme.Nyral" parent="@android:style/Theme.Material.Light">
+        <item name="android:windowAnimationStyle">@style/NyralWindowAnim</item>
+        <item name="android:windowBackground">@color/window_bg</item>
+    </style>
+
+    <style name="Theme.Nyral.NoActionBar" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowAnimationStyle">@style/NyralWindowAnim</item>
+        <item name="android:windowBackground">@color/window_bg</item>
+    </style>
+
+    <!-- 启动页专用：品牌闪屏（底色+Logo）替代冷启动白屏 -->
+    <style name="Theme.Nyral.Splash" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowAnimationStyle">@style/NyralWindowAnim</item>
+        <item name="android:windowBackground">@drawable/splash</item>
+    </style>
 </resources>

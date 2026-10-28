@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 品牌闪屏：主题底色 + 居中 Logo（仅 GuideActivity 启动窗使用，替代冷启动白屏） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_bg" />
+    <item>
+        <bitmap
+            android:src="@drawable/ic_launcher_foreground"
+            android:gravity="center" />
+    </item>
+</layer-list>
