@@ -445,7 +445,6 @@
     <string name="mmcfg_30">%1$d models selected</string>
     <string name="mui_hint_search">Search sessions</string>
     <string name="mui_records">Session History</string>
-    <string name="mui_toast_no_session">No session containing "%1$s"</string>
     <string name="mui_search_hits">"%1$s" · %2$d hits</string>
     <string name="mui_field_time">Time</string>
     <string name="mui_field_relevance">Relevance</string>
@@ -492,7 +491,8 @@
     <string name="welcome_intro_body">Local engine is running, just type a question to start.\n\nTry these capabilities:\n- **Web search**: find info, real-time data\n- **SSH terminal**: run remote commands (add targets in SSH Config first)\n- **Browser**: open pages and let AI browse for you\n- **Attachments / Voice**: send images, video, audio, PDF; hold the mic to talk\n\nAsk "what can you do" anytime to learn more.</string>
     <string name="ma_sys_window_hint">This session is long; showing the latest %1$d messages. Older content stays in the session; use search to locate it.</string>
     <string name="ma_unnamed_session">Unnamed session</string>
-    <string name="ma_no_sessions">No history yet\nNew conversations are saved here</string>
+    <string name="ma_no_sessions">No history yet</string>
+    <string name="ma_no_sessions_hint">New conversations are saved here</string>
     <string name="ma_pinned_prefix">Pinned · </string>
     <string name="ma_stop">Stop</string>
     <string name="ma_thinking">Thinking...</string>

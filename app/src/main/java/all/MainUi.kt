@@ -409,10 +409,7 @@ import android.widget.Toast
         if (kw.isEmpty()) return
         collapseSearchBox()
         val hits = db.searchChatMessages(kw)
-        if (hits.isEmpty()) {
-            Toast.makeText(this, getString(R.string.mui_toast_no_session, kw), Toast.LENGTH_SHORT).show()
-            return
-        }
+        // 零命中不再 Toast 打断(2026-10-29): 直接开结果弹窗, 两栏各自呈现"无命中"兜底
         showSearchResults(kw, hits)
     }
 

@@ -130,12 +130,32 @@ import android.widget.Toast
         sessionList.removeAllViews()
         val list = db.listSessions(20, ModeConfig.modeValue())
         if (list.isEmpty()) {
-            sessionList.addView(TextView(this).apply {
-                text = getString(R.string.ma_no_sessions)
-                textSize = 12f
-                setTextColor(Ui.SUB)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(24), 0, dp(24))
+            // 空态兜底(2026-10-29): 图标+标题+副文案三级层级, 取代单行灰字
+            sessionList.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(0, dp(48), 0, dp(48))
+                addView(android.widget.ImageView(act).apply {
+                    setImageResource(R.drawable.lucide_message_square)
+                    imageTintList = android.content.res.ColorStateList.valueOf(Ui.SUB)
+                    alpha = 0.55f
+                }, LinearLayout.LayoutParams(dp(28), dp(28)))
+                addView(TextView(act).apply {
+                    text = getString(R.string.ma_no_sessions)
+                    textSize = 14f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(Ui.SUB)
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(12)
+                })
+                addView(TextView(act).apply {
+                    text = getString(R.string.ma_no_sessions_hint)
+                    textSize = 12f
+                    setTextColor(Ui.SUB)
+                    alpha = 0.75f
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(4)
+                })
             })
             return
         }

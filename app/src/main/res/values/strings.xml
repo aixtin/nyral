@@ -525,7 +525,6 @@
     <string name="mmcfg_30">已选择 %1$d 个模型</string>
 <string name='mui_hint_search'>搜索会话</string>
 <string name='mui_records'>会话记录</string>
-<string name='mui_toast_no_session'>未找到包含「%1$s」的会话</string>
 <string name='mui_search_hits'>「%1$s」 · 共 %2$d 条命中</string>
 <string name='mui_field_time'>时间</string>
 <string name='mui_field_relevance'>相关性</string>
@@ -573,7 +572,8 @@
 <string name='welcome_intro_body'>本地引擎已启动，直接输入问题即可开始对话。\n\n可以试试这些能力：\n- **联网搜索**：查资料、搜实时信息\n- **SSH 终端**：远程执行命令（先到「SSH 配置」添加目标）\n- **浏览器**：打开网页，让 AI 帮你浏览操作\n- **附件 / 语音**：发图片、视频、音频、PDF；长按麦克风说话\n\n想了解我还能做什么，随时问「你能做什么」。</string>
 <string name='ma_sys_window_hint'>该会话历史较长，仅展示最近 %1$d 条消息；更早内容保留在会话中，可用搜索定位。</string>
 <string name='ma_unnamed_session'>未命名会话</string>
-<string name='ma_no_sessions'>暂无历史会话\n新对话会自动保存到这里</string>
+<string name='ma_no_sessions'>暂无历史会话</string>
+<string name='ma_no_sessions_hint'>新对话会自动保存到这里</string>
 <string name='ma_pinned_prefix'>已置顶 · </string>
 <string name='ma_stop'>停止</string>
 <string name='ma_thinking'>正在思考...</string>
