@@ -209,7 +209,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 gravity = Gravity.START
-                topMargin = host.dp(6)
+                topMargin = host.dp(Ui.SP2)
                 // 每个子气泡自带背景, 宽度由 maxWidth(屏幕*0.78) 封顶
             }
         }
@@ -249,7 +249,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val row = LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(host.dp(2), host.dp(8), host.dp(2), host.dp(2))
+            setPadding(host.dp(2), host.dp(Ui.SP2), host.dp(2), host.dp(2))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
@@ -260,7 +260,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                     setColor(THINK_TEXT)
                 }
                 val lp = LinearLayout.LayoutParams(host.dp(6), host.dp(6))
-                if (i > 0) lp.leftMargin = host.dp(5)
+                if (i > 0) lp.leftMargin = host.dp(Ui.SP1)
                 layoutParams = lp
             })
         }
@@ -342,7 +342,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val cap = LinearLayout(host).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+            setPadding(host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3))
             background = rounded(host.dp(12), floatBubbleColor(THINK_BG))
             elevation = host.dp(1).toFloat()
             isClickable = true
@@ -353,7 +353,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = host.dp(6)
+                topMargin = host.dp(Ui.SP2)
                 bottomMargin = host.dp(2)
             }
             // 宽度必须 WRAP_CONTENT: bubbleBox 是 WRAP_CONTENT 父容器, LinearLayout 会把
@@ -366,13 +366,13 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             contentDescription = "事件"
         }, LinearLayout.LayoutParams(host.dp(18), host.dp(18)))
         cap.addView(tv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = host.dp(8)
+            marginStart = host.dp(Ui.SP2)
         })
         cap.addView(ImageView(host).apply {
             setImageDrawable(Ui.lucideEye(host, THINK_TEXT, 16))
             contentDescription = "查看"
         }, LinearLayout.LayoutParams(host.dp(20), host.dp(20)).apply {
-            marginStart = host.dp(6)
+            marginStart = host.dp(Ui.SP2)
         })
         tv.text = summary
         return cap to tv
@@ -558,7 +558,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginStart = host.dp(4)
+                marginStart = host.dp(Ui.SP1)
                 topMargin = if (col.childCount == 0) host.dp(10) else host.dp(20)   // 首行内容在珠子下10dp; 中间行内容在珠子下20dp(珠子18+2留白)
                 bottomMargin = 0   // 行间空隙由下一行 body topMargin 承担, 此处不留行底空隙
             }
@@ -570,13 +570,13 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             maxWidth = host.chatMaxW()
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
-            setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+            setPadding(host.dp(Ui.SP1), host.dp(2), host.dp(Ui.SP1), host.dp(2))
         }
         val detail = TextView(host).apply {
             textSize = 14f
             setTextColor(THINK_TEXT)
             maxWidth = host.chatMaxW()
-            setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
+            setPadding(host.dp(Ui.SP3), host.dp(Ui.SP2), host.dp(Ui.SP3), host.dp(Ui.SP2))
             background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
             elevation = host.dp(2).toFloat()   // 状态块阴影(2dp 次级)
             text = detailText
@@ -684,7 +684,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(counter, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginStart = host.dp(8)
+                marginStart = host.dp(Ui.SP2)
             })
             // 交互行不启用 textIsSelectable, 保证首次点击即展开
             setOnClickListener { toggleStatusExpand() }
@@ -1184,27 +1184,27 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = host.dp(2)
-                    bottomMargin = host.dp(6)
+                    bottomMargin = host.dp(Ui.SP2)
                 }
             } else if (ModeConfig.actionTrack()) {
                 // 行动轨道(方案A): 正文走无框文本轨道, 缩进到珠子列右侧, 打字机照旧
-                setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+                setPadding(host.dp(Ui.SP1), host.dp(2), host.dp(Ui.SP1), host.dp(2))
                 maxWidth = maxW - host.dp(24)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    marginStart = host.dp(24)   // 与行动行珠子列对齐(spine 20dp + margin 4dp)
+                    marginStart = host.dp(Ui.SP6)   // 与行动行珠子列对齐(spine 20dp + margin 4dp)
                     topMargin = host.dp(2)
-                    bottomMargin = host.dp(6)
+                    bottomMargin = host.dp(Ui.SP2)
                 }
             } else {
-                setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+                setPadding(host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3))
                 background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
                 elevation = host.dp(3).toFloat()   // AI 气泡/表格块阴影(3dp 主级)
                 maxWidth = maxW
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = host.dp(6)
-                    bottomMargin = host.dp(4)
+                    topMargin = host.dp(Ui.SP2)
+                    bottomMargin = host.dp(Ui.SP1)
                 }
             }
         }
@@ -1241,26 +1241,26 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = host.dp(2)
-                    bottomMargin = host.dp(6)
+                    bottomMargin = host.dp(Ui.SP2)
                 }
             } else if (ModeConfig.actionTrack()) {
-                setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+                setPadding(host.dp(Ui.SP1), host.dp(2), host.dp(Ui.SP1), host.dp(2))
                 maxWidth = maxW - host.dp(24)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    marginStart = host.dp(24)
+                    marginStart = host.dp(Ui.SP6)
                     topMargin = host.dp(2)
-                    bottomMargin = host.dp(6)
+                    bottomMargin = host.dp(Ui.SP2)
                 }
             } else {
-                setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+                setPadding(host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3))
                 background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
                 elevation = host.dp(3).toFloat()   // AI 气泡/表格块阴影(3dp 主级)
                 maxWidth = maxW
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = host.dp(6)
-                    bottomMargin = host.dp(4)
+                    topMargin = host.dp(Ui.SP2)
+                    bottomMargin = host.dp(Ui.SP1)
                 }
             }
         }
@@ -1348,10 +1348,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 layoutParams = tv.layoutParams
             } else if (ModeConfig.actionTrack()) {
                 // 行动轨道(方案A): 正文无框文本轨道, 块容器缩进与占位一致
-                setPadding(host.dp(4), host.dp(2), host.dp(4), host.dp(2))
+                setPadding(host.dp(Ui.SP1), host.dp(2), host.dp(Ui.SP1), host.dp(2))
                 layoutParams = tv.layoutParams
             } else {
-                setPadding(host.dp(12), host.dp(10), host.dp(12), host.dp(10))
+                setPadding(host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3), host.dp(Ui.SP3))
                 background = rounded(host.dp(12), floatBubbleColor(BUBBLE_AI))
                 elevation = host.dp(3).toFloat()   // AI 气泡/表格块阴影(3dp 主级)
                 layoutParams = tv.layoutParams
@@ -1368,8 +1368,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         // 否则表格按未减 padding 的宽度计算 -> 恒超宽被横滑裁剪, 右边框缺失)
         val padH = when {
             agentFold() -> 0
-            ModeConfig.actionTrack() -> host.dp(8)
-            else -> host.dp(24)
+            ModeConfig.actionTrack() -> host.dp(Ui.SP2)
+            else -> host.dp(Ui.SP6)
         }
         bv.setRenderContext(tv.maxWidth, tv.maxWidth - padH, BUBBLE_AI_TEXT, Ui.PRIMARY, Ui.INPUT_BG)
         // 长按复制(2026-10-02): 块容器取代占位 TextView 后原 makeCopyable 监听随 TextView 摘除,

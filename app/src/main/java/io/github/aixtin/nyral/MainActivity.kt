@@ -702,7 +702,7 @@ class MainActivity : Activity() {
         // 标题栏
         titleBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(6), dp(8), dp(8), dp(8))
+            setPadding(dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2))
             // 对侧圆角: 顶栏左下/右下两角圆角(内侧两角), 左上/右上直角贴屏顶; 抽屉联动时外侧两角圆角化
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
@@ -714,7 +714,7 @@ class MainActivity : Activity() {
         titleBar.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_menu)
             setColorFilter(Ui.TEXT)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP2))
             setOnClickListener { openDrawer() }
             Ui.press(this)
         })
@@ -732,7 +732,7 @@ class MainActivity : Activity() {
         titleBar.addView(ImageView(this).apply {
             setImageResource(R.drawable.lucide_sigma)
             setColorFilter(Ui.TEXT)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP2))
             setOnClickListener { toggleTokenPanel() }
             Ui.press(this)
         })
@@ -746,7 +746,7 @@ class MainActivity : Activity() {
         chatRec = NyralRecyclerView(this).apply {
             layoutManager = NyralLayoutManager(this@MainActivity)
             adapter = chatAdapter
-            setPadding(dp(12), dp(10), dp(12), dp(30))
+            setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), dp(30))
             clipToPadding = false
             clipChildren = false   // item 气泡阴影不被列表裁剪
             overScrollMode = View.OVER_SCROLL_ALWAYS
@@ -915,8 +915,8 @@ class MainActivity : Activity() {
             }
         }
         chatArea.addView(jumpFab, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END).apply {
-            marginEnd = dp(14)
-            bottomMargin = dp(14)
+            marginEnd = dp(Ui.SP4)
+            bottomMargin = dp(Ui.SP4)
         })
 
         // 输入框整体(dockContent)直接挂 bodyWrap 底部(基础层), 表情抽屉在其下占位,
@@ -932,7 +932,7 @@ class MainActivity : Activity() {
         }
         attachPreviewRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(10), dp(6), dp(10), dp(6))
+            setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP2))
         }
         attachPreviewWrap.addView(attachPreviewRow, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -942,7 +942,7 @@ class MainActivity : Activity() {
         // 输入区: 按钮在输入框右侧, 底对齐固定在右下角
         inputBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2))
             // 对侧圆角: 底栏左上/右上两角圆角(内侧两角), 左下/右下直角贴屏底; 抽屉联动时外侧两角圆角化
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
@@ -978,7 +978,7 @@ class MainActivity : Activity() {
             setSingleLine(false)
             minLines = 1
             maxLines = 4
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(Ui.SP4), dp(Ui.SP3), dp(Ui.SP4), dp(Ui.SP3))
             background = rounded(dp(22), Ui.INPUT_BG)
             setTextColor(Ui.TEXT)
             setHintTextColor(Ui.SUB)
@@ -1051,8 +1051,8 @@ class MainActivity : Activity() {
             minWidth = 0
             setPadding(0, 0, 0, 0)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
-                marginEnd = dp(8)
-                bottomMargin = dp(10)
+                marginEnd = dp(Ui.SP2)
+                bottomMargin = dp(Ui.SP3)
             }
             setOnClickListener { showModelList() }
             Ui.press(this)
@@ -1067,7 +1067,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             background = rounded(dp(22), Ui.SUB)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(Ui.SP4), dp(Ui.SP3), dp(Ui.SP4), dp(Ui.SP3))
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             visibility = View.GONE
@@ -1080,7 +1080,7 @@ class MainActivity : Activity() {
         val micWrap = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 dp(36), ViewGroup.LayoutParams.MATCH_PARENT).apply {
-                marginStart = dp(8)
+                marginStart = dp(Ui.SP2)
             }
         }
         micBtn = Button(this).apply {
@@ -1092,7 +1092,7 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, 0)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 // 底边距由下方 onGlobalLayout 统一精确计算, 此处只给初始占位值
-                bottomMargin = dp(10)
+                bottomMargin = dp(Ui.SP3)
             }
             // 仅当前模型支持语音时展示(预设查内置表, 手动按配置勾选)
             visibility = if (currentModelSupportsVoice()) View.VISIBLE else View.GONE
@@ -1107,7 +1107,7 @@ class MainActivity : Activity() {
             minWidth = 0
             setPadding(0, 0, 0, 0)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
-                bottomMargin = dp(10)
+                bottomMargin = dp(Ui.SP3)
             }
             // 默认隐藏: 输入文字后由 updateInputMode 切换为显示(语音槽让位给附件)
             isFocusable = false
@@ -1122,7 +1122,7 @@ class MainActivity : Activity() {
             // 输入框左右宽距与按钮位置全程恒定, 不再随文字状态跳动
             layoutParams = LinearLayout.LayoutParams(
                 dp(36), ViewGroup.LayoutParams.MATCH_PARENT).apply {
-                marginStart = dp(8)
+                marginStart = dp(Ui.SP2)
             }
         }
         attachBtn = Button(this).apply {
@@ -1134,7 +1134,7 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, 0)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 // 底边距由 onGlobalLayout 统一计算, 此处只给初始占位值
-                bottomMargin = dp(10)
+                bottomMargin = dp(Ui.SP3)
             }
             isFocusable = false
             setOnClickListener { toggleEmojiDrawer() }
@@ -1145,9 +1145,9 @@ class MainActivity : Activity() {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setColorFilter(Color.WHITE)
             background = rounded(dp(16), Ui.PRIMARY)
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setPadding(dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2))
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
-                bottomMargin = dp(10)
+                bottomMargin = dp(Ui.SP3)
             }
             // 默认隐藏发送按钮, 输入文字时切换显示 (见 updateInputMode); 与附件按钮原地替换
             visibility = View.GONE
@@ -1172,11 +1172,11 @@ class MainActivity : Activity() {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setColorFilter(Color.WHITE)
             background = rounded(dp(18), Ui.PRIMARY)
-            setPadding(dp(9), dp(9), dp(9), dp(9))
+            setPadding(dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2))
             visibility = View.GONE
             // 固定 36dp, 与附件/发送同槽位叠放
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
-                bottomMargin = dp(10)
+                bottomMargin = dp(Ui.SP3)
             }
             setOnClickListener {
                 LocalEngine.requestCancel()
@@ -1193,7 +1193,7 @@ class MainActivity : Activity() {
         browserBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(4), dp(12), dp(4))
+            setPadding(dp(Ui.SP3), dp(Ui.SP1), dp(Ui.SP3), dp(Ui.SP1))
             // 展开态四角圆角(与顶/底栏 16dp 同语言); clipToOutline 裁剪子 view 不溢出圆角
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
@@ -1219,12 +1219,12 @@ class MainActivity : Activity() {
                 setColor(Ui.INPUT_BG)
                 cornerRadius = dp(20).toFloat()
             }
-            setPadding(dp(14), dp(9), dp(14), dp(9))
+            setPadding(dp(Ui.SP4), dp(Ui.SP2), dp(Ui.SP4), dp(Ui.SP2))
             setOnClickListener { toggleBrowserPanel() }
             Ui.press(this)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { rightMargin = dp(8) }
+            ).apply { rightMargin = dp(Ui.SP2) }
         }.apply {
             val d = getDrawable(R.drawable.ic_menu)?.mutate()
             d?.setTint(Ui.PRIMARY)
@@ -1243,7 +1243,7 @@ class MainActivity : Activity() {
                 cornerRadius = dp(20).toFloat()
             }
             elevation = dp(4).toFloat()
-            setPadding(dp(16), dp(9), dp(16), dp(9))
+            setPadding(dp(Ui.SP4), dp(Ui.SP2), dp(Ui.SP4), dp(Ui.SP2))
             setOnClickListener { browserPage.toggleTakeover() }
             Ui.press(this)
         }.apply {
@@ -1292,8 +1292,8 @@ class MainActivity : Activity() {
             )
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)).apply {
             // 分割线两端向中间缩 16dp: 让开 inputBar 圆角弧线, 避免直角改圆角后线端悬空露缝
-            leftMargin = dp(16)
-            rightMargin = dp(16)
+            leftMargin = dp(Ui.SP4)
+            rightMargin = dp(Ui.SP4)
         })
         // 一体式(定稿): 表情抽屉焊进 dockContent(输入框+表情区=大抽屉), 不再独立占位。
         // 大抽屉总高=输入框高+表情区高; 键盘 insets 压缩 bodyWrap 顶起整个大抽屉,
@@ -1343,7 +1343,7 @@ class MainActivity : Activity() {
                 tlp.bottomMargin = base
                 browserBarToggle.layoutParams = tlp
                 val blp = browserBar.layoutParams as FrameLayout.LayoutParams
-                blp.bottomMargin = base + dp(18)
+                blp.bottomMargin = base + dp(Ui.SP5)
                 browserBar.layoutParams = blp
                 // 手柄常驻; 控制条按展开态显隐(默认收起); 幂等保护 onPreOpen/onOpenChange 双调用
                 browserBar.animate().cancel()
@@ -2387,11 +2387,11 @@ class MainActivity : Activity() {
         val maxW = chatMaxW()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3))
             background = Ui.rounded(0xFFFDF0F0.toInt(), 14, this@MainActivity)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(4); bottomMargin = dp(4)
+                topMargin = dp(Ui.SP1); bottomMargin = dp(Ui.SP1)
             }
         }
         // 头部: 红色三角警示 + 标题 + 状态徽标
@@ -2402,7 +2402,7 @@ class MainActivity : Activity() {
         head.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_warn_triangle)
             setColorFilter(0xFFD32F2F.toInt())
-            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(Ui.SP2) }
         })
         head.addView(TextView(this).apply {
             text = row.title ?: "安全确认"
@@ -2420,7 +2420,7 @@ class MainActivity : Activity() {
                 textSize = 15f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(0xFF1A1A1A.toInt())
-                setPadding(0, dp(6), 0, 0)
+                setPadding(0, dp(Ui.SP2), 0, 0)
             })
         }
         // 参数摘要/结构化正文: 泛化壳优先展示 body(如 task_create 的任务概要+权限清单)
@@ -2440,7 +2440,7 @@ class MainActivity : Activity() {
             val btnRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
-                setPadding(0, dp(10), 0, 0)
+                setPadding(0, dp(Ui.SP3), 0, 0)
             }
             btnRow.addView(TextView(this).apply {
                 text = row.rejectLabel
@@ -2448,11 +2448,11 @@ class MainActivity : Activity() {
                 setTextColor(0xFFD32F2F.toInt())
                 gravity = Gravity.CENTER
                 background = Ui.rounded(0xFFFFE3E3.toInt(), 10, this@MainActivity)
-                setPadding(dp(14), dp(6), dp(14), dp(6))
+                setPadding(dp(Ui.SP4), dp(Ui.SP2), dp(Ui.SP4), dp(Ui.SP2))
                 Ui.press(this)
                 setOnClickListener { SecurityUi.decide(this@MainActivity, row.requestId, false) }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                rightMargin = dp(8)
+                rightMargin = dp(Ui.SP2)
             })
             btnRow.addView(TextView(this).apply {
                 text = row.allowLabel
@@ -2460,7 +2460,7 @@ class MainActivity : Activity() {
                 setTextColor(android.graphics.Color.WHITE)
                 gravity = Gravity.CENTER
                 background = Ui.rounded(0xFF2E8B57.toInt(), 10, this@MainActivity)
-                setPadding(dp(14), dp(6), dp(14), dp(6))
+                setPadding(dp(Ui.SP4), dp(Ui.SP2), dp(Ui.SP4), dp(Ui.SP2))
                 Ui.press(this)
                 setOnClickListener { SecurityUi.decide(this@MainActivity, row.requestId, true) }
             })
@@ -2474,11 +2474,11 @@ class MainActivity : Activity() {
     private fun buildErrorRow(row: ChatRow.Error): View {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3))
             background = Ui.rounded(Ui.DANGER_LIGHT, 14, this@MainActivity)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(4); bottomMargin = dp(4)
+                topMargin = dp(Ui.SP1); bottomMargin = dp(Ui.SP1)
             }
         }
         val head = LinearLayout(this).apply {
@@ -2488,7 +2488,7 @@ class MainActivity : Activity() {
         head.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_warn_triangle)
             setColorFilter(Ui.DANGER)
-            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(Ui.SP2) }
         })
         head.addView(TextView(this).apply {
             text = getString(R.string.ma_error_card_title)
@@ -2506,13 +2506,13 @@ class MainActivity : Activity() {
                 maxLines = 2
                 ellipsize = TextUtils.TruncateAt.END
                 maxWidth = chatMaxW() - dp(24)
-                setPadding(0, dp(4), 0, 0)
+                setPadding(0, dp(Ui.SP1), 0, 0)
             })
         }
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
-            setPadding(0, dp(8), 0, 0)
+            setPadding(0, dp(Ui.SP2), 0, 0)
         }
         btnRow.addView(TextView(this).apply {
             text = getString(R.string.ma_error_retry)
@@ -2521,7 +2521,7 @@ class MainActivity : Activity() {
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             background = Ui.rounded(Ui.PRIMARY, 14, this@MainActivity)
-            setPadding(dp(16), dp(6), dp(16), dp(6))
+            setPadding(dp(Ui.SP4), dp(Ui.SP2), dp(Ui.SP4), dp(Ui.SP2))
             Ui.press(this)
             setOnClickListener {
                 // 重试成功发起才摘卡; 未能发起(正忙/末条非用户消息)保留卡片
@@ -2559,7 +2559,7 @@ class MainActivity : Activity() {
         text = txt
         textSize = 11f
         setTextColor(color)
-        setPadding(dp(8), dp(2), dp(8), dp(2))
+        setPadding(dp(Ui.SP2), dp(2), dp(Ui.SP2), dp(2))
         background = Ui.rounded(bg, 8, this@MainActivity)
     }
 
@@ -2598,7 +2598,7 @@ class MainActivity : Activity() {
             textSize = 12f
             setTextColor(SYS_TEXT)
             gravity = Gravity.CENTER
-            setPadding(0, dp(6), 0, dp(6))
+            setPadding(0, dp(Ui.SP2), 0, dp(Ui.SP2))
         }
         is ChatRow.SecurityConfirm -> aiSideRowWrap(buildSecurityRow(row))
         is ChatRow.Error -> aiSideRowWrap(buildErrorRow(row))
@@ -2608,7 +2608,7 @@ class MainActivity : Activity() {
             textSize = 11f
             setTextColor(SYS_TEXT)
             gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(6))
+            setPadding(0, dp(Ui.SP3), 0, dp(Ui.SP2))
         }
         is ChatRow.Streaming -> row.bubbleBox ?: View(this)
     }
@@ -2694,14 +2694,14 @@ class MainActivity : Activity() {
         val inner = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(dp(16), floatBubbleColor(BUBBLE_AI))
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(Ui.SP4), dp(Ui.SP4), dp(Ui.SP4), dp(Ui.SP4))
             addView(TextView(this@MainActivity).apply {
                 text = getString(R.string.welcome_intro_title)
                 textSize = 16f
                 setTextColor(Ui.PRIMARY)
                 typeface = Typeface.DEFAULT_BOLD
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(8)
+                bottomMargin = dp(Ui.SP2)
             })
             addView(TextView(this@MainActivity).apply {
                 textSize = 14f
@@ -2717,8 +2717,8 @@ class MainActivity : Activity() {
                 setTextColor(Ui.SUB)
                 typeface = Typeface.DEFAULT_BOLD
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(12)
-                bottomMargin = dp(6)
+                topMargin = dp(Ui.SP3)
+                bottomMargin = dp(Ui.SP2)
             })
             val modeBtns = LinkedHashMap<String, TextView>()
             var currentMode = SecurityConfig.dangerMode(this@MainActivity)
@@ -2758,7 +2758,7 @@ class MainActivity : Activity() {
                         textSize = 13f
                         gravity = Gravity.CENTER
                         isClickable = true
-                        setPadding(dp(0), dp(9), dp(0), dp(9))
+                        setPadding(dp(0), dp(Ui.SP2), dp(0), dp(Ui.SP2))
                         Ui.press(this)
                         setOnClickListener {
                             val target = key
@@ -2772,7 +2772,7 @@ class MainActivity : Activity() {
                     }
                     modeBtns[key] = b
                     addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        if (i > 0) leftMargin = dp(6)
+                        if (i > 0) leftMargin = dp(Ui.SP2)
                     })
                 }
                 refreshModeBtns()
@@ -2801,7 +2801,7 @@ class MainActivity : Activity() {
                 isClickable = true
                 setTextColor(Ui.PRIMARY)
                 background = Ui.rounded(Ui.PRIMARY_LIGHT, 12, this@MainActivity)
-                setPadding(dp(12), dp(11), dp(12), dp(11))
+                setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3))
                 Ui.press(this)
                 setOnClickListener {
                     picked.set(true)
@@ -2809,7 +2809,7 @@ class MainActivity : Activity() {
                     onPick(getString(R.string.ask_user_pick, opt))
                 }
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8)
+                topMargin = dp(Ui.SP2)
             })
         }
         if (allowCustom) {
@@ -2818,7 +2818,7 @@ class MainActivity : Activity() {
             box.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                setPadding(0, dp(10), 0, 0)
+                setPadding(0, dp(Ui.SP3), 0, 0)
                 addView(Ui.dialogCancelBtn(this@MainActivity, getString(R.string.ask_user_submit), {
                     val t = edit.text.toString().trim()
                     if (t.isEmpty()) {
@@ -2879,8 +2879,8 @@ class MainActivity : Activity() {
             // 纯图片/纯视频气泡关掉系统字体上下留白, 行高紧贴内容, 消除残余细边
             includeFontPadding = !edgeImage
             setTextColor(if (isUser) BUBBLE_USER_TEXT else BUBBLE_AI_TEXT)
-            val padH = if (pureAudio) dp(18) else if (edgeImage) dp(0) else dp(14)
-            val padV = if (pureAudio) dp(13) else if (edgeImage) dp(0) else dp(10)
+            val padH = if (pureAudio) dp(Ui.SP5) else if (edgeImage) dp(0) else dp(Ui.SP4)
+            val padV = if (pureAudio) dp(Ui.SP3) else if (edgeImage) dp(0) else dp(Ui.SP3)
             setPadding(padH, padV, padH, padV)
             if (pureAudio) minWidth = dp(132)
             // 纯语音气泡: 整块点击 播放/暂停 切换; 注册到列表, 状态变化时统一刷新图标
@@ -2910,7 +2910,7 @@ class MainActivity : Activity() {
                     else -> ViewGroup.LayoutParams.WRAP_CONTENT
                 }
                 gravity = if (isUser) Gravity.END else Gravity.START
-                topMargin = dp(6)
+                topMargin = dp(Ui.SP2)
             }
             // 附件消息(含图片 span)不能用 setTextIsSelectable: 该模式下 ReplacementSpan 图片不绘制;
             // 纯文本消息保持可选中复制
@@ -3172,7 +3172,7 @@ class MainActivity : Activity() {
         }
         val frame = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(bubbleW, bubbleH).apply {
-                topMargin = dp(6)
+                topMargin = dp(Ui.SP2)
                 gravity = if (isUser) Gravity.END else Gravity.START
             }
             // 表情气泡无背景无圆角, 直接贴聊天背景(微信式); 点击进全屏预览(弹窗内图片查看/视频循环)
@@ -3416,7 +3416,7 @@ class MainActivity : Activity() {
         val releaseHandler = Handler(Looper.getMainLooper())
         val frame = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(w, h).apply {
-                topMargin = dp(6)
+                topMargin = dp(Ui.SP2)
                 gravity = if (isUser) Gravity.END else Gravity.START
             }
             // 圆角气泡: 背景套圆角 + clipToOutline 裁剪内嵌播放画面, 与图片/缩略图气泡圆角体系一致
@@ -3714,7 +3714,7 @@ class MainActivity : Activity() {
         tag = AVATAR_AI_TAG
         bindAvatar(this, isAi = true)
         layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply {
-            bottomMargin = dp(4)
+            bottomMargin = dp(Ui.SP1)
         }
         // 点击 AI 头像进入 AI 个性化（原设置页入口已移除）
         setOnClickListener {
@@ -3765,7 +3765,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 gravity = if (isUser) Gravity.END else Gravity.START
-                topMargin = lp?.topMargin ?: dp(6)
+                topMargin = lp?.topMargin ?: dp(Ui.SP2)
                 bottomMargin = lp?.bottomMargin ?: 0
             }
         }
@@ -3776,12 +3776,12 @@ class MainActivity : Activity() {
         val ch = lp?.height ?: ViewGroup.LayoutParams.WRAP_CONTENT
         if (isUser) {
             row.addView(content, LinearLayout.LayoutParams(cw, ch).apply {
-                rightMargin = dp(8)
+                rightMargin = dp(Ui.SP2)
             })
             row.addView(userAvatar(), LinearLayout.LayoutParams(dp(40), dp(40)))
         } else {
             row.addView(aiAvatar(), LinearLayout.LayoutParams(dp(40), dp(40)).apply {
-                rightMargin = dp(8)
+                rightMargin = dp(Ui.SP2)
             })
             row.addView(content, LinearLayout.LayoutParams(cw, ch))
         }
@@ -3798,7 +3798,7 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 width = ViewGroup.LayoutParams.WRAP_CONTENT
                 gravity = Gravity.START
-                topMargin = dp(6)
+                topMargin = dp(Ui.SP2)
             }
         }
         fillAiRich(container, thinking, content, toolsJson, timelineJson, rendered, writeback)
@@ -3853,14 +3853,14 @@ class MainActivity : Activity() {
             setLineSpacing(dp(3).toFloat(), 1f)
             includeFontPadding = false
             setTextColor(BUBBLE_AI_TEXT)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3))
             maxWidth = chatMaxW()
             background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
             elevation = dp(3).toFloat()   // 历史 AiRich 气泡/表格块阴影(3dp 主级)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(4)
+                topMargin = dp(Ui.SP2)
+                bottomMargin = dp(Ui.SP1)
             }
         }
         fun obtainSeg(seg: String, segRendered: String = "", segWriteback: ((Spanned) -> Unit)? = null): View? {
@@ -3877,13 +3877,13 @@ class MainActivity : Activity() {
                 val blocks = MdToBlocks.render(renderContent)
                 if (blocks.isEmpty()) return null
                 val bv = MdBlocksView(this@MainActivity).apply {
-                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3))
                     background = rounded(dp(12), floatBubbleColor(BUBBLE_AI))
                     elevation = dp(3).toFloat()   // 历史 AiRich 表格块阴影(3dp 主级)
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        topMargin = dp(6)
-                        bottomMargin = dp(4)
+                        topMargin = dp(Ui.SP2)
+                        bottomMargin = dp(Ui.SP1)
                     }
                     // 长按复制(2026-10-02): 与流式块化一致, 长按弹原文本对话框
                     setOnLongClickListener {
@@ -3914,14 +3914,14 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     gravity = Gravity.START
-                    topMargin = dp(6)
+                    topMargin = dp(Ui.SP2)
                     bottomMargin = 0
                 }
             }
             row.removeAllViews()
             val avatar = aiAvatarPool.removeLastOrNull() ?: aiAvatar()
             row.addView(avatar, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
-                rightMargin = dp(8)
+                rightMargin = dp(Ui.SP2)
             })
             row.addView(content, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -4133,7 +4133,7 @@ class MainActivity : Activity() {
         val tl = buildStatusTimeline(host, events)
         val panel = ScrollView(host).apply {
             isFillViewport = true   // 内容宽铺满面板
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setPadding(dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2))
             background = rounded(dp(12), floatBubbleColor(THINK_BG))
             elevation = dp(8).toFloat()
             isClickable = true   // 拦截点击不穿透到底层
@@ -4376,7 +4376,7 @@ class MainActivity : Activity() {
             setTextColor(Ui.TEXT)
             setTextIsSelectable(true)
             setHighlightColor(0x6633B5E5)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setPadding(dp(Ui.SP4), dp(Ui.SP4), dp(Ui.SP4), dp(Ui.SP4))
             typeface = Typeface.MONOSPACE
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)

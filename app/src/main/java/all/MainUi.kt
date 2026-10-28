@@ -41,7 +41,7 @@ import android.widget.Toast
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), dp(18), dp(12), dp(14))
+            setPadding(dp(Ui.SP5), dp(Ui.SP5), dp(Ui.SP3), dp(Ui.SP4))
             setBackgroundColor(Ui.SURFACE)
             // 左侧标题列(weight=1)
             addView(LinearLayout(this@buildDrawer).apply {
@@ -57,7 +57,7 @@ import android.widget.Toast
                     text = TitleConfig.drawerNote()
                     textSize = 13f
                     setTextColor(Ui.SUB)
-                    setPadding(0, dp(4), 0, 0)
+                    setPadding(0, dp(Ui.SP1), 0, 0)
                 }.also { drawerNoteText = it })
             })
             // 右上角迷你搜索框: 折叠态=仅右侧极简放大镜(无背景), 点击放大镜向左展开成输入框(果冻), 再点放大镜收起
@@ -106,7 +106,7 @@ import android.widget.Toast
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-            setPadding(dp(16), dp(12), dp(16), 0)
+            setPadding(dp(Ui.SP4), dp(Ui.SP3), dp(Ui.SP4), 0)
             // 中间区域顶部按钮行(2026-10-19 老板): 任务 / 新会话 / 知识库(开关开启后显示)
             addView(LinearLayout(this@buildDrawer).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -119,7 +119,7 @@ import android.widget.Toast
                     setTextColor(Ui.PRIMARY)
                     gravity = Gravity.CENTER
                     background = rounded(dp(16), Ui.PRIMARY_LIGHT)
-                    setPadding(0, dp(12), 0, dp(12))
+                    setPadding(0, dp(Ui.SP3), 0, dp(Ui.SP3))
                     isClickable = true
                     setOnClickListener {
                         this@buildDrawer.startActivity(
@@ -141,7 +141,7 @@ import android.widget.Toast
                     setTextColor(android.graphics.Color.WHITE)
                     gravity = Gravity.CENTER
                     background = rounded(dp(16), Ui.PRIMARY)
-                    setPadding(0, dp(12), 0, dp(12))
+                    setPadding(0, dp(Ui.SP3), 0, dp(Ui.SP3))
                     isClickable = true
                     setOnClickListener { startNewSession() }
                     Ui.press(this)
@@ -159,7 +159,7 @@ import android.widget.Toast
                     setTextColor(Ui.PRIMARY)
                     gravity = Gravity.CENTER
                     background = rounded(dp(16), Ui.PRIMARY_LIGHT)
-                    setPadding(0, dp(12), 0, dp(12))
+                    setPadding(0, dp(Ui.SP3), 0, dp(Ui.SP3))
                     isClickable = true
                     visibility = View.GONE
                     setOnClickListener {
@@ -175,7 +175,7 @@ import android.widget.Toast
                 text = getString(R.string.mui_records)
                 textSize = 12f
                 setTextColor(Ui.SUB)
-                setPadding(dp(20), dp(12), dp(20), dp(4))
+                setPadding(dp(Ui.SP5), dp(Ui.SP3), dp(Ui.SP5), dp(Ui.SP1))
             })
             addView(ScrollView(this@buildDrawer).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -193,7 +193,7 @@ import android.widget.Toast
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), dp(12), dp(20), dp(12))
+            setPadding(dp(Ui.SP5), dp(Ui.SP3), dp(Ui.SP5), dp(Ui.SP3))
             setBackgroundColor(Ui.BG)
             addView(TextView(this@buildDrawer).apply {
                 text = "安全模式"
@@ -206,7 +206,7 @@ import android.widget.Toast
                 setTextColor(Ui.SUB)
                 gravity = Gravity.END
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(dp(12), 0, 0, 0)
+                    setMargins(dp(Ui.SP3), 0, 0, 0)
                 }
             })
         })
@@ -214,7 +214,7 @@ import android.widget.Toast
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setPadding(dp(Ui.SP4), dp(Ui.SP3), dp(Ui.SP4), dp(Ui.SP3))
             setBackgroundColor(Ui.BG)
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
@@ -233,7 +233,7 @@ import android.widget.Toast
                     setImageResource(R.drawable.ic_settings_security)
                     setColorFilter(Ui.TEXT)
                     layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply {
-                        setMargins(0, 0, dp(6), 0)
+                        setMargins(0, 0, dp(Ui.SP2), 0)
                     }
                 })
                 addView(TextView(this@buildDrawer).apply {
@@ -264,7 +264,7 @@ import android.widget.Toast
                     setImageResource(R.drawable.ic_settings_doc)
                     setColorFilter(Ui.TEXT)
                     layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply {
-                        setMargins(0, 0, dp(6), 0)
+                        setMargins(0, 0, dp(Ui.SP2), 0)
                     }
                 })
                 addView(TextView(this@buildDrawer).apply {
@@ -303,7 +303,7 @@ import android.widget.Toast
     internal fun MainActivity.drawerItem(title: String, subtitle: String, onClick: () -> Unit): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(16))
+            setPadding(dp(Ui.SP5), dp(Ui.SP4), dp(Ui.SP5), dp(Ui.SP4))
             isClickable = true
             setOnClickListener { onClick() }
             Ui.press(this)
@@ -316,7 +316,7 @@ import android.widget.Toast
                 text = subtitle
                 textSize = 12f
                 setTextColor(Ui.SUB)
-                setPadding(0, dp(3), 0, 0)
+                setPadding(0, dp(Ui.SP1), 0, 0)
             })
         }
     }
@@ -354,7 +354,7 @@ import android.widget.Toast
         searchEdit.visibility = View.VISIBLE
         // 展开态: 补回圆角浅灰背景(仅展开时), 宽度再缩短避免挤压左侧标题
         searchWrap.background = rounded(dp(16), Ui.INPUT_BG)
-        searchWrap.setPadding(dp(10), 0, dp(6), 0)
+        searchWrap.setPadding(dp(Ui.SP3), 0, dp(Ui.SP2), 0)
         val targetW = dp(130)
         val anim = ValueAnimator.ofInt(searchCollapsedW, targetW).apply {
             duration = 300
@@ -443,7 +443,7 @@ import android.widget.Toast
             c.addView(View(this).apply {
                 setBackgroundColor(Ui.DIVIDER)
                 layoutParams = LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT).apply {
-                    leftMargin = dp(10); rightMargin = dp(10)
+                    leftMargin = dp(Ui.SP3); rightMargin = dp(Ui.SP3)
                 }
             })
             c.addView(buildSearchColumn(getString(R.string.mui_col_ai_think), kw, thinkHits, d),
@@ -452,7 +452,7 @@ import android.widget.Toast
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(16), dp(18), dp(14))
+            setPadding(dp(Ui.SP5), dp(Ui.SP4), dp(Ui.SP5), dp(Ui.SP4))
             background = rounded(dp(18), Ui.SURFACE)
         }
         // 标题行: 左=搜索词+命中总数, 右=排序切换(字段/方向)
@@ -470,7 +470,7 @@ import android.widget.Toast
             text = label
             textSize = 12f
             setTextColor(Ui.PRIMARY)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
+            setPadding(dp(Ui.SP3), dp(Ui.SP1), dp(Ui.SP3), dp(Ui.SP1))
             background = Ui.rounded(Ui.PRIMARY_LIGHT, dp(10), this@showSearchResults)
             Ui.press(this)
         }
@@ -487,15 +487,15 @@ import android.widget.Toast
             rebuildCols()
         }
         titleRow.addView(fieldBtn, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(8) })
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(Ui.SP2) })
         titleRow.addView(dirBtn, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(6) })
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(Ui.SP2) })
         root.addView(titleRow)
         root.addView(View(this).apply {
             setBackgroundColor(Ui.DIVIDER)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
-                topMargin = dp(12)
+                topMargin = dp(Ui.SP3)
             }
         })
         // 两栏容器
@@ -503,7 +503,7 @@ import android.widget.Toast
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
-                topMargin = dp(10)
+                topMargin = dp(Ui.SP3)
             }
         }
         rebuildCols()
@@ -528,7 +528,7 @@ import android.widget.Toast
             text = "$label (${hits.size})"
             textSize = 12f
             setTextColor(Ui.SUB)
-            setPadding(dp(2), 0, dp(2), dp(6))
+            setPadding(dp(2), 0, dp(2), dp(Ui.SP2))
         })
         if (hits.isEmpty()) {
             col.addView(TextView(this).apply {
@@ -548,12 +548,12 @@ import android.widget.Toast
             val roleTag = if (hit.role == "user") getString(R.string.mui_role_user) else getString(R.string.mui_role_ai)
             val item = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(10), dp(8), dp(10), dp(8))
+                setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP2))
                 isClickable = true
                 background = rounded(dp(10), Ui.BG)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = dp(6)
+                    bottomMargin = dp(Ui.SP2)
                 }
                 setOnClickListener {
                     d.dismiss()
@@ -572,7 +572,7 @@ import android.widget.Toast
                 textSize = 12f
                 setTextColor(Ui.TEXT)
                 maxLines = 3
-                setPadding(0, dp(3), 0, 0)
+                setPadding(0, dp(Ui.SP1), 0, 0)
             })
             list.addView(item)
         }
@@ -585,7 +585,7 @@ import android.widget.Toast
     internal fun MainActivity.buildTokenPanel(): LinearLayout {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setPadding(dp(Ui.SP4), dp(Ui.SP3), dp(Ui.SP4), dp(Ui.SP3))
             background = rounded(dp(14), Ui.SURFACE)
             elevation = dp(4).toFloat()
             visibility = View.GONE
@@ -601,7 +601,7 @@ import android.widget.Toast
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Ui.TEXT)
-            setPadding(0, 0, 0, dp(10))
+            setPadding(0, 0, 0, dp(Ui.SP3))
         }
         panel.addView(tokenPanelCtx)
         panel.addView(row(getString(R.string.mui_row_cur_usage)))
@@ -615,7 +615,7 @@ import android.widget.Toast
             text = getString(R.string.mui_token_stat_hint)
             textSize = 11f
             setTextColor(Ui.SUB)
-            setPadding(0, dp(10), 0, 0)
+            setPadding(0, dp(Ui.SP3), 0, 0)
         })
         tokenPanel = panel
         return panel
@@ -690,26 +690,26 @@ import android.widget.Toast
             Toast.makeText(this, if (s.pinned) getString(R.string.mui_toast_unpinned) else getString(R.string.mui_toast_pinned), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
+            topMargin = dp(Ui.SP3)
         })
         box.addView(Ui.lightBtn(this, getString(R.string.mui_rename)) {
             dlg.dismiss()
             showRenameDialog(s)
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(10)
+            topMargin = dp(Ui.SP3)
         })
         box.addView(Ui.dangerBtn(this, getString(R.string.mui_delete_session)) {
             dlg.dismiss()
             confirmDeleteSession(s)
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(10)
+            topMargin = dp(Ui.SP3)
         })
         box.addView(Ui.dialogCancelBtn(this, getString(R.string.mui_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10)
+                topMargin = dp(Ui.SP3)
             })
         dlg.show()
     }
@@ -735,12 +735,12 @@ import android.widget.Toast
             Toast.makeText(this, getString(R.string.mui_toast_renamed), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
+            topMargin = dp(Ui.SP3)
         })
         box.addView(Ui.dialogCancelBtn(this, getString(R.string.mui_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10)
+                topMargin = dp(Ui.SP3)
             })
         dlg.show()
     }
@@ -759,7 +759,7 @@ import android.widget.Toast
         box.addView(Ui.dialogCancelBtn(this, getString(R.string.mui_cancel)) { dlg.dismiss() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10)
+                topMargin = dp(Ui.SP3)
             })
         dlg.show()
     }
@@ -776,7 +776,7 @@ import android.widget.Toast
         val hasVideo = ApiConfig.CAP_VIDEO in caps
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(6), dp(4), dp(6), dp(4))
+            setPadding(dp(Ui.SP2), dp(Ui.SP1), dp(Ui.SP2), dp(Ui.SP1))
             background = rounded(dp(14), Ui.SURFACE)
             elevation = dp(10).toFloat()
         }
@@ -785,7 +785,7 @@ import android.widget.Toast
                 text = label + if (enabled) "" else getString(R.string.mui_cap_unsupported_suffix)
                 textSize = 14f
                 isAllCaps = false
-                setPadding(dp(18), dp(12), dp(18), dp(12))
+                setPadding(dp(Ui.SP5), dp(Ui.SP3), dp(Ui.SP5), dp(Ui.SP3))
                 setTextColor(if (enabled) Ui.TEXT else Ui.SUB)
                 alpha = if (enabled) 1f else 0.5f
                 setOnClickListener {
@@ -883,7 +883,7 @@ import android.widget.Toast
             val act = this@showModelList
             val list = LinearLayout(act).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(6), dp(4), dp(6), dp(4))
+                setPadding(dp(Ui.SP2), dp(Ui.SP1), dp(Ui.SP2), dp(Ui.SP1))
                 background = rounded(dp(14), Ui.SURFACE)
             }
             val curId = ApiConfig.providerId()
@@ -898,12 +898,12 @@ import android.widget.Toast
                 text = getString(R.string.mui_think_intensity)
                 textSize = 11f
                 setTextColor(Ui.SUB)
-                setPadding(dp(18), dp(8), dp(6), dp(2))
+                setPadding(dp(Ui.SP5), dp(Ui.SP2), dp(Ui.SP2), dp(2))
             })
             val effortRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), dp(2), dp(14), dp(8))
+                setPadding(dp(Ui.SP4), dp(2), dp(Ui.SP4), dp(Ui.SP2))
             }
             levels.forEach { key ->
                 val sel = key == eff
@@ -911,12 +911,12 @@ import android.widget.Toast
                     text = ApiConfig.thinkLabel(context, key)
                     textSize = 12f
                     isAllCaps = false
-                    setPadding(dp(10), dp(5), dp(10), dp(5))
+                    setPadding(dp(Ui.SP3), dp(Ui.SP1), dp(Ui.SP3), dp(Ui.SP1))
                     setTextColor(if (sel) Color.WHITE else Ui.PRIMARY)
                     background = rounded(dp(15), if (sel) Ui.PRIMARY else Ui.PRIMARY_LIGHT)
                     layoutParams = LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        rightMargin = dp(6)
+                        rightMargin = dp(Ui.SP2)
                     }
                     setOnClickListener {
                         ApiConfig.setThinkingEffort(curId, key)
@@ -958,7 +958,7 @@ import android.widget.Toast
                     }
                     textSize = 14f
                     isAllCaps = false
-                    setPadding(dp(18), dp(12), dp(6), dp(12))
+                    setPadding(dp(Ui.SP5), dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3))
                     setTextColor(if (isCur) Ui.PRIMARY else Ui.TEXT)
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 })
@@ -966,13 +966,13 @@ import android.widget.Toast
                 row.addView(TextView(this).apply {
                     text = if (hasSub) curModel else ""
                     textSize = 11f
-                    setPadding(dp(4), dp(12), dp(2), dp(12))
+                    setPadding(dp(Ui.SP1), dp(Ui.SP3), dp(2), dp(Ui.SP3))
                     setTextColor(Ui.SUB)
                 })
                 row.addView(TextView(this).apply {
                     text = if (hasSub) (if (expanded) "▾" else "›") else ""
                     textSize = 16f
-                    setPadding(dp(8), dp(4), dp(10), dp(4))
+                    setPadding(dp(Ui.SP2), dp(Ui.SP1), dp(Ui.SP3), dp(Ui.SP1))
                     setTextColor(Ui.SUB)
                 })
                 list.addView(row)
@@ -985,7 +985,7 @@ import android.widget.Toast
                         val subRow = LinearLayout(this).apply {
                             orientation = LinearLayout.HORIZONTAL
                             gravity = Gravity.CENTER_VERTICAL
-                            setPadding(dp(40), dp(6), dp(18), dp(2))
+                            setPadding(dp(40), dp(Ui.SP2), dp(Ui.SP5), dp(2))
                             setOnClickListener {
                                 ApiConfig.setSelectedModel(p.id, m)
                                 ApiConfig.setCurrent(p.id)
@@ -1013,7 +1013,7 @@ import android.widget.Toast
                         // 能力 chips 行：文本固定展示，其余按实际能力渲染（参考 ModelEditActivity.renderSelectedModels）
                         val capsRow = LinearLayout(this).apply {
                             orientation = LinearLayout.HORIZONTAL
-                            setPadding(dp(40), dp(2), dp(18), dp(8))
+                            setPadding(dp(40), dp(2), dp(Ui.SP5), dp(Ui.SP2))
                         }
                         val allCaps = listOf(ApiConfig.CAP_TEXT, ApiConfig.CAP_IMAGE, ApiConfig.CAP_VIDEO, ApiConfig.CAP_AUDIO, ApiConfig.CAP_TOOL)
                         allCaps.forEach { cap ->
@@ -1025,10 +1025,10 @@ import android.widget.Toast
                                     isAllCaps = false
                                     setTextColor(Ui.TEXT)
                                     background = rounded(dp(10), Ui.INPUT_BG)
-                                    setPadding(dp(7), dp(2), dp(7), dp(2))
+                                    setPadding(dp(Ui.SP2), dp(2), dp(Ui.SP2), dp(2))
                                     layoutParams = LinearLayout.LayoutParams(
                                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                        rightMargin = dp(5)
+                                        rightMargin = dp(Ui.SP1)
                                     }
                                 })
                             }

@@ -48,6 +48,16 @@ object Ui {
     /** 成功状态绿（状态徽标/已授权文案，深浅底都可读，iOS 系绿） */
     val OK = 0xFF34C759.toInt()
 
+    // ===== 间距令牌（2026-10-29 4pt 网格宪法） =====
+    // 仅用于 padding/margin；圆角/描边/图标尺寸不在此列。新代码一律用令牌, 禁止裸数字。
+    const val SP1 = 4    // 紧凑关联(图标与文字间)
+    const val SP2 = 8    // 组件内元素间距
+    const val SP3 = 12   // 气泡/卡片横向 padding、行间
+    const val SP4 = 16   // 卡片内边距
+    const val SP5 = 20   // 区块分隔
+    const val SP6 = 24   // 大区块/屏级留白
+
+
     /** 应用主题：刷新全局语义色（MainActivity 启动/切换主题时调用一次） */
     fun applyTheme(t: AppTheme) {
         BG = t.bg
