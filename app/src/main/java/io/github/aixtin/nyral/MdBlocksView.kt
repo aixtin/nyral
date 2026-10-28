@@ -115,7 +115,7 @@ internal class MdBlocksView(context: Context) : LinearLayout(context) {
             text = spanned
             textSize = 15f
             setTextColor(textColor)
-            setLineSpacing(dp(3f).toFloat(), 1f)
+            setLineSpacing(dp(3f).toFloat(), 1.45f)
             includeFontPadding = false
             // 内外边距由块容器统一提供(与原气泡 TextView 一致), 文本块自身不再叠加 padding
             setPadding(0, 0, 0, 0)

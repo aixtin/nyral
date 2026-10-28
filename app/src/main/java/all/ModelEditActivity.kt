@@ -437,8 +437,7 @@ class ModelEditActivity : Activity() {
                 val chip = TextView(this).apply {
                     text = label
                     textSize = 11f
-                    setTextColor(if (selected) 0xFFFFFFFF.toInt() else Ui.PRIMARY)
-                    background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.INPUT_BG, 14, this@ModelEditActivity)
+                    Ui.chip(this, selected, this@ModelEditActivity, 14)
                     setPadding(dp(8), dp(3), dp(8), dp(3))
                     isClickable = manual && cap != ApiConfig.CAP_TEXT
                     setOnClickListener {
@@ -487,8 +486,7 @@ class ModelEditActivity : Activity() {
             val chip = TextView(this).apply {
                 text = ApiConfig.thinkLabel(context, key)
                 textSize = 12f
-                setTextColor(if (selected) 0xFFFFFFFF.toInt() else Ui.PRIMARY)
-                background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.INPUT_BG, 16, this@ModelEditActivity)
+                Ui.chip(this, selected, this@ModelEditActivity, 16)
                 setPadding(dp(10), dp(5), dp(10), dp(5))
                 isClickable = true
                 setOnClickListener {
@@ -516,8 +514,7 @@ class ModelEditActivity : Activity() {
             val chip = TextView(this).apply {
                 text = name
                 textSize = 12f
-                setTextColor(if (selected) 0xFFFFFFFF.toInt() else Ui.PRIMARY)
-                background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.INPUT_BG, 16, this@ModelEditActivity)
+                Ui.chip(this, selected, this@ModelEditActivity, 16)
                 setPadding(dp(10), dp(5), dp(10), dp(5))
                 isClickable = true
                 setOnClickListener {
@@ -562,12 +559,7 @@ class ModelEditActivity : Activity() {
             val chip = TextView(this).apply {
                 text = label
                 textSize = 12f
-                setTextColor(
-                    if (selected && !presetLocked) 0xFFFFFFFF.toInt()
-                    else if (selected) Ui.TEXT
-                    else Ui.PRIMARY
-                )
-                background = Ui.rounded(if (selected && !presetLocked) Ui.PRIMARY else Ui.INPUT_BG, 16, this@ModelEditActivity)
+                Ui.chip(this, selected, this@ModelEditActivity, 16)
                 setPadding(dp(10), dp(5), dp(10), dp(5))
                 isClickable = !presetLocked
                 setOnClickListener {
@@ -687,8 +679,7 @@ class ModelEditActivity : Activity() {
                     val chip = TextView(this@ModelEditActivity).apply {
                         text = label
                         textSize = 11f
-                        setTextColor(if (selected) 0xFFFFFFFF.toInt() else Ui.PRIMARY)
-                        background = Ui.rounded(if (selected) Ui.PRIMARY else Ui.INPUT_BG, 14, this@ModelEditActivity)
+                        Ui.chip(this, selected, this@ModelEditActivity, 14)
                         setPadding(dp(8), dp(3), dp(8), dp(3))
                         isClickable = cap != ApiConfig.CAP_TEXT
                         setOnClickListener {

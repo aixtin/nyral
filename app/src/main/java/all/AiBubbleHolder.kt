@@ -1128,7 +1128,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val tv = TextView(host).apply {
             textSize = 15f
             setTextColor(BUBBLE_AI_TEXT)
-            setLineSpacing(host.dp(3).toFloat(), 1f)
+            setLineSpacing(host.dp(3).toFloat(), 1.45f)
             includeFontPadding = false
             if (agentFold()) {
                 // 单轨折叠流(2026-10-25): 正文全宽直排无框(无气泡背景/阴影, 不缩进), 打字机照旧
@@ -1183,7 +1183,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         val ph = TextView(host).apply {
             textSize = 15f
             setTextColor(BUBBLE_AI_TEXT)
-            setLineSpacing(host.dp(3).toFloat(), 1f)
+            setLineSpacing(host.dp(3).toFloat(), 1.45f)
             includeFontPadding = false
             if (agentFold()) {
                 // 单轨折叠流(2026-10-25): 占位与正文一致全宽无框

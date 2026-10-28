@@ -73,19 +73,19 @@ class SettingsActivity : Activity() {
         cardConn.addView(settingsItem(getString(R.string.settings_ssh_config), getString(R.string.settings_ssh_config_sub), R.drawable.ic_settings_ssh, 0, {
             startActivity(Intent(this@SettingsActivity, SshConfigActivity::class.java))
         }))
-        cardConn.addView(Ui.divider(this))
+        cardConn.addView(Ui.divider(this, 64))
         cardConn.addView(settingsItem(getString(R.string.settings_mcp), mcpStatus(), R.drawable.ic_settings_mcp, 0, {
             startActivity(Intent(this@SettingsActivity, McpConfigActivity::class.java))
         }) { mcpSubtitleView = it })
-        cardConn.addView(Ui.divider(this))
+        cardConn.addView(Ui.divider(this, 64))
         cardConn.addView(settingsItem(getString(R.string.settings_memory), getString(R.string.settings_memory_count, MemoryDb(this).count()), R.drawable.ic_settings_memory, 1, {
             startActivity(Intent(this@SettingsActivity, MemoryListActivity::class.java))
         }) { memorySubtitle = it })
-        cardConn.addView(Ui.divider(this))
+        cardConn.addView(Ui.divider(this, 64))
         cardConn.addView(settingsItem(getString(R.string.settings_memory_index), summaryStatus(), R.drawable.ic_settings_memory_index, 2, {
             startActivity(Intent(this@SettingsActivity, MemorySummaryActivity::class.java))
         }) { summarySubtitle = it })
-        cardConn.addView(Ui.divider(this))
+        cardConn.addView(Ui.divider(this, 64))
         cardConn.addView(settingsItem(getString(R.string.settings_files), getString(R.string.settings_files_sub), R.drawable.ic_guide_folder, 3, {
             startActivity(Intent(this@SettingsActivity, FileListActivity::class.java))
         }))
@@ -115,12 +115,12 @@ class SettingsActivity : Activity() {
             })
             addView(Ui.arrow(this@SettingsActivity))
         })
-        cardModel.addView(Ui.divider(this))
+        cardModel.addView(Ui.divider(this, 64))
         cardModel.addView(settingsItem(getString(R.string.settings_mem_model), getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()) + " · " + ModelUpdater.statusText(), R.drawable.ic_settings_mem_model, 6, {
             startActivity(Intent(this@SettingsActivity, MemModelConfigActivity::class.java))
         }) { memModelSubtitle = it })
         // 视频直发开关(2026-10-26 临时位置: 后续按产品安排迁移, 移除只需删下面两行)
-        cardModel.addView(Ui.divider(this))
+        cardModel.addView(Ui.divider(this, 64))
         cardModel.addView(buildVideoDirectRow())
         content.addView(cardModel)
 
@@ -130,15 +130,15 @@ class SettingsActivity : Activity() {
         cardAbout.addView(settingsItem(getString(R.string.settings_log), getString(R.string.settings_log_sub), R.drawable.ic_settings_log, 5, {
             startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
         }))
-        cardAbout.addView(Ui.divider(this))
+        cardAbout.addView(Ui.divider(this, 64))
         cardAbout.addView(settingsItem(getString(R.string.settings_upload_size), getString(R.string.settings_upload_size_sub, UploadConfig.maxMb()), R.drawable.ic_settings_upload, 14, {
             showUploadSizeEdit()
         }) { uploadSizeSub = it })
-        cardAbout.addView(Ui.divider(this))
+        cardAbout.addView(Ui.divider(this, 64))
         cardAbout.addView(settingsItem(getString(R.string.settings_token), getString(R.string.settings_token_sub), R.drawable.ic_settings_token, 7, {
             showTokenStats()
         }) { tokenSubtitle = it })
-        cardAbout.addView(Ui.divider(this))
+        cardAbout.addView(Ui.divider(this, 64))
         debugBox = LinearLayout(this@SettingsActivity).apply {
             orientation = LinearLayout.VERTICAL
             addView(settingsItem(getString(R.string.settings_debug), DebugServer.statusText(this@SettingsActivity), R.drawable.ic_settings_debug, 11, {
@@ -147,9 +147,9 @@ class SettingsActivity : Activity() {
         }
         debugBox.visibility = if (DebugServer.unlocked(this)) View.VISIBLE else View.GONE
         cardAbout.addView(debugBox)
-        cardAbout.addView(Ui.divider(this))
+        cardAbout.addView(Ui.divider(this, 64))
         // 权限管理: 查看/补开全部依赖权限(部分手机长时间不用会自动收回)
-        cardAbout.addView(Ui.divider(this))
+        cardAbout.addView(Ui.divider(this, 64))
         cardAbout.addView(settingsItem(getString(R.string.settings_perm), getString(R.string.settings_perm_sub), R.drawable.ic_settings_perm, 9, {
             startActivity(Intent(this@SettingsActivity, PermissionsActivity::class.java))
         }) { permSubtitleView = it })

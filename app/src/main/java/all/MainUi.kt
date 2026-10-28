@@ -133,14 +133,14 @@ import android.widget.Toast
                 addView(View(this@buildDrawer).apply {
                     layoutParams = LinearLayout.LayoutParams(dp(6), dp(1))
                 })
-                // 中: 新会话
+                // 中: 新会话（抽屉主操作，全页唯一实心主色块 — 设计宪法 CTA 位）
                 addView(TextView(this@buildDrawer).apply {
                     text = getString(R.string.mui_new_chat)
                     textSize = 15f
                     setTypeface(typeface, Typeface.BOLD)
-                    setTextColor(Ui.PRIMARY)
+                    setTextColor(android.graphics.Color.WHITE)
                     gravity = Gravity.CENTER
-                    background = rounded(dp(16), Ui.PRIMARY_LIGHT)
+                    background = rounded(dp(16), Ui.PRIMARY)
                     setPadding(0, dp(12), 0, dp(12))
                     isClickable = true
                     setOnClickListener { startNewSession() }
@@ -196,7 +196,7 @@ import android.widget.Toast
             setPadding(dp(20), dp(12), dp(20), dp(12))
             setBackgroundColor(Ui.BG)
             addView(TextView(this@buildDrawer).apply {
-                text = "门禁状态"
+                text = "安全模式"
                 textSize = 15f
                 setTextColor(Ui.TEXT)
             })

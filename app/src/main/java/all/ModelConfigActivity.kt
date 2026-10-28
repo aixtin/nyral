@@ -128,12 +128,16 @@ class ModelConfigActivity : Activity() {
                     else -> getString(R.string.mcfg_07)
                 }
                 textSize = 11f
-                setTextColor(android.graphics.Color.WHITE)
-                setPadding(dp(8), dp(3), dp(8), dp(3))
-                background = roundedBg(when {
+                setTextColor(when {
                     isCurrent -> Ui.PRIMARY
                     configured -> Ui.OK
                     else -> Ui.SUB
+                })
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+                background = roundedBg(when {
+                    isCurrent -> Ui.PRIMARY_LIGHT
+                    configured -> Ui.INPUT_BG
+                    else -> Ui.INPUT_BG
                 })
             })
 

@@ -351,10 +351,25 @@ object Ui {
         setPadding(dp(a, 4), dp(a, 14), dp(a, 4), dp(a, 6))
     }
 
-    /** 1px 细分隔线 */
-    fun divider(a: Activity): View = View(a).apply {
+    /** 1px 细分隔线；indentDp>0 时左缩进（对齐列表项文字起点，iOS 式） */
+    fun divider(a: Activity, indentDp: Int = 0): View = View(a).apply {
         setBackgroundColor(DIVIDER)
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 1))
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(a, 1)).apply {
+            if (indentDp > 0) setMargins(dp(a, indentDp), 0, 0, 0)
+        }
+    }
+
+    /**
+     * 选项胶囊统一涂装（设计宪法：实心深色块只留给主 CTA）：
+     * 选中 = 主色浅底 + 主色文字 + 1px 主色描边；未选 = 浅灰底 + 正文色文字
+     */
+    fun chip(tv: TextView, selected: Boolean, a: Activity, radiusDp: Int = 14) {
+        tv.setTextColor(if (selected) PRIMARY else TEXT)
+        tv.background = GradientDrawable().apply {
+            setColor(if (selected) PRIMARY_LIGHT else INPUT_BG)
+            cornerRadius = dp(a, radiusDp).toFloat()
+            if (selected) setStroke(dp(a, 1), PRIMARY)
+        }
     }
 
     /** 白色圆角卡片容器（默认 16dp 圆角，承载一组列表项） */
@@ -396,7 +411,7 @@ object Ui {
     /** 列表项副标题文字 */
     fun itemSub(a: Activity, text: String): TextView = TextView(a).apply {
         this.text = text
-        textSize = 12f
+        textSize = 13f
         setTextColor(SUB)
         setPadding(0, dp(a, 3), 0, 0)
         maxLines = 1
