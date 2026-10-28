@@ -729,10 +729,9 @@ class MainActivity : Activity() {
             setOnClickListener { startActivity(Intent(this@MainActivity, AppearanceActivity::class.java)) }
             Ui.press(this)
         }.also { mainTitleText = it })
-        titleBar.addView(TextView(this).apply {
-            text = "∑"
-            textSize = 22f
-            setTextColor(Ui.TEXT)
+        titleBar.addView(ImageView(this).apply {
+            setImageResource(R.drawable.lucide_sigma)
+            setColorFilter(Ui.TEXT)
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setOnClickListener { toggleTokenPanel() }
             Ui.press(this)
