@@ -15,6 +15,11 @@ AIGC:
 
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo.png">
+  <img src="docs/logo-light.png" width="96" height="96" alt="Nyral logo">
+</picture>
+
 # Nyral
 
 ### 跑在 Android 上的开源个人智能体
