@@ -295,4 +295,4 @@ MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the ship
 
 - Latest: v2.8.16 (2026-10-29, versionCode 99)
 - Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
-- A personal project with 0 stars and 0 issues so far. Issues are welcome, schedules are not promised.
+- Maintained as a personal project, not commercially; issues are welcome, schedules are not promised.
