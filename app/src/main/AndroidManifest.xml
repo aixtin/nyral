@@ -284,5 +284,15 @@
             android:label="变更审计"
             android:theme="@style/Theme.Nyral.NoActionBar" />
 
+
+        <!-- Shizuku 授权通道: provider 必须显式声明, 否则 pingBinder 拿不到 binder(仅 adb 级, 只读) -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
     </application>
 </manifest>

@@ -25,6 +25,7 @@ class DiagnosticsActivity : Activity() {
     private lateinit var levelTitle: TextView
     private lateinit var levelSub: TextView
     private lateinit var startBtn: TextView
+    private lateinit var authBtn: TextView
     private val cards = LinkedHashMap<String, LinearLayout>()
     private var running = false
 
@@ -76,6 +77,22 @@ class DiagnosticsActivity : Activity() {
             setPadding(dp(4), dp(10), dp(4), dp(10))
         })
 
+        // Shizuku 已运行但本应用未授权时, 提供一键触发授权弹窗(免 root)
+        authBtn = Ui.lightBtn(this, "授权 Shizuku（免 root, adb 级）") {
+            val asked = Diagnostics.requestShizukuPermission()
+            Toast.makeText(
+                this@DiagnosticsActivity,
+                if (asked) "已具备 Shizuku 权限" else "请在弹窗中选择「允许」",
+                Toast.LENGTH_SHORT
+            ).show()
+        }.apply {
+            visibility = View.GONE
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        content.addView(authBtn, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
+
         startBtn = Ui.primaryBtn(this, "开始体检") { startCheck() }
         content.addView(startBtn)
 
@@ -99,19 +116,30 @@ class DiagnosticsActivity : Activity() {
     }
 
     private fun refreshLevel() {
+        // Shizuku 的 binder 查询放主线程: 后台线程首次绑定可能拿不到 binder
+        val sz = Diagnostics.shizukuState()
         Thread {
             Diagnostics.resetPrivilegeCache()
             val lv = Diagnostics.currentLevel()
-            runOnUiThread {
-                levelTitle.text = Diagnostics.levelName(lv)
-                levelSub.text = when (lv) {
-                    2 -> "已具备 root 通道, 可读取全部体检项(含模块与 SELinux 状态)。"
-                    1 -> "Shizuku 通道可用, 可读取系统级数据(thermal zone 等)。root 档仍需 su。"
-                    else -> "仅有公开 API 权限。安装 Shizuku 并授权后可解锁系统级诊断(无需 root)。"
-                }
-                if (running) startBtn.text = "重新体检"
-            }
+            runOnUiThread { applyPrivilege(lv, sz) }
         }.start()
+    }
+
+    /** 统一渲染特权等级与 Shizuku 状态(等级卡 + 授权按钮) */
+    private fun applyPrivilege(lv: Int, sz: Int) {
+        levelTitle.text = Diagnostics.levelName(lv)
+        val base = when (lv) {
+            2 -> "已具备 root 通道, 可读取全部体检项(含模块与 SELinux 状态)。"
+            1 -> "Shizuku 通道可用, 可读取系统级数据(thermal zone 等)。root 档仍需 su。"
+            else -> "仅有公开 API 权限。安装 Shizuku 并授权后可解锁系统级诊断(无需 root)。"
+        }
+        levelSub.text = if (lv == 2) base else base + "\n" + when (sz) {
+            2 -> "Shizuku: 已授权"
+            1 -> "Shizuku: 已运行, 本应用未授权"
+            else -> "Shizuku: 未安装或未运行"
+        }
+        authBtn.visibility = if (sz == 1) View.VISIBLE else View.GONE
+        if (running) startBtn.text = "重新体检"
     }
 
     private fun startCheck() {
@@ -129,16 +157,10 @@ class DiagnosticsActivity : Activity() {
             listBox.addView(card)
         }
 
+        val sz = Diagnostics.shizukuState()
         Thread {
             val lv = Diagnostics.currentLevel()
-            runOnUiThread {
-                levelTitle.text = Diagnostics.levelName(lv)
-                levelSub.text = when (lv) {
-                    2 -> "已具备 root 通道, 可读取全部体检项(含模块与 SELinux 状态)。"
-                    1 -> "Shizuku 通道可用, 可读取系统级数据(thermal zone 等)。root 档仍需 su。"
-                    else -> "仅有公开 API 权限。安装 Shizuku 并授权后可解锁系统级诊断(无需 root)。"
-                }
-            }
+            runOnUiThread { applyPrivilege(lv, sz) }
             for (it in Diagnostics.ITEMS) {
                 val r = Diagnostics.run(this, it.id)
                 runOnUiThread { fillCard(cards[it.id], r) }

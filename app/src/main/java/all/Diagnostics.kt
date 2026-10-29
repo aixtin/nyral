@@ -78,6 +78,17 @@ object Diagnostics {
         Sh.shizukuOk = -1
     }
 
+    /** Shizuku 状态: 0=未安装/未运行, 1=已运行未授权本应用, 2=已授权。 */
+    fun shizukuState(): Int = try {
+        when {
+            !Shizuku.pingBinder() -> 0
+            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED -> 2
+            else -> 1
+        }
+    } catch (t: Throwable) {
+        0
+    }
+
     /** Shizuku 已安装但未授权时, 触发一次授权请求(仅 UI 主动调用)。 */
     fun requestShizukuPermission(): Boolean = try {
         if (!Shizuku.pingBinder()) false
@@ -277,6 +288,8 @@ object Diagnostics {
     }
 
     private fun reasonName(r: Int): String = when (r) {
+        0 -> "未知原因"
+        1 -> "正常退出(自身)"
         ApplicationExitInfo.REASON_CRASH -> "崩溃"
         ApplicationExitInfo.REASON_CRASH_NATIVE -> "Native 崩溃"
         ApplicationExitInfo.REASON_ANR -> "ANR"
@@ -341,54 +354,71 @@ object Diagnostics {
     // ---------------- L1: 温度与降频 ----------------
 
     private fun thermal(c: Context): Result {
-        val raw = Sh.exec("cat /sys/class/thermal/thermal_zone*/type; echo ---; cat /sys/class/thermal/thermal_zone*/temp")
-            ?: return Result("thermal", "温度与降频", 1, false, "未采集",
-                error = "系统级通道调用失败", hint = "确认 Shizuku 已运行并已授权本应用。")
-        val parts = raw.split("---")
-        if (parts.size < 2) return Result("thermal", "温度与降频", 1, false, "未采集", error = "thermal zone 输出格式异常")
-        val types = parts[0].trim().lines().filter { it.isNotBlank() }
-        val temps = parts[1].trim().lines().filter { it.isNotBlank() }
-        val lines = mutableListOf<String>()
+        // MTK 等平台 /sys/class/thermal 下无 thermal_zone*, 改读框架聚合的 thermalservice
+        val raw = Sh.exec(
+            "dumpsys thermalservice 2>&1 | grep -E 'Thermal Status:|Temperature\\{|HAL Ready'",
+            15000L
+        ) ?: return Result("thermal", "温度与降频", 1, false, "未采集",
+                error = Sh.lastError ?: "系统级通道调用失败", hint = "确认 Shizuku 已运行并已授权本应用。")
+
+        val tempRe = Regex("mValue=([0-9.]+),\\s*mType=[0-9]+,\\s*mName=([A-Za-z_ ]+)")
+        var status = -1
+        var halReady = false
         var hottest = -1.0
         var hottestName = ""
-        var cpuCount = 0
-        var cpuSum = 0.0
-        for (idx in types.indices) {
-            val t = temps.getOrNull(idx)?.trim()?.toDoubleOrNull() ?: continue
-            val celsius = when {
-                t > 10000 -> t / 1000.0
-                t > 1000 -> t / 1000.0
-                t > 200 -> t / 10.0
-                else -> t
+        val named = LinkedHashMap<String, Double>()
+        for (ln in raw.lines()) {
+            val t = ln.trim()
+            if (t.startsWith("Thermal Status:")) {
+                status = t.substringAfter(":").trim().toIntOrNull() ?: -1
+                continue
             }
-            if (celsius <= 0 || celsius > 150) continue
-            val name = types[idx].trim()
-            if (name.contains("cpu", true) || name.contains("gpu", true) || name.contains("battery", true) ||
-                name.contains("ap", true) || name.contains("skin", true) || name.contains("quiet", true)) {
-                lines += name + ": " + String.format(Locale.US, "%.1f", celsius) + " ℃"
+            if (t.startsWith("HAL Ready:")) {
+                halReady = t.substringAfter(":").trim().equals("true", true)
+                continue
             }
-            if (name.contains("cpu", true)) { cpuCount++; cpuSum += celsius }
-            if (celsius > hottest) { hottest = celsius; hottestName = name }
+            val m = tempRe.find(t) ?: continue
+            val v = m.groupValues[1].toDoubleOrNull() ?: continue
+            val nm = m.groupValues[2].trim().uppercase()
+            if (v <= 0 || v > 150) continue
+            named[nm] = v
+            if (v > hottest) { hottest = v; hottestName = nm }
         }
-        if (lines.isEmpty()) {
-            types.take(8).forEachIndexed { i, nm ->
-                val t = temps.getOrNull(i)?.trim()?.toDoubleOrNull() ?: return@forEachIndexed
-                val celsius = if (t > 1000) t / 1000.0 else if (t > 200) t / 10.0 else t
-                if (celsius in 1.0..150.0) lines += nm.trim() + ": " + String.format(Locale.US, "%.1f", celsius) + " ℃"
-            }
+
+        if (named.isEmpty() && status < 0) {
+            return Result("thermal", "温度与降频", 1, false, "未采集",
+                error = "thermalservice 无温度数据", hint = "设备未上报温度节点, 该机型可能不通过标准 thermal HAL 暴露。")
         }
-        lines += "thermal zone 总数: " + types.size
-        if (cpuCount > 0) {
-            lines += "CPU 平均: " + String.format(Locale.US, "%.1f", cpuSum / cpuCount) + " ℃ (" + cpuCount + " 个探针)"
+
+        val statusText = when (status) {
+            0 -> "NONE(正常)"
+            1 -> "LIGHT(轻度限频)"
+            2 -> "MODERATE(中度限频)"
+            3 -> "SEVERE(重度限频)"
+            4 -> "CRITICAL(危急)"
+            5 -> "EMERGENCY(紧急)"
+            6 -> "SHUTDOWN(关机保护)"
+            else -> "未知"
         }
+        val lines = mutableListOf<String>()
+        lines += "系统热状态: " + statusText
+        val order = listOf("CPU", "GPU", "NPU", "SKIN", "BATTERY", "POWER_AMPLIFIER")
+        for (k in order) named[k]?.let { lines += k + ": " + String.format(Locale.US, "%.1f", it) + " ℃" }
+        for ((k, v) in named) if (!order.contains(k)) lines += k + ": " + String.format(Locale.US, "%.1f", v) + " ℃"
+        lines += "温度探针数: " + named.size + (if (halReady) " | thermal HAL 已连接" else "")
+
         val issues = mutableListOf<String>()
-        if (hottest >= 75) issues += "最高 " + String.format(Locale.US, "%.1f", hottest) + " ℃ (" + hottestName + "), 已接近/进入降频区间"
-        else if (hottest >= 65) issues += "最高 " + String.format(Locale.US, "%.1f", hottest) + " ℃, 偏热"
+        if (status >= 2) issues += "系统已进入限频状态(" + statusText + "), 表现为帧率下降/充电变慢"
+        if (hottest >= 75) issues += "最高 " + hottestName + " " + String.format(Locale.US, "%.1f", hottest) + " ℃, 接近降频阈值"
+        else if (hottest >= 65) issues += "最高 " + hottestName + " " + String.format(Locale.US, "%.1f", hottest) + " ℃, 偏热"
+        if (!halReady) issues += "thermal HAL 未连接, 温度可能不是实时值"
+
         return Result(
-            id = "thermal", title = "温度与降频", level = 1, ok = true,
+            id = "thermal", title = "温度与降频", level = 1,
+            ok = true,
             verdict = if (issues.isEmpty()) "温度正常" else issues.joinToString("；"),
             lines = lines,
-            hint = if (issues.isEmpty()) "" else "高负载下温度过高会触发 CPU/充电降频; 可检查后台是否有个别应用常驻占用。"
+            hint = if (issues.isEmpty()) "热状态 NONE 表示未触发任何限频。" else "长时间高负载会触发系统限频; 可检查后台常驻应用与充电时是否使用。"
         )
     }
 
@@ -428,6 +458,8 @@ object Diagnostics {
     private object Sh {
         @Volatile var rootOk: Int = -1
         @Volatile var shizukuOk: Int = -1
+        /** 最近一次通道失败原因, 供上层如实展示(不吞异常) */
+        @Volatile var lastError: String? = null
 
         fun hasRoot(): Boolean {
             if (rootOk >= 0) return rootOk == 1
@@ -465,15 +497,32 @@ object Diagnostics {
                 cls.getDeclaredMethod("newProcess", strArr, strArr, String::class.java)
                     .also { it.isAccessible = true }
             } catch (t: Throwable) {
+                // 反射失败时把候选方法签名记下来, 便于定位 API 版本差异
+                lastError = "newProcess 反射失败: " + (t.message ?: t.javaClass.simpleName) + " / 候选: " + probeMethods()
                 null
             }
+        }
+
+        /** 列出 Shizuku 类里所有 *rocess* 方法签名(仅用于失败时自证原因) */
+        private fun probeMethods(): String = try {
+            Class.forName("rikka.shizuku.Shizuku").declaredMethods
+                .filter { it.name.contains("rocess", true) }
+                .joinToString("; ") { m ->
+                    m.name + "(" + m.parameterTypes.joinToString(",") { it.simpleName } + ")"
+                }
+        } catch (t: Throwable) {
+            "探测失败: " + (t.message ?: t.javaClass.simpleName)
         }
 
         private fun newProcess(cmd: Array<String>): Process? {
             val m = newProcessMethod ?: return null
             return try {
-                m.invoke(null, cmd, null, null) as? Process
+                val r = m.invoke(null, cmd, null, null) as? Process
+                if (r == null) lastError = "newProcess 返回空(Shizuku 服务未运行?)"
+                r
             } catch (t: Throwable) {
+                val real = (t as? java.lang.reflect.InvocationTargetException)?.targetException ?: t
+                lastError = "newProcess 调用失败: " + (real.message ?: real.javaClass.name)
                 null
             }
         }
@@ -481,11 +530,16 @@ object Diagnostics {
         fun exec(cmd: String, timeoutMs: Long = 5000L): String? {
             val p: Process = try {
                 when {
-                    hasShizuku() -> newProcess(arrayOf("sh", "-c", cmd)) ?: return null
+                    // stderr 合并进 stdout: 失败时也能拿到真实报错
+                    hasShizuku() -> newProcess(arrayOf("sh", "-c", cmd + " 2>&1")) ?: return null
                     hasRoot() -> ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
-                    else -> return null
+                    else -> {
+                        lastError = "无可用特权通道(Shizuku 未授权且无 su)"
+                        return null
+                    }
                 }
             } catch (t: Throwable) {
+                lastError = "启动通道失败: " + (t.message ?: t.javaClass.simpleName)
                 return null
             }
             val sb = StringBuilder()
@@ -499,18 +553,18 @@ object Diagnostics {
             }
             reader.isDaemon = true
             reader.start()
-            val finished = try {
-                p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
-            } catch (t: Throwable) {
-                false
+            // 以 EOF(读线程结束)作为完成判据: ShizukuRemoteProcess.waitFor 在跨版本时可能挂起
+            try { reader.join(timeoutMs) } catch (_: Throwable) {
             }
-            if (!finished) {
+            if (reader.isAlive) {
+                lastError = "通道执行超时(" + timeoutMs + "ms)"
                 try { p.destroy() } catch (_: Throwable) {
                 }
+                try { reader.join(300) } catch (_: Throwable) {
+                }
+                return null
             }
-            try { reader.join(400) } catch (_: Throwable) {
-            }
-            return if (finished) sb.toString() else null
+            return sb.toString()
         }
     }
 }
