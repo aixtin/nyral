@@ -4398,6 +4398,7 @@ class MainActivity : Activity() {
                 (resources.displayMetrics.widthPixels * 0.92f).toInt(),
                 (resources.displayMetrics.heightPixels * 0.7f).toInt())
         }
+        Ui.blurBehind(this, d)
         d.show()
     }
 

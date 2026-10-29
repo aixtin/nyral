@@ -504,6 +504,44 @@ object Ui {
         setPadding(dp(a, 2), dp(a, 3), 0, 0)
     }
 
+    // ---- 弹窗聚焦：背景模糊 ----
+
+    /** 同一 Activity 上叠加的弹窗计数：全部关闭才解除模糊 */
+    private val blurDepth = java.util.WeakHashMap<Activity, Int>()
+
+    /**
+     * 弹窗显示时模糊页面内容，让视觉焦点落在弹窗上，避免"看弹窗还是看背景"的犹豫。
+     * API 31+ 用 RenderEffect 由 GPU 实时模糊(无截图开销)；更低版本自动降级为原有遮罩。
+     * 解除时机挂在弹窗窗口的 attach 状态上，不占用调用方的 setOnDismissListener。
+     */
+    fun blurBehind(a: Activity, d: Dialog) {
+        if (Build.VERSION.SDK_INT < 31) return
+        val content = a.window?.decorView?.findViewById<View>(android.R.id.content) ?: return
+        val r = dp(a, 16).toFloat()
+        // 失焦感已由模糊承担，遮罩不必再压太黑
+        d.window?.setDimAmount(0.3f)
+        d.window?.decorView?.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                val n = (blurDepth[a] ?: 0) + 1
+                blurDepth[a] = n
+                if (n > 1) return
+                content.setRenderEffect(
+                    android.graphics.RenderEffect.createBlurEffect(
+                        r, r, android.graphics.Shader.TileMode.CLAMP))
+            }
+
+            override fun onViewDetachedFromWindow(v: View) {
+                val n = (blurDepth[a] ?: 1) - 1
+                if (n > 0) {
+                    blurDepth[a] = n
+                    return
+                }
+                blurDepth.remove(a)
+                content.setRenderEffect(null)
+            }
+        })
+    }
+
     // ---- 风格化弹窗（与页面同视觉：透明遮罩 + 白色圆角卡片） ----
 
     /**
@@ -567,6 +605,7 @@ object Ui {
         d.setOnShowListener {
             fadeScaleShow(animTarget)
         }
+        blurBehind(a, d)
         return d to box
     }
 
@@ -646,6 +685,7 @@ object Ui {
         d.setOnShowListener {
             fadeScaleShow(root)
         }
+        blurBehind(a, d)
         return Triple(d, contentBox, bottomBox)
     }
 

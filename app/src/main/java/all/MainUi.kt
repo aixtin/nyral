@@ -516,6 +516,7 @@ import android.widget.Toast
         root.scaleX = 1f
         root.scaleY = 1f
         root.alpha = 1f
+        Ui.blurBehind(this, d)
         d.show()
     }
 

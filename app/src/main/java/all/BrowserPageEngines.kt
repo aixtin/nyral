@@ -155,6 +155,7 @@ internal fun BrowserPage.showEditEngineDialog(idx: Int) {
             })
         }.also { box.addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)) }
         setContentView(box)
+        Ui.blurBehind(act, this)
         show()
     }
 }
@@ -350,6 +351,7 @@ internal fun BrowserPage.showDataDialog() {
             Ui.press(this)
         })
         setContentView(box)
+        Ui.blurBehind(act, this)
         show()
     }
 }

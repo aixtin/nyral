@@ -459,6 +459,7 @@ class MemoryListActivity : Activity() {
             setPadding(dp(20), dp(16), dp(20), dp(16))
         }
         pending.setContentView(info)
+        Ui.blurBehind(this, pending)
         pending.show()
 
         Thread {

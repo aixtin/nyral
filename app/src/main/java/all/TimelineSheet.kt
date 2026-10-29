@@ -103,6 +103,7 @@ internal class TimelineSheet(private val host: MainActivity) {
             }
         }
         d.setContentView(root)
+        Ui.blurBehind(host, d)
         d.show()
         dialog = d
     }

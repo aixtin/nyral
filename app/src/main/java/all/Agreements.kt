@@ -79,6 +79,7 @@ object Agreements {
             w.attributes = lp
             w.setBackgroundDrawable(ColorDrawable())
         }
+        Ui.blurBehind(activity, dlg)
         dlg.show()
     }
 }

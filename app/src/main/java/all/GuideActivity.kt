@@ -1477,6 +1477,7 @@ class GuideActivity : Activity() {
             w.attributes = lp
             w.setBackgroundDrawable(ColorDrawable())
         }
+        Ui.blurBehind(this, dlg)
         dlg.show()
     }
 
