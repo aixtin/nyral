@@ -51,10 +51,41 @@ class McpConfigActivity : Activity() {
             topMargin = dp(8)
         })
 
+        // 预置服务: 点条目即预填名称与地址, 免手写
         content.addView(TextView(this).apply {
-            text = getString(R.string.mcp_03) +
-                "示例地址: 本机 http://127.0.0.1:8787/mcp · 局域网 http://192.168.x.x:8787/mcp\n" +
-                getString(R.string.mcp_04)
+            text = getString(R.string.mcp_32)
+            textSize = 13f
+            setTextColor(Ui.SUB)
+            setPadding(dp(4), dp(18), dp(4), dp(8))
+        })
+        val presetCard = Ui.card(this)
+        val presets = McpConfigStore.presets()
+        presets.forEachIndexed { i, p ->
+            presetCard.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                isClickable = true
+                setOnClickListener { showEditDialog(-1, p) }
+                Ui.press(this)
+                addView(Ui.iconBadge(this@McpConfigActivity, p.name, p.url.hashCode()))
+                addView(LinearLayout(this@McpConfigActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        setMargins(dp(12), 0, dp(8), 0)
+                    }
+                    addView(Ui.itemTitle(this@McpConfigActivity, p.name))
+                    addView(Ui.itemSub(this@McpConfigActivity, p.desc))
+                })
+                addView(Ui.arrow(this@McpConfigActivity))
+            })
+            if (i < presets.size - 1) presetCard.addView(Ui.divider(this))
+        }
+        content.addView(presetCard)
+
+        content.addView(TextView(this).apply {
+            text = getString(R.string.mcp_03) + getString(R.string.mcp_04) + "\n\n" +
+                getString(R.string.mcp_33) + "\n" + getString(R.string.mcp_34)
             textSize = 12f
             setTextColor(Ui.SUB)
             setPadding(dp(4), dp(10), dp(4), dp(4))
@@ -108,9 +139,14 @@ class McpConfigActivity : Activity() {
         configList.addView(card)
     }
 
-    private fun showEditDialog(index: Int) {
+    /** preset 非空时用预置模板预填名称/地址(点预置项进来的路径) */
+    private fun showEditDialog(index: Int, preset: McpConfigStore.McpPreset? = null) {
         val isEdit = index >= 0
-        val cfg = if (isEdit) servers[index] else McpConfigStore.McpServer("", "", null)
+        val cfg = when {
+            isEdit -> servers[index]
+            preset != null -> McpConfigStore.McpServer(preset.name, preset.url, null)
+            else -> McpConfigStore.McpServer("", "", null)
+        }
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -172,6 +208,38 @@ class McpConfigActivity : Activity() {
             marginStart = dp(8)
         })
         bottom.addView(btnRow, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        // 编辑态才给删除入口; 删除会移除该服务的全部工具, 需二次确认
+        if (isEdit) {
+            bottom.addView(Ui.dangerBtn(this, getString(R.string.mcp_35)) { confirmDelete(index, dlg) },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(10)
+                })
+        }
+        bottom.addView(Ui.dialogCancelBtn(this, getString(R.string.mcp_20)) { dlg.dismiss() }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+        dlg.show()
+    }
+
+    /** 删除服务: 二次确认后落盘并清缓存(不可撤销) */
+    private fun confirmDelete(index: Int, parent: android.app.Dialog) {
+        val name = servers.getOrNull(index)?.name ?: return
+        val (dlg, content, bottom) = Ui.dialogFixed(this, getString(R.string.mcp_35), 0.5)
+        content.addView(Ui.dialogText(this, getString(R.string.mcp_37, name)))
+        bottom.addView(Ui.dangerBtn(this, getString(R.string.mcp_38)) {
+            servers.removeAt(index)
+            McpConfigStore.save(this, servers)
+            McpClientManager.clearCache()
+            refreshList()
+            dlg.dismiss()
+            parent.dismiss()
+            Toast.makeText(this, getString(R.string.mcp_39), Toast.LENGTH_SHORT).show()
+        }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
         })

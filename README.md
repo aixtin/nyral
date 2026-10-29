@@ -118,6 +118,12 @@ Nyral is an open-source personal agent for Android: LLM chat, long-term local me
 </details>
 
 
+**MCP (Model Context Protocol)**
+- Client: connect any Streamable HTTP MCP server (protocol `2025-06-18`, `Authorization: Bearer`); 4 presets (DeepWiki / Context7 / Microsoft Learn / GitHub), test-before-save, delete with confirmation
+- Token-friendly: top 4 tools stay resident, the rest are indexed and pulled in on demand via the built-in `tool_detail`
+- Server: Nyral itself is a read-only MCP server (`/mcp` on the debug port) exposing `phone_status` / `phone_memory_search` / `phone_screen`, so a desktop agent can query the phone
+- Loopback / LAN only, token-authenticated, no cloud relay — see [docs/MCP.md](docs/MCP.md)
+
 **Security**
 - Secondary confirmation for dangerous operations: confirm-then-execute; same params exempted for 5 minutes; rejection stops immediately with a receipt; timeout auto-rejects; full audit trail (allow/deny/timeout) persisted
 - SSRF protection (redirect-target validation for web_fetch/web_download) + log redaction (non-2xx API response bodies and SSH private-key contents never logged in plaintext)

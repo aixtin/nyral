@@ -441,6 +441,13 @@
     <string name="mcp_18">名称/地址必填</string>
     <string name="mcp_19">已保存, 下次对话生效</string>
     <string name="mcp_20">取消</string>
+    <string name="mcp_32">预置服务 · 点条目自动填好地址</string>
+    <string name="mcp_33">反向调用(实验): 在「设置 → 调试服务」开启后, 桌面端可把手机本身当作 MCP 服务接入。</string>
+    <string name="mcp_34">地址 http://手机IP:8765/mcp · Token 即调试服务页那个, 通过 Authorization: Bearer 或 X-Auth-Token 传递。仅暴露只读工具: 设备状态、本地记忆检索、当前界面截图。</string>
+    <string name="mcp_35">删除此服务</string>
+    <string name="mcp_37">确定删除「%1$s」？该服务的全部工具会从对话中移除。</string>
+    <string name="mcp_38">删除</string>
+    <string name="mcp_39">已删除</string>
     <string name="about_01">关于</string>
     <string name="about_02">本地智能体</string>
     <string name="about_03">喜欢散狗粮</string>

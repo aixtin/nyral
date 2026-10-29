@@ -118,6 +118,12 @@ Nyral 是一款运行在 Android 上的开源个人智能体（Agent）：把大
 </details>
 
 
+**MCP（模型上下文协议）**
+- 客户端：接任意 Streamable HTTP MCP 服务（协议 `2025-06-18`，`Authorization: Bearer`）；内置 4 个预置（DeepWiki / Context7 / Microsoft Learn / GitHub），保存前可测试，删除需二次确认
+- 不烧上下文：前 4 个工具常驻，其余只给索引，由内置 `tool_detail` 按需展开
+- 服务端：Nyral 自身也是只读 MCP Server（调试端口的 `/mcp`），暴露 `phone_status` / `phone_memory_search` / `phone_screen`，桌面端 Agent 可反过来查手机
+- 仅本机/局域网，Token 鉴权，无云端中转 —— 详见 [docs/MCP.md](docs/MCP.md)
+
 **安全**
 - 危险操作二次确认：先确认后执行，同参数 5 分钟内免重复确认，拒绝立即停止并回执，超时自动拒绝；操作审计（允许/拒绝/超时）落库可追踪
 - SSRF 拦截（web_fetch/web_download 重定向目标校验）+ 日志脱敏（API 非 2xx 响应体、SSH 私钥内容不落明文日志）

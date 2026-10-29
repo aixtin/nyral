@@ -246,6 +246,8 @@ object DebugServer {
                         val v = line.substring(ci + 1).trim()
                         if (k == "content-length") contentLength = v.toIntOrNull() ?: 0
                         if (k == "x-auth-token") authToken = v
+                        // 兼容 MCP 客户端惯例的 Authorization: Bearer <token>, 与 X-Auth-Token 等价
+                        if (k == "authorization" && v.startsWith("Bearer ", ignoreCase = true)) authToken = v.substring(7).trim()
                         if (k == "connection") clientKeepAlive = v.equals("keep-alive", ignoreCase = true)
                     }
                 }
@@ -283,6 +285,17 @@ object DebugServer {
                     method == "POST" && path == "/v1/key" -> key(c, out, body)
                     method == "POST" && path == "/v1/input" -> inputText(c, out, body)
                     method == "GET" && path == "/v1/ping" -> writeJson(out, 200, JSONObject().put("pong", true).put("time", System.currentTimeMillis()), reuse)
+                    // 手机端 MCP Server(只读): 桌面 MCP 客户端反向调用手机能力
+                    method == "POST" && path == McpServer.PATH -> {
+                        val resp = McpServer.handle(c, body)
+                        // 通知类消息无响应体, 回 202 满足 2xx 语义
+                        if (resp != null) writeJson(out, 200, resp, false)
+                        else writeJson(out, 202, JSONObject().put("accepted", true), false)
+                        keepAlive = false
+                    }
+                    method == "GET" && path == McpServer.PATH -> writeJson(out, 200, JSONObject()
+                        .put("server", "nyral-phone").put("transport", "http-jsonrpc")
+                        .put("protocol", "2025-06-18").put("tools", 3), reuse)
                     // 浏览器页调试(完整闭环: 状态快照 / open / close / status / think / scan / highlight / click / type)
                     method == "GET" && path == "/v1/browser" -> writeJson(out, 200, browserJson(), reuse)
                     method == "POST" && path == "/v1/browser/open" -> browserOpen(out, body)
@@ -362,7 +375,8 @@ object DebugServer {
     }
 
     // ================= /v1/state =================
-    private fun stateJson(c: Context): JSONObject {
+    /** 会话/模型/记忆状态快照; 同时供 MCP Server(phone_status) 复用 */
+    fun stateJson(c: Context): JSONObject {
         val o = JSONObject()
         try {
             val m = JSONObject()
@@ -554,7 +568,8 @@ object DebugServer {
     }
 
     /** /v1/screen: 截当前 Activity DecorView 为 PNG(base64), 云端可直接看图 */
-    private fun screenJson(c: Context): JSONObject {
+    /** 截取当前界面 PNG; 同时供 MCP Server(phone_screen) 复用 */
+    fun screenJson(c: Context): JSONObject {
         val result = JSONObject()
         val act = main
         if (act == null) return result.put("error", "MainActivity not alive")

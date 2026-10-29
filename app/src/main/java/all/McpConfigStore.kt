@@ -16,6 +16,24 @@ object McpConfigStore {
         val token: String? = null
     )
 
+    /**
+     * 预置服务模板: 免除手写地址与协议细节。
+     * 全部为 2026-10-29 实测可 initialize + tools/list 成功的 Streamable HTTP 端点。
+     */
+    data class McpPreset(
+        val name: String,
+        val url: String,
+        val desc: String,
+        val needToken: Boolean = false
+    )
+
+    fun presets(): List<McpPreset> = listOf(
+        McpPreset("DeepWiki", "https://mcp.deepwiki.com/mcp", "GitHub 仓库文档问答 · 免鉴权"),
+        McpPreset("Context7", "https://mcp.context7.com/mcp", "库/框架最新文档与示例 · 免鉴权"),
+        McpPreset("Microsoft Learn", "https://learn.microsoft.com/api/mcp", "微软官方文档检索 · 免鉴权"),
+        McpPreset("GitHub", "https://api.githubcopilot.com/mcp/", "仓库/Issue/PR · 需填 PAT", true)
+    )
+
     private const val PREFS = "mcp_configs"
 
     fun load(context: Context): List<McpServer> {

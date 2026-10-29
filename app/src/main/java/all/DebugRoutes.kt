@@ -7,6 +7,14 @@ package io.github.aixtin.nyral
  */
 object DebugRoutes {
 
+    /** 从单个请求头解析鉴权 token(与 DebugServer.handle 一致): X-Auth-Token 直取, 兼容 Authorization: Bearer */
+    fun authTokenOf(name: String, value: String): String? = when (name.lowercase()) {
+        "x-auth-token" -> value
+        "authorization" -> if (value.startsWith("Bearer ", ignoreCase = true)) value.substring(7).trim() else null
+        else -> null
+    }
+
+
     /** 请求行路径规范化: 剥离 ?query, 返回 (path, query); 无 query 时 query 为空串 */
     data class PathInfo(val path: String, val query: String)
 
@@ -28,6 +36,8 @@ object DebugRoutes {
         method == "POST" && path == "/v1/key" -> "POST /v1/key"
         method == "POST" && path == "/v1/input" -> "POST /v1/input"
         method == "GET" && path == "/v1/ping" -> "GET /v1/ping"
+        method == "POST" && path == McpServer.PATH -> "POST /mcp"
+        method == "GET" && path == McpServer.PATH -> "GET /mcp"
         method == "GET" && path == "/v1/browser" -> "GET /v1/browser"
         method == "POST" && path == "/v1/browser/open" -> "POST /v1/browser/open"
         method == "POST" && path == "/v1/browser/close" -> "POST /v1/browser/close"
