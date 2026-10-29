@@ -95,22 +95,14 @@ jobs:
             adb forward tcp:8765 tcp:8765
             # 就绪探测改为真实 HTTP 请求: 软模拟冷启动 DebugServer init 可达 60s+,
             # 纯 TCP connect 只能验证 adb forward 宿主侧端口(假阳性), 需等 /v1/state 200
-            echo "== 3.5 等待 DebugServer 真实就绪 (HTTP 200, 最长 180s) =="
+            echo "== 3.5 等待 DebugServer 真实就绪 (HTTP 200, 最长 300s) =="
             TOKEN="droid-nightly-$GITHUB_RUN_ID"
             READY=0
-            for i in $(seq 1 180); do
-              python3 - "$TOKEN" <<'PYEOF' 2>/dev/null && { READY=1; echo "DebugServer 就绪 (${i}s)"; break; }
-import sys, urllib.request
-req = urllib.request.Request("http://127.0.0.1:8765/v1/state", headers={"X-Auth-Token": sys.argv[1]})
-try:
-    with urllib.request.urlopen(req, timeout=3) as r:
-        sys.exit(0 if r.status == 200 else 1)
-except Exception:
-    sys.exit(1)
-PYEOF
+            for i in $(seq 1 300); do
+              python3 -c 'import sys,urllib.request as u; u.urlopen(u.Request("http://127.0.0.1:8765/v1/state", headers={"X-Auth-Token": sys.argv[1]}), timeout=3)' "$TOKEN" 2>/dev/null && { READY=1; echo "DebugServer 就绪 (${i}s)"; break; }
               sleep 1
             done
-            if [ "$READY" != "1" ]; then echo "::error::DebugServer 180s 内未就绪"; adb logcat -d -s Nyral | tail -30; exit 1; fi
+            if [ "$READY" != "1" ]; then echo "::error::DebugServer 300s 内未就绪"; adb logcat -d -s Nyral | tail -30; exit 1; fi
             echo "== 3.6 等待系统组件稳定 (软模拟易崩, 避免启动高峰撞测试) =="
             sleep 10
 
