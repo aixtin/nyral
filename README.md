@@ -31,7 +31,15 @@ AIGC:
 
 </div>
 
-<p align="center"><img src="docs/demo-chat.gif" width="300" alt="Nyral chat and tool-call demo"></p>
+<p align="center"><img src="docs/screen-home.jpg" width="420" alt="Nyral home screen"></p>
+
+<p align="center">
+  <img src="docs/demo-chat.gif" width="238" alt="Nyral chat and tool-call demo">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/demo-sidebar.gif" width="238" alt="Sidebar: sessions and tasks in one place">
+</p>
+
+<p align="center"><sub>Left: chat &amp; tool calls &nbsp;|&nbsp; Right: sidebar — sessions, tasks and safe mode in one place</sub></p>
 
 
 ---
@@ -47,10 +55,6 @@ AIGC:
 | **21 built-in tools** | Web search/fetch, SSH with jump hosts, local shell, file read/write, video frame extraction, accessibility control of other apps |
 | **Built-in agent browser** | The agent opens pages, clicks, fills forms and reads them; captchas are handed back to you in one tap |
 | **Any model, your key** | MiMo / DeepSeek / GLM / any OpenAI-compatible endpoint, switchable per chat |
-
-<p align="center"><img src="docs/demo-sidebar.gif" width="300" alt="Sidebar: sessions and tasks in one place"></p>
-
-<p align="center"><sub>Sidebar: conversations, tasks and safe mode in one place</sub></p>
 
 ## Quick Start
 

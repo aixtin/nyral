@@ -31,7 +31,15 @@ AIGC:
 
 </div>
 
-<p align="center"><img src="docs/demo-chat.gif" width="300" alt="Nyral 对话与工具调用演示"></p>
+<p align="center"><img src="docs/screen-home.jpg" width="420" alt="Nyral 主界面"></p>
+
+<p align="center">
+  <img src="docs/demo-chat.gif" width="238" alt="Nyral 对话与工具调用演示">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/demo-sidebar.gif" width="238" alt="侧边栏：会话与任务集中管理">
+</p>
+
+<p align="center"><sub>左：对话与工具调用 &nbsp;｜&nbsp; 右：侧边栏，会话 / 任务 / 安全模式一处管理</sub></p>
 
 
 ---
@@ -47,10 +55,6 @@ AIGC:
 | **21 个内置工具** | 联网搜索与抓取、SSH 远程执行（支持跳板机）、本机 Shell、本地文件读写、视频抽帧、无障碍操作第三方 App |
 | **自研 Agent 浏览器** | AI 自己开网页、点按钮、填表单、读页面，遇到验证码一键交还给你 |
 | **多模型任选** | MiMo / DeepSeek / GLM / 任意 OpenAI 兼容端点，可按对话切换，Key 自己拿着 |
-
-<p align="center"><img src="docs/demo-sidebar.gif" width="300" alt="侧边栏：会话与任务集中管理"></p>
-
-<p align="center"><sub>侧边栏：会话、任务、安全模式一处管理</sub></p>
 
 ## 五分钟上手
 
