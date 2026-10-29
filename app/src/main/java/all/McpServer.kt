@@ -83,7 +83,7 @@ object McpServer {
                     put("type", "object")
                     put("properties", JSONObject()
                         .put("id", JSONObject().put("type", "string")
-                            .put("description", "体检项 id: battery / storage / crash / net / thermal / rootenv"))
+                            .put("description", "体检项 id: battery / storage / crash / appcrash / net / thermal / rootenv"))
                         .put("all", JSONObject().put("type", "boolean")
                             .put("description", "为 true 时采集全部体检项(特权不足的项会返回跳过原因)")))
                     put("required", JSONArray())

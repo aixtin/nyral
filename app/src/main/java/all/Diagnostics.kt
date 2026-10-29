@@ -12,12 +12,15 @@ import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.StatFs
 import android.os.storage.StorageManager
 import rikka.shizuku.Shizuku
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -51,6 +54,8 @@ object Diagnostics {
         Item("storage", "存储占用", "数据分区容量 · 可用空间 · 本应用占用", 0),
         Item("crash", "崩溃与异常退出", "本应用近期崩溃 / ANR 记录", 0),
         Item("net", "网络状态", "链路类型 · 计费属性 · DNS 配置项数", 0),
+        Item("appcrash", "其他应用崩溃", "全机应用近期崩溃 / ANR / 被杀记录", 1),
+        Item("partitions", "分区与挂载", "各挂载点容量 · 剩余 · 文件系统", 1),
         Item("thermal", "温度与降频", "各 thermal zone 实时读数", 1),
         Item("rootenv", "Root 环境", "su 可用性 · 模块数量 · SELinux 模式", 2)
     )
@@ -123,6 +128,8 @@ object Diagnostics {
                 "storage" -> storage(c)
                 "crash" -> crash(c)
                 "net" -> net(c)
+                "appcrash" -> appCrash(c)
+                "partitions" -> partitions(c)
                 "thermal" -> thermal(c)
                 else -> rootEnv(c)
             }
@@ -351,6 +358,114 @@ object Diagnostics {
         )
     }
 
+    // ---------------- L1: 分区与挂载 ----------------
+
+    /** 挂载点容量只读快照(df -h), 用于观察 /data、/storage/emulated 等分区余量。 */
+    private fun partitions(c: Context): Result {
+        val raw = Sh.exec("df -h 2>&1", 15000L)
+            ?: return Result("partitions", "分区与挂载", 1, false, "未采集",
+                error = Sh.lastError ?: "系统级通道调用失败", hint = "确认 Shizuku 已运行并已授权本应用。")
+        val want = listOf("/data", "/storage/emulated", "/cache", "/metadata", "/")
+        val lines = mutableListOf<String>()
+        for (ln in raw.lines()) {
+            val t = ln.trim()
+            if (t.isEmpty() || !t.startsWith("/")) continue
+            val col = t.split(Regex("\\s+"))
+            if (col.size < 6) continue
+            // Filesystem Size Used Avail Use% Mounted
+            val mounted = col[5]
+            val hit = want.any { w ->
+                if (w == "/") mounted == "/" else mounted == w || mounted.startsWith("$w/")
+            }
+            if (!hit) continue
+            lines += mounted + " | 总 " + col[1] + " | 已用 " + col[2] + " | 可用 " + col[3] + " | " + col[4]
+        }
+        if (lines.isEmpty()) {
+            return Result("partitions", "分区与挂载", 1, false, "未采集",
+                error = "df 输出中没有可识别的挂载点",
+                hint = "部分机型 df 输出格式不同。")
+        }
+        return Result(
+            id = "partitions", title = "分区与挂载", level = 1,
+            ok = true, verdict = lines.size.toString() + " 个主要分区可读",
+            lines = lines.take(8),
+            hint = "/data 使用率超过 90% 时系统可能变慢或无法安装应用。"
+        )
+    }
+
+    // ---------------- L1: 其他应用崩溃 ----------------
+
+    /**
+     * 全机应用异常退出记录。数据源为 ActivityManager 的 exit-info(需 shell 级),
+     * 只读聚合, 不输出包名以外的用户数据。
+     */
+    private fun appCrash(c: Context): Result {
+        val raw = Sh.exec(
+            "dumpsys activity exit-info 2>&1 | grep -E '^  package:|timestamp=|reason='",
+            20000L
+        ) ?: return Result("appcrash", "其他应用崩溃", 1, false, "未采集",
+                error = Sh.lastError ?: "系统级通道调用失败", hint = "确认 Shizuku 已运行并已授权本应用。")
+
+        var pkg = ""
+        var ts = ""
+        var scanned = 0
+        val abnormal = mutableListOf<Pair<String, String>>()
+        for (ln in raw.lines()) {
+            val t = ln.trim()
+            if (t.startsWith("package:")) {
+                pkg = t.substringAfter("package:").trim()
+                continue
+            }
+            if (t.startsWith("timestamp=")) {
+                ts = t.removePrefix("timestamp=").trim().take(16)
+                continue
+            }
+            val ri = t.indexOf("reason=")
+            if (ri < 0) continue
+            scanned++
+            val reason = t.substring(ri + 7).trim().substringBefore(" ")
+                .toIntOrNull() ?: -1
+            val proc = t.substringAfter("process=", "").substringBefore(" ").trim()
+            val bad = reason == 4 || reason == 5 || reason == 6 || reason == 9
+            if (!bad) continue
+            val name = when (reason) {
+                4 -> "崩溃"
+                5 -> "Native 崩溃"
+                6 -> "ANR 无响应"
+                9 -> "资源占用过高被杀"
+                else -> "异常($reason)"
+            }
+            abnormal += ts to (pkg + (if (proc.isNotBlank() && proc != pkg) " [$proc]" else "") + "  " + name)
+        }
+
+        if (scanned == 0) {
+            val peek = raw.lines().map { it.trim() }.filter { it.isNotBlank() }.take(2).joinToString(" / ")
+            return Result("appcrash", "其他应用崩溃", 1, false, "未采集",
+                error = "exit-info 无可解析记录: " + (peek.ifBlank { "空输出" }).take(160),
+                hint = "部分机型默认关闭进程退出信息持久化。")
+        }
+
+        val lines = mutableListOf<String>()
+        lines += "扫描退出记录: " + scanned + " 条"
+        lines += "异常退出: " + abnormal.size + " 条"
+        val sorted = abnormal.sortedByDescending { it.first }
+        if (sorted.isEmpty()) {
+            lines += "最近没有应用崩溃或 ANR"
+        } else {
+            sorted.take(6).forEach { lines += it.first + "  " + it.second }
+            if (sorted.size > 6) lines += "其余 " + (sorted.size - 6) + " 条略"
+        }
+        return Result(
+            id = "appcrash", title = "其他应用崩溃", level = 1,
+            ok = true,
+            verdict = if (abnormal.isEmpty()) "其他应用无异常退出" else abnormal.size.toString() + " 次应用异常退出",
+
+            lines = lines,
+            hint = if (abnormal.isEmpty()) "这是系统保留的近期退出记录; 更早的记录可能已被清理。"
+            else "频繁崩溃多为应用自身问题; 若集中在同一应用, 可尝试清数据或更新版本。"
+        )
+    }
+
     // ---------------- L1: 温度与降频 ----------------
 
     private fun thermal(c: Context): Result {
@@ -477,10 +592,23 @@ object Diagnostics {
 
         fun hasShizuku(): Boolean {
             if (shizukuOk >= 0) return shizukuOk == 1
-            val ok = try {
-                Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-            } catch (t: Throwable) {
-                false
+            val probe = {
+                try {
+                    Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+                } catch (t: Throwable) {
+                    false
+                }
+            }
+            // Shizuku 的 binder 只在主线程 attach, 后台线程直接查询会误判为未授权
+            val ok = if (Looper.myLooper() == Looper.getMainLooper()) {
+                probe()
+            } else {
+                val latch = CountDownLatch(1)
+                var r = false
+                val posted = Handler(Looper.getMainLooper()).post {
+                    try { r = probe() } finally { latch.countDown() }
+                }
+                if (posted && latch.await(3, TimeUnit.SECONDS)) r else false
             }
             shizukuOk = if (ok) 1 else 0
             return ok
