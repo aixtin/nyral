@@ -253,9 +253,9 @@ For model responses, the App sends your message content to the model service pro
 See [PRIVACY.md](PRIVACY.md) for details.
 
 
-## Maintainer
+## Development Collaboration
 
-This project is designed, implemented and maintained by [aixtin](https://github.com/aixtin).
+This project is designed and validated by aixtin, with implementation assisted by Marvis, an AI coding assistant. See [COLLABORATION.md](COLLABORATION.md) for the division of work.
 
 ## License
 

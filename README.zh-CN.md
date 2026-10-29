@@ -285,3 +285,4 @@ MPL-2.0（rhino）与 UnRAR license（junrar）的授权声明随依赖 jar 内�
 - 最新版本：v2.8.16（2026-10-29，versionCode 99）
 - 开发周期：2026-08-24 起，54 天完成主体（详见 [END.md](./END.md)）
 - 维护方式：个人项目、非商业维护；欢迎提 issue，但不保证排期
+- 协作方式：开发协作与分工见 [COLLABORATION.md](./COLLABORATION.md)
