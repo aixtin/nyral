@@ -2,12 +2,14 @@
 AIGC:
     Label: "1"
     ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_1e56268bd39811f19fe5525400638852
-    ReservedCode1: kKh5vsW3buRB2La8CkUPaBA7L5hlkVC32qvoeFUo+tXI200zvnwaV4q3A/Iw/HD0/ap4vdVnkyAnRh4kcWXxnlPxDsM4khoItTqF/XRWGHqIUxRxw8T80QcoZrwbWr7tf4pnyzd0eLOx8tk7KMYWyGJdr2JNtZeIlwYR8MT1RkV7UWKUDfmcB0St6PQ=
+    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_3d9b9783d39a11f1a97752540064ee0f
+    ReservedCode1: fLxKqip1G0P2KOQp5SUfto2mzj5VqfK0o18H/JFkeKAcooQtdqVMUDtBI1lHZCCu4Hd999t+VvWeHYeQFPskEMYYHhlKRLMeFSvVtfvserFKq4OIGtZUqNJ6r06opiRaorvRWf1qEjSwOydJMkhYjFYsKsagsjSO/1CFPuTKW+9iBi8HyvD42yCLqXU=
     ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_1e56268bd39811f19fe5525400638852
-    ReservedCode2: kKh5vsW3buRB2La8CkUPaBA7L5hlkVC32qvoeFUo+tXI200zvnwaV4q3A/Iw/HD0/ap4vdVnkyAnRh4kcWXxnlPxDsM4khoItTqF/XRWGHqIUxRxw8T80QcoZrwbWr7tf4pnyzd0eLOx8tk7KMYWyGJdr2JNtZeIlwYR8MT1RkV7UWKUDfmcB0St6PQ=
+    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_3d9b9783d39a11f1a97752540064ee0f
+    ReservedCode2: fLxKqip1G0P2KOQp5SUfto2mzj5VqfK0o18H/JFkeKAcooQtdqVMUDtBI1lHZCCu4Hd999t+VvWeHYeQFPskEMYYHhlKRLMeFSvVtfvserFKq4OIGtZUqNJ6r06opiRaorvRWf1qEjSwOydJMkhYjFYsKsagsjSO/1CFPuTKW+9iBi8HyvD42yCLqXU=
 ---
+
+
 
 
 
@@ -283,5 +285,3 @@ MPL-2.0（rhino）与 UnRAR license（junrar）的授权声明随依赖 jar 内�
 - 最新版本：v2.8.16（2026-10-29，versionCode 99）
 - 开发周期：2026-08-24 起，54 天完成主体（详见 [END.md](./END.md)）
 - 仓库现状：个人项目，长期 0 star、0 issue；欢迎提 issue，但不保证排期
-*（内容由AI生成，仅供参考）*
-*（内容由AI生成，仅供参考）*
