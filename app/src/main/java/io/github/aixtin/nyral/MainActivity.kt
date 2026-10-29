@@ -2402,7 +2402,7 @@ class MainActivity : Activity() {
         head.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_warn_triangle)
             setColorFilter(0xFFD32F2F.toInt())
-            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(Ui.SP2) }
+            layoutParams = LinearLayout.LayoutParams(dp(Ui.SP4), dp(Ui.SP4)).apply { rightMargin = dp(Ui.SP2) }
         })
         head.addView(TextView(this).apply {
             text = row.title ?: "安全确认"
@@ -2488,7 +2488,7 @@ class MainActivity : Activity() {
         head.addView(ImageView(this).apply {
             setImageResource(R.drawable.ic_warn_triangle)
             setColorFilter(Ui.DANGER)
-            layoutParams = LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(Ui.SP2) }
+            layoutParams = LinearLayout.LayoutParams(dp(Ui.SP4), dp(Ui.SP4)).apply { rightMargin = dp(Ui.SP2) }
         })
         head.addView(TextView(this).apply {
             text = getString(R.string.ma_error_card_title)
