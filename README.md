@@ -2,12 +2,14 @@
 AIGC:
     Label: "1"
     ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_ce8bbe27d39711f1a97752540064ee0f
-    ReservedCode1: 9wZrQdkrZX/5u9Qq1DyH9BU5dpd9vco80FrBQdDTNLJzavgHIUhFLMZbt7eGPxvQ+/I2ZRUulRdy9mJy3EEsEnHFREM6pcDvJ6zvVQvY4tFflWqoXyN9kNID7KXmETxkEaLHr1StHNipxzqfEwKjG9/eoLBLKYYB34AH4L0a4gjC53y0Lgrs+Hy0Q9I=
+    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_1edec516d39811f1a97752540064ee0f
+    ReservedCode1: AQufrd5FCZqYd0db9HWjqP7+9cT63JrusB9jE+OrCJBQfJFpvc1Yry0jlNjbrWWAa6A7+1/BF5m+R5aXbwOqfuTtTMgFvvwawC22HFaad26PmxLdqzJm/rK4nDEQnJVKBR8r2J366nY9tNxZa/if63I2mP7cdLkxgdDUSbObSMOBhiZ/C3rJa5NM0kc=
     ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_ce8bbe27d39711f1a97752540064ee0f
-    ReservedCode2: 9wZrQdkrZX/5u9Qq1DyH9BU5dpd9vco80FrBQdDTNLJzavgHIUhFLMZbt7eGPxvQ+/I2ZRUulRdy9mJy3EEsEnHFREM6pcDvJ6zvVQvY4tFflWqoXyN9kNID7KXmETxkEaLHr1StHNipxzqfEwKjG9/eoLBLKYYB34AH4L0a4gjC53y0Lgrs+Hy0Q9I=
+    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_1edec516d39811f1a97752540064ee0f
+    ReservedCode2: AQufrd5FCZqYd0db9HWjqP7+9cT63JrusB9jE+OrCJBQfJFpvc1Yry0jlNjbrWWAa6A7+1/BF5m+R5aXbwOqfuTtTMgFvvwawC22HFaad26PmxLdqzJm/rK4nDEQnJVKBR8r2J366nY9tNxZa/if63I2mP7cdLkxgdDUSbObSMOBhiZ/C3rJa5NM0kc=
 ---
+
+
 
 <div align="center">
 
@@ -27,10 +29,8 @@ AIGC:
 
 </div>
 
-<p align="center"><img src="docs/screen-home.jpg" width="330" alt="Nyral chat screen"></p>
+<p align="center"><img src="docs/demo-chat.gif" width="300" alt="Nyral chat and tool-call demo"></p>
 
-<!-- TODO(demo gif): add a portrait screen recording (720x1560, 3-6s) showing "ask → tool call → result".
-     Drop it at docs/demo.gif and insert above: <img src="docs/demo.gif" width="330" alt="Nyral tool call demo"> -->
 
 ---
 
@@ -45,6 +45,10 @@ AIGC:
 | **21 built-in tools** | Web search/fetch, SSH with jump hosts, local shell, file read/write, video frame extraction, accessibility control of other apps |
 | **Built-in agent browser** | The agent opens pages, clicks, fills forms and reads them; captchas are handed back to you in one tap |
 | **Any model, your key** | MiMo / DeepSeek / GLM / any OpenAI-compatible endpoint, switchable per chat |
+
+<p align="center"><img src="docs/demo-sidebar.gif" width="300" alt="Sidebar: sessions and tasks in one place"></p>
+
+<p align="center"><sub>Sidebar: conversations, tasks and safe mode in one place</sub></p>
 
 ## Quick Start
 
@@ -290,4 +294,5 @@ MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the ship
 - Latest: v2.8.16 (2026-10-29, versionCode 99)
 - Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
 - A personal project with 0 stars and 0 issues so far. Issues are welcome, schedules are not promised.
+*（内容由AI生成，仅供参考）*
 *（内容由AI生成，仅供参考）*

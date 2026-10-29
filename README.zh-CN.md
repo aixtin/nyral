@@ -2,12 +2,14 @@
 AIGC:
     Label: "1"
     ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_80a691cad39711f19fe5525400638852
-    ReservedCode1: lX1EUsqh+cXaG2ds+d9AixvHYYXAl/KUgW5++gW4h+RVQt4e74wKHcpX2SRMWWbf5IzJvOHa0rJz81SKca68uagfyzEA8KR2y2a/FBuxHahUlA0yY8Okt9tzOd14t6cdk+Oxn8srm/1IC9TT3FQApyXQ7yVLN7nAJj5DjP8PcL3OOVemNjNwOWyU9/Y=
+    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_1e56268bd39811f19fe5525400638852
+    ReservedCode1: kKh5vsW3buRB2La8CkUPaBA7L5hlkVC32qvoeFUo+tXI200zvnwaV4q3A/Iw/HD0/ap4vdVnkyAnRh4kcWXxnlPxDsM4khoItTqF/XRWGHqIUxRxw8T80QcoZrwbWr7tf4pnyzd0eLOx8tk7KMYWyGJdr2JNtZeIlwYR8MT1RkV7UWKUDfmcB0St6PQ=
     ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_80a691cad39711f19fe5525400638852
-    ReservedCode2: lX1EUsqh+cXaG2ds+d9AixvHYYXAl/KUgW5++gW4h+RVQt4e74wKHcpX2SRMWWbf5IzJvOHa0rJz81SKca68uagfyzEA8KR2y2a/FBuxHahUlA0yY8Okt9tzOd14t6cdk+Oxn8srm/1IC9TT3FQApyXQ7yVLN7nAJj5DjP8PcL3OOVemNjNwOWyU9/Y=
+    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_1e56268bd39811f19fe5525400638852
+    ReservedCode2: kKh5vsW3buRB2La8CkUPaBA7L5hlkVC32qvoeFUo+tXI200zvnwaV4q3A/Iw/HD0/ap4vdVnkyAnRh4kcWXxnlPxDsM4khoItTqF/XRWGHqIUxRxw8T80QcoZrwbWr7tf4pnyzd0eLOx8tk7KMYWyGJdr2JNtZeIlwYR8MT1RkV7UWKUDfmcB0St6PQ=
 ---
+
+
 
 <div align="center">
 
@@ -27,10 +29,8 @@ AIGC:
 
 </div>
 
-<p align="center"><img src="docs/screen-home.jpg" width="330" alt="Nyral 对话界面"></p>
+<p align="center"><img src="docs/demo-chat.gif" width="300" alt="Nyral 对话与工具调用演示"></p>
 
-<!-- TODO(动图)：再补一张真机竖屏录屏（720x1560、3-6 秒）展示「提问 → 工具调用 → 结果」，
-     放 docs/demo.gif 后在上方加：<img src="docs/demo.gif" width="330" alt="Nyral 工具调用演示"> -->
 
 ---
 
@@ -45,6 +45,10 @@ AIGC:
 | **21 个内置工具** | 联网搜索与抓取、SSH 远程执行（支持跳板机）、本机 Shell、本地文件读写、视频抽帧、无障碍操作第三方 App |
 | **自研 Agent 浏览器** | AI 自己开网页、点按钮、填表单、读页面，遇到验证码一键交还给你 |
 | **多模型任选** | MiMo / DeepSeek / GLM / 任意 OpenAI 兼容端点，可按对话切换，Key 自己拿着 |
+
+<p align="center"><img src="docs/demo-sidebar.gif" width="300" alt="侧边栏：会话与任务集中管理"></p>
+
+<p align="center"><sub>侧边栏：会话、任务、安全模式一处管理</sub></p>
 
 ## 五分钟上手
 
@@ -279,4 +283,5 @@ MPL-2.0（rhino）与 UnRAR license（junrar）的授权声明随依赖 jar 内�
 - 最新版本：v2.8.16（2026-10-29，versionCode 99）
 - 开发周期：2026-08-24 起，54 天完成主体（详见 [END.md](./END.md)）
 - 仓库现状：个人项目，长期 0 star、0 issue；欢迎提 issue，但不保证排期
+*（内容由AI生成，仅供参考）*
 *（内容由AI生成，仅供参考）*
