@@ -27,9 +27,10 @@ AIGC:
 
 </div>
 
-<!-- TODO(首屏图)：放一张真机竖屏动图（建议 720x1560、3-6 秒），展示「提问 → 工具调用 → 结果」。
-     文件放 docs/demo.gif 后把下一行取消注释：
-     ![Nyral 真机演示](docs/demo.gif) -->
+<p align="center"><img src="docs/screen-home.jpg" width="330" alt="Nyral 对话界面"></p>
+
+<!-- TODO(动图)：再补一张真机竖屏录屏（720x1560、3-6 秒）展示「提问 → 工具调用 → 结果」，
+     放 docs/demo.gif 后在上方加：<img src="docs/demo.gif" width="330" alt="Nyral 工具调用演示"> -->
 
 ---
 

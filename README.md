@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_ce8bbe27d39711f1a97752540064ee0f
+    ReservedCode1: 9wZrQdkrZX/5u9Qq1DyH9BU5dpd9vco80FrBQdDTNLJzavgHIUhFLMZbt7eGPxvQ+/I2ZRUulRdy9mJy3EEsEnHFREM6pcDvJ6zvVQvY4tFflWqoXyN9kNID7KXmETxkEaLHr1StHNipxzqfEwKjG9/eoLBLKYYB34AH4L0a4gjC53y0Lgrs+Hy0Q9I=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_ce8bbe27d39711f1a97752540064ee0f
+    ReservedCode2: 9wZrQdkrZX/5u9Qq1DyH9BU5dpd9vco80FrBQdDTNLJzavgHIUhFLMZbt7eGPxvQ+/I2ZRUulRdy9mJy3EEsEnHFREM6pcDvJ6zvVQvY4tFflWqoXyN9kNID7KXmETxkEaLHr1StHNipxzqfEwKjG9/eoLBLKYYB34AH4L0a4gjC53y0Lgrs+Hy0Q9I=
+---
+
 <div align="center">
 
 # Nyral
@@ -16,9 +27,10 @@
 
 </div>
 
-<!-- TODO(hero image): add a portrait screen recording (720x1560, 3-6s) showing "ask → tool call → result".
-     Drop it at docs/demo.gif and uncomment the next line:
-     ![Nyral demo](docs/demo.gif) -->
+<p align="center"><img src="docs/screen-home.jpg" width="330" alt="Nyral chat screen"></p>
+
+<!-- TODO(demo gif): add a portrait screen recording (720x1560, 3-6s) showing "ask → tool call → result".
+     Drop it at docs/demo.gif and insert above: <img src="docs/demo.gif" width="330" alt="Nyral tool call demo"> -->
 
 ---
 
@@ -278,3 +290,4 @@ MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the ship
 - Latest: v2.8.16 (2026-10-29, versionCode 99)
 - Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
 - A personal project with 0 stars and 0 issues so far. Issues are welcome, schedules are not promised.
+*（内容由AI生成，仅供参考）*
