@@ -151,8 +151,18 @@ class NyralApp : Application() {
         mainHandler.post { lastTick.set(SystemClock.uptimeMillis()) }
         Thread {
             while (true) {
+                // 2026-10-29 整机冻结误报过滤: 看门狗自己的 sleep 若被拖长(设备挂起/CPU 深度休眠),
+                // 说明是"整机暂停"而非"主线程阻塞", 此时 lastTick 的陈旧值会放大成几十秒的假 idle,
+                // 直接重置计时跳过, 不采样
+                val tickStart = SystemClock.uptimeMillis()
                 Thread.sleep(tickMs)
-                val idle = SystemClock.uptimeMillis() - lastTick.get()
+                val nowMs = SystemClock.uptimeMillis()
+                if (nowMs - tickStart > tickMs + 1500L) {
+                    anrInProgress.set(false)
+                    mainHandler.post { lastTick.set(SystemClock.uptimeMillis()) }
+                    continue
+                }
+                val idle = nowMs - lastTick.get()
                 if (idle > thresholdMs) {
                     // 2026-10-20 息屏冻结误报过滤: 非交互态(息屏/Doze 冻结)主线程停摆不算卡死,
                     // 直接重置计时跳过, 避免解冻后累计 idle 触发延迟误报
@@ -167,7 +177,9 @@ class NyralApp : Application() {
                         mainHandler.post { lastTick.set(SystemClock.uptimeMillis()); probeHandled.set(true) }
                         Thread.sleep(600L)
                         val stillBlocked = !probeHandled.get()
-                        writeAnrFile(mainThread, idle, stillBlocked)
+                        // 2026-10-29 只落盘"命中现场"的卡死: 探测已恢复说明主线程此刻空闲,
+                        // 栈里全是 nativePollOnce/Unsafe.park, 属于无意义的误报, 丢弃
+                        if (stillBlocked) writeAnrFile(mainThread, idle, true)
                     }
                 } else {
                     anrInProgress.set(false)
