@@ -216,6 +216,11 @@
             android:label="权限管理"
             android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
+            android:name=".DiagnosticsActivity"
+            android:exported="false"
+            android:label="手机体检"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
+        <activity
             android:name=".FirstRunSetupActivity"
             android:exported="false"
             android:label="完成授权与设置"

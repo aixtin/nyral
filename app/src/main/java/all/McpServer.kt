@@ -72,6 +72,24 @@ object McpServer {
                 })
             })
             put(JSONObject().apply {
+                put("name", "phone_diag_list")
+                put("description", "列出手机只读体检项: 每项的 id、名称、说明与所需特权等级(0=公开API, 1=Shizuku, 2=root)。只读。")
+                put("inputSchema", noArg)
+            })
+            put(JSONObject().apply {
+                put("name", "phone_diag_run")
+                put("description", "执行手机只读体检并返回结构化诊断结果(结论 verdict + 明细 lines + 建议 hint)。全程只读: 不修改设置、不写文件、不执行可写命令。传 all=true 采集全部项。")
+                put("inputSchema", JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject()
+                        .put("id", JSONObject().put("type", "string")
+                            .put("description", "体检项 id: battery / storage / crash / net / thermal / rootenv"))
+                        .put("all", JSONObject().put("type", "boolean")
+                            .put("description", "为 true 时采集全部体检项(特权不足的项会返回跳过原因)")))
+                    put("required", JSONArray())
+                })
+            })
+            put(JSONObject().apply {
                 put("name", "phone_screen")
                 put("description", "截取手机当前界面, 返回 PNG 图像。只读。注意: 画面可能包含敏感信息, 仅在你确认安全的环境下调用。")
                 put("inputSchema", noArg)
@@ -100,6 +118,48 @@ object McpServer {
                     return ok(id, errContent("检索失败: ${e.message}"))
                 }
                 ok(id, okContent(textContent(r)))
+            }
+            "phone_diag_list" -> {
+                val arr = JSONArray()
+                for (it in Diagnostics.ITEMS) {
+                    arr.put(JSONObject().put("id", it.id).put("title", it.title)
+                        .put("desc", it.desc).put("level", it.level))
+                }
+                val lv = Diagnostics.currentLevel()
+                ok(id, okContent(textContent(JSONObject()
+                    .put("privilege", lv)
+                    .put("privilegeName", Diagnostics.levelName(lv))
+                    .put("items", arr)
+                    .toString(2))))
+            }
+            "phone_diag_run" -> {
+                val all = args.optBoolean("all", false)
+                val results: List<Diagnostics.Result> = if (all) {
+                    Diagnostics.runAll(c)
+                } else {
+                    val one = args.optString("id", "").trim()
+                    if (one.isEmpty()) return ok(id, errContent("缺少 id 参数; 或传 all=true 采集全部"))
+                    listOf(Diagnostics.run(c, one))
+                }
+                val arr = JSONArray()
+                for (r in results) {
+                    arr.put(JSONObject().apply {
+                        put("id", r.id)
+                        put("title", r.title)
+                        put("level", r.level)
+                        put("ok", r.ok)
+                        put("verdict", r.verdict)
+                        put("lines", JSONArray(r.lines))
+                        put("hint", r.hint)
+                        put("error", r.error)
+                    })
+                }
+                val lv = Diagnostics.currentLevel()
+                ok(id, okContent(textContent(JSONObject()
+                    .put("privilege", lv)
+                    .put("privilegeName", Diagnostics.levelName(lv))
+                    .put("results", arr)
+                    .toString(2))))
             }
             "phone_screen" -> {
                 val s = DebugServer.screenJson(c)

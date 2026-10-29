@@ -194,7 +194,7 @@ class PermissionsActivity : Activity() {
             }
         }
         sumText?.apply {
-            text = if (total == 0) getString(R.string.perm_15) else getString(R.string.perm_16)
+            text = if (total == 0) getString(R.string.perm_15) else getString(R.string.perm_16, granted, total)
             setTextColor(if (granted == total) Ui.OK else Ui.DANGER)
         }
 

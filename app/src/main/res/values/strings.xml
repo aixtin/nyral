@@ -409,7 +409,7 @@
     <string name="perm_13">安装未知应用</string>
     <string name="perm_14">APP 内自更新安装</string>
     <string name="perm_15">全部权限已授权</string>
-    <string name="perm_16">已授权 $granted / $total</string>
+    <string name="perm_16">已授权 %1$d / %2$d</string>
     <string name="perm_17">无需</string>
     <string name="perm_18">已授权</string>
     <string name="perm_19">未授权</string>
