@@ -1308,7 +1308,8 @@ class MainActivity : Activity() {
 
         // 左侧抽屉: 遮罩 + 面板
         drawerMask = View(this).apply {
-            setBackgroundColor(Color.parseColor("#66000000"))
+            // 双卡并置(A 方案): 层次主要由形状(圆角卡片)承担, 遮罩只做 14% 轻压, 让下层主界面仍是一张可辨的卡片
+            setBackgroundColor(Color.parseColor("#24000000"))
             alpha = 0f
             visibility = View.GONE
             elevation = dp(8).toFloat()
@@ -1603,9 +1604,20 @@ class MainActivity : Activity() {
             root.setOnApplyWindowInsetsListener { v, insets ->
                 val sb = insets.getInsets(android.view.WindowInsets.Type.systemBars())
                 main.setPadding(0, sb.top, 0, sb.bottom)
-                // 抽屉悬浮于 root 上, 不参与 main 的 insets 派发, 需自行避开状态栏/导航栏,
-                // 否则 setDecorFitsSystemWindows(false) 下顶部标题栏被状态栏遮挡、底部被导航栏顶低
-                if (::drawerPanel.isInitialized) drawerPanel.setPadding(0, sb.top, 0, sb.bottom)
+                // 抽屉悬浮于 root 上, 不参与 main 的 insets 派发, 需自行避开状态栏/导航栏。
+                // 双卡并置(A 方案): 面板作为悬浮卡片, 上下各再留 8dp 露底 —— 与主界面缩成的卡片并列,
+                // 而不是一整块白墙从屏幕顶撑到底(旧版直角压在主界面上的观感来源)
+                if (::drawerPanel.isInitialized) {
+                    val gap = dp(8)
+                    val t = sb.top + gap
+                    val b = sb.bottom + gap
+                    val dlp = drawerPanel.layoutParams as FrameLayout.LayoutParams
+                    if (dlp.topMargin != t || dlp.bottomMargin != b) {
+                        dlp.topMargin = t
+                        dlp.bottomMargin = b
+                        drawerPanel.layoutParams = dlp
+                    }
+                }
                 // 汉堡面板悬浮于 root 最顶层: 顶/底不设 padding, URL 底栏贴面板底边(用户要求无黑边)
                 // 表情抽屉同样贴底避开导航栏(顶起式, 同键盘)
                 val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
@@ -4548,6 +4560,8 @@ class MainActivity : Activity() {
         val from = mainSinkP
         val to = if (open) 1f else 0f
         if (open) drawerMask.visibility = View.VISIBLE
+        // 主界面缩放下沉期间缓存为硬件层: 避免逐帧重绘(闪白/掉帧), 动画结束归还
+        main.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         var cancelled = false
         drawerAnimator = ValueAnimator.ofFloat(from, to).apply {
             duration = dur
@@ -4567,6 +4581,7 @@ class MainActivity : Activity() {
                         drawerMask.visibility = View.GONE
                     }
                     drawerAnimator = null
+                    main.setLayerType(View.LAYER_TYPE_NONE, null)
                     // 左抽屉展开到位轻震(与汉堡联动同款, 收起不震, 尊重系统触觉开关)
                     if (open && !cancelled) {
                         root.performHapticFeedback(

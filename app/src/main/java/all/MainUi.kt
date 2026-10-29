@@ -6,6 +6,8 @@ import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Outline
+import android.graphics.Path
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -13,6 +15,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.Window
 import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
@@ -33,7 +36,31 @@ import android.widget.Toast
     internal fun MainActivity.buildDrawer() {
         drawerPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Ui.SURFACE)
+            // 双卡并置(A 方案): 面板自身是圆角卡片, 右缘两角 24dp, 左缘贴屏边保持直角。
+            // 展开时主界面同步缩为圆角卡片后退半层, 两者是"并置"而非"白板直角压在界面上"的遮挡关系
+            val r = dp(24).toFloat()
+            background = GradientDrawable().apply {
+                setColor(Ui.SURFACE)
+                cornerRadii = floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+            }
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    val w = view.width.toFloat()
+                    val h = view.height.toFloat()
+                    // 只圆右缘两角: 左缘贴屏边, 直角不可见
+                    val path = Path().apply {
+                        moveTo(0f, 0f)
+                        lineTo(w - r, 0f)
+                        quadTo(w, 0f, w, r)
+                        lineTo(w, h - r)
+                        quadTo(w, h, w - r, h)
+                        lineTo(0f, h)
+                        close()
+                    }
+                    outline.setConvexPath(path)
+                }
+            }
             translationX = -DRAWER_WIDTH.toFloat()
             elevation = dp(8).toFloat()
         }
@@ -1126,7 +1153,7 @@ import android.widget.Toast
 internal class DrawerDragController(private val act: MainActivity) {
     private companion object {
         const val EDGE_DP = 48          // 关闭态: 左边缘跟手响应区宽度(覆盖拇指肚起点; 该区已由 Activity 整块声明系统手势排除)
-        const val MAX_ALPHA = 0.4f      // 遮罩最大透明度(= #66000000 的 0.4)
+        const val MAX_ALPHA = 0.14f     // 遮罩最大透明度(= #24000000 的 14%, 层次交给圆角卡片形状)
         const val FLING_VX = 500f       // 吸附速度阈值(px/s)
         const val SNAP_FRAC = 0.5f      // 吸附位置阈值(开过半则吸附到开)
     }
@@ -1213,7 +1240,7 @@ internal class DrawerDragController(private val act: MainActivity) {
                 act.drawerPanel.translationX = trans
                 val frac = (trans + w) / w
                 act.drawerMask.visibility = View.VISIBLE
-                // 遮罩 #66000000(40%黑) 满显=0.4黑, 与点击开合/吸附最终态一致
+                // 遮罩 #24000000(14%黑) 满显=0.14黑, 与点击开合/吸附最终态一致
                 act.drawerMask.alpha = frac
                 act.setMainSink(frac)
             }
