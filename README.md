@@ -1,18 +1,53 @@
 <div align="center">
 
+# Nyral
+
+### An open-source personal agent that lives on your Android phone
+
+**Chat · on-device long-term memory · SSH remote ops · an agent that drives its own browser**
+
 [English](README.md) | [中文](README.zh-CN.md)
+
+![license](https://img.shields.io/badge/license-MIT-blue)
+![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
+![release](https://img.shields.io/badge/release-v2.8.16-brightgreen)
+
+[**Download APK**](../../releases/latest) ｜ [Quick start](#quick-start) ｜ [What it does](#what-it-does) ｜ [Project status](#project-status)
 
 </div>
 
+<!-- TODO(hero image): add a portrait screen recording (720x1560, 3-6s) showing "ask → tool call → result".
+     Drop it at docs/demo.gif and uncomment the next line:
+     ![Nyral demo](docs/demo.gif) -->
+
 ---
 
-# Nyral
+> **One thing to get out of the way: local-first does **not** mean on-device model.**
+> Nyral does not run a multi-GB LLM on your phone. Chats, memory and files stay in a local SQLite database; inference goes to the API key you provide (any OpenAI-compatible endpoint, cloud or self-hosted). No account, no telemetry.
 
-> **Completed (2026-10-16)** — the project concluded on October 16, 2026; later changes are just post-completion improvisation: no roadmap, no release schedule. The 54-day build retrospective: [END.md](./END.md).
+## What it does
 
-> Privacy-first · BYO model · Open source · No root · No account
+| Capability | Details |
+| --- | --- |
+| **On-device long-term memory** | bge-small ONNX embeddings + keyword recall over SQLite; remembers across sessions, text never leaves the phone |
+| **21 built-in tools** | Web search/fetch, SSH with jump hosts, local shell, file read/write, video frame extraction, accessibility control of other apps |
+| **Built-in agent browser** | The agent opens pages, clicks, fills forms and reads them; captchas are handed back to you in one tap |
+| **Any model, your key** | MiMo / DeepSeek / GLM / any OpenAI-compatible endpoint, switchable per chat |
+
+## Quick Start
+
+1. Install the APK, open Settings → Model Config, and enter the **Base URL + API Key** of any OpenAI-compatible endpoint (without this it cannot chat)
+2. (Optional) Add remote hosts in SSH Config: password or private key (ED25519 supported via the built-in BC), proxy jumps supported
+3. Start chatting; the AI calls tools on demand, with tool-call progress shown collapsed inside bubbles
+4. Long-term memory archives automatically; saying "remember xxx" archives immediately
+
+---
+
+## Overview
 
 Nyral is an open-source personal agent for Android: LLM chat, long-term local memory, SSH remote operations, web tools, and voice/attachment multimodality in a single app. Data stays on your device by default — no account, no behavioral tracking, no analytics or ad SDKs; model and tools are fully under your control, bring your own API key or self-host an endpoint.
+
+> Privacy-first · BYO model · Open source · No root · No account
 
 ## Key Features
 
@@ -85,13 +120,6 @@ git clone https://github.com/aixtin/nyral.git
 Requires JDK 17, Gradle 8.13, Android SDK 36. The repo ships `gradlew` (pinned to Gradle 8.13); a system Gradle 8.13 works too. `settings.gradle.kts` includes Aliyun mirror config for faster builds in mainland China — remove the `maven(...)` lines if you are elsewhere.
 
 > Release-signed builds: `./gradlew assembleRelease` (self-managed keystore read from `keystore.properties`; both keystore and properties are gitignored — prepare your own keys).
-
-## Quick Start
-
-1. Install the APK, open Settings → Model Config, and enter the Base URL + API Key of any OpenAI-compatible endpoint
-2. (Optional) Add remote hosts in SSH Config: password or private key (ED25519 supported via the built-in BC), proxy jumps supported
-3. Start chatting; the AI calls tools on demand, with tool-call progress shown collapsed inside bubbles
-4. Long-term memory archives automatically; saying "remember xxx" archives immediately
 
 ## Directory Layout
 
@@ -239,3 +267,14 @@ Runtime dependencies and their licenses (full license texts live in each compone
 | junit / org.json / hamcrest-core (test-only, not packaged) | 4.13.2 / 20231013 / 1.3 | EPL-2.0 / JSON License / BSD-3-Clause |
 
 MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the shipped jars; junrar is used for extraction only, never to build RAR-compatible compressors.
+
+
+---
+
+## Project status
+
+> **Completed (2026-10-16)** — the project concluded on October 16, 2026; later changes are just post-completion improvisation: no roadmap, no release schedule. The 54-day build retrospective: [END.md](./END.md).
+
+- Latest: v2.8.16 (2026-10-29, versionCode 99)
+- Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
+- A personal project with 0 stars and 0 issues so far. Issues are welcome, schedules are not promised.

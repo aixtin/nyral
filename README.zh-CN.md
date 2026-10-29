@@ -1,18 +1,64 @@
-<div align="center">
-
-[English](README.md) | [中文](README.zh-CN.md)
-
-</div>
-
 ---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: dde0bd45bc80f76ab27dc0d7783eab7c_80a691cad39711f19fe5525400638852
+    ReservedCode1: lX1EUsqh+cXaG2ds+d9AixvHYYXAl/KUgW5++gW4h+RVQt4e74wKHcpX2SRMWWbf5IzJvOHa0rJz81SKca68uagfyzEA8KR2y2a/FBuxHahUlA0yY8Okt9tzOd14t6cdk+Oxn8srm/1IC9TT3FQApyXQ7yVLN7nAJj5DjP8PcL3OOVemNjNwOWyU9/Y=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: dde0bd45bc80f76ab27dc0d7783eab7c_80a691cad39711f19fe5525400638852
+    ReservedCode2: lX1EUsqh+cXaG2ds+d9AixvHYYXAl/KUgW5++gW4h+RVQt4e74wKHcpX2SRMWWbf5IzJvOHa0rJz81SKca68uagfyzEA8KR2y2a/FBuxHahUlA0yY8Okt9tzOd14t6cdk+Oxn8srm/1IC9TT3FQApyXQ7yVLN7nAJj5DjP8PcL3OOVemNjNwOWyU9/Y=
+---
+
+<div align="center">
 
 # Nyral
 
-> **完结（2026-10-16）**：项目于 10 月 16 日完结，此后的改动均为“完结后的即兴”——没有路线图，也没有发布计划。54 天的独立开发历程与总结见 [END.md](./END.md)。
+### 跑在 Android 上的开源个人智能体
 
-> 隐私优先 · 模型按需选 · 开源 · 免 Root · 无账号
+**对话 · 端侧长期记忆 · SSH 远程操作 · 能自己开浏览器的 Agent，全在手机里**
+
+[English](README.md) | 中文
+
+![license](https://img.shields.io/badge/license-MIT-blue)
+![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
+![release](https://img.shields.io/badge/release-v2.8.16-brightgreen)
+
+[**下载 APK**](../../releases/latest) ｜ [五分钟上手](#五分钟上手) ｜ [能做什么](#它能做什么) ｜ [项目状态](#项目状态)
+
+</div>
+
+<!-- TODO(首屏图)：放一张真机竖屏动图（建议 720x1560、3-6 秒），展示「提问 → 工具调用 → 结果」。
+     文件放 docs/demo.gif 后把下一行取消注释：
+     ![Nyral 真机演示](docs/demo.gif) -->
+
+---
+
+> **先说清楚一件事：本地优先 ≠ 本地模型。**
+> Nyral 不会把几十 GB 的大模型塞进手机里跑。你的对话、记忆、文件全部留在手机本地 SQLite，推理走你自己填的 API Key（OpenAI 兼容端点或自建服务）。无账号、无注册、无追踪。
+
+## 它能做什么
+
+| 能力 | 说明 |
+| --- | --- |
+| **端侧长期记忆** | bge-small ONNX 语义向量 + 关键词 LIKE 双路召回，跨会话记得你说过什么，原文不出手机 |
+| **21 个内置工具** | 联网搜索与抓取、SSH 远程执行（支持跳板机）、本机 Shell、本地文件读写、视频抽帧、无障碍操作第三方 App |
+| **自研 Agent 浏览器** | AI 自己开网页、点按钮、填表单、读页面，遇到验证码一键交还给你 |
+| **多模型任选** | MiMo / DeepSeek / GLM / 任意 OpenAI 兼容端点，可按对话切换，Key 自己拿着 |
+
+## 五分钟上手
+
+1. 装好 APK 后，进入「设置 → 模型配置」，填任意 OpenAI 兼容端点的 **Base URL + API Key**（这一步不填，App 无法对话）
+2. （可选）「SSH 配置」添加远程主机：密码或私钥（ED25519 需 BC 支持，已内置），可配跳板机
+3. 直接开始对话；AI 会按需调用工具，工具调用过程在气泡内折叠展示
+4. 长期记忆自动归档，无需手动操作；说"记住 xxx"会立即归档
+
+---
+
+## 项目简介
 
 Nyral 是一款运行在 Android 上的开源个人智能体（Agent）：把大模型对话、本地长期记忆、SSH 远程操作、联网工具和语音/附件多模态收进一个 App。数据默认留在设备本地——无账号、无行为追踪、无三方分析/广告 SDK；模型与工具完全由你掌控，自带 API Key 或自建端点。
+
+> 隐私优先 · 模型按需选 · 开源 · 免 Root · 无账号
 
 ## 核心特性
 
@@ -86,13 +132,6 @@ git clone https://github.com/aixtin/nyral.git
 
 > 构建建议：仓库已内置 gradlew（锁定 Gradle 8.13），直接 `./gradlew assembleDebug`；本机已装 Gradle 8.13 也可用 `gradle assembleDebug`。
 > 正式签名包用 `gradle assembleRelease`（自建 keystore 经 `keystore.properties` 读取；keystore 与 properties 已入 .gitignore，需自行准备密钥）。
-
-## 快速开始
-
-1. 安装 APK，进入「设置 → 模型配置」填入任意 OpenAI 兼容端点的 Base URL + API Key
-2. （可选）「SSH 配置」添加远程主机：密码或私钥（ED25519 需 BC 支持，已内置），可配跳板机
-3. 直接开始对话；AI 会按需调用工具，工具调用过程在气泡内折叠展示
-4. 长期记忆自动归档，无需手动操作；说"记住 xxx"会立即归档
 
 ## 目录结构
 
@@ -229,3 +268,14 @@ android-agent-app/
 
 MPL-2.0（rhino）与 UnRAR license（junrar）的授权声明随依赖 jar 内嵌保留；junrar 按 UnRAR 授权仅用于解压，不用于构建 RAR 兼容压缩器。
 
+
+---
+
+## 项目状态
+
+> **完结（2026-10-16）**：项目于 10 月 16 日完结，此后的改动均为“完结后的即兴”——没有路线图，也没有发布计划。54 天的独立开发历程与总结见 [END.md](./END.md)。
+
+- 最新版本：v2.8.16（2026-10-29，versionCode 99）
+- 开发周期：2026-08-24 起，54 天完成主体（详见 [END.md](./END.md)）
+- 仓库现状：个人项目，长期 0 star、0 issue；欢迎提 issue，但不保证排期
+*（内容由AI生成，仅供参考）*
