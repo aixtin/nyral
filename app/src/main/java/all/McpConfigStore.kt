@@ -28,7 +28,7 @@ object McpConfigStore {
     )
 
     fun presets(): List<McpPreset> = listOf(
-        McpPreset("DeepWiki", "https://mcp.deepwiki.com/mcp", "GitHub 仓库文档问答 · 免鉴权"),
+        McpPreset("DeepWiki", "https://mcp.deepwiki.com/mcp", "GitHub 仓库文档问答 · 免鉴权 · 该域名仅 IPv6 解析"),
         McpPreset("Context7", "https://mcp.context7.com/mcp", "库/框架最新文档与示例 · 免鉴权"),
         McpPreset("Microsoft Learn", "https://learn.microsoft.com/api/mcp", "微软官方文档检索 · 免鉴权"),
         McpPreset("GitHub", "https://api.githubcopilot.com/mcp/", "仓库/Issue/PR · 需填 PAT", true)

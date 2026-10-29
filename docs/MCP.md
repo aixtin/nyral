@@ -25,7 +25,7 @@ Nyral 在 MCP 上是双向的：
 | protocolVersion | `2025-06-18` |
 | 调用链路 | `initialize` → `tools/list` → `tools/call` |
 | 鉴权头 | `Authorization: Bearer <token>` |
-| 存储 | 应用私有 SharedPreferences（`mcp_configs.xml`，其他应用不可读） |
+| 存储 | Token 经 AndroidKeyStore AES/GCM 加密后落盘（`mcp_configs.xml`，密钥不出 TEE/StrongBox，其他应用不可读） |
 
 配置页提供「测试」按钮：保存前先握手 + 拉一次工具清单，成功会提示「连接成功，共 N 个工具: a, b, c」，避免填错地址后进对话才发现不可用。
 
@@ -35,7 +35,7 @@ Nyral 在 MCP 上是双向的：
 
 | 服务 | 地址 | 是否需要 Token | 适合什么 |
 | --- | --- | --- | --- |
-| DeepWiki | `https://mcp.deepwiki.com/mcp` | 否 | 直接问答 GitHub 仓库的代码与文档 |
+| DeepWiki | `https://mcp.deepwiki.com/mcp` | 否 | 直接问答 GitHub 仓库的代码与文档（该域名仅 IPv6 解析，IPv4-only 网络连不上） |
 | Context7 | `https://mcp.context7.com/mcp` | 否 | 查第三方库/框架的最新文档与用法 |
 | Microsoft Learn | `https://learn.microsoft.com/api/mcp` | 否 | 微软官方技术文档 |
 | GitHub | `https://api.githubcopilot.com/mcp/` | 是（PAT） | 仓库、Issue、PR 操作 |
