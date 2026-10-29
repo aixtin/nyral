@@ -1,5 +1,5 @@
 # Nyral Nightly 测试线 (2026-10-06)
-# 落地三条 CI nightly 决策(DeepSeek 追问定调):
+# 落地三条 CI nightly 决策(需求追问定调):
 #   ① 第3级基础档模拟器 instrumentation 进 nightly(与③合并同一模拟器 job)
 #   ② 性能测试(冷启动/内存/DebugServer延迟)独立 nightly 线, 不进常规 push/PR CI
 #   ③ 靶场回归进 CI 模拟器跑基础档

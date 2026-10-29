@@ -1,12 +1,13 @@
 # Nyral 待办
 
+- [x] v2.8.16 发版（2026-10-29，versionCode 99）：ANR 看门狗只记录真卡死（剔除整机冻结造成的假 ANR）+ 弹窗背景模糊；GitHub Release 附正式签名 APK
 - [x] v2.8.7 发版（2026-10-26，versionCode 70）：修复 Agent 模式用户视频/图片气泡左右越界与圆角被裁直角（v2.8.0 回归：用户气泡最大宽误用全屏宽）、思考/工具胶囊塌缩成半个图标、流式淡出被取消导致气泡空白；补齐 98 个英文资源；双端 Release 发布
 - [x] v2.8.4 发版（2026-10-24，versionCode 67）：近期日志毫秒时间戳（HH:mm:ss.SSS，兼容旧格式）+ ANR 存活探测抓现场（captured_while_blocked 标记）；双端 Release 发布
 - [x] v2.8.2 发版（2026-10-20，versionCode 65）：欢迎卡片门禁按钮 auto 档未选中改不透明实底（与 strict 一致），不再深色背景显黑；双端 Release 发布
 - [x] v2.8.1 发版（2026-10-20，versionCode 64）：记忆库 v12 迁移 + onOpen 幂等补列（src_session_id/src_msg_no）修复老库必崩；全 App 主题化 Theme.Nyral；返回按钮 Lucide 化；全局弹窗动画统一 fadeScaleShow；页面切换动画；双端 Release 发布
 - [x] v2.8.0 发版（2026-10-20，versionCode 63）：知识库自动沉淀（默认关闭）；video_frame 未传 timeMs 默认多帧采样 + 单帧超限报错回传真实时长；LocalEngine 多帧强制逐帧描述；空参熔断；思考面板宽度解耦；ANR Watchdog；文档占位幻觉警示；双端 Release 发布
 ## 待办
-- [x] 文件/图片/视频发送功能（MiMo 多模态）：选附件 → 本地压缩 → 复制 cacheDir → Base64 发 MiMo → AI 生成描述占位进历史/记忆
+- [x] 文件/图片/视频发送功能（多模态）：选附件 → 本地压缩 → 复制 cacheDir → Base64 内联发送 → AI 生成描述占位进历史/记忆
       - 处理路径分类定案(2026-08-28)：文本/PDF 本地处理不走模型；图片/视频/音频 必须走模型（多模态）
       - PDF 本地解析提取文本(接解析库)：发 PDF 不用喂视觉模型，省 token
 - [x] LICENSE（MIT）与 README 已补齐（2026-08-31）
@@ -26,6 +27,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-10-29: v2.8.16 发布（versionCode 99）：ANR 看门狗只记录真卡死（剔除整机冻结假 ANR，息屏/SIGSTOP 压测 0 假报）+ 弹窗背景模糊，GitHub Release 附正式签名 APK
 - 2026-10-27: v2.8.14 发布（versionCode 97）：弱机长文收尾防 ANR（文本块段落级切碎 + 成品文本 SpannedString/StaticLayout 化 + finishContent 分帧显现），根治「一调用工具就无响应」类卡顿，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-26: v2.8.13 发布（versionCode 96）：全 UI 主题化收口（自绘 SwitchView 主题开关 + Markdown 语义色随主题 + 状态色收敛 Ui.OK/DANGER）+ 视频抽帧 SurfaceTexture+PixelCopy 修复 MTK 原生崩溃 + 附件链路优化（识图/音频内联直发、Office 文档可读、表情动图不再误判视频），GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-26: v2.8.7 发布（versionCode 70）：Agent 模式媒体气泡越界/圆角裁切、思考胶囊塌缩、流式淡出取消致空白三项修复 + 英文资源补齐，GitHub/Gitee 双端 Release 附正式签名 APK
@@ -48,7 +50,7 @@
 - 2026-09-13: 三处并发/时序 bug 修复并真机验证闭环（DebugServer chat 互斥、browser_scan 同步回填、browser open 就绪等待）+ DebugServer keep-alive 吞吐优化 + UpdateChecker NPE 修复（af7135a）+ 发视频 OOM 修复（流式读取+大小上限+VideoCompressor）
 - 2026-09-13: v2.0 正式签名发布（versionCode 30，自建 keystore 接入 release signingConfig，密钥异地备份）+ 版本号动态化修复更新检测
 - 2026-09-11: v1.3（versionCode 23）+ 开源准备收口（浏览器模块与 Markdown 渲染源码入库、脱敏内网 IP、清理备份/补丁脚本）+ 开发者文档（docs/README + ADR 13 条）
-- 2026-08-28: 模型能力表（ApiConfig.modelCapabilities）：预设=内置表(MiMo全模态/DeepSeek文本+工具/GLM文本+工具)+名称兜底；自定义模型编辑页新增能力勾选(图片/视频/音频/工具调用，默认文本+工具)
+- 2026-08-28: 模型能力表（ApiConfig.modelCapabilities）：预设=内置表(多模态/纯文本+工具)+名称兜底；自定义模型编辑页新增能力勾选(图片/视频/音频/工具调用，默认文本+工具)
 - 2026-08-28: 新增 web_search 工具（Bing cn.bing.com 桌面UA 解析 b_algo，无 key），清单首位 web_search→web_fetch→get_time→calc→memory_search→ssh/file
 - 2026-08-28: 工具清单调整（web_fetch 前置、冷门 ssh/file 后置）+ 删除 memory_save（MemoryKeeper 全量自动归档取代）+ "记住"语义即时归档（MemoryKeeper.push force）
 - 2026-08-27/28: 关于页改造（品牌区/博客链接/数据项文案）+ UpdateChecker 改跳 GitHub Releases + 仓库描述统一"记忆自托管·模型按需选·开源·免Root"

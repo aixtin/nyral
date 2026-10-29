@@ -499,6 +499,8 @@
     <string name="ma_thinking_prefix">Thinking: </string>
     <string name="ma_sys_no_reply">The model returned nothing, please send again</string>
     <string name="ma_error_fmt">Error: %1$s</string>
+    <string name="ma_error_card_title">This reply was interrupted</string>
+    <string name="ma_error_retry">Retry</string>
     <!-- 首启引导页 -->
     <string name="guide_app_name">Nyral</string>
     <string name="guide_slogan">AI assistant on your phone</string>
