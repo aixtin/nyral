@@ -26,9 +26,9 @@ import kotlin.math.roundToInt
 object DeviceMetrics {
 
     /** 环形缓冲上限: 2s 一点, 150 点 = 5 分钟 */
-    private const val MAX_POINTS = 150
+    private const val MAX_POINTS = 300
     /** 采样节流: 面板 2s 刷一次, 模型连调也不重复压系统 */
-    private const val MIN_INTERVAL_MS = 1200L
+    private const val MIN_INTERVAL_MS = 900L
 
     private val cpuSeries = ArrayDeque<Float>()
     private val tempSeries = ArrayDeque<Float>()
@@ -421,11 +421,21 @@ object DeviceMetrics {
      * thermal_zone 目录下的 type 与 temp(读出来是空串), 于是兜底走 thermal HAL 的上报值
      * (dumpsys thermalservice), 该路径返回的就是 SoC/GPU 的真实温度。
      */
+    private var socCacheAt = 0L
+    private var socCacheV: Float? = null
+
     private fun socTemp(): Float? {
         sysfsSocTemp()?.let { return it }
+        val now = SystemClock.elapsedRealtime()
+        if (socCacheV != null && now - socCacheAt < 2000L) return socCacheV
         if (Diagnostics.currentLevel() < 1) return null
         val dump = Diagnostics.execRead("dumpsys thermalservice", 4000L) ?: return null
-        return thermalHalSocTemp(dump)
+        val v = thermalHalSocTemp(dump)
+        if (v != null) {
+            socCacheV = v
+            socCacheAt = now
+        }
+        return v
     }
 
     /** 直读 /sys/class/thermal(不需要特权, 能读就最快; 读不到返回 null) */

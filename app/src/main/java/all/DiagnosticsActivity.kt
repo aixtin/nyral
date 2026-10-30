@@ -67,7 +67,7 @@ class DiagnosticsActivity : Activity() {
         override fun run() {
             if (!alive) return
             refresh()
-            ui.postDelayed(this, 2000L)
+            ui.postDelayed(this, 1000L)
         }
     }
 
@@ -196,6 +196,8 @@ class DiagnosticsActivity : Activity() {
                 text = ""
                 textSize = 10.5f
                 setTextColor(SUB)
+                maxLines = 2
+                setEllipsize(android.text.TextUtils.TruncateAt.END)
             }
             box.addView(sub)
             return Triple(box, v, sub)
@@ -203,7 +205,7 @@ class DiagnosticsActivity : Activity() {
         fun row(vararg cells: Triple<LinearLayout, TextView, TextView>): LinearLayout {
             val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             cells.forEachIndexed { i, c ->
-                r.addView(c.first, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                r.addView(c.first, LinearLayout.LayoutParams(0, dpi(94), 1f).apply {
                     if (i > 0) marginStart = dpi(8)
                 })
             }
