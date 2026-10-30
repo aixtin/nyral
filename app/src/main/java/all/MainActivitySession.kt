@@ -168,7 +168,8 @@ import android.widget.Toast
         }
         // 顺序(2026-10-30 老板反馈): 两个分组头置顶, 普通会话在下——普通会话再多也顶不掉这两个入口
         addSessionGroup("定时任务", MemoryDb.KIND_TIMER, timers)
-        addSessionGroup("手机体检", MemoryDb.KIND_DIAG, diags)
+        // 组名改"体检记录"(2026-10-30 老板): 抽屉顶部已有"手机体检"按钮, 组名同名易混淆
+        addSessionGroup("体检记录", MemoryDb.KIND_DIAG, diags)
         normal.forEach { addSessionRow(sessionList, it) }
     }
 
