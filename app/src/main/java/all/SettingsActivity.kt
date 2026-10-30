@@ -428,7 +428,8 @@ class SettingsActivity : Activity() {
         swEnable.setOnCheckedChangeListener { on: Boolean ->
             DebugServer.setEnabled(ctx, on)
             if (on) {
-                DebugServer.stop()
+                // 2026-10-30 修复: 开启开关原先只 stop 不 start, 服务永远起不来
+                DebugServer.restart(ctx)
                 // 端口/局域网变化需重启: 简单处理为关后重开才生效, 提示用户
                 if (::debugSubtitle.isInitialized) debugSubtitle.text = DebugServer.statusText(ctx)
                 Toast.makeText(ctx, getString(R.string.settings_toast_debug_enabled), Toast.LENGTH_SHORT).show()

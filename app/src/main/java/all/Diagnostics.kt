@@ -112,13 +112,15 @@ object Diagnostics {
     fun run(c: Context, id: String): Result {
         val it = item(id) ?: return Result(id, id, 0, false, "未知体检项", error = "未知体检项: $id")
         if (currentLevel() < it.level) {
+            val lv = currentLevel()
+            val why = if (it.level >= 2) Sh.lastError?.let { e -> "(" + e + ")" } ?: "" else ""
             return Result(
                 id = it.id, title = it.title, level = it.level, ok = false,
                 verdict = "未采集",
-                error = "需要 " + levelName(it.level) + " 通道, 当前仅有 " + levelName(currentLevel()),
+                error = "需要 " + levelName(it.level) + " 通道, 当前仅有 " + levelName(lv) + why,
                 hint = when (it.level) {
                     1 -> "安装 Shizuku 并在本页授权后即可解锁(无需 root)。"
-                    else -> "该档需 root 环境, 当前设备无可用 su。"
+                    else -> "su 存在但本应用未被授权时, 需在超级用户(KernelSU/Magisk)中把本应用加入授权列表。"
                 }
             )
         }
@@ -541,7 +543,7 @@ object Diagnostics {
 
     private fun rootEnv(c: Context): Result {
         val raw = Sh.exec("id -u; echo ---; getenforce; echo ---; ls /data/adb/modules 2>/dev/null")
-            ?: return Result("rootenv", "Root 环境", 2, false, "未采集", error = "su 调用失败")
+            ?: return Result("rootenv", "Root 环境", 2, false, "未采集", error = Sh.lastError ?: "su 调用失败")
         val parts = raw.split("---")
         val uid = parts.getOrNull(0)?.trim()?.lines()?.firstOrNull() ?: ""
         val se = parts.getOrNull(1)?.trim()?.lines()?.firstOrNull() ?: "未知"
@@ -575,19 +577,65 @@ object Diagnostics {
         @Volatile var shizukuOk: Int = -1
         /** 最近一次通道失败原因, 供上层如实展示(不吞异常) */
         @Volatile var lastError: String? = null
+        /** 探测成功的 su 路径(?进程 PATH 不含 /system/bin 时相对名会 ENOENT) */
+        @Volatile var suPath: String? = null
+
+        /** su 候选路径: 绝对路径优先, 相对名兜底。 */
+        private val SU_CANDIDATES = arrayOf(
+            "/system/bin/su", "/system/xbin/su", "/sbin/su", "/debug_ramdisk/su", "su"
+        )
 
         fun hasRoot(): Boolean {
             if (rootOk >= 0) return rootOk == 1
-            val ok = try {
-                val p = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
-                val out = p.inputStream.bufferedReader().readText()
-                p.waitFor(3, TimeUnit.SECONDS)
-                out.contains("uid=0")
-            } catch (t: Throwable) {
-                false
+            val detail = StringBuilder()
+            var hit: String? = null
+            for (cand in SU_CANDIDATES) {
+                val out = probeSu(cand)
+                if (out.contains("uid=0")) {
+                    hit = cand
+                    break
+                }
+                detail.append(cand).append(" -> ").append(out.replace("\n", " ").trim()).append("; ")
             }
-            rootOk = if (ok) 1 else 0
-            return ok
+            suPath = hit
+            rootOk = if (hit != null) 1 else 0
+            if (hit == null) lastError = "su 探测失败: " + detail.toString().trim()
+            return hit != null
+        }
+
+        /** 单次 `su -c id` 探测, 返回输出(含失败原因文本), 不抛异常。 */
+        private fun probeSu(cand: String): String {
+            val p = try {
+                ProcessBuilder(cand, "-c", "id").redirectErrorStream(true).start()
+            } catch (t: Throwable) {
+                return "启动异常 " + (t.message ?: t.javaClass.simpleName)
+            }
+            val sb = StringBuilder()
+            val reader = Thread {
+                try {
+                    p.inputStream.bufferedReader().forEachLine { line ->
+                        synchronized(sb) { sb.append(line).append('\n') }
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+            reader.isDaemon = true
+            reader.start()
+            try {
+                reader.join(3000)
+            } catch (_: Throwable) {
+            }
+            if (reader.isAlive) {
+                try { p.destroy() } catch (_: Throwable) {
+                }
+                try { reader.join(300) } catch (_: Throwable) {
+                }
+                return "超时(3000ms)"
+            }
+            val text = sb.toString().trim()
+            if (text.isNotEmpty()) return text
+            val rc = try { p.exitValue() } catch (_: Throwable) { -1 }
+            return "无输出(exit=" + rc + ")"
         }
 
         fun hasShizuku(): Boolean {
@@ -660,7 +708,7 @@ object Diagnostics {
                 when {
                     // stderr 合并进 stdout: 失败时也能拿到真实报错
                     hasShizuku() -> newProcess(arrayOf("sh", "-c", cmd + " 2>&1")) ?: return null
-                    hasRoot() -> ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+                    hasRoot() -> ProcessBuilder(suPath ?: "su", "-c", cmd).redirectErrorStream(true).start()
                     else -> {
                         lastError = "无可用特权通道(Shizuku 未授权且无 su)"
                         return null

@@ -52,6 +52,18 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 真机共存调试(仅在 -PdbgSuffix 时生效, 默认包名不变):
+            // 用于在装有正式 release 的设备上并行安装 debug 构建, 免卸载丢数据
+            if (project.hasProperty("dbgSuffix")) {
+                applicationIdSuffix = ".dbg"
+                versionNameSuffix = "-dbg"
+            }
+            // L2 验证用: 以正式签名打包 debug 构建, 覆盖安装到正式包上可保留 uid 与 root 授权
+            if (project.hasProperty("signDebugRelease") && hasReleaseKey) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
         release {
             // 安全审查修复(2026-10-03): release 开启 R8 压缩+混淆+优化
             isMinifyEnabled = true

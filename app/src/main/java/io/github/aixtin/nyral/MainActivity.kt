@@ -481,6 +481,9 @@ class MainActivity : Activity() {
         setupTokenAndHamburgerPanels()
         setupSystemGestures()
         setupKeyboardInsets()
+        // 2026-10-30 修复: DebugServer.init 全工程无调用点, 导致 debug 构建下调试服务始终无法启动
+        // (release 构建内 init 自行 return, 不影响正式包)
+        DebugServer.init(this)
         finishCreate()
     }
 
