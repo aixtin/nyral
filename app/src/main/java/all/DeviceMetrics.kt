@@ -556,10 +556,13 @@ object DeviceMetrics {
             o.put("free_pct", if (total > 0) round1(free * 100.0 / total) else 0.0)
         } catch (_: Throwable) {
         }
-        // 多挂载点: /data、/storage、/system 各一; 同一文件系统只留一个, 避免 sdcardfs 重复计数
+        // 多挂载点: /data、/storage、/system 各一, 按文件系统合并同源挂载
         try {
             val mounts = JSONArray()
-            val seen = HashSet<String>()
+            // 同一底层文件系统会被挂多次(sdcardfs: /storage/emulated 与 /data 同源)。
+            // 这里按文件系统去重但不丢信息: 后出现的挂载点合并进同一行 label,
+            // 既不会出现两块数字相同的容量条, 也不会让用户以为该分区不存在。
+            val byFs = LinkedHashMap<String, JSONObject>()
             fun addMount(label: String, dir: File?) {
                 if (dir == null) return
                 try {
@@ -568,12 +571,19 @@ object DeviceMetrics {
                     val free = sf.availableBlocksLong * sf.blockSizeLong
                     if (total <= 0) return
                     val key = "" + (total / 1048576) + ":" + (free / 1048576)
-                    if (!seen.add(key)) return
-                    mounts.put(JSONObject()
+                    val exist = byFs[key]
+                    if (exist != null) {
+                        val prev = exist.optString("label")
+                        if (!prev.contains(label)) exist.put("label", prev + " · " + label)
+                        return
+                    }
+                    val one = JSONObject()
                         .put("label", label)
                         .put("free_gb", round1(free / 1073741824.0))
                         .put("total_gb", round1(total / 1073741824.0))
-                        .put("free_pct", round1(free * 100.0 / total)))
+                        .put("free_pct", round1(free * 100.0 / total))
+                    byFs[key] = one
+                    mounts.put(one)
                 } catch (_: Throwable) {
                 }
             }

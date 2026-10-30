@@ -505,11 +505,18 @@ class DiagnosticsActivity : Activity() {
             for (i in 0 until mounts.length()) {
                 val m = mounts.optJSONObject(i) ?: continue
                 mountList.addView(TextView(this).apply {
-                    text = m.optString("label") + "   " + fmt(m.optDouble("free_gb")) + "G 可用 / " +
-                            fmt(m.optDouble("total_gb")) + "G · 剩 " + fmt(m.optDouble("free_pct")) + "%"
+                    // 两行: 挂载点一行、容量一行。合并同源挂载后路径会变长, 单行必截断, 截掉的正是"剩多少"这种关键信息
+                    text = buildString {
+                        append(m.optString("label"))
+                        append("\n")
+                        append(fmt(m.optDouble("free_gb"))).append("G 可用 / ")
+                        append(fmt(m.optDouble("total_gb"))).append("G · 剩 ")
+                        append(fmt(m.optDouble("free_pct"))).append("%")
+                    }
                     textSize = 12.5f
                     setTextColor(if (m.optDouble("free_pct", 100.0) < 10.0) RED else TXT)
-                    setPadding(0, dpi(3), 0, 0)
+                    setPadding(0, dpi(4), 0, dpi(2))
+                    setLineSpacing(dpi(2).toFloat(), 1f)
                 })
             }
         } else {
