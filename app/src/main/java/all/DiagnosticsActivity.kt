@@ -37,6 +37,7 @@ class DiagnosticsActivity : Activity() {
 
     private val ui = Handler(Looper.getMainLooper())
     @Volatile private var alive = false
+    private var askedShizuku = false
 
     private lateinit var profileText: TextView
     private lateinit var statusText: TextView
@@ -65,6 +66,7 @@ class DiagnosticsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Diagnostics.resetPrivilegeCache()
         setContentView(buildRoot())
         loadProfile()
     }
@@ -72,7 +74,19 @@ class DiagnosticsActivity : Activity() {
     override fun onResume() {
         super.onResume()
         alive = true
+        syncPrivilege()
         ui.post(tick)
+    }
+
+    /** 回到面板时重新探测特权通道: Shizuku 刚授完权要能立刻解锁读取, 未授权则弹一次授权请求 */
+    private fun syncPrivilege() {
+        Diagnostics.resetPrivilegeCache()
+        val st = try { Diagnostics.shizukuState() } catch (e: Throwable) { 0 }
+        if (st == 1 && !askedShizuku) {
+            askedShizuku = true
+            try { Diagnostics.requestShizukuPermission() } catch (_: Throwable) {}
+        }
+        loadProfile()
     }
 
     override fun onPause() {

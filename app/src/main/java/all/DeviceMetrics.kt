@@ -99,7 +99,7 @@ object DeviceMetrics {
             o.put("soc", socName())
             o.put("root", if (Diagnostics.currentLevel() >= 2) "su" else "无")
             o.put("shizuku", when (Diagnostics.shizukuState()) {
-                1 -> "已授权"; 2 -> "已安装未授权"; else -> "未安装"
+                2 -> "已授权"; 1 -> "已安装未授权"; else -> "未运行"
             })
         } catch (e: Throwable) {
             o.put("error", e.message ?: e.javaClass.simpleName)
@@ -277,7 +277,7 @@ object DeviceMetrics {
 
     private fun cpuBlock(): JSONObject {
         val o = JSONObject()
-        val stat = readText("/proc/stat")
+        val stat = readText("/proc/stat", true)
         if (stat != null) {
             val line = stat.lineSequence().firstOrNull { it.startsWith("cpu ") }
             if (line != null) {
@@ -370,7 +370,20 @@ object DeviceMetrics {
         return o
     }
 
+    /**
+     * SoC 温度: sysfs 优先; ColorOS 等对 shell(shell uid 的 Shizuku 通道)也屏蔽了
+     * thermal_zone 目录下的 type 与 temp(读出来是空串), 于是兜底走 thermal HAL 的上报值
+     * (dumpsys thermalservice), 该路径返回的就是 SoC/GPU 的真实温度。
+     */
     private fun socTemp(): Float? {
+        sysfsSocTemp()?.let { return it }
+        if (Diagnostics.currentLevel() < 1) return null
+        val dump = Diagnostics.execRead("dumpsys thermalservice", 4000L) ?: return null
+        return thermalHalSocTemp(dump)
+    }
+
+    /** 直读 /sys/class/thermal(不需要特权, 能读就最快; 读不到返回 null) */
+    private fun sysfsSocTemp(): Float? {
         val dir = File("/sys/class/thermal")
         val zones = dir.listFiles() ?: return null
         var best: Float? = null
@@ -386,6 +399,30 @@ object DeviceMetrics {
             if (v in 5f..120f) best = if (best == null) v else maxOf(best, v)
         }
         return best
+    }
+
+    /** 解析 dumpsys thermalservice 的 "Current temperatures from HAL" 段, 取 CPU 温度(退而取最高温) */
+    private fun thermalHalSocTemp(dump: String): Float? {
+        var inHal = false
+        var cpu: Float? = null
+        var gpu: Float? = null
+        var maxV: Float? = null
+        for (raw in dump.lineSequence()) {
+            val line = raw.trim()
+            if (line.startsWith("Current temperatures from HAL")) { inHal = true; continue }
+            if (inHal && line.startsWith("Current cooling devices")) break
+            if (!inHal || !line.startsWith("Temperature{")) continue
+            val v = Regex("mValue=([-0-9.]+)").find(line)
+                ?.groupValues?.get(1)?.toFloatOrNull() ?: continue
+            if (v !in 1f..130f) continue
+            val n = Regex("mName=([A-Za-z_]+)").find(line)?.groupValues?.get(1) ?: ""
+            when {
+                n.equals("CPU", true) -> cpu = v
+                n.equals("GPU", true) -> gpu = v
+            }
+            if (maxV == null || v > maxV!!) maxV = v
+        }
+        return cpu ?: gpu ?: maxV
     }
 
     private fun battBlock(c: Context): JSONObject {
@@ -418,7 +455,7 @@ object DeviceMetrics {
 
     private fun loadBlock(): JSONObject {
         val o = JSONObject()
-        val la = readText("/proc/loadavg")
+        val la = readText("/proc/loadavg", true)
         if (la != null) {
             val parts = la.trim().split(Regex("\\s+"))
             if (parts.size >= 3) {
