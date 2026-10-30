@@ -568,11 +568,14 @@ object Diagnostics {
 
     // ---------------- 私有执行通道(与 sh_run 完全隔离) ----------------
 
+    /** 只读通道入口(2026-10-30): 供设备面板数据层复用同一套 Shizuku/su 隔离通道读受限路径 */
+    internal fun execRead(cmd: String, timeoutMs: Long = 4000L): String? = Sh.exec(cmd, timeoutMs)
+
     /**
      * 只读命令执行器。仅接受本文件内写死的常量命令, 不接受任何外部输入。
      * 通道优先级: Shizuku(adb 级) > su > 不可用。
      */
-    private object Sh {
+    internal object Sh {
         @Volatile var rootOk: Int = -1
         @Volatile var shizukuOk: Int = -1
         /** 最近一次通道失败原因, 供上层如实展示(不吞异常) */

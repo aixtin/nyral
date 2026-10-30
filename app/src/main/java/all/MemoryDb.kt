@@ -195,6 +195,10 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         // 幂等兜底：体检档案表(v13)，缺失则补齐
         ensureDiagArchive(db)
 
+        // 体检会话退场(2026-10-30): 「手机体检」改为只读设备面板, 历史 kind=2 会话降级为普通会话,
+        // 不再单独分组; 档案表保留(空表无害), 老报告仍可查
+        db.execSQL("UPDATE sessions SET kind = 0 WHERE kind = 2")
+
         // 防 SQLiteBlobTooBigException：单字段超限则截断（CursorWindow 单值上限约 1MB，200KB 留足余量）
         val maxLen = MAX_FIELD_LEN
         for (col in listOf("content", "thinking", "tools", "timeline", "rendered")) {

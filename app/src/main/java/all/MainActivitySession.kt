@@ -27,6 +27,38 @@ import android.widget.Toast
         closeDrawer()
     }
 
+    /**
+     * 设备面板「问 AI」唤入(2026-10-30 老板拍定): 不每次新开一条会话 ——
+     * 固定绑定「设备分析」这一条, 空白会话当新会话用, 有历史则续接; 带进来的只有本次真实读数。
+     */
+    internal fun MainActivity.consumePanelIntent(i: android.content.Intent?) {
+        val ask = i?.getStringExtra(DeviceAssist.EXTRA_ASK) ?: return
+        val sid = i.getLongExtra(DeviceAssist.EXTRA_SESSION, 0L)
+        if (sid <= 0L) return
+        i.removeExtra(DeviceAssist.EXTRA_ASK)
+        if (db.loadSessionMessages(sid).isEmpty()) {
+            cancelActiveRequest()
+            maybeSaveCurrent()
+            messages.clear()
+            sessionBaseSeq = 0
+            chatRows.clear(); chatAdapter.notifyDataSetChanged()
+            currentSaved = true
+            currentSessionId = sid
+            currentSessionTitle = db.sessionTitleOf(sid) ?: DeviceAssist.TITLE
+            CapabilityScope.setSessionKind(MemoryDb.KIND_NORMAL)
+            scrollUserScrolled = false
+            session.resetStreamUi()
+            updateJumpFab()
+            refreshSessionList()
+            closeDrawer()
+        } else if (currentSessionId != sid) {
+            openSession(sid)
+        }
+        input.setText(ask)
+        input.setSelection(input.text.length)
+        window.decorView.post { onSend() }
+    }
+
     internal fun MainActivity.openSession(id: Long, locateSeq: Int? = null) {
         // AI 正在输出时切会话: 取消引擎 + 失效代际, 防止其把未完成的回复写进新会话历史
         cancelActiveRequest()
@@ -61,7 +93,11 @@ import android.widget.Toast
         currentSessionId = id
         currentSessionTitle = db.sessionTitleOf(id)
         // 能力域(2026-10-30 P3): 体检会话只读, 普通/任务会话恢复常规执行域
-        CapabilityScope.setSessionKind(db.sessionKindOf(id))
+        // 设备面板绑定会话(2026-10-30): 库里仍是普通会话(要出现在会话列表), 但能力域降为只读,
+        // 面板问 AI 只做排查不写盘/不跑 shell, 避免每轮弹安全确认
+        CapabilityScope.setSessionKind(
+            if (DeviceAssist.isPanelSession(this, id)) MemoryDb.KIND_DIAG else db.sessionKindOf(id)
+        )
         // 吸底修复: 切会话重置用户滚动标记(旧会话的"正在阅读"不应带入新会话), 新会话默认追底
         scrollUserScrolled = false
         activeAiHolder?.resumeTypewriter()   // 切会话: 恢复慢打(09-25)
@@ -115,8 +151,14 @@ import android.widget.Toast
 
     internal fun MainActivity.maybeSaveCurrent(mode: Int = ModeConfig.modeValue()) {
         if (!currentSaved && messages.isNotEmpty()) {
-            val title = messages.firstOrNull { it.role == "user" }?.content
-                ?.replace("\n", " ")?.take(20) ?: getString(R.string.ma_unnamed_session)
+            val sid0 = currentSessionId
+            // 面板绑定会话(2026-10-30): 不按首条消息改名, 否则抽屉标题会变成 "[设备] 22041216UC ..." 认不出来
+            val title = if (sid0 != null && DeviceAssist.isPanelSession(this, sid0)) {
+                DeviceAssist.TITLE
+            } else {
+                messages.firstOrNull { it.role == "user" }?.content
+                    ?.replace("\n", " ")?.take(20) ?: getString(R.string.ma_unnamed_session)
+            }
             val sid = currentSessionId
             if (sid != null) {
                 db.updateSession(sid, title, messages, mode, sessionBaseSeq)
@@ -135,8 +177,7 @@ import android.widget.Toast
         // 分组取数(2026-10-30 P1): 各组独立 20 条, 互不挤占; 普通组直铺, 任务/体检进折叠组
         val normal = db.listSessions(20, mode, MemoryDb.KIND_NORMAL)
         val timers = db.listSessions(20, mode, MemoryDb.KIND_TIMER)
-        val diags = db.listSessions(20, mode, MemoryDb.KIND_DIAG)
-        if (normal.isEmpty() && timers.isEmpty() && diags.isEmpty()) {
+        if (normal.isEmpty() && timers.isEmpty()) {
             // 空态兜底(2026-10-29): 图标+标题+副文案三级层级, 取代单行灰字
             sessionList.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -168,8 +209,6 @@ import android.widget.Toast
         }
         // 顺序(2026-10-30 老板反馈): 两个分组头置顶, 普通会话在下——普通会话再多也顶不掉这两个入口
         addSessionGroup("定时任务", MemoryDb.KIND_TIMER, timers)
-        // 组名改"体检记录"(2026-10-30 老板): 抽屉顶部已有"手机体检"按钮, 组名同名易混淆
-        addSessionGroup("体检记录", MemoryDb.KIND_DIAG, diags)
         normal.forEach { addSessionRow(sessionList, it) }
     }
 

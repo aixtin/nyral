@@ -166,6 +166,19 @@ object ToolExecutor {
                     "错误: 剪贴板写入失败: ${e.message}"
                 }
             }
+            "device_snapshot" -> {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val fields = ArrayList<String>()
+                val arr = jo?.optJSONArray("fields")
+                if (arr != null) for (i in 0 until arr.length()) fields.add(arr.optString(i))
+                DeviceMetrics.snapshot(context, fields).toString(2)
+            }
+            "device_probe" -> {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val target = jo?.optString("target", "")?.trim().orEmpty()
+                if (target.isEmpty()) "错误: 缺少 target(包名或进程名, 如 com.tencent.mm / system_server)"
+                else DeviceMetrics.probe(context, target).toString(2)
+            }
             "get_time" -> MemoryTools.getTime()
             "calc" -> MemoryTools.calc(arg)
             "memory_search" -> MemoryTools.search(context, arg)

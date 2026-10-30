@@ -1855,6 +1855,8 @@ class MainActivity : Activity() {
         if (canOpen) {
             openSession(recent[0].id)
         }
+        // 设备面板「问 AI」唤入(2026-10-30): 绑定会话 + 自动带读数提问
+        consumePanelIntent(intent)
         // 开发者调试服务: 默认关闭; 设置开启且为 debug 构建时在 onCreate 末尾拉起
         DebugServer.init(this)
         // 保活: 前台服务防止退后台后进程被冻结, DebugServer accept 线程停摆
@@ -2022,6 +2024,12 @@ class MainActivity : Activity() {
     /** 胶囊交互卡: 重试动作(通知 Action 携带 ACTION_RETRY 拉起本页) */
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
+        // 设备面板「问 AI」唤入(2026-10-30): 已在前台时走这里, 绑定同一条会话 + 自动提问
+        if (intent != null && intent.getStringExtra(DeviceAssist.EXTRA_ASK) != null) {
+            setIntent(intent)
+            consumePanelIntent(intent)
+            return
+        }
         if (intent?.action == TaskService.ACTION_RETRY) {
             // 重试语义: 先取消当前请求(若在跑), 再重发最后一条用户消息
             cancelActiveRequest()

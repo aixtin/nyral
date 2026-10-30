@@ -171,10 +171,10 @@ import android.widget.Toast
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 }.also { this@buildDrawer.kbEntryBtn = it })
             })
-            // 手机体检入口(2026-10-30 老板): 从设置页移到抽屉, 落在新会话之下、会话记录之上——
-            // 体检是高频动作, 不该埋在设置三级里。样式用浅底副按钮, 不与"新会话"主 CTA 抢位。
+            // 设备面板入口(2026-10-30 老板): 只读设备面板 —— CPU/温度/内存/电池实时读数 + 曲线,
+            // 不做消费级体检打分。样式用浅底副按钮, 不与"新会话"主 CTA 抢位。
             addView(TextView(this@buildDrawer).apply {
-                text = "手机体检"
+                text = "设备面板"
                 textSize = 14f
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(Ui.PRIMARY)
@@ -772,46 +772,6 @@ import android.widget.Toast
     /** 删除会话: 二次确认后执行; 体检会话解耦为"仅清对话 / 连档案一起删"(2026-10-30) */
     internal fun MainActivity.confirmDeleteSession(s: MemoryDb.SessionInfo) {
         val (dlg, box) = Ui.dialog(this, getString(R.string.mui_delete_session))
-        if (s.kind == MemoryDb.KIND_DIAG) {
-            // 体检会话: 报告正文在档案里, 删会话默认不动档案
-            box.addView(Ui.dialogText(this, "「" + s.title + "」\n对话与体检档案相互独立: 只清对话可保留全部历史报告。"))
-            box.addView(Ui.lightBtn(this, "仅清对话（保留体检档案）") {
-                dlg.dismiss()
-                db.deleteSession(s.id)
-                if (currentSessionId == s.id) {
-                    currentSessionId = null
-                    currentSessionTitle = null
-                    startNewSession()
-                }
-                refreshSessionList()
-                Toast.makeText(this, "已清空体检对话, 档案保留", Toast.LENGTH_SHORT).show()
-            }, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(Ui.SP3)
-            })
-            box.addView(Ui.dangerBtn(this, "连体检档案一起删") {
-                dlg.dismiss()
-                db.deleteDiagArchivesBySession(s.id)
-                db.deleteSession(s.id)
-                if (currentSessionId == s.id) {
-                    currentSessionId = null
-                    currentSessionTitle = null
-                    startNewSession()
-                }
-                refreshSessionList()
-                Toast.makeText(this, "会话与档案已删除", Toast.LENGTH_SHORT).show()
-            }, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(Ui.SP3)
-            })
-            box.addView(Ui.dialogCancelBtn(this, getString(R.string.mui_cancel)) { dlg.dismiss() },
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(Ui.SP3)
-                })
-            dlg.show()
-            return
-        }
         box.addView(Ui.dialogText(this, getString(R.string.mui_dlg_confirm_delete, s.title)))
         box.addView(Ui.dangerBtn(this, getString(R.string.mui_delete)) {
             dlg.dismiss()

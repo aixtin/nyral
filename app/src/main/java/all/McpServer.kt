@@ -77,6 +77,29 @@ object McpServer {
                 put("inputSchema", noArg)
             })
             put(JSONObject().apply {
+                put("name", "device_snapshot")
+                put("description", "读取手机设备面板实时快照(只读): CPU 占用与最高核频率、内存、SoC 温度、电池、负载、数据分区余量、近5分钟峰值。fields 可裁剪, 省略=全部。")
+                put("inputSchema", JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject()
+                        .put("fields", JSONObject().put("type", "array")
+                            .put("description", "profile/cpu/mem/temp/batt/load/disk/series")
+                            .put("items", JSONObject().put("type", "string"))))
+                    put("required", JSONArray())
+                })
+            })
+            put(JSONObject().apply {
+                put("name", "device_probe")
+                put("description", "只读探针: 传包名或进程名, 返回安装/版本/pid/常驻内存/线程数/进程状态与同名内核模块命中; 权限通道不足会如实说明。")
+                put("inputSchema", JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject()
+                        .put("target", JSONObject().put("type", "string")
+                            .put("description", "包名或进程名, 如 com.tencent.mm / system_server")))
+                    put("required", JSONArray().put("target"))
+                })
+            })
+            put(JSONObject().apply {
                 put("name", "phone_diag_run")
                 put("description", "执行手机只读体检并返回结构化诊断结果(结论 verdict + 明细 lines + 建议 hint)。全程只读: 不修改设置、不写文件、不执行可写命令。传 all=true 采集全部项。")
                 put("inputSchema", JSONObject().apply {
@@ -131,6 +154,17 @@ object McpServer {
                     .put("privilegeName", Diagnostics.levelName(lv))
                     .put("items", arr)
                     .toString(2))))
+            }
+            "device_snapshot" -> {
+                val fields = ArrayList<String>()
+                val arr = args.optJSONArray("fields")
+                if (arr != null) for (i in 0 until arr.length()) fields.add(arr.optString(i))
+                return ok(id, JSONObject().put("result", DeviceMetrics.snapshot(c, fields)))
+            }
+            "device_probe" -> {
+                val t = args.optString("target", "").trim()
+                if (t.isEmpty()) return ok(id, errContent("缺少 target 参数(包名或进程名)"))
+                return ok(id, JSONObject().put("result", DeviceMetrics.probe(c, t)))
             }
             "phone_diag_run" -> {
                 val all = args.optBoolean("all", false)

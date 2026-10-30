@@ -187,6 +187,8 @@ object LocalEngine {
         ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web_fetch/web_download 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}"),
         ToolSpec("get_time", "获取当前日期时间", "无参数"),
         ToolSpec("calc", "数学计算", "JSON: {\"expr\":\"表达式\"} 如 {\"expr\":\"17*23\"}"),
+        ToolSpec("device_snapshot", "读取手机设备面板实时快照(只读): CPU 占用与最高核频率、内存、SoC 温度、电池、负载、数据分区余量、近5分钟峰值。用户问手机现在什么状态/为什么卡/烫不烫/还剩多少空间时调用; 动态指标不会自动进上下文, 需要时才取", "JSON: {\"fields\":[\"cpu\",\"mem\",\"temp\"]} (可省略=全部; 可选 profile/cpu/mem/temp/batt/load/disk/series)", CapabilityScope.ZONE_READONLY),
+        ToolSpec("device_probe", "只读探针追单个对象: 传包名或进程名, 返回安装/版本/pid/常驻内存 RSS/线程数/进程状态/是否有同名内核模块; 权限通道不足的字段会如实说明缺哪个通道", "JSON: {\"target\":\"com.tencent.mm\"} (或 system_server 这类进程名)", CapabilityScope.ZONE_READONLY),
         ToolSpec("memory_search", "语义检索本地记忆", "JSON: {\"query\":\"查询内容\"}"),
         ToolSpec("ssh_run", "通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数", "JSON: {\"command\":\"连接名:命令\"} 如 {\"command\":\"vps:ls /\"}"),
         ToolSpec("web_download", "下载网页/文件并保存到手机工作目录 下载/ 子目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}"),
@@ -221,6 +223,8 @@ object LocalEngine {
         "get_time" to "获取当前日期时间",
         "calc" to "数学计算",
         "memory_search" to "语义检索本地记忆",
+        "device_snapshot" to "设备面板实时快照(CPU/最高核频率/内存/SoC温度/电池/负载/存储/近5分钟峰值), 只读",
+        "device_probe" to "只读探针: 包名或进程名 → pid/RSS/线程/状态/同名内核模块",
         "ssh_run" to "SSH 远程执行命令",
         "web_download" to "下载网页/文件到手机工作目录",
         "js_run" to "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 断网可用)",
@@ -423,6 +427,12 @@ object LocalEngine {
             "get_time" -> obj()
             "calc" -> obj(listOf("expr"), "expr" to str("数学表达式, 如 17*23"))
             "memory_search" -> obj(listOf("query"), "query" to str("要检索的记忆查询内容"))
+            "device_snapshot" -> obj(emptyList(),
+                "fields" to JSONObject().put("type", "array")
+                    .put("description", "要返回的字段: profile/cpu/mem/temp/batt/load/disk/series; 省略=全部")
+                    .put("items", JSONObject().put("type", "string")))
+            "device_probe" -> obj(listOf("target"),
+                "target" to str("包名或进程名, 如 com.tencent.mm / system_server"))
             "ssh_run" -> obj(listOf("command"),
                 "command" to str("连接名:命令, 连接名见可用SSH连接; 例如 vps:ls / 或 dev188:free -h"))
             "file" -> obj(listOf("action"),
