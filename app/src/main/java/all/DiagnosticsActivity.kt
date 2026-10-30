@@ -9,6 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -55,6 +56,12 @@ class DiagnosticsActivity : Activity() {
     private lateinit var diskVal: TextView
     private lateinit var diskSub: TextView
     private lateinit var spark: SparkView
+    private lateinit var coreBars: CoreBarsView
+    private lateinit var coreHint: TextView
+    private lateinit var netVal: TextView
+    private lateinit var netSub: TextView
+    private lateinit var netSpark: NetView
+    private lateinit var mountList: LinearLayout
 
     private val tick = object : Runnable {
         override fun run() {
@@ -224,6 +231,50 @@ class DiagnosticsActivity : Activity() {
         })
         col.addView(grid)
 
+        // 每核占用(Ubuntu 资源页观感: 一核一根, 核数按 availableProcessors 动态排, 4/6/8/10 核都能放)
+        val coreCard = card()
+        coreCard.addView(sectionTitle("每核占用"))
+        coreBars = CoreBarsView(this)
+        coreCard.addView(coreBars, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dpi(72)).apply { topMargin = dpi(6) })
+        coreHint = TextView(this).apply {
+            text = ""
+            textSize = 10.5f
+            setTextColor(SUB)
+            setPadding(0, dpi(4), 0, 0)
+        }
+        coreCard.addView(coreHint)
+        col.addView(coreCard)
+
+        // 网络: 上下行速率 + 5 分钟曲线
+        val netCard = card()
+        netCard.addView(sectionTitle("网络"))
+        netVal = TextView(this).apply {
+            text = "--"
+            textSize = 21f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(TXT)
+            setPadding(0, dpi(2), 0, 0)
+        }
+        netCard.addView(netVal)
+        netSub = TextView(this).apply {
+            text = ""
+            textSize = 10.5f
+            setTextColor(SUB)
+        }
+        netCard.addView(netSub)
+        netSpark = NetView(this)
+        netCard.addView(netSpark, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dpi(72)).apply { topMargin = dpi(6) })
+        col.addView(netCard)
+
+        // 存储: 多挂载点(对应 Ubuntu 文件系统页)
+        val fsCard = card()
+        fsCard.addView(sectionTitle("存储"))
+        mountList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fsCard.addView(mountList)
+        col.addView(fsCard)
+
         // 曲线
         val sparkCard = card()
         val head = LinearLayout(this).apply {
@@ -360,6 +411,8 @@ class DiagnosticsActivity : Activity() {
                 if (isFinishing || isDestroyed || !alive) return@post
                 bindValues(s)
                 spark.setData(cpuSeries, tempSeries)
+                val (dnSeries, upSeries) = DeviceMetrics.netHistory()
+                netSpark.setData(dnSeries, upSeries)
                 statusText.text = "峰值 CPU " + fmt(peaks.first.toDouble()) + "%" +
                         (if (peaks.second > 0f) " · 温度 " + fmt(peaks.second.toDouble()) + "℃" else "") +
                         " · " + cpuSeries.size + " 点 · " + timeNow()
@@ -390,7 +443,10 @@ class DiagnosticsActivity : Activity() {
 
         val mem = s.optJSONObject("mem") ?: JSONObject()
         memVal.text = fmt(mem.optDouble("used_pct", 0.0)) + "%"
-        memSub.text = fmt(mem.optDouble("used_mb")) + " / " + fmt(mem.optDouble("total_mb")) + "MB"
+        memSub.text = buildString {
+            append(fmt(mem.optDouble("used_mb"))).append(" / ").append(fmt(mem.optDouble("total_mb"))).append("MB")
+            if (mem.has("swap_used_mb")) append(" · swap ").append(fmt(mem.optDouble("swap_used_mb"))).append("MB")
+        }
         memVal.setTextColor(heatColor(mem.optDouble("used_pct", 0.0), 80.0, 90.0))
 
         val temp = s.optJSONObject("temp") ?: JSONObject()
@@ -419,7 +475,54 @@ class DiagnosticsActivity : Activity() {
         diskVal.text = fmt(d.optDouble("free_gb")) + "G"
         diskSub.text = "剩 " + fmt(d.optDouble("free_pct", 0.0)) + "% / 共 " + fmt(d.optDouble("total_gb")) + "GB"
         diskVal.setTextColor(if (d.optDouble("free_gb", 999.0) < 5.0) RED else TXT)
+
+        // 分核占用
+        val coresArr = cpu.optJSONArray("per_core_pct")
+        if (coresArr != null && coresArr.length() > 0) {
+            val vals = ArrayList<Float>()
+            for (i in 0 until coresArr.length()) vals.add(coresArr.optDouble(i, -1.0).toFloat())
+            coreBars.setData(vals)
+            coreHint.text = vals.size.toString() + " 核 · 单核占比, 与整机占用同源 /proc/stat"
+        } else {
+            coreBars.setData(emptyList())
+            coreHint.text = "分核读数需 root/Shizuku"
+        }
+
+        // 网络
+        val net = s.optJSONObject("net") ?: JSONObject()
+        if (net.has("down_kbps")) {
+            netVal.text = "↓ " + speed(net.optDouble("down_kbps")) + "   ↑ " + speed(net.optDouble("up_kbps"))
+            netSub.text = "累计 收 " + fmt(net.optDouble("rx_gb")) + "G · 发 " + fmt(net.optDouble("tx_gb")) + "G"
+        } else {
+            netVal.text = "--"
+            netSub.text = "/proc/net/dev 需 root/Shizuku 授权"
+        }
+
+        // 存储挂载点
+        mountList.removeAllViews()
+        val mounts = d.optJSONArray("mounts")
+        if (mounts != null && mounts.length() > 0) {
+            for (i in 0 until mounts.length()) {
+                val m = mounts.optJSONObject(i) ?: continue
+                mountList.addView(TextView(this).apply {
+                    text = m.optString("label") + "   " + fmt(m.optDouble("free_gb")) + "G 可用 / " +
+                            fmt(m.optDouble("total_gb")) + "G · 剩 " + fmt(m.optDouble("free_pct")) + "%"
+                    textSize = 12.5f
+                    setTextColor(if (m.optDouble("free_pct", 100.0) < 10.0) RED else TXT)
+                    setPadding(0, dpi(3), 0, 0)
+                })
+            }
+        } else {
+            mountList.addView(TextView(this).apply {
+                text = "读不到挂载点"
+                textSize = 12.5f
+                setTextColor(SUB)
+            })
+        }
     }
+
+    private fun speed(kbps: Double): String =
+        if (kbps >= 1024.0) fmt(kbps / 1024.0) + " MB/s" else fmt(kbps) + " KB/s"
 
     private fun heatColor(v: Double, warm: Double, hot: Double): Int = when {
         v >= hot -> RED
@@ -454,6 +557,120 @@ class DiagnosticsActivity : Activity() {
                 }
             }
         }.start()
+    }
+
+    /** 每核占用: 一核一根竖条, 核数动态(4/6/8/10 核), 对应 Ubuntu 资源页的按核视图 */
+    private inner class CoreBarsView(c: Context) : View(c) {
+        private var vals: List<Float> = emptyList()
+        private val pBar = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val pTrack = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = CARD2
+        }
+        private val pText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 8.5f * resources.displayMetrics.density
+            color = SUB
+            textAlign = Paint.Align.CENTER
+        }
+        private val pGrid = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+            color = GRID
+        }
+
+        fun setData(v: List<Float>) {
+            vals = v
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+            val labelH = 12f * resources.displayMetrics.density
+            val barH = h - labelH
+            canvas.drawLine(0f, barH * 0.5f, w, barH * 0.5f, pGrid)
+            if (vals.isEmpty()) {
+                canvas.drawText("无分核读数", w / 2f, barH / 2f, pText)
+                return
+            }
+            val n = vals.size
+            val slot = w / n
+            val barW = minOf(slot * 0.62f, 26f * resources.displayMetrics.density)
+            vals.forEachIndexed { i, v ->
+                val x = slot * i + slot / 2f
+                val track = RectF(x - barW / 2f, 0f, x + barW / 2f, barH)
+                canvas.drawRoundRect(track, barW / 4f, barW / 4f, pTrack)
+                if (v >= 0f) {
+                    val top = barH - barH * (v.coerceIn(0f, 100f) / 100f)
+                    pBar.color = when {
+                        v >= 85f -> RED
+                        v >= 60f -> WARN
+                        else -> ACCENT
+                    }
+                    canvas.drawRoundRect(RectF(x - barW / 2f, top, x + barW / 2f, barH), barW / 4f, barW / 4f, pBar)
+                }
+                canvas.drawText(i.toString(), x, h - 1f, pText)
+            }
+        }
+    }
+
+    /** 网络曲线: 上下行双线, 纵向按当前峰值自适应, 低速也不会被压成直线 */
+    private inner class NetView(c: Context) : View(c) {
+        private var down: List<Float> = emptyList()
+        private var up: List<Float> = emptyList()
+        private val pDown = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = dpi(2).toFloat()
+            color = ACCENT
+        }
+        private val pUp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = dpi(2).toFloat()
+            color = WARN
+        }
+        private val pGrid = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+            color = GRID
+        }
+        private val pText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 9f * resources.displayMetrics.density
+            color = SUB
+        }
+
+        fun setData(d: List<Float>, u: List<Float>) {
+            down = d
+            up = u
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+            for (i in 1..3) {
+                val y = h * i / 4f
+                canvas.drawLine(0f, y, w, y, pGrid)
+            }
+            val peak = maxOf(down.maxOrNull() ?: 0f, up.maxOrNull() ?: 0f, 1f)
+            canvas.drawText("峰 " + speed(peak.toDouble()), 2f * resources.displayMetrics.density,
+                10f * resources.displayMetrics.density, pText)
+            fun line(data: List<Float>, p: Paint) {
+                if (data.size < 2) return
+                val step = w / (data.size - 1).coerceAtLeast(1)
+                val path = Path()
+                data.forEachIndexed { i, v ->
+                    val y = h - h * (v.coerceIn(0f, peak) / peak)
+                    if (i == 0) path.moveTo(0f, y) else path.lineTo(i * step, y)
+                }
+                canvas.drawPath(path, p)
+            }
+            line(down, pDown)
+            line(up, pUp)
+        }
     }
 
     /** 双线迷你图: CPU 百分比 + SoC 温度 */

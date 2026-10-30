@@ -40,6 +40,18 @@ object DeviceMetrics {
     private var lastTotal = 0L
     private var lastIdle = 0L
 
+    // 分核基线(核数动态: 4/6/8/10 核都能算)
+    private val coreTotals = HashMap<Int, Long>()
+    private val coreIdles = HashMap<Int, Long>()
+
+    // 网络速率基线(/proc/net/dev 累计字节)
+    private var lastNetRx = -1L
+    private var lastNetTx = -1L
+    private var lastNetAt = 0L
+    private val netDownSeries = ArrayDeque<Float>()
+    private val netUpSeries = ArrayDeque<Float>()
+    private val memSeriesQ = ArrayDeque<Float>()
+
     // ===================== 对外 =====================
 
     /** 单次采样(节流): 读一次全部动态指标并进环形缓冲 */
@@ -59,13 +71,23 @@ object DeviceMetrics {
             o.put("batt", battBlock(c))
             o.put("load", loadBlock())
             o.put("disk", diskBlock())
+            o.put("net", netBlock())
             o.put("uptime", uptimeText())
             o.put("ts", System.currentTimeMillis())
             val pct = cpu.optDouble("pct", 0.0).toFloat()
             val t = temp.optDouble("soc_c", -1.0).toFloat()
+            val memPct = mem.optDouble("used_pct", -1.0).toFloat()
+            val netObj = o.optJSONObject("net")
+            val dn = netObj?.optDouble("down_kbps", -1.0) ?: -1.0
+            val upK = netObj?.optDouble("up_kbps", -1.0) ?: -1.0
             synchronized(lock) {
                 push(cpuSeries, pct)
                 if (t > 0f) push(tempSeries, t)
+                if (memPct >= 0f) push(memSeriesQ, memPct)
+                if (dn >= 0.0) {
+                    push(netDownSeries, dn.toFloat())
+                    push(netUpSeries, upK.toFloat())
+                }
             }
         } catch (e: Throwable) {
             o.put("error", e.message ?: e.javaClass.simpleName)
@@ -78,6 +100,14 @@ object DeviceMetrics {
     fun series(): Pair<List<Float>, List<Float>> = synchronized(lock) {
         Pair(ArrayList(cpuSeries), ArrayList(tempSeries))
     }
+
+    /** 网络曲线: Pair(下行 KB/s, 上行 KB/s) */
+    fun netHistory(): Pair<List<Float>, List<Float>> = synchronized(lock) {
+        Pair(ArrayList(netDownSeries), ArrayList(netUpSeries))
+    }
+
+    /** 内存占用曲线(%) */
+    fun memHistory(): List<Float> = synchronized(lock) { ArrayList(memSeriesQ) }
 
     /** 近 5 分钟峰值 */
     fun peaks(): Pair<Float, Float> = synchronized(lock) {
@@ -279,20 +309,35 @@ object DeviceMetrics {
         val o = JSONObject()
         val stat = readText("/proc/stat", true)
         if (stat != null) {
-            val line = stat.lineSequence().firstOrNull { it.startsWith("cpu ") }
-            if (line != null) {
-                val nums = line.trim().split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
-                if (nums.size >= 4) {
-                    val idle = nums[3] + (nums.getOrNull(4) ?: 0L)
-                    val total = nums.sum()
+            val perCore = JSONArray()
+            for (raw in stat.lineSequence()) {
+                val line = raw.trim()
+                if (!line.startsWith("cpu")) continue
+                val head = line.substringBefore(' ')
+                val idx = if (head == "cpu") -1 else head.removePrefix("cpu").toIntOrNull() ?: continue
+                val nums = line.split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
+                if (nums.size < 4) continue
+                val idle = nums[3] + (nums.getOrNull(4) ?: 0L)
+                val total = nums.sum()
+                if (idx < 0) {
                     val dTotal = total - lastTotal
                     val dIdle = idle - lastIdle
                     lastTotal = total
                     lastIdle = idle
-                    val pct = if (dTotal > 0) ((dTotal - dIdle) * 100.0 / dTotal) else 0.0
+                    val pct = if (dTotal > 0) (dTotal - dIdle) * 100.0 / dTotal else 0.0
                     o.put("pct", (pct * 10).roundToInt() / 10.0)
+                } else {
+                    val pTotal = coreTotals[idx] ?: -1L
+                    val pIdle = coreIdles[idx] ?: -1L
+                    coreTotals[idx] = total
+                    coreIdles[idx] = idle
+                    val dTotal = if (pTotal < 0) 0L else total - pTotal
+                    val dIdle = if (pIdle < 0) 0L else idle - pIdle
+                    val c = if (dTotal > 0) (dTotal - dIdle) * 100.0 / dTotal else -1.0
+                    perCore.put(if (c < 0) -1.0 else (c * 10).roundToInt() / 10.0)
                 }
             }
+            if (perCore.length() > 0) o.put("per_core_pct", perCore)
         }
         val cores = Runtime.getRuntime().availableProcessors()
         o.put("cores", cores)
@@ -346,6 +391,7 @@ object DeviceMetrics {
             if (swapTotal > 0) {
                 o.put("swap_total_mb", round1(swapTotal / 1024.0))
                 o.put("swap_used_mb", round1((swapTotal - swapFree) / 1024.0))
+                o.put("swap_used_pct", round1((swapTotal - swapFree) * 100.0 / swapTotal))
             }
             if (cached > 0) o.put("cached_mb", round1(cached / 1024.0))
         }
@@ -453,6 +499,39 @@ object DeviceMetrics {
         return o
     }
 
+    /**
+     * 网络速率: /proc/net/dev 在 Android 10+ 对普通应用屏蔽, 走 Shizuku/root 只读通道;
+     * 累计字节做差值算速率, 面板 2s 一刷即是 2s 平均。
+     */
+    private fun netBlock(): JSONObject {
+        val o = JSONObject()
+        val raw = readText("/proc/net/dev", true)
+        if (raw == null) return o
+        var rx = 0L
+        var tx = 0L
+        for (line in raw.lineSequence()) {
+            val i = line.indexOf(':')
+            if (i < 0) continue
+            val name = line.substring(0, i).trim()
+            if (name == "lo" || name.startsWith("ifb") || name.startsWith("dummy") || name.startsWith("rmnet_ipa")) continue
+            val nums = line.substring(i + 1).trim().split(Regex("\\s+"))
+            rx += nums.getOrNull(0)?.toLongOrNull() ?: 0L
+            tx += nums.getOrNull(8)?.toLongOrNull() ?: 0L
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (lastNetRx >= 0 && now > lastNetAt) {
+            val dt = (now - lastNetAt) / 1000.0
+            o.put("down_kbps", round1(maxOf(0L, rx - lastNetRx) / 1024.0 / dt))
+            o.put("up_kbps", round1(maxOf(0L, tx - lastNetTx) / 1024.0 / dt))
+        }
+        lastNetRx = rx
+        lastNetTx = tx
+        lastNetAt = now
+        o.put("rx_gb", round1(rx / 1073741824.0))
+        o.put("tx_gb", round1(tx / 1073741824.0))
+        return o
+    }
+
     private fun loadBlock(): JSONObject {
         val o = JSONObject()
         val la = readText("/proc/loadavg", true)
@@ -475,6 +554,33 @@ object DeviceMetrics {
             o.put("total_gb", round1(total / 1073741824.0))
             o.put("free_gb", round1(free / 1073741824.0))
             o.put("free_pct", if (total > 0) round1(free * 100.0 / total) else 0.0)
+        } catch (_: Throwable) {
+        }
+        // 多挂载点: /data、/storage、/system 各一; 同一文件系统只留一个, 避免 sdcardfs 重复计数
+        try {
+            val mounts = JSONArray()
+            val seen = HashSet<String>()
+            fun addMount(label: String, dir: File?) {
+                if (dir == null) return
+                try {
+                    val sf = StatFs(dir.path)
+                    val total = sf.blockCountLong * sf.blockSizeLong
+                    val free = sf.availableBlocksLong * sf.blockSizeLong
+                    if (total <= 0) return
+                    val key = "" + (total / 1048576) + ":" + (free / 1048576)
+                    if (!seen.add(key)) return
+                    mounts.put(JSONObject()
+                        .put("label", label)
+                        .put("free_gb", round1(free / 1073741824.0))
+                        .put("total_gb", round1(total / 1073741824.0))
+                        .put("free_pct", round1(free * 100.0 / total)))
+                } catch (_: Throwable) {
+                }
+            }
+            addMount("/data", Environment.getDataDirectory())
+            addMount("/storage/emulated", Environment.getExternalStorageDirectory())
+            addMount("/system", Environment.getRootDirectory())
+            if (mounts.length() > 0) o.put("mounts", mounts)
         } catch (_: Throwable) {
         }
         return o
