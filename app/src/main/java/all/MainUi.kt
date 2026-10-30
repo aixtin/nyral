@@ -171,6 +171,29 @@ import android.widget.Toast
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 }.also { this@buildDrawer.kbEntryBtn = it })
             })
+            // 手机体检入口(2026-10-30 老板): 从设置页移到抽屉, 落在新会话之下、会话记录之上——
+            // 体检是高频动作, 不该埋在设置三级里。样式用浅底副按钮, 不与"新会话"主 CTA 抢位。
+            addView(TextView(this@buildDrawer).apply {
+                text = "手机体检"
+                textSize = 14f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(Ui.PRIMARY)
+                gravity = Gravity.CENTER
+                background = rounded(dp(14), Ui.PRIMARY_LIGHT)
+                setPadding(0, dp(Ui.SP2), 0, dp(Ui.SP2))
+                isClickable = true
+                setOnClickListener {
+                    closeDrawer()
+                    this@buildDrawer.startActivity(
+                        android.content.Intent(this@buildDrawer, DiagnosticsActivity::class.java)
+                    )
+                }
+                Ui.press(this)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(Ui.SP2)
+                }
+            })
             addView(TextView(this@buildDrawer).apply {
                 text = getString(R.string.mui_records)
                 textSize = 12f

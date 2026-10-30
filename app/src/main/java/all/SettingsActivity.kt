@@ -153,10 +153,6 @@ class SettingsActivity : Activity() {
         cardAbout.addView(settingsItem(getString(R.string.settings_perm), getString(R.string.settings_perm_sub), R.drawable.ic_settings_perm, 9, {
             startActivity(Intent(this@SettingsActivity, PermissionsActivity::class.java))
         }) { permSubtitleView = it })
-        // 手机体检: 只读诊断(电池/存储/崩溃/网络), 与 shell 执行通道隔离
-        cardAbout.addView(settingsItem("手机体检", "只读诊断：电池 / 存储 / 崩溃 / 网络", R.drawable.ic_settings_debug, 11, {
-            startActivity(Intent(this@SettingsActivity, DiagnosticsActivity::class.java))
-        }))
         cardAbout.addView(settingsItem(getString(R.string.settings_about), getString(R.string.settings_about_sub), R.drawable.ic_settings_about, 3, {
             startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
         }))
