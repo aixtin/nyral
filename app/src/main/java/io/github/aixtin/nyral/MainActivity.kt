@@ -368,6 +368,8 @@ class MainActivity : Activity() {
     @Volatile internal var debugChatDone: (() -> Unit)? = null
     internal var currentSaved = false
     internal var currentSessionId: Long? = null
+    /** 会话列表分组折叠状态(2026-10-30): 存组 kind, 仅内存不落盘; 默认普通组展开, 定时任务/体检组收起 */
+    internal val sessionCollapsedKinds = mutableSetOf(MemoryDb.KIND_TIMER, MemoryDb.KIND_DIAG)
     /** 当前会话标题(随切会话/保存更新), 供记忆落库时快照会话名 */
     internal var currentSessionTitle: String? = null
     /** 本轮 AI 请求所属的会话 id(发起时快照), 回调落地时若已切走则不写入新会话历史 */

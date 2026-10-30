@@ -6,10 +6,15 @@ import android.database.sqlite.SQLiteOpenHelper
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 12) {
+class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 13) {
 
     companion object {
         const val DIM = 512
+
+        /** 会话类型(v13): 普通 / 定时任务 / 手机体检 —— 列表按类型分组, 互不挤占条数 */
+        const val KIND_NORMAL = 0
+        const val KIND_TIMER = 1
+        const val KIND_DIAG = 2
         const val MAX_FIELD_LEN = 200_000
 
         /** 时间戳 → 人类可读: 今天只显时刻, 跨天显月日+时刻, 跨年显年月日+时刻 */
@@ -64,7 +69,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "title TEXT NOT NULL," +
                 "updated_at INTEGER NOT NULL," +
                 "pinned INTEGER NOT NULL DEFAULT 0," +
-                "mode INTEGER NOT NULL DEFAULT 0)"
+                "mode INTEGER NOT NULL DEFAULT 0," +
+                "kind INTEGER NOT NULL DEFAULT 0)"
         )
         db.execSQL(
             "CREATE TABLE session_msgs (" +
@@ -82,6 +88,20 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "rendered_version INTEGER DEFAULT 0)"
         )
         db.execSQL("CREATE INDEX idx_sms_sid ON session_msgs(session_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_sessions_kind ON sessions(kind, mode, updated_at)")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS diag_archive (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                "created_at INTEGER NOT NULL," +
+                "device TEXT," +
+                "level_max INTEGER NOT NULL DEFAULT 0," +
+                "ok_count INTEGER NOT NULL DEFAULT 0," +
+                "fail_count INTEGER NOT NULL DEFAULT 0," +
+                "digest TEXT NOT NULL," +
+                "detail_raw TEXT," +
+                "session_id INTEGER NOT NULL DEFAULT 0)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_diag_created ON diag_archive(created_at)")
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -170,6 +190,11 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_mem_src ON memory(src_session_id, src_msg_no)")
 
+        // 幂等兜底：sessions.kind 会话类型列(v13)，缺失则补齐
+        ensureSessionKind(db)
+        // 幂等兜底：体检档案表(v13)，缺失则补齐
+        ensureDiagArchive(db)
+
         // 防 SQLiteBlobTooBigException：单字段超限则截断（CursorWindow 单值上限约 1MB，200KB 留足余量）
         val maxLen = MAX_FIELD_LEN
         for (col in listOf("content", "thinking", "tools", "timeline", "rendered")) {
@@ -177,7 +202,50 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
+    /** 幂等补列: sessions.kind(v13 新增); 老库 user_version 已升但表结构未补时由 onOpen 兜底 */
+    private fun ensureSessionKind(db: SQLiteDatabase) {
+        var exists = false
+        db.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sessions'", null).use { c ->
+            exists = c.moveToFirst()
+        }
+        if (!exists) return
+        var hasKind = false
+        db.rawQuery("PRAGMA table_info(sessions)", null).use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == "kind") {
+                    hasKind = true
+                    break
+                }
+            }
+        }
+        if (!hasKind) {
+            db.execSQL("ALTER TABLE sessions ADD COLUMN kind INTEGER NOT NULL DEFAULT 0")
+        }
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_sessions_kind ON sessions(kind, mode, updated_at)")
+    }
+
+    /** 幂等建表: 体检档案(v13 新增) */
+    private fun ensureDiagArchive(db: SQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS diag_archive (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "created_at INTEGER NOT NULL," +
+                    "device TEXT," +
+                    "level_max INTEGER NOT NULL DEFAULT 0," +
+                    "ok_count INTEGER NOT NULL DEFAULT 0," +
+                    "fail_count INTEGER NOT NULL DEFAULT 0," +
+                    "digest TEXT NOT NULL," +
+                    "detail_raw TEXT," +
+                    "session_id INTEGER NOT NULL DEFAULT 0)"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_diag_created ON diag_archive(created_at)")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 13) {
+            ensureSessionKind(db)
+            ensureDiagArchive(db)
+        }
         if (oldVersion < 9) {
             // sessions 新增 mode 列(v9)：0=Agent 模式, 1=聊天模式，会话隔离
             val sessMode = db.rawQuery("PRAGMA table_info(sessions)", null)
@@ -644,7 +712,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
 
     // ===================== 多会话 =====================
 
-    data class SessionInfo(val id: Long, val title: String, val updatedAt: Long, val pinned: Boolean)
+    data class SessionInfo(val id: Long, val title: String, val updatedAt: Long, val pinned: Boolean, val kind: Int = 0)
 
     /** 会话消息: role / content(正文) / thinking(AI 思考) / tools(工具调用序列 JSON) / timeline(思考+工具交错时间线 JSON, v8) / ts(消息时间戳 v10) / seq(会话内序号, 窗口化加载时用于定位) / date(消息日期 yyyy-MM-dd) */
     data class SessionMsg(val role: String, val content: String, val thinking: String = "", val tools: String = "", val timeline: String = "", val ts: Long = 0L, val seq: Int = -1, val rendered: String = "", val renderedVersion: Int = 0, val date: String = "")
@@ -660,7 +728,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(ts))
 
     /** 保存当前会话为新会话，返回 session id；assistant 消息附思考内容(可空) */
-    fun saveSession(title: String, msgs: List<SessionMsg>, mode: Int = 0): Long {
+    fun saveSession(title: String, msgs: List<SessionMsg>, mode: Int = 0, kind: Int = 0): Long {
         lock.withLock {
             val db = writableDatabase
             db.beginTransaction()
@@ -670,6 +738,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         put("title", title)
                         put("updated_at", System.currentTimeMillis())
                         put("mode", mode)
+                        put("kind", kind)
                     })
                 msgs.forEachIndexed { i, m ->
                     db.insert("session_msgs", null,
@@ -696,18 +765,145 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     }
 
     /** 列出会话（置顶优先，其次按更新时间倒序） */
-    fun listSessions(limit: Int = 20, mode: Int = 0): List<SessionInfo> {
+    fun listSessions(limit: Int = 20, mode: Int = 0, kind: Int = KIND_NORMAL): List<SessionInfo> {
         lock.withLock {
             val out = mutableListOf<SessionInfo>()
             readableDatabase.rawQuery(
-                "SELECT id, title, updated_at, pinned FROM sessions WHERE mode = ? ORDER BY pinned DESC, updated_at DESC LIMIT ?",
-                arrayOf(mode.toString(), limit.toString())
+                "SELECT id, title, updated_at, pinned, kind FROM sessions WHERE mode = ? AND kind = ? ORDER BY pinned DESC, updated_at DESC LIMIT ?",
+                arrayOf(mode.toString(), kind.toString(), limit.toString())
             ).use { c ->
                 while (c.moveToNext()) {
-                    out.add(SessionInfo(c.getLong(0), c.getString(1), c.getLong(2), c.getInt(3) != 0))
+                    out.add(SessionInfo(c.getLong(0), c.getString(1), c.getLong(2), c.getInt(3) != 0, c.getInt(4)))
                 }
             }
             return out
+        }
+    }
+
+    /** 分组头计数: 指定类型会话条数(不受列表 20 条上限影响) */
+    fun countSessions(kind: Int = KIND_NORMAL, mode: Int = 0): Int {
+        lock.withLock {
+            readableDatabase.rawQuery(
+                "SELECT COUNT(*) FROM sessions WHERE mode = ? AND kind = ?",
+                arrayOf(mode.toString(), kind.toString())
+            ).use { c ->
+                if (c.moveToFirst()) return c.getInt(0)
+            }
+            return 0
+        }
+    }
+
+    /** 清空会话正文, 保留会话壳(体检会话与档案解耦: 清对话不丢档案) */
+    fun clearSessionMessages(id: Long) {
+        lock.withLock {
+            writableDatabase.execSQL("DELETE FROM session_msgs WHERE session_id = ?", arrayOf(id.toString()))
+        }
+    }
+
+    /** 取会话类型(0 普通 / 1 定时任务 / 2 体检); 不存在或老库无值时按普通处理 */
+    fun sessionKindOf(id: Long): Int {
+        lock.withLock {
+            readableDatabase.rawQuery("SELECT kind FROM sessions WHERE id = ?", arrayOf(id.toString())).use { c ->
+                if (c.moveToFirst()) return c.getInt(0)
+            }
+            return KIND_NORMAL
+        }
+    }
+
+    /** 按类型取最近一条会话(体检会话复用判定用); 无则 null */
+    fun findSessionByKind(kind: Int, mode: Int = 0): Long? {
+        lock.withLock {
+            readableDatabase.rawQuery(
+                "SELECT id FROM sessions WHERE kind = ? AND mode = ? ORDER BY updated_at DESC LIMIT 1",
+                arrayOf(kind.toString(), mode.toString())
+            ).use { c ->
+                if (c.moveToFirst()) return c.getLong(0)
+            }
+            return null
+        }
+    }
+
+    // ===== 体检档案(2026-10-30 P2): 报告正文与对话彻底解耦 =====
+
+    /** 档案摘要行(不含 detail_raw, 避免整行带大字段) */
+    data class DiagArchive(
+        val id: Long, val createdAt: Long, val levelMax: Int,
+        val okCount: Int, val failCount: Int, val digest: String, val sessionId: Long
+    )
+
+    /** 落一份体检档案; 全量明细只留最近 5 份, 更早的抹掉明细(摘要永久保留) */
+    fun saveDiagArchive(levelMax: Int, okCount: Int, failCount: Int, digest: String, detailRaw: String, sessionId: Long): Long {
+        lock.withLock {
+            val db = writableDatabase
+            val id = db.insert("diag_archive", null, android.content.ContentValues().apply {
+                put("created_at", System.currentTimeMillis())
+                put("device", android.os.Build.MODEL ?: "")
+                put("level_max", levelMax)
+                put("ok_count", okCount)
+                put("fail_count", failCount)
+                put("digest", digest.take(MAX_FIELD_LEN))
+                put("detail_raw", detailRaw.take(MAX_FIELD_LEN))
+                put("session_id", sessionId)
+            })
+            db.execSQL(
+                "UPDATE diag_archive SET detail_raw = NULL WHERE detail_raw IS NOT NULL AND id NOT IN " +
+                    "(SELECT id FROM diag_archive WHERE detail_raw IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 5)"
+            )
+            return id
+        }
+    }
+
+    /** 档案列表(仅摘要, 新→旧) */
+    fun listDiagArchives(limit: Int = 20): List<DiagArchive> {
+        lock.withLock {
+            val out = mutableListOf<DiagArchive>()
+            readableDatabase.rawQuery(
+                "SELECT id, created_at, level_max, ok_count, fail_count, digest, session_id FROM diag_archive ORDER BY created_at DESC, id DESC LIMIT ?",
+                arrayOf(limit.toString())
+            ).use { c ->
+                while (c.moveToNext()) {
+                    out.add(DiagArchive(c.getLong(0), c.getLong(1), c.getInt(2), c.getInt(3), c.getInt(4), c.getString(5) ?: "", c.getLong(6)))
+                }
+            }
+            return out
+        }
+    }
+
+    /** 最近一份档案 */
+    fun latestDiagArchive(): DiagArchive? = listDiagArchives(1).firstOrNull()
+
+    /** 按 id 取档案摘要 */
+    fun getDiagArchive(id: Long): DiagArchive? {
+        lock.withLock {
+            readableDatabase.rawQuery(
+                "SELECT id, created_at, level_max, ok_count, fail_count, digest, session_id FROM diag_archive WHERE id = ?",
+                arrayOf(id.toString())
+            ).use { c ->
+                if (c.moveToFirst()) {
+                    return DiagArchive(c.getLong(0), c.getLong(1), c.getInt(2), c.getInt(3), c.getInt(4), c.getString(5) ?: "", c.getLong(6))
+                }
+            }
+            return null
+        }
+    }
+
+    /** 档案全量明细; null 表示已被滚动淘汰(只剩摘要) */
+    fun diagArchiveDetail(id: Long): String? {
+        lock.withLock {
+            readableDatabase.rawQuery(
+                "SELECT detail_raw FROM diag_archive WHERE id = ?",
+                arrayOf(id.toString())
+            ).use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) return c.getString(0)
+            }
+            return null
+        }
+    }
+
+    /** 删除某体检会话关联的全部档案(用户选"连档案一起删") */
+    fun deleteDiagArchivesBySession(sessionId: Long) {
+        lock.withLock {
+            writableDatabase.execSQL("DELETE FROM diag_archive WHERE session_id = ?", arrayOf(sessionId.toString()))
         }
     }
 

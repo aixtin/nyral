@@ -28,6 +28,9 @@ class DiagnosticsActivity : Activity() {
     private lateinit var authBtn: TextView
     private val cards = LinkedHashMap<String, LinearLayout>()
     private var running = false
+    /** 本次体检绑定的会话(2026-10-30): 连续体检复用同一条, 结果只追加摘要卡 */
+    private var sessionId = 0L
+    private var checkMode = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -158,13 +161,20 @@ class DiagnosticsActivity : Activity() {
         }
 
         val sz = Diagnostics.shizukuState()
+        // 体检会话(2026-10-30): 进页面即绑定/新建 kind=2 会话, 报告只写进这条会话
+        checkMode = ModeConfig.modeValue()
+        sessionId = DiagSession.openOrResume(this, checkMode)
         Thread {
             val lv = Diagnostics.currentLevel()
             runOnUiThread { applyPrivilege(lv, sz) }
+            val results = LinkedHashMap<String, Diagnostics.Result>()
             for (it in Diagnostics.ITEMS) {
                 val r = Diagnostics.run(this, it.id)
+                results[it.id] = r
                 runOnUiThread { fillCard(cards[it.id], r) }
             }
+            // 全部采集完成再落档案, 避免半途中断留下残缺报告
+            saveArchive(results, lv)
             runOnUiThread {
                 running = false
                 startBtn.text = "重新体检"
@@ -222,6 +232,61 @@ class DiagnosticsActivity : Activity() {
         body.setTextColor(if (calm) Ui.TEXT else Color.parseColor("#B07800"))
         body.setLineSpacing(0f, 1.3f)
     }
+
+
+    /** 体检完成: 落档案 + 往体检会话追加摘要卡(2026-10-30 P2) */
+    private fun saveArchive(results: Map<String, Diagnostics.Result>, level: Int) {
+        if (results.isEmpty()) return
+        try {
+            val time = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val ok = results.values.count { it.ok && calm(it.verdict) }
+            val fail = results.size - ok
+            val abn = results.values.filter { !(it.ok && calm(it.verdict)) }
+
+            val digest = StringBuilder()
+            digest.append("体检时间: ").append(time)
+            digest.append("\n采集等级: ").append(Diagnostics.levelName(level))
+            digest.append("\n结果: 正常 ").append(ok).append(" 项, 需关注 ").append(fail).append(" 项")
+            if (abn.isEmpty()) {
+                digest.append("\n异常项: 无")
+            } else {
+                digest.append("\n需关注项:")
+                abn.forEach { r ->
+                    digest.append("\n- ").append(r.title).append(": ")
+                    digest.append(
+                        when {
+                            !r.ok -> if (r.error.isNotBlank()) "无法采集(" + r.error + ")" else "跳过"
+                            else -> r.verdict.ifBlank { "异常" }
+                        }
+                    )
+                    if (r.hint.isNotBlank()) digest.append(" / 处理: ").append(r.hint.replace("\n", " "))
+                }
+            }
+
+            val detail = StringBuilder()
+            results.values.forEach { r ->
+                detail.append("[").append(r.title).append("]")
+                detail.append(if (r.ok) "\n结论: " + r.verdict else "\n结论: 跳过 " + r.error)
+                if (r.ok) r.lines.forEach { detail.append("\n  ").append(it) }
+                if (r.hint.isNotBlank()) detail.append("\n提示: ").append(r.hint)
+                detail.append("\n\n")
+            }
+
+            val db = MemoryDb(this)
+            val id = db.saveDiagArchive(level, ok, fail, digest.toString(), detail.toString(), sessionId)
+            val card = "【手机体检报告 #" + id + "】\n" + digest + "\n\n完整明细已存入体检档案 #" + id +
+                    ", 需要回查历史报告时引用该编号即可; 报告正文不占用会话上下文。"
+            DiagSession.appendReport(this, sessionId, checkMode, card)
+        } catch (e: Exception) {
+            android.util.Log.w("Diagnostics", "档案落库失败: " + e.message)
+        }
+    }
+
+    /** 与 fillCard 一致的"平静"判据: 结论不含告警词才算正常项 */
+    private fun calm(verdict: String): Boolean =
+        verdict.contains("正常") || verdict.contains("充足") ||
+            verdict.contains("无异常") || verdict.contains("仅有")
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 }

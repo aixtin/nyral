@@ -333,7 +333,7 @@ class TimerTaskActivity : Activity() {
             // 每开启一个任务即开启一个新会话绑定它(2026-10-13): 会话按创建时模式归属, 聊天/Agent 两模式互不串
             val mode = ModeConfig.modeValue()
             val id = db.insert(name, goal, fullCron, mode, allowTools)
-            val sessionId = MemoryDb(this).saveSession(name, emptyList(), mode)
+            val sessionId = MemoryDb(this).saveSession(name, emptyList(), mode, MemoryDb.KIND_TIMER)
             db.bindSession(id, sessionId)
             TimerScheduler.schedule(this, id, fullCron)
             SecurityConfig.audit(this, "timer_task_register", "$name / $goal", "ui_user", "timer_task")

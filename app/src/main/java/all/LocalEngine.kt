@@ -200,7 +200,7 @@ object LocalEngine {
         ToolSpec("image_view", "从已落库附件图片按需注入查看: 参数 {name: 附件文件名或 att:// 引用}。识图模型注意: 当前消息里的图片已直接内联可见, 无需调用本工具; 本工具主要用于查看历史消息中的旧图片(历史仅存 att:// 引用不发字节)。注入后图片仅供识图模型参考。", "JSON: {\"name\":\"att://xxx.jpg\"}"),
         ToolSpec("audio_read", "从已落库附件音频按需注入听取(供支持音频输入的模型): 参数 {name: 附件文件名或 att:// 引用}。音频模型注意: 当前消息里的小音频(≤10MB 且 ≤120s)已直接内联可听, 无需调用; 本工具主要用于听取历史消息中的旧音频、超限大音频或直发被拒后的音频。不支持音频输入的模型不要调用, 应提示用户 file_export 导出。", "JSON: {\"name\":\"att://xxx.mp3\"}"),
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}"),
-        ToolSpec("security_set", "安全管理开关(2026-10-04): 配置危险门禁三档与root自动补权。参数JSON: {\"danger_mode\":\"strict|auto|off\"} 三档门禁(默认auto): strict=每次确认, auto=高危确认+5分钟窗口期复用, off=关闭门禁; {\"danger_confirm\":true/false} 兼容旧开关(true→auto, false→off); {\"root_auto_grant\":true/false} 开启/关闭root静默自动补权(默认关); {\"ssh_trust\":\"连接名\"} 信任待确认的SSH主机密钥(SSH安全告警后调用)", "JSON: {\"danger_mode\":\"strict\"} 或 {\"danger_confirm\":false} 或 {\"root_auto_grant\":true} 或 {\"ssh_trust\":\"vps\"}"),
+        ToolSpec("security_set", "安全管理开关(2026-10-30 收紧): 模型侧仅保留 ssh_trust —— 信任待确认的SSH主机密钥。危险门禁三档(danger_mode)与 root 自动补权(root_auto_grant)已从模型侧收回: 调用这些参数会被直接拒绝, 只能由用户在 设置 → 安全中心 手动修改; 用户提出关/改门禁时应引导其自行前往该页面, 不要代为操作", "JSON: {\"ssh_trust\":\"连接名\"}"),
         ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}"),
         ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}")
     )
@@ -227,7 +227,7 @@ object LocalEngine {
         "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)",
         "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
         "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)",
-        "security_set" to "安全管理开关: 门禁三档(strict/auto/off)/root自动补权/SSH主机密钥信任",
+        "security_set" to "信任SSH主机密钥(ssh_trust); 门禁档位/root补权仅用户UI可改, 模型调用会被拒绝",
         "timer_task_create" to "创建定时岗位任务(name/goal/cron + 危险工具授权清单[每项必须给具体用途]), 需用户确认, 拒绝零残留"
     )
 
@@ -317,11 +317,13 @@ object LocalEngine {
     private fun buildToolsArray(context: Context, hotLoaded: Set<String>): JSONArray {
         val arr = JSONArray()
         val hot = ToolHotStore.load(context)
-        val ordered = if (hot.isEmpty()) toolRegistry else toolRegistry.sortedWith(
+        // 能力域过滤(2026-10-30 P3): 体检会话只读 → 只下发只读工具; 特权工具任何域都不下发
+        val visibleRegistry = toolRegistry.filter { CapabilityScope.allows(it.name, it.zone) }
+        val ordered = if (hot.isEmpty()) visibleRegistry else visibleRegistry.sortedWith(
             compareByDescending<ToolSpec> { hot[it.name]?.count ?: 0 }
                 .thenByDescending { hot[it.name]?.lastTs ?: 0L }
         )
-        val reserved = toolRegistry.filter { it.name in TOOL_WHITELIST || it.name == TOOL_DETAIL }
+        val reserved = visibleRegistry.filter { it.name in TOOL_WHITELIST || it.name == TOOL_DETAIL }
         val activated = ordered.filter { it.name in hotLoaded }
         val rest = ordered.filter { it.name !in TOOL_WHITELIST && it.name != TOOL_DETAIL && it.name !in hotLoaded }
         val top = reserved + activated + rest.take((BUILTIN_TOP_N - reserved.size).coerceAtLeast(0))
@@ -335,6 +337,7 @@ object LocalEngine {
         }
         // MCP 动态工具: 按热度取前 MCP_TOP_N + hotLoaded 激活项; schema 直接用 server 下发的 JSON Schema
         val mcpSpecs = McpClientManager.specEntries().map { (n, d, p) -> ToolSpec(n, d, p) }
+            .filter { CapabilityScope.allows(it.name) }
         val mcpOrdered = if (hot.isEmpty()) mcpSpecs else mcpSpecs.sortedWith(
             compareByDescending<ToolSpec> { hot[it.name]?.count ?: 0 }
                 .thenByDescending { hot[it.name]?.lastTs ?: 0L }
@@ -1536,7 +1539,9 @@ object LocalEngine {
         fun idAt(idx: Int): String? = toolCallIds.getOrNull(idx)
     }
 
-    data class ToolSpec(val name: String, val desc: String, val params: String)
+    /** zone: 能力域标注(2026-10-30 P3), -1 表示未标注 → 由 CapabilityScope 白名单推导;
+     *  READONLY 会读不会改, WRITE 常规执行, PRIVILEGED 特权(永不下发给模型) */
+    data class ToolSpec(val name: String, val desc: String, val params: String, val zone: Int = -1)
 
     private const val MODE_NONE = 0
     private const val MODE_THINKING = 1

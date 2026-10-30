@@ -20,6 +20,7 @@ import android.widget.Toast
         currentSaved = true
         currentSessionId = null
         currentSessionTitle = null
+        CapabilityScope.setSessionKind(MemoryDb.KIND_NORMAL)
         summary?.let { appendSys(getString(R.string.ma_sys_loaded_summary)) }
         appendWelcomeIntro()
         refreshSessionList()
@@ -59,6 +60,8 @@ import android.widget.Toast
         currentSaved = true
         currentSessionId = id
         currentSessionTitle = db.sessionTitleOf(id)
+        // 能力域(2026-10-30 P3): 体检会话只读, 普通/任务会话恢复常规执行域
+        CapabilityScope.setSessionKind(db.sessionKindOf(id))
         // 吸底修复: 切会话重置用户滚动标记(旧会话的"正在阅读"不应带入新会话), 新会话默认追底
         scrollUserScrolled = false
         activeAiHolder?.resumeTypewriter()   // 切会话: 恢复慢打(09-25)
@@ -128,8 +131,12 @@ import android.widget.Toast
     internal fun MainActivity.refreshSessionList() {
         val act = this
         sessionList.removeAllViews()
-        val list = db.listSessions(20, ModeConfig.modeValue())
-        if (list.isEmpty()) {
+        val mode = ModeConfig.modeValue()
+        // 分组取数(2026-10-30 P1): 各组独立 20 条, 互不挤占; 普通组直铺, 任务/体检进折叠组
+        val normal = db.listSessions(20, mode, MemoryDb.KIND_NORMAL)
+        val timers = db.listSessions(20, mode, MemoryDb.KIND_TIMER)
+        val diags = db.listSessions(20, mode, MemoryDb.KIND_DIAG)
+        if (normal.isEmpty() && timers.isEmpty() && diags.isEmpty()) {
             // 空态兜底(2026-10-29): 图标+标题+副文案三级层级, 取代单行灰字
             sessionList.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -159,35 +166,100 @@ import android.widget.Toast
             })
             return
         }
-        list.forEach { s ->
-            sessionList.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(20), dp(12), dp(20), dp(12))
-                isClickable = true
-                setOnClickListener { openSession(s.id) }
-                isLongClickable = true
-                setOnLongClickListener {
-                    showSessionMenu(s)
-                    true
-                }
-                addView(TextView(act).apply {
-                    text = (if (s.pinned) "📌 " else "") + s.title
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                    textSize = 14f
-                    setTextColor(Ui.TEXT)
-                })
-                addView(TextView(act).apply {
-                    text = (if (s.pinned) getString(R.string.ma_pinned_prefix) else "") + fmtTime(s.updatedAt)
-                    textSize = 11f
-                    setTextColor(Ui.SUB)
-                    setPadding(0, dp(2), 0, 0)
-                })
+        normal.forEach { addSessionRow(sessionList, it) }
+        addSessionGroup("定时任务", MemoryDb.KIND_TIMER, timers)
+        addSessionGroup("手机体检", MemoryDb.KIND_DIAG, diags)
+    }
+
+    /** 单条会话行(标题 + 时间), 渲染到指定容器, 末尾带分隔线 */
+    internal fun MainActivity.addSessionRow(box: LinearLayout, s: MemoryDb.SessionInfo) {
+        val act = this
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            isClickable = true
+            setOnClickListener { openSession(s.id) }
+            isLongClickable = true
+            setOnLongClickListener {
+                showSessionMenu(s)
+                true
+            }
+            addView(TextView(act).apply {
+                text = (if (s.pinned) "📌 " else "") + s.title
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                textSize = 14f
+                setTextColor(Ui.TEXT)
             })
-            sessionList.addView(View(this).apply {
-                setBackgroundColor(Ui.DIVIDER)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
+            addView(TextView(act).apply {
+                text = (if (s.pinned) getString(R.string.ma_pinned_prefix) else "") + fmtTime(s.updatedAt)
+                textSize = 11f
+                setTextColor(Ui.SUB)
+                setPadding(0, dp(2), 0, 0)
             })
+        })
+        box.addView(View(this).apply {
+            setBackgroundColor(Ui.DIVIDER)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
+        })
+    }
+
+    /** 分组头 + 折叠子列表(2026-10-30 P1): 状态存内存不落盘; 空组也渲染, 避免入口消失 */
+    internal fun MainActivity.addSessionGroup(title: String, kind: Int, list: List<MemoryDb.SessionInfo>) {
+        val act = this
+        val collapsed = kind in sessionCollapsedKinds
+        val children = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (collapsed) View.GONE else View.VISIBLE
         }
+        val arrow = TextView(this).apply {
+            text = if (collapsed) "▸" else "▾"
+            textSize = 12f
+            setTextColor(Ui.SUB)
+            setPadding(0, 0, dp(6), 0)
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(10), dp(20), dp(10))
+            isClickable = true
+            addView(arrow)
+            addView(TextView(act).apply {
+                text = title
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(Ui.SUB)
+            })
+            addView(TextView(act).apply {
+                text = "  " + list.size
+                textSize = 11f
+                setTextColor(Ui.SUB)
+                alpha = 0.7f
+            })
+            setOnClickListener {
+                val expand = children.visibility != View.VISIBLE
+                children.visibility = if (expand) View.VISIBLE else View.GONE
+                arrow.text = if (expand) "▾" else "▸"
+                if (expand) sessionCollapsedKinds.remove(kind) else sessionCollapsedKinds.add(kind)
+            }
+        }
+        sessionList.addView(header)
+        sessionList.addView(children)
+        sessionList.addView(View(this).apply {
+            setBackgroundColor(Ui.DIVIDER)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
+        })
+        if (list.isEmpty()) {
+            children.addView(TextView(this).apply {
+                text = "暂无"
+                textSize = 12f
+                setTextColor(Ui.SUB)
+                alpha = 0.6f
+                setPadding(dp(34), dp(8), dp(20), dp(10))
+            })
+            return
+        }
+        list.forEach { addSessionRow(children, it) }
     }

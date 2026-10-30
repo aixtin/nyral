@@ -180,7 +180,7 @@ class TaskService : Service() {
         // 专属会话绑定(2026-10-13): 创建时已建会话; 旧任务(测试用)首次触发时补绑, 模式用任务固化值(旧任务默认 Agent 模式)
         var sessionId = task.sessionId
         if (sessionId <= 0L) {
-            sessionId = MemoryDb(this).saveSession(task.name, emptyList(), task.mode)
+            sessionId = MemoryDb(this).saveSession(task.name, emptyList(), task.mode, MemoryDb.KIND_TIMER)
             db.bindSession(taskId, sessionId)
         }
         val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())

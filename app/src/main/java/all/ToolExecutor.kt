@@ -62,6 +62,15 @@ object ToolExecutor {
         "security_set"
     )
 
+    /**
+     * P0 安全封口(2026-10-30): 门禁类参数不对模型开放。
+     * 背景: security_set 属 CRITICAL 工具但模型可调, 模型只要把 danger_mode 改成 off,
+     * 之后所有危险工具的确认门禁全局失效——等于给模型留了自我提权后门。
+     * 处置: 门禁三档与 root 自动补权只能由用户在「设置 → 安全中心」手动修改;
+     * 仅保留 ssh_trust(信任 SSH 主机密钥) 作为模型可请求的子项, 且仍需用户当面核对指纹确认。
+     */
+    private val MODEL_FORBIDDEN_SECURITY_KEYS = setOf("danger_mode", "danger_confirm", "root_auto_grant")
+
     /** MCP 输出清洗(2026-10-20 低优修复): 控制字符清理 + 截断 + 不可信前缀, 防外部工具输出注入提示词 */
     private fun sanitizeMcpOutput(raw: String): String {
         val cleaned = raw.filter { it == '\n' || it == '\t' || it.code >= 32 }
@@ -93,6 +102,16 @@ object ToolExecutor {
                 else "{\"action\":\"${legacy.second}\"}"
             }
         } else arg0
+        // P0 安全封口(2026-10-30): 模型调用 security_set 修改门禁档位/root 补权一律硬拒,
+        // 不弹确认框(避免用户被诱导点允许), 只提示去设置页人工操作。
+        if (n == "security_set") {
+            val hit = MODEL_FORBIDDEN_SECURITY_KEYS.filter { arg.contains("\"" + it + "\"") }
+            if (hit.isNotEmpty()) {
+                SecurityConfig.audit(context, "security_set", "denied:model-call " + hit.joinToString(","), "ai", "bubble")
+                return "【已拒绝】security_set 的门禁类参数(" + hit.joinToString("/") + ")仅限用户在「设置 → 安全中心」手动修改, 模型无权调用。" +
+                        "若用户确需调整门禁档位或 root 补权, 请提示其自行打开 设置 → 安全中心 操作, 不要重试本参数。"
+            }
+        }
         // 自热度统计(2026-09-14): 有效工具执行即 +1(含 MCP 动态工具), 纯本地不上云
         if (LocalEngine.toolRegistry.any { it.name == n } || McpClientManager.spec(n) != null) {
             ToolHotStore.recordHit(context, n)
@@ -633,7 +652,7 @@ object ToolExecutor {
                         val mode = ModeConfig.modeValue()
                         val db = TimerTaskDb(context)
                         val id = db.insert(name, goal, fullCron, mode, keys)
-                        val sessionId = MemoryDb(context).saveSession(name, emptyList(), mode)
+                        val sessionId = MemoryDb(context).saveSession(name, emptyList(), mode, MemoryDb.KIND_TIMER)
                         db.bindSession(id, sessionId)
                         TimerScheduler.schedule(context, id, fullCron)
                         SecurityConfig.audit(context, "timer_task_register", "$name / $goal / $keys", "user", "bubble")
