@@ -166,9 +166,10 @@ import android.widget.Toast
             })
             return
         }
-        normal.forEach { addSessionRow(sessionList, it) }
+        // 顺序(2026-10-30 老板反馈): 两个分组头置顶, 普通会话在下——普通会话再多也顶不掉这两个入口
         addSessionGroup("定时任务", MemoryDb.KIND_TIMER, timers)
         addSessionGroup("手机体检", MemoryDb.KIND_DIAG, diags)
+        normal.forEach { addSessionRow(sessionList, it) }
     }
 
     /** 单条会话行(标题 + 时间), 渲染到指定容器, 末尾带分隔线 */
