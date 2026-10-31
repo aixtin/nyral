@@ -236,7 +236,7 @@ object DebugServer {
                 if (qIdx >= 0) { query = path.substring(qIdx + 1); path = path.substring(0, qIdx) }
 
                 // headers
-                var contentLength = 0
+                var contentLength = 0L
                 var authToken: String? = null
                 var clientKeepAlive = false
                 while (true) {
@@ -246,7 +246,14 @@ object DebugServer {
                     if (ci > 0) {
                         val k = line.substring(0, ci).trim().lowercase()
                         val v = line.substring(ci + 1).trim()
-                        if (k == "content-length") contentLength = v.toIntOrNull() ?: 0
+                        // 2026-10-31: Long 解析 —— Int 溢出时 >2GB 的声明值变 0, 绕过 413 上限
+                        if (k == "content-length") {
+                            contentLength = v.toLongOrNull() ?: 0L
+                            if (contentLength > 32L * 1024 * 1024) {
+                                writeJson(out, 413, JSONObject().put("error", "body too large"), false)
+                                break
+                            }
+                        }
                         if (k == "x-auth-token") authToken = v
                         // 兼容 MCP 客户端惯例的 Authorization: Bearer <token>, 与 X-Auth-Token 等价
                         if (k == "authorization" && v.startsWith("Bearer ", ignoreCase = true)) authToken = v.substring(7).trim()
@@ -271,10 +278,11 @@ object DebugServer {
                 }
                 val body = if (contentLength > 0) {
                     // Content-Length 是字节数, 必须按字节读满, UTF-8 中文(3字节/字)不能按字符数读
-                    val buf = ByteArray(contentLength)
+                    val len = contentLength.toInt()
+                    val buf = ByteArray(len)
                     var read = 0
-                    while (read < contentLength) {
-                        val n = input.read(buf, read, contentLength - read)
+                    while (read < len) {
+                        val n = input.read(buf, read, len - read)
                         if (n < 0) break
                         read += n
                     }
