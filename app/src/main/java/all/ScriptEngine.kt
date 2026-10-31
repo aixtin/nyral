@@ -138,13 +138,14 @@ object ScriptEngine {
     /**
      * 带 H3 硬门禁的 SH 执行(2026-10-03 安全审查修复): 供 executeTool / DebugServer 等外部入口调用。
      * 先过黑名单(命中永远拒绝, 无窗口期豁免), 再走 SecurityConfig 用户确认(与 executeTool 同款票据机制)。
+     * skipConfirm(2026-10-31): 调用方已完成同参数确认时传 true, 修复 strict 档"要点两次确认"。
      */
-    fun runShConfirmed(context: android.content.Context, argRaw: String): String {
+    fun runShConfirmed(context: android.content.Context, argRaw: String, skipConfirm: Boolean = false): String {
         val script = parseScript(argRaw)
         if (script.isBlank()) return "脚本为空: 请提供 script"
         val blocked = blockReason(script)
         if (blocked != null) return blocked
-        if (SecurityConfig.needsConfirm(context, "sh_run", argRaw)) {
+        if (!skipConfirm && SecurityConfig.needsConfirm(context, "sh_run", argRaw)) {
             when (SecurityUi.requestConfirm(context, "sh_run", argRaw, SecurityConfig.riskOf("sh_run"))) {
                 true -> { /* 允许: 票据已签发, 继续执行 */ }
                 false -> return "【安全确认】用户拒绝了工具 [sh_run] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"

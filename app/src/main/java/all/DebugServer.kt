@@ -24,6 +24,7 @@ import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
@@ -94,14 +95,15 @@ object DebugServer {
         val p = prefs(c)
         var t = p.getString(K_TOKEN, null)
         if (t.isNullOrBlank()) {
-            t = "droid-" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+            // 加固(2026-10-31): 新签发 token 提到 192bit, 旧 token 保留(用户可在设置里重置换新)
+            t = "droid-" + java.util.UUID.randomUUID().toString().replace("-", "").take(24)
             p.edit().putString(K_TOKEN, t).apply()
         }
         return t
     }
 
     fun resetToken(c: Context) {
-        val t = "droid-" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        val t = "droid-" + java.util.UUID.randomUUID().toString().replace("-", "").take(24)
         prefs(c).edit().putString(K_TOKEN, t).apply()
     }
 
@@ -251,6 +253,22 @@ object DebugServer {
                         if (k == "connection") clientKeepAlive = v.equals("keep-alive", ignoreCase = true)
                     }
                 }
+                // 安全修复(2026-10-31): 鉴权提前到读 body 之前, 防未认证请求按超长 Content-Length 先吃内存;
+                // body 上限 32MB, 超限直接 413(够容纳 base64 图片附件, 堵死 2GB 级 OOM)
+                val expect = token(c)
+                val got = authToken
+                val authOk = got != null && MessageDigest.isEqual(got.toByteArray(Charsets.UTF_8), expect.toByteArray(Charsets.UTF_8))
+                if (!authOk) {
+                    // 失败小延迟: 拖慢同机暴力枚举(非常量时间比较已换 MessageDigest.isEqual)
+                    try { Thread.sleep(300) } catch (_: InterruptedException) {}
+                    writeJson(out, 401, JSONObject().put("error", "unauthorized"), false)
+                    break
+                }
+                val maxBodyBytes = 32L * 1024 * 1024
+                if (contentLength > maxBodyBytes) {
+                    writeJson(out, 413, JSONObject().put("error", "body too large"), false)
+                    break
+                }
                 val body = if (contentLength > 0) {
                     // Content-Length 是字节数, 必须按字节读满, UTF-8 中文(3字节/字)不能按字符数读
                     val buf = ByteArray(contentLength)
@@ -262,14 +280,6 @@ object DebugServer {
                     }
                     String(buf, 0, read, Charsets.UTF_8)
                 } else ""
-
-                // 鉴权: 仅 header X-Auth-Token; query token 已移除(避免经代理/日志泄露)
-                val expect = token(c)
-                val got = authToken
-                if (got != expect) {
-                    writeJson(out, 401, JSONObject().put("error", "unauthorized"), false)
-                    break
-                }
 
                 // 本请求是否可复用连接: GET 普通端点且客户端声明 keep-alive
                 val reuse = method == "GET" && clientKeepAlive
@@ -552,14 +562,15 @@ object DebugServer {
         } catch (e: Exception) { false }
     }
 
-    /** input text 参数转义: 空格用 %s; 仅纯 ASCII 走 root, 含非 ASCII 交给 EditText 注入 */
+    /** input text 参数转义: 空格用 %s; 仅纯 ASCII 走 root, 含非 ASCII 交给 EditText 注入。
+     *  安全修复(2026-10-31): 文本经 Base64 编码后由远端 printf|base64 -d 解码,
+     *  原文本不再进入 shell 二次解析 —— 旧实现的转义列表漏反引号/换行,
+     *  含 ' 的输入可提前终止引号并以 root 执行任意命令。 */
     private fun rootInputText(text: String): Boolean {
         if (!text.all { it.code < 128 }) return false
-        val esc = text.replace(" ", "%s")
-            .replace("&", "\\&").replace("|", "\\|").replace(";", "\\;")
-            .replace("(", "\\(").replace(")", "\\)").replace("\"", "\\\"")
-            .replace("'", "\\'").replace("\$", "\\\$")
-        return rootExec("input text '$esc'")
+        val safe = text.replace(" ", "%s")
+        val b64 = Base64.encodeToString(safe.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        return rootExec("input text \"\$(printf %s $b64 | base64 -d)\"")
     }
 
     /** 在 UI 主线程执行 block, 等待完成(最多 5s); 用于所有涉及 View/Activity 的操作 */

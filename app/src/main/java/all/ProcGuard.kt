@@ -183,6 +183,17 @@ object ProcGuard {
         } catch (_: Exception) {}
     }
 
+    /** 执行并取回 stdout(巡检身份核验用); 失败返回空串 */
+    private fun execOut(root: Boolean, cmd: String): String {
+        return try {
+            val p = if (root) ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+                    else ProcessBuilder("sh", "-c", cmd).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            p.waitFor(3, TimeUnit.SECONDS)
+            out
+        } catch (_: Exception) { "" }
+    }
+
     // ---------- 残留巡检 ----------
 
     /** App 启动时调用: 回收上一次运行遗留的脚本进程(崩溃/被杀/断电后仍占 CPU 的场景) */
@@ -200,9 +211,17 @@ object ProcGuard {
                     val pid = o.optInt("pid", -1)
                     val root = o.optBoolean("root", false)
                     val rc = o.optString("rc", "")
+                    val tid = o.optString("id", "")
                     if (pid <= 0) continue
                     if (rc.isNotEmpty() && File(rc).exists()) continue  // 已正常结束
-                    if (!File("/proc/$pid").exists()) continue          // 已消失(pid 可能被复用, 不误杀)
+                    if (!File("/proc/$pid").exists()) continue          // 已消失
+                    // 身份核验(2026-10-31 误杀修复): /proc/$pid/environ 必须仍带本任务的
+                    // NYRAL_TASK_ID 标记 —— pid 被无关进程复用时直接跳过, 绝不误杀。
+                    if (tid.isNotEmpty()) {
+                        val chk = execOut(root,
+                            "tr '\\0' '\\n' < /proc/$pid/environ 2>/dev/null | grep -cx 'NYRAL_TASK_ID=$tid'")
+                        if (chk.trim() != "1") continue
+                    }
                     execShell(root, "kill -KILL -$pid 2>/dev/null; kill -KILL $pid 2>/dev/null")
                     killed++
                 }

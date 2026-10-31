@@ -137,19 +137,30 @@ object SshTools {
             ?: normalized.firstOrNull { name.startsWith(it.second) }?.first
     }
 
+    /** 标记"远端命令尚未开始执行"的失败: 仅这类失败允许自动重试。
+     *  修复(2026-10-31): 旧实现 execOnce 一抛异常就整体重跑, 非幂等命令
+     *  (追加写/发请求)在"远端已执行、结果丢失"的断线场景下副作用翻倍。 */
+    private class NotStartedException(cause: Exception) : Exception(cause.message, cause)
+
     fun runOn(context: Context, cfg: SshConfigStore.SshConfig, command: String): String {
         val tag = "SshTools"
         Log.i(tag, "runOn: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
                 " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmdLen=" + command.length)
-        // 断线自动重连: 连接/执行异常时自动重连重试一次, 用户无感(与 LocalEngine 请求级重连配套)
+        // 断线自动重连: 仅"命令尚未开始执行"的失败(连接/建通道阶段)自动重试一次;
+        // 执行中断线的失败不重试 —— 远端往往已执行完, 重跑会双执行
         return try {
             execOnce(context, cfg, command)
         } catch (e: Exception) {
-            val msg = e.message ?: ""
-            if (e is JSchException && msg.contains("UnknownHostKey")) {
-                return unknownHostPrompt(context, cfg, e)
+            val cause = (e as? NotStartedException)?.cause ?: e
+            val msg = cause.message ?: ""
+            if (cause is JSchException && msg.contains("UnknownHostKey")) {
+                return unknownHostPrompt(context, cfg, cause)
             }
-            Log.w(tag, "runOn attempt1 FAILED, auto-reconnect once: " + msg)
+            if (e !is NotStartedException) {
+                Log.e(tag, "runOn FAILED(命令可能已开始执行, 不自动重试)", e)
+                return "SSH 错误: ${e.message}\n(连接中断且命令可能已在远端开始执行, 已跳过自动重试以防重复执行; 如需重试请再次调用)"
+            }
+            Log.w(tag, "runOn attempt1 FAILED before start, auto-reconnect once: " + msg)
             try {
                 execOnce(context, cfg, command)
             } catch (e2: Exception) {
@@ -168,9 +179,10 @@ object SshTools {
         // 客户端断链后按标记在目标机整组清理, 防 nohup/& 起的远端进程继续跑
         val mid = "NYRAL_TASK_" + System.currentTimeMillis().toString(36) + "_" + (System.nanoTime() % 997L).toString(36)
         // 打标: 导出 NYRAL_TASK_ID 环境变量(供 nohup/setsid 起的子进程继承, 后续按 /proc/*/environ 兜底清理)
-        //      + 写 pid 文件(供停止时按进程组整组 KILL)
+        //      + 写 pid 文件(供停止时按进程组整组 KILL, 正常结束顺手删掉防 /tmp 残留堆积)
         val marked = "sh -c 'export NYRAL_TASK_ID=" + mid + "; echo $$ > /tmp/.nyral_" + mid + ".pid; " +
-                command.replace("'", "'\\''") + "'"
+                command.replace("'", "'\\''") + "'; rc=\$?; rm -f /tmp/.nyral_" + mid + ".pid; exit \$rc"
+        var started = false
         try {
             val session = connect(context, cfg)
             val channel = session.openChannel("exec") as ChannelExec
@@ -181,6 +193,8 @@ object SshTools {
             val errStream = channel.errStream
             Log.i(tag, "connecting channel...")
             channel.connect(15000)
+            // 命令已下发到远端: 此后失败不再允许上层自动重试(防双执行)
+            started = true
             Log.i(tag, "channel connected, waiting output")
             val buf = ByteArray(1024)
             val sb = StringBuilder()
@@ -252,7 +266,9 @@ object SshTools {
                 (if (result.isEmpty() && err.isEmpty()) "(无输出, 退出码 ${channel.exitStatus})" else "")
             return truncate(body)
         } catch (e: Exception) {
-            Log.e(tag, "execOnce FAILED", e)
+            Log.e(tag, "execOnce FAILED started=" + started, e)
+            // 只有"命令尚未开始执行"的失败包装后允许上层自动重试
+            if (!started) throw NotStartedException(e)
             throw e
         }
     }
@@ -473,7 +489,7 @@ object SshTools {
             val session = connect(context, cfg)
             val sftp = session.openChannel("sftp") as ChannelSftp
             sftp.connect(15000)
-            val sb = StringBuilder("[$cfg.name: $path]\n")
+            val sb = StringBuilder("[${cfg.name}: $path]\n")
             try {
                 val list = sftp.ls(path) as? Vector<*>
                 if (list == null) return "错误: 无法列目录 $path"

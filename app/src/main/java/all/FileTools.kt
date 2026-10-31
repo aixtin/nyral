@@ -69,10 +69,14 @@ object FileTools {
             val chunks = b64.chunked(MAX_B64_PER_CMD)
             val firstOp = if (append) ">>" else ">"
             var result = runRemote(context, conn, "echo '${chunks[0]}' | base64 -d $firstOp ${q(path)} 2>&1")
+            // 失败即中止(2026-10-31): 旧实现某块失败仍继续循环并报成功, 远端留下缺块的损坏文件
+            fun chunkFailed(r: String) = r.contains("错误") || r.contains("SSH 错误") || r.contains("[已停止]") || r.contains("失败")
+            if (chunkFailed(result)) return "file_write 分块写入失败(第 1/${chunks.size} 块), 远端文件未写入或可能不完整, 请检查后重试:\n$result"
             for (i in 1 until chunks.size) {
                 result = runRemote(context, conn, "echo '${chunks[i]}' | base64 -d >> ${q(path)} 2>&1")
+                if (chunkFailed(result)) return "file_write 分块写入失败(第 ${i + 1}/${chunks.size} 块), 远端文件已不完整, 请重试整次写入:\n$result"
             }
-            result + "\n[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符, 分 ${chunks.size} 块)" 
+            result + "\n[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符, 分 ${chunks.size} 块)"
         } catch (e: Exception) {
             "file_write 失败: ${e.message}"
         }

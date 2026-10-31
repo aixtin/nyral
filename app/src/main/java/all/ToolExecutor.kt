@@ -436,7 +436,8 @@ object ToolExecutor {
             "sh_run" -> run {
                 val scriptRaw = try { JSONObject(arg.trim()).optString("script", "") } catch (e: Exception) { arg.trim() }
                 if (scriptRaw.isBlank()) return@run "错误: sh_run 缺少 script 参数(需提供要执行的脚本), 空调用无效, 请带 script 字段重试"
-                ScriptEngine.runShConfirmed(context, arg)
+                // 上方 key0="sh_run" 已走完同参数确认(strict 档曾要点两次), 这里跳过内层重复确认
+                ScriptEngine.runShConfirmed(context, arg, skipConfirm = true)
             }
             "security_set" -> SecurityConfig.set(context, arg)
             "timer_task_create" -> timerTaskCreate(context, arg, silent)
@@ -598,7 +599,23 @@ object ToolExecutor {
         if (cb == null) {
             return "[ask_user] 需要向你确认: $q (当前无界面可弹窗, AI 请基于已有信息自行判断继续)"
         }
-        return cb(q, opts, allowCustom)
+        // 超时/取消兜底(2026-10-31): 用户不响应时不再永久挂起整轮(此前停止按钮软停也断不开该阻塞)。
+        // 桥接回调在独立线程等待, 主等待循环 200ms 粒度轮询 取消/超时(2分钟)。
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val answer = java.util.concurrent.atomic.AtomicReference<String>()
+        Thread {
+            try { answer.set(cb(q, opts, allowCustom)) } catch (e: Exception) { answer.set("[ask_user 异常] ${e.message}") }
+            latch.countDown()
+        }.apply { isDaemon = true; name = "nyral-askuser"; start() }
+        val deadline = System.currentTimeMillis() + 120_000L
+        while (true) {
+            if (LocalEngine.cancelRequested) return "[已停止] ask_user 等待被用户中断"
+            if (latch.await(200, java.util.concurrent.TimeUnit.MILLISECONDS)) break
+            if (System.currentTimeMillis() > deadline) {
+                return "[ask_user 超时] 用户 2 分钟内未响应, 请基于已有信息自行判断继续, 不要再次调用 ask_user"
+            }
+        }
+        return answer.get() ?: "[ask_user 无返回]"
     }
 
     /**
