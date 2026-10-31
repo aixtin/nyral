@@ -69,17 +69,30 @@ internal class MdBlocksView(context: Context) : LinearLayout(context) {
     /** 渲染块列表(幂等): 每次绑定前清空旧子块, 避免池化复用残留 */
     fun bindBlocks(blocks: List<MdRenderBlock>?) {
         removeAllViews()
+        val t0 = System.nanoTime()
+        appendBlocks(blocks)
+        val dtUs = (System.nanoTime() - t0) / 1000
+        android.util.Log.i("PerfB", "bindBlocks blocks=${blocks?.size ?: 0} dtUs=$dtUs availW=$availW maxW=$maxW")
+    }
+
+    /**
+     * 增量追加块(块级增量上屏 2026-10-31): 不清空既有子块, 已在屏的块永不重排。
+     * 流式期每切出一块就 append 一次, 高度只增不改, 从根上消除"换块重排"造成的闪跳。
+     * topMarginPx: 该批块的上间距(仅原文确有段落间隔时由调用方给, 否则 0)。
+     */
+    fun appendBlocks(blocks: List<MdRenderBlock>?, topMarginPx: Int = 0) {
         val list = blocks ?: return
         if (list.isEmpty()) return
-        val t0 = System.nanoTime()
         for (b in list) {
-            when (b) {
-                is MdRenderBlock.TextBlock -> addTextChunks(b.spanned)
-                is MdRenderBlock.TableBlock -> addView(makeTableBlock(b.table))
+            val v = when (b) {
+                is MdRenderBlock.TextBlock -> makeTextBlock(immutableSlice(b.spanned, 0, b.spanned.length))
+                is MdRenderBlock.TableBlock -> makeTableBlock(b.table)
             }
+            if (topMarginPx > 0) {
+                (v.layoutParams as? LinearLayout.LayoutParams)?.let { it.topMargin += topMarginPx }
+            }
+            addView(v)
         }
-        val dtUs = (System.nanoTime() - t0) / 1000
-        android.util.Log.i("PerfB", "bindBlocks blocks=${list.size} dtUs=$dtUs availW=$availW maxW=$maxW")
     }
 
     /**

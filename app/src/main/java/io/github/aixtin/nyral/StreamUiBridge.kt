@@ -76,6 +76,8 @@ internal class StreamUiBridge(
                 uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.setToolResult(name, result) }
             }
             override fun onDelta(text: String) {
+                // 2026-10-31: 停止后连接虽已断, 但已排队的 token 仍会到达; 取消态一律丢弃, 不渲染
+                if (LocalEngine.cancelRequested) return
                 android.util.Log.i("Nyral", "onDelta len=${text.length} (M6 脱敏)")
                 AITerminal.push("delta", text)
                 activity.debugSseSink?.invoke("delta", text)
@@ -118,8 +120,28 @@ internal class StreamUiBridge(
                     var contentIdx = -1
                     var replyPartCount = 0   // 本轮新增 AI 行数: 收尾 scrollAnswerFinish 定位回答开头用
                     if (LocalEngine.cancelRequested) {
-                        // 用户主动停止: 不写入对话/记忆
-                        holder.appendContent("\n(已停止)")
+                        // 方案B(2026-10-31 拍板): 停止保留现场。
+                        // 引擎已把"跨轮累计 + 本轮已流式产出"的正文随 onDone 带回; 有内容则落库并打
+                        // 〔已中断〕标记(切会话/重启可复看, 可复制, 可据此续跑), 避免"停止后内容凭空消失";
+                        // 真正零输出(如刚开始就停)仍不落库, 防止每次误点停止都产生空气泡。
+                        val keep = reply.trim()
+                        if (keep.isNotEmpty()) {
+                            holder.appendContent("\n\n〔已中断〕")
+                            if (activity.replySessionId == activity.currentSessionId) {
+                                val body = keep + "\n\n〔已中断〕"
+                                contentIdx = activity.messages.size
+                                replyPartCount = 1
+                                activity.messages.add(MemoryDb.SessionMsg("assistant", body,
+                                    holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot(),
+                                    System.currentTimeMillis()))
+                                MemoryKeeper.push("assistant", body, activity.replySessionId, activity.messages.size - 1)
+                                activity.currentSaved = false
+                                // 与正常完成同路径: 立即落库, 防进程被杀丢失停止现场
+                                activity.maybeSaveCurrent()
+                            }
+                        } else {
+                            holder.appendContent("\n(已停止)")
+                        }
                         LocalEngine.cancelRequested = false
                     } else {
                         // 思考内容随回复一起持久化, 切回会话可恢复思考区
@@ -177,6 +199,8 @@ internal class StreamUiBridge(
                     TaskService.stop(activity)
                     activity.updateInputMode()
                     activity.stopBtn.visibility = View.GONE
+                    activity.stopBtn.isEnabled = true
+                    activity.stopBtn.alpha = 1f
                 }
                 activity.debugSseSink?.invoke("done", reply)
                 activity.debugChatDone?.invoke()
@@ -197,6 +221,8 @@ internal class StreamUiBridge(
                     TaskService.stop(activity)
                     activity.updateInputMode()
                     activity.stopBtn.visibility = View.GONE
+                    activity.stopBtn.isEnabled = true
+                    activity.stopBtn.alpha = 1f
                 }
                 activity.debugSseSink?.invoke("error", msg)
                 activity.debugChatDone?.invoke()

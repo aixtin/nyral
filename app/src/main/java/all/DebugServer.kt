@@ -280,6 +280,12 @@ object DebugServer {
                     method == "GET" && path == "/v1/logs" -> writeJson(out, 200, logsJson(query), reuse)
                     method == "POST" && path == "/v1/mem/search" -> memSearch(c, out, body)
                     method == "POST" && path == "/v1/chat" -> { chat(c, out, body); keepAlive = false }
+                    // 2026-10-31: 调试侧停止入口(方案B 现场保留验证用)
+                    // 与 UI 停止按钮同一入口 requestCancel: 置 cancelRequested + 断活跃连接 + 进程组刹车
+                    method == "POST" && path == "/v1/cancel" -> {
+                        LocalEngine.requestCancel()
+                        writeJson(out, 200, JSONObject().put("cancelled", true), reuse)
+                    }
                     method == "GET" && path == "/v1/screen" -> writeJson(out, 200, screenJson(c), reuse)
                     method == "POST" && path == "/v1/touch" -> touch(c, out, body)
                     method == "POST" && path == "/v1/key" -> key(c, out, body)

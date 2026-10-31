@@ -266,20 +266,16 @@ class MainActivity : Activity() {
     internal var lastImeStableAt = 0L  // 键盘 insets 最近一次稳定弹到位时间戳: onPrepare 据此判断 animStartImeH 是否满高
     // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
     private lateinit var chatArea: FrameLayout
+    /** 浮层容器(10-30 第二批): 消息区 + 悬浮输入栏同层叠放 */
+    private lateinit var overlayHost: FrameLayout
+    /** 顶部渐隐层: 消息区顶 28dp 由背景色淡到透明, 内容滚到标题栏下沿不再被硬切出一条灰边 */
+    private lateinit var fadeTopView: View
     /** 安全确认微暗遮罩(2026-10-04): 有待确认申请时聊天区背景暗化提示 */
     private lateinit var securityDim: View
     private lateinit var inputBar: LinearLayout
-    // 浏览器控制条(输入框上方): 悬浮聊天时显示欢迎文字+接管按钮
-    private lateinit var browserBar: LinearLayout
-    private lateinit var browserBarStatus: TextView
+    // 浏览器入口(2026-10-30): 面板/接管两个胶囊挂在输入框上方状态带右侧, 常态隐藏, 浏览器打开才露出
     private lateinit var browserBarTakeover: TextView
-    // 浏览器控制条面板入口按钮: 展开汉堡面板(引擎管理/登录数据/URL), 悬浮模式替代已删除的右缘左滑手势
     private lateinit var browserBarPanel: TextView
-    // 浏览器控制条折叠: 输入框上方 ⌃ 手柄(默认收起), 点开展开控制条(状态+接管按钮)
-    private lateinit var browserBarToggle: ImageView
-    private var browserBarExpanded = false
-    private lateinit var collapseMaskWeb: View
-    private lateinit var collapseMaskChat: View
     internal lateinit var input: EditText
     internal lateinit var modelBtn: Button
     internal lateinit var attachBtn: Button
@@ -379,6 +375,12 @@ class MainActivity : Activity() {
     /** Token 面板展开时覆盖全屏的透明点击遮罩: 点空白处收起面板 */
     internal lateinit var tokenMask: View
     internal lateinit var titleBar: LinearLayout
+    // 状态带(10-30 主页改造): 标题栏下常显"模型 · 上下文", 免开 ∑ 面板才知当前用量
+    internal lateinit var statusStrip: TextView
+    internal lateinit var statusDot: View
+    /** 状态带容器: 2026-10-30 从标题栏下移到输入栏上方(浮动胶囊), 需跨函数引用故提为字段 */
+    internal lateinit var statusWrap: LinearLayout
+    internal var statusStripReady = false
     private lateinit var mainTitleText: TextView
     internal lateinit var drawerTitleText: TextView
     internal lateinit var drawerNoteText: TextView
@@ -742,6 +744,38 @@ class MainActivity : Activity() {
             Ui.press(this)
         })
         main.addView(titleBar)
+        // 状态带: 24dp 细条, 左"模型 · 上下文 tok", 右侧圆点(输出中主色/空闲灰色)
+        statusWrap = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(Ui.SP3), 0, dp(Ui.SP3), 0)
+            // 浮动胶囊: 与输入卡片同色, 圆角独立, 不再贴顶做满宽色条
+            background = GradientDrawable().apply {
+                setColor(Ui.SURFACE)
+                cornerRadius = dp(11).toFloat()
+            }
+        }
+        statusDot = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Ui.SUB)
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(Ui.SP1), dp(Ui.SP1)).apply { rightMargin = dp(Ui.SP2) }
+        }
+        statusWrap.addView(statusDot)
+        statusStrip = TextView(this).apply {
+            textSize = 10.5f
+            setTextColor(Ui.SUB)
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+            letterSpacing = 0.02f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            // 点状态带 = 展开 token 明细面板(与右上角 ∑ 同入口)
+            setOnClickListener { toggleTokenPanel() }
+            Ui.press(this)
+        }
+        statusWrap.addView(statusStrip)
+        statusStripReady = true
     }
     private fun setupChatList() {
         // 消息区: RecyclerView 可回收传送带——只保留屏幕内可见的气泡, 滚出屏幕即回收销毁,
@@ -893,7 +927,12 @@ class MainActivity : Activity() {
         }
         chatArea.addView(securityDim, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        bodyWrap.addView(chatArea, LinearLayout.LayoutParams(
+        // 浮层结构(10-30 第二批): 消息区与输入栏同层叠放, 输入栏悬浮在消息区之上,
+        // 气泡可从输入栏底下滚过(配合底部渐隐), 不再被切成上下两块互不相干的矩形
+        overlayHost = FrameLayout(this)
+        overlayHost.addView(chatArea, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        bodyWrap.addView(overlayHost, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         // 竞品式正文一键到底: 正文输出默认停滚(视口停留, 内容在屏外增长), 右下角悬浮按钮
@@ -924,11 +963,30 @@ class MainActivity : Activity() {
             bottomMargin = dp(Ui.SP4)
         })
 
+        // 内容渐隐(10-31 反转): 渐隐从底部挪到顶部, 消息区顶 28dp 由背景色向下淡到透明,
+        // 上一条气泡/卡片滚到标题栏下沿时柔和消失, 不再露出一条硬边灰带+投影
+        // 非可点击 View, 不吞触摸(仍交给 RecyclerView)
+        fadeTopView = View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Ui.BG, Ui.BG and 0x00FFFFFF))
+        }
+        chatArea.addView(fadeTopView, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(28), Gravity.TOP))
+
         // 输入框整体(dockContent)直接挂 bodyWrap 底部(基础层), 表情抽屉在其下占位,
         // 抽屉展开时输入框被顶到抽屉上方(微信式)
         dockContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
+
+        // 状态带(2026-10-30): 移到输入框上方, 作为与输入卡片同层的浮动胶囊,
+        // 跟着 dockContent 一起被键盘顶起, 附件预览条/输入栏依次在其下方
+        dockContent.addView(statusWrap, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(22)).apply {
+            leftMargin = dp(Ui.SP4)
+            rightMargin = dp(Ui.SP4)
+            bottomMargin = dp(Ui.SP2)
+        })
 
         // 附件预览条: 选中附件出现在输入框上方, 可补文字后一并发送; 默认隐藏, 有附件才显示
         attachPreviewWrap = HorizontalScrollView(this).apply {
@@ -1184,9 +1242,17 @@ class MainActivity : Activity() {
                 bottomMargin = dp(Ui.SP3)
             }
             setOnClickListener {
-                LocalEngine.requestCancel()
-                stopBtn.isEnabled = false
-                android.util.Log.i("Nyral", "stop clicked, cancelRequested=${LocalEngine.cancelRequested}")
+                // 2026-10-31 三态停止: 第一击=软停(断链+进程组终止), 按钮保留可点并置灰;
+                // 第二击=硬停(说明第一击没刹住, 直接 KILL 进程组重来一遍), 不再出现"点一次就死按钮"
+                if (!LocalEngine.cancelRequested) {
+                    LocalEngine.requestCancel()
+                    stopBtn.alpha = 0.45f
+                    android.util.Log.i("Nyral", "stop clicked(soft)")
+                } else {
+                    LocalEngine.requestCancelHard()
+                    stopBtn.alpha = 0.25f
+                    android.util.Log.i("Nyral", "stop clicked(hard, repeat)")
+                }
             }
             Ui.press(this)
         }
@@ -1194,29 +1260,11 @@ class MainActivity : Activity() {
         inputBar.addView(attachWrap)
     }
     private fun setupBrowserBar() {
-        // 浏览器控制条: 悬浮聊天时位于输入框上方(欢迎文字 + 接管按钮), 浏览器关闭时隐藏
-        browserBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(Ui.SP3), dp(Ui.SP1), dp(Ui.SP3), dp(Ui.SP1))
-            // 展开态四角圆角(与顶/底栏 16dp 同语言); clipToOutline 裁剪子 view 不溢出圆角
-            background = GradientDrawable().apply {
-                setColor(Ui.SURFACE)
-                cornerRadius = dp(16).toFloat()
-            }
-            clipToOutline = true
-            visibility = View.GONE
-        }
-        browserBarStatus = TextView(this).apply {
-            text = getString(R.string.ma_welcome)
-            textSize = 12f
-            setTextColor(Ui.SUB)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        browserBar.addView(browserBarStatus)
+        // 2026-10-30 改版: 取消输入框上方的 ⌃ 折叠手柄与悬浮控制条(展开面板/遮罩那套全废),
+        // 只留"面板""接管"两个入口, 挂在状态带右侧; 常态 GONE, 浏览器打开时才显示
         browserBarPanel = TextView(this).apply {
             text = "面板"
-            textSize = 13f
+            textSize = 11f
             setTextColor(Ui.PRIMARY)
             gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
@@ -1224,22 +1272,17 @@ class MainActivity : Activity() {
                 setColor(Ui.INPUT_BG)
                 cornerRadius = dp(20).toFloat()
             }
-            setPadding(dp(Ui.SP4), dp(Ui.SP2), dp(Ui.SP4), dp(Ui.SP2))
+            setPadding(dp(Ui.SP3), dp(2), dp(Ui.SP3), dp(2))
+            visibility = View.GONE
             setOnClickListener { toggleBrowserPanel() }
             Ui.press(this)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { rightMargin = dp(Ui.SP2) }
-        }.apply {
-            val d = getDrawable(R.drawable.ic_menu)?.mutate()
-            d?.setTint(Ui.PRIMARY)
-            setCompoundDrawablesWithIntrinsicBounds(d, null, null, null)
-            compoundDrawablePadding = dp(5)
+            ).apply { leftMargin = dp(Ui.SP2) }
         }
-        browserBar.addView(browserBarPanel)
         browserBarTakeover = TextView(this).apply {
             text = "接管"
-            textSize = 13f
+            textSize = 11f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
@@ -1247,46 +1290,18 @@ class MainActivity : Activity() {
                 setColor(Ui.PRIMARY)
                 cornerRadius = dp(20).toFloat()
             }
-            elevation = dp(4).toFloat()
-            setPadding(dp(Ui.SP4), dp(Ui.SP2), dp(Ui.SP4), dp(Ui.SP2))
+            setPadding(dp(Ui.SP3), dp(2), dp(Ui.SP3), dp(2))
+            visibility = View.GONE
             setOnClickListener { browserPage.toggleTakeover() }
             Ui.press(this)
-        }.apply {
-            val d = getDrawable(R.drawable.ic_mouse_pointer_click)?.mutate()
-            d?.setTint(Color.WHITE)
-            setCompoundDrawablesWithIntrinsicBounds(d, null, null, null)
-            compoundDrawablePadding = dp(5)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { leftMargin = dp(Ui.SP2) }
         }
-        browserBar.addView(browserBarTakeover)
-        // 悬浮 overlay 挂聊天区底部(输入框上方), 不占位挤压 chatRec; bottomMargin 在 setChatFloatMode 中动态对齐 inputBar
-        chatArea.addView(browserBar, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
-        // 折叠手柄 ⌃: 贴输入框上边, 默认收起只露手柄, 点开展开控制条(接管按钮+状态), 再点收起
-        browserBarToggle = ImageView(this).apply {
-            setImageResource(R.drawable.ic_chevron_up)
-            setColorFilter(Ui.SUB)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#22000000"))
-                cornerRadius = dp(9).toFloat()
-            }
-            setOnClickListener { toggleBrowserBar() }
-            Ui.press(this)
-            visibility = View.GONE
-        }
-        chatArea.addView(browserBarToggle, FrameLayout.LayoutParams(
-            dp(44), dp(18),
-            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
-        // 展开态点击其它区域自动收回: 透明遮罩盖浏览器页/聊天区(控制条与手柄在其上不受影响), 点击即收起
-        collapseMaskChat = View(this).apply {
-            setBackgroundColor(0x01000000)
-            setOnClickListener { if (browserBarExpanded) toggleBrowserBar() }
-        }
-        collapseMaskWeb = View(this).apply {
-            setBackgroundColor(0x01000000)
-            setOnClickListener { if (browserBarExpanded) toggleBrowserBar() }
-        }
+        statusWrap.addView(browserBarPanel)
+        statusWrap.addView(browserBarTakeover)
     }
+
     private fun setupEmojiDrawerAndSideDrawer() {
         dockContent.addView(inputBar)
         // 键盘/输入框交接处分割线: 颜色取浏览器主页黑蓝渐变(linear-gradient 160deg #0d1b2a→#1b2a4a→#274060)
@@ -1306,8 +1321,21 @@ class MainActivity : Activity() {
         val emojiDrawerRoot = buildEmojiDrawer()
         dockContent.addView(emojiDrawerRoot, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0))
-        bodyWrap.addView(dockContent, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // 输入栏浮层: 挂在 overlayHost 底部浮在消息区上, elevation 保证气泡滚过时压在其上
+        dockContent.elevation = dp(6).toFloat()
+        overlayHost.addView(dockContent, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+        // 列表底部留出输入栏高度: 最后一条气泡能完整停在栏上方, 滚动过程则可穿到栏下(渐隐吃掉)
+        dockContent.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (top == oldTop && bottom - top == oldBottom - oldTop) return@addOnLayoutChangeListener
+            // +dp(30): 状态带胶囊(22dp)+上下间距, 最后一条气泡仍停在状态带上方而非被其压住
+            val pad = inputBar.height.coerceAtLeast(dp(52)) + dp(Ui.SP2) + dp(30)
+            chatRec.setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), pad)
+            jumpFab?.let { fab ->
+                (fab.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin = pad + dp(Ui.SP2)
+                fab.requestLayout()
+            }
+        }
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
@@ -1337,41 +1365,10 @@ class MainActivity : Activity() {
             val lp = main.layoutParams as FrameLayout.LayoutParams
             lp.bottomMargin = 0
             main.layoutParams = lp
-            if (float) {
-                // 悬浮 overlay: 手柄贴输入框顶, 控制条悬浮在手柄上方(底边=输入框顶-手柄高), 消除渲染缝隙
-                val cLoc = IntArray(2)
-                val iLoc = IntArray(2)
-                chatArea.getLocationInWindow(cLoc)
-                inputBar.getLocationInWindow(iLoc)
-                val base = (cLoc[1] + chatArea.height - iLoc[1]).coerceAtLeast(0)
-                val tlp = browserBarToggle.layoutParams as FrameLayout.LayoutParams
-                tlp.bottomMargin = base
-                browserBarToggle.layoutParams = tlp
-                val blp = browserBar.layoutParams as FrameLayout.LayoutParams
-                blp.bottomMargin = base + dp(Ui.SP5)
-                browserBar.layoutParams = blp
-                // 手柄常驻; 控制条按展开态显隐(默认收起); 幂等保护 onPreOpen/onOpenChange 双调用
-                browserBar.animate().cancel()
-                browserBarToggle.visibility = View.VISIBLE
-                browserBarToggle.alpha = 1f
-                if (browserBarExpanded) {
-                    if (browserBar.visibility != View.VISIBLE) {
-                        browserBar.alpha = 1f
-                        browserBar.visibility = View.VISIBLE
-                    }
-                } else {
-                    browserBar.visibility = View.GONE
-                }
-            } else {
-                browserBar.animate().cancel()
-                browserBar.visibility = View.GONE
-                browserBarToggle.animate().cancel()
-                browserBarToggle.visibility = View.GONE
-                // 关闭浏览器时复位控制条展开态: 重开后保持收起(只露手柄), 控制条不自动弹出
-                browserBarExpanded = false
-                browserBarToggle.rotation = 0f
-                removeCollapseMasks()
-            }
+            // 面板/接管入口只在浏览器打开时出现在状态带右侧, 浏览器关闭即隐藏
+            val v = if (float) View.VISIBLE else View.GONE
+            browserBarPanel.visibility = v
+            browserBarTakeover.visibility = v
         }
         // 动画开始前先收缩浏览器窗口到中间区域(标题栏下~输入框上), 消除"先全屏再跳变"闪一下
         browserPage.onPreOpen = {
@@ -1383,9 +1380,10 @@ class MainActivity : Activity() {
             if (open) {
                 setChatFloatMode(true)
                 browserPage.setBottomTakeoverVisible(false)  // 悬浮模式: 底部按钮让位于控制条
-                // 兜底: 任何路径重开浏览器都按 taken 现状同步控制条按钮文字/状态, 防残留"交还 AI"
+                // 兜底: 任何路径重开浏览器都按 taken 现状同步接管按钮文字, 防残留"交还 AI"
                 browserBarTakeover.text = if (browserPage.taken) "交还 AI" else "接管"
-                browserBarStatus.text = if (browserPage.taken) "你已接管，可点击网页（如验证码）" else "欢迎回来 · 一切就绪"
+                browserBarPanel.visibility = View.VISIBLE
+                browserBarTakeover.visibility = View.VISIBLE
                 adjustBrowserWindow()
                 // 抽屉展开中打开浏览器: 窗口按当前 sink 缩放/下沉, 与 main 保持一致, 防整屏错位
                 if (mainSinkP > 0f) {
@@ -1406,10 +1404,6 @@ class MainActivity : Activity() {
             // 窗口化交互: 接管仅隐藏消息区, 标题栏/输入框/控制条保留, 浏览器窗口尺寸不变
             chatRec.visibility = if (taken) View.INVISIBLE else View.VISIBLE
             browserBarTakeover.text = if (taken) "交还 AI" else "接管"
-            val d = getDrawable(if (taken) R.drawable.ic_bot else R.drawable.ic_mouse_pointer_click)?.mutate()
-            d?.setTint(Color.WHITE)
-            browserBarTakeover.setCompoundDrawablesWithIntrinsicBounds(d, null, null, null)
-            browserBarStatus.text = if (taken) "你已接管，可点击网页（如验证码）" else "欢迎回来 · 一切就绪"
             browserPage.setBottomTakeoverVisible(false)
         }
         browserPage.onHamburgerChange = { open ->
@@ -1877,6 +1871,8 @@ class MainActivity : Activity() {
         applyChatBackground()
         // 从模型配置页返回: 手动模型能力勾选可能变化, 重刷语音切换按钮显隐
         refreshVoiceButton()
+        // 状态带随模型/上下文变化刷新(从模型配置页返回也能立即对上)
+        refreshStatusStrip()
         // 从设置页-外观修改标题后返回, 刷新主页标题与侧栏标题
         if (::mainTitleText.isInitialized) mainTitleText.text = TitleConfig.mainTitle()
         if (::drawerTitleText.isInitialized) drawerTitleText.text = TitleConfig.drawerTitle()
@@ -2124,57 +2120,12 @@ class MainActivity : Activity() {
             browserPage.collapseHamburger()
             return
         }
-        // 控制条展开时先收起, 避免与汉堡面板/遮罩叠加
-        if (browserBarExpanded) toggleBrowserBar()
         if (!browserPage.open) {
             browserPage.open()
-            browserBar.postDelayed({ browserPage.expandHamburger() }, 320L)
+            statusWrap.postDelayed({ browserPage.expandHamburger() }, 320L)
         } else {
             browserPage.expandHamburger()
         }
-    }
-
-    /** 折叠手柄点按: 展开/收起控制条(接管按钮+状态), 手柄 ⌃→⌄ 旋转 */
-    internal fun toggleBrowserBar() {
-        try {
-            browserBarExpanded = !browserBarExpanded
-        browserBar.animate().cancel()
-        browserBarToggle.animate().cancel()
-        if (browserBarExpanded) {
-            browserBar.alpha = 0f
-            browserBar.translationY = dp(6).toFloat()
-            browserBar.visibility = View.VISIBLE
-            browserBar.animate().alpha(1f).translationY(0f).setDuration(160).start()
-            addCollapseMasks()
-        } else {
-            browserBar.animate().alpha(0f).translationY(dp(6).toFloat()).setDuration(140).withEndAction {
-                browserBar.visibility = View.GONE
-            }.start()
-            removeCollapseMasks()
-        }
-        browserBarToggle.animate().rotation(if (browserBarExpanded) 180f else 0f).setDuration(160).start()
-        } catch (e: Exception) {
-            Log.e(TAG, "toggleBrowserBar error", e)
-        }
-    }
-
-    /** 展开控制条时盖住其它区域: 点击浏览器/聊天区自动收回; 控制条与手柄在遮罩之上不受影响 */
-    private fun addCollapseMasks() {
-        if (!::collapseMaskWeb.isInitialized || !::collapseMaskChat.isInitialized) return
-        if (browserPage.root.isAttachedToWindow && collapseMaskWeb.parent == null) {
-            browserPage.root.addView(collapseMaskWeb, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        }
-        if (collapseMaskChat.parent == null) {
-            chatArea.addView(collapseMaskChat,
-                chatArea.indexOfChild(browserBar).coerceAtLeast(0),
-                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        }
-    }
-
-    private fun removeCollapseMasks() {
-        if (::collapseMaskWeb.isInitialized) (collapseMaskWeb.parent as? ViewGroup)?.removeView(collapseMaskWeb)
-        if (::collapseMaskChat.isInitialized) (collapseMaskChat.parent as? ViewGroup)?.removeView(collapseMaskChat)
     }
 
     /** 浏览器窗口固定为中间区域(标题栏下 ~ 输入框顶); 手柄/控制条悬浮覆盖其上, 展开收起不顶起浏览器 */
@@ -2197,16 +2148,10 @@ class MainActivity : Activity() {
     }
 
     internal fun setBrowserBarVisible(v: Boolean) {
-        if (!v) {
-            browserBar.visibility = View.GONE
-            browserBarToggle.visibility = View.GONE
-            browserBarExpanded = false
-            browserBarToggle.rotation = 0f
-            removeCollapseMasks()
-        } else {
-            browserBarToggle.visibility = View.VISIBLE
-            if (browserBarExpanded) browserBar.visibility = View.VISIBLE
-        }
+        // 2026-10-30: 控制条与手柄已废弃, 只切状态带右侧"面板/接管"两个入口
+        val vis = if (v) View.VISIBLE else View.GONE
+        if (::browserBarPanel.isInitialized) browserBarPanel.visibility = vis
+        if (::browserBarTakeover.isInitialized) browserBarTakeover.visibility = vis
     }
 
     /** 会话流控制器(2026-10-03 自 MainActivity 抽出): 发送/流式回调/收尾编排见 ChatFlowController */
@@ -2352,7 +2297,7 @@ class MainActivity : Activity() {
         is ChatRow.Ai -> if (!row.content.contains("att://") && !row.content.contains("[表情:") && !row.content.contains("emoji_lib/"))
             ChatAdapter.PT_AI_TEXT else ChatAdapter.PT_NONE
         is ChatRow.Sys -> ChatAdapter.PT_SYS
-        is ChatRow.TimeTag -> ChatAdapter.PT_TAG
+        is ChatRow.TimeTag -> ChatAdapter.PT_NONE   // 胶囊容器形态, 不入池(池化 bind 只认 TextView)
         is ChatRow.Welcome -> ChatAdapter.PT_WELCOME
         is ChatRow.AiRich -> ChatAdapter.PT_AI_RICH
         is ChatRow.SecurityConfirm -> ChatAdapter.PT_NONE
@@ -2616,12 +2561,19 @@ class MainActivity : Activity() {
         is ChatRow.SecurityConfirm -> aiSideRowWrap(buildSecurityRow(row))
         is ChatRow.Error -> aiSideRowWrap(buildErrorRow(row))
         is ChatRow.Welcome -> welcomeCardView()
-        is ChatRow.TimeTag -> TextView(this).apply {
-            text = row.text
-            textSize = 11f
-            setTextColor(SYS_TEXT)
+        is ChatRow.TimeTag -> LinearLayout(this).apply {
+            // 日期分组胶囊(10-30): 居中浅底小胶囊, 与气泡区分又不抢眼; 不再是一条孤零零的灰字
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, dp(Ui.SP3), 0, dp(Ui.SP2))
+            setPadding(0, dp(Ui.SP3), 0, dp(Ui.SP1))
+            addView(TextView(this@MainActivity).apply {
+                text = row.text
+                textSize = 10.5f
+                setTextColor(SYS_TEXT)
+                letterSpacing = 0.03f
+                background = rounded(dp(9), Ui.INPUT_BG)
+                setPadding(dp(Ui.SP3), dp(Ui.SP1), dp(Ui.SP3), dp(Ui.SP1))
+            })
         }
         is ChatRow.Streaming -> row.bubbleBox ?: View(this)
     }
@@ -2695,9 +2647,13 @@ class MainActivity : Activity() {
         val c = java.util.Calendar.getInstance().apply { timeInMillis = ts }
         val now = java.util.Calendar.getInstance()
         val sameDay = c.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) && c.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)
-        val fmt = if (sameDay) java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-        else java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-        return fmt.format(ts)
+        val hm = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(ts)
+        if (sameDay) return "今天 " + hm
+        val yesterday = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+        val isYesterday = c.get(java.util.Calendar.YEAR) == yesterday.get(java.util.Calendar.YEAR) &&
+            c.get(java.util.Calendar.DAY_OF_YEAR) == yesterday.get(java.util.Calendar.DAY_OF_YEAR)
+        if (isYesterday) return "昨天 " + hm
+        return java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(ts)
     }
 
     /** 新会话开场介绍卡片 View(欢迎卡片本体, 不含外侧气泡壳) */
@@ -4681,7 +4637,11 @@ class MainActivity : Activity() {
         // 聊天模式: 屏幕宽-聊天框padding(12*2)-头像(40*2)-间距(8*2)=w-120dp, 气泡右缘停在对头像内侧(左右对称);
         // Agent 模式: 全屏宽 w (2026-10-02 起 Agent 模式全屏, 聊天模式恢复对称收窄)
         return if (ModeConfig.chatMode()) {
-            (resources.displayMetrics.widthPixels - dp(120)).coerceAtLeast(dp(100))
+            // 2026-10-30 第三批: 文本气泡最大宽收口到屏宽 78%(原 w-120dp 在 400dp 级屏上仅约 70%,
+            // 长段落读起来过窄); 同时不超过"到对方头像内侧"的可用宽度, 防窄屏越界/压头像
+            val w = resources.displayMetrics.widthPixels
+            val ratio = (w * 0.78f).toInt()
+            ratio.coerceAtMost((w - dp(96)).coerceAtLeast(dp(100))).coerceAtLeast(dp(100))
         } else {
             resources.displayMetrics.widthPixels
         }

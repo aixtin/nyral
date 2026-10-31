@@ -653,6 +653,7 @@ import android.widget.Toast
             tokenMask.visibility = View.VISIBLE
             // 悬浮层定位: 顶边对齐标题栏屏幕底部(titleBar.top 含状态栏偏移, 只加 height 会盖住右上角∑按钮), 右缘对齐屏幕右缘
             val lp = p.layoutParams as FrameLayout.LayoutParams
+            // 状态带已下移到输入栏上方, 面板顶边回到紧贴标题栏下方
             lp.topMargin = titleBar.top + titleBar.height
             p.layoutParams = lp
             // 果冻展开: 锚点=面板右上角(∑ 图标处), 向左下角弹性弹出
@@ -689,6 +690,19 @@ import android.widget.Toast
                 p.visibility = View.GONE
             }
             .start()
+    }
+
+    /** 主页状态带: "供应商 · 模型 · 上下文 tok", 圆点随输出状态变色(输出中主色/空闲灰) */
+    internal fun MainActivity.refreshStatusStrip() {
+        if (!statusStripReady) return
+        val pid = ApiConfig.providerId()
+        val p = ApiConfig.providerById(pid)
+        val model = ApiConfig.currentModelOf(pid).ifBlank { "默认" }
+        val sb = StringBuilder(p?.label ?: pid).append(" · ").append(model)
+        val ctx = TokenStore.lastPrompt(this)
+        if (ctx > 0) sb.append(" · 上下文 ").append(formatTokens(ctx))
+        statusStrip.text = sb.toString()
+        statusDot.setBackgroundColor(if (session.aiBusy) Ui.PRIMARY else Ui.SUB)
     }
 
     internal fun MainActivity.refreshTokenPanel() {

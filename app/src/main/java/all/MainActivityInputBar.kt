@@ -48,4 +48,6 @@ internal fun MainActivity.refreshVoiceButton() {
 /** 底栏交互入口: 输入框文字变化时刷新三形态布局 */
 internal fun MainActivity.updateInputMode() {
     applyInputMode()
+    // 输入态变化顺带对齐状态带(发送/收尾都会走到这里, 上下文数字随之更新)
+    refreshStatusStrip()
 }

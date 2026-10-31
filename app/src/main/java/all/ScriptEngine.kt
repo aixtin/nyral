@@ -212,33 +212,11 @@ object ScriptEngine {
 
     /** 执行主体: 黑名单已通过后的实际就地执行 */
     private fun doRunSh(context: android.content.Context, argRaw: String, script: String): String {
+        // 2026-10-31 停止链路: 统一交给 ProcGuard 以 setsid 独立进程组执行——
+        // 停止/超时按 pgid 整组 TERM->KILL(旧实现只 destroyForcibly 顶层 su, 派生 shell 变孤儿继续烧 CPU),
+        // 且轮询等待每 100ms 检查一次取消, 停止按钮按下即可收口。
         val timeoutMs = parseTimeout(argRaw)
-        val dir = File(context.filesDir, "scripts")
-        if (!dir.exists()) dir.mkdirs()
-        val ts = System.currentTimeMillis()
-        val scriptFile = File(dir, "$ts.sh")
-        val outFile = File(dir, "$ts.out")
-        return try {
-            scriptFile.writeText(script)
-            val root = isRootAvailable(context)
-            // root: su -c 提权并把 stdout/stderr 落盘(out 重定向由 su 的 shell 解析); 非 root: 普通 sh
-            val cmd = if (root) arrayOf("su", "-c", "sh ${scriptFile.absolutePath} > ${outFile.absolutePath} 2>&1")
-                      else arrayOf("sh", "-c", "sh ${scriptFile.absolutePath} > ${outFile.absolutePath} 2>&1")
-            val proc = ProcessBuilder(*cmd).redirectErrorStream(true).start()
-            if (!proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
-                proc.destroyForcibly()
-                "${if (root) "[root]" else "[shell(非root)]"} 执行超时(>${timeoutMs}ms), 已强制终止"
-            } else {
-                val out = if (outFile.exists()) outFile.readText() else ""
-                "${if (root) "[root]" else "[shell(非root)]"} exit=${proc.exitValue()}\n${capOutput(out)}"
-            }
-        } catch (e: Exception) {
-            "执行失败: ${e.message}"
-        } finally {
-            try { scriptFile.delete() } catch (e: Exception) {}
-            try { outFile.delete() } catch (e: Exception) {}
-            cleanupOldScripts(dir)
-        }
+        return ProcGuard.runSh(context, script, timeoutMs)
     }
 
     /** root 可用性探测: su -c id 输出含 uid=0 即 root; 结果进程级缓存(幂等, 多线程重复探测无害) */

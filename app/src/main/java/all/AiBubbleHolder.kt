@@ -11,6 +11,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
+import android.os.SystemClock
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
@@ -42,6 +43,13 @@ internal const val NO_FLOAT_TAG = "nyral_no_float_alpha"
  *  避免超长回复单行超大 TextView 一次性全量 markdown 渲染卡顿(阶段2 content 分片) */
 internal const val SPLIT_CONTENT_LEN = 4000
 
+/** 块级增量上屏(2026-10-31): 单块字数上限, 满即切块排版上屏——已上屏块是最终形态, 永不重排 */
+internal const val CHUNK_MAX = 60
+/** 单块字数下限: 不足不切(避免碎成豆腐块) */
+internal const val CHUNK_MIN = 20
+/** 闲置兜底: 模型停顿超此时长, 不足下限也切出上屏(防调工具/卡顿期屏幕僵住) */
+internal const val CHUNK_IDLE_MS = 800L
+
 /** 活段逐字刷新节流间隔(ms): raw 文本增量上屏节奏, 弱机 setText 重排成本封顶 */
 internal const val LIVE_TICK_MS = 200L
 
@@ -64,6 +72,9 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private var done = false
     private var loadingRow: View? = null   // 思考完成等待正文时的加载指示行(chatMode 下为 chatWrap 外层行)
     private var loadingAnim: ValueAnimator? = null   // 三点呼吸灯动画(阶段3: 对齐竞品 isLoading 呼吸灯)
+    // 等待计时(2026-10-31): 三点指示器右侧显示已等待时长, 秒→分秒
+    private var dotsTimer: TextView? = null
+    private var dotsStartMs = 0L
     private var maxW = 0
     // 正文多段化: 思考/工具穿插时正文拆成多个独立气泡, 每段独立打字机(v9)
     // 打字机(游标+帧驱动): text 只累积不删除, shownLen 控制显示进度
@@ -93,6 +104,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var dimBaseText = 0            // 原始亮文字色
         var dimFactor = 0f             // 本段实际暗度因子(随模型速率动态)
         var brightenMs = 0L            // 本段实际渐亮时长(随模型速率动态)
+        // 块级增量上屏(2026-10-31): 每满 CHUNK_MAX 字即切一块渲染上屏, 已上屏块永不重排
+        var chunkStart = 0              // 已切块上屏的文本长度(b.text 前缀游标)
+        var chunked = false             // 已进入块级增量模式(块容器已在屏)
+        var chunkIdle: Runnable? = null // 闲置兜底切块任务(停顿不满阈值也上屏)
     }
     private val contentBlocks = ArrayList<ContentBlock>()
     private var activeContent: ContentBlock? = null   // 当前正在接收 delta 的正文段
@@ -216,6 +231,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         // 不再直接挂父容器: 气泡盒由 ChatRow.Streaming 持有, 由 ChatAdapter.attachStreaming 挂到 item 容器
         bubbleBox = box
         host.enterBubble(box)
+        // 新一轮等待开始: 清掉上一轮计时(起点归零), 避免秒数从上轮累计
+        stopDotsTimer()
+        dotsTimer = null
+        dotsStartMs = 0L
         return box
     }
 
@@ -230,6 +249,42 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             bubbleBox?.addView(view)
             view
         }
+    }
+
+    /** 等待时长文案: <60s 只到秒, 之后 分+补零秒 */
+    private fun elapsedText(ms: Long): String {
+        val s = (ms / 1000L).coerceAtLeast(0L)
+        return if (s < 60L) "$s 秒" else "${s / 60L} 分 ${(s % 60L).toString().padStart(2, '0')} 秒"
+    }
+
+    /** 每秒刷新三点旁计时; 视图已脱离窗口则自动停表, 防脱离后空转 */
+    private val dotsTicker = object : Runnable {
+        override fun run() {
+            val tv = dotsTimer ?: return
+            if (!tv.isAttachedToWindow) { dotsTimer = null; return }
+            if (dotsStartMs == 0L) dotsStartMs = SystemClock.uptimeMillis()
+            tv.text = elapsedText(SystemClock.uptimeMillis() - dotsStartMs)
+            uiHandler.removeCallbacks(this)
+            uiHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    /** 启动/续跑计时(同一轮等待沿用原起点, 不因占位行重建而归零);
+     *  此时占位行尚未挂载, 首帧必须异步挂起, 否则同步 run 会被 attach 守卫判空 */
+    private fun startDotsTimer() {
+        if (dotsStartMs == 0L) dotsStartMs = SystemClock.uptimeMillis()
+        uiHandler.removeCallbacks(dotsTicker)
+        val tv = dotsTimer ?: return
+        tv.text = elapsedText(SystemClock.uptimeMillis() - dotsStartMs)
+        tv.removeCallbacks(dotsTicker)
+        if (tv.isAttachedToWindow) uiHandler.postDelayed(dotsTicker, 1000L)
+        else tv.postDelayed(dotsTicker, 1000L)
+    }
+
+    /** 停表: 仅撤掉刷新回调, 起点保留到本轮真正结束 */
+    private fun stopDotsTimer() {
+        uiHandler.removeCallbacks(dotsTicker)
+        dotsTimer?.removeCallbacks(dotsTicker)
     }
 
     /** 生成等待指示(阶段1 请求/翻记忆期): 三点指示器; 状态行存在时状态行即活动指示, 不再重复 */
@@ -264,6 +319,19 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 layoutParams = lp
             })
         }
+        val tv = TextView(host).apply {
+            text = "0 秒"
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(THINK_TEXT)
+            includeFontPadding = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = host.dp(Ui.SP2)
+            }
+        }
+        row.addView(tv)
+        dotsTimer = tv
+        startDotsTimer()
         return row
     }
 
@@ -277,14 +345,19 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (loadingRow != null) {
             bodyDots = loadingRow
             loadingRow = null
+            startDotsTimer()
             return
         }
         bodyDots = addChatBubble(makeDotsRow())
+        startDotsTimer()
     }
 
     private fun removeBodyDots() {
         bodyDots?.let { (it.parent as? ViewGroup)?.removeView(it) }
         bodyDots = null
+        stopDotsTimer()
+        dotsTimer = null
+        dotsStartMs = 0L
     }
 
     // ===== 流式渐显(2026-10-29 两段式): 活段逐字(raw 纯文本节流上屏, 不跑 markdown 排版) =====
@@ -321,6 +394,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         loadingRow = null
         loadingAnim?.cancel()
         loadingAnim = null
+        stopDotsTimer()
     }
 
     // ===================== Agent 单轨折叠流(2026-10-25) =====================
@@ -334,7 +408,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         onClick: () -> Unit
     ): Pair<LinearLayout, TextView> {
         val tv = TextView(host).apply {
-            textSize = 14f
+            textSize = 13f
             setTextColor(THINK_TEXT)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -559,13 +633,13 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 marginStart = host.dp(Ui.SP1)
-                topMargin = if (col.childCount == 0) host.dp(10) else host.dp(20)   // 首行内容在珠子下10dp; 中间行内容在珠子下20dp(珠子18+2留白)
+                topMargin = if (col.childCount == 0) host.dp(Ui.SP3) else host.dp(Ui.SP5)   // 首行内容在珠子下10dp; 中间行内容在珠子下20dp(珠子18+2留白)
                 bottomMargin = 0   // 行间空隙由下一行 body topMargin 承担, 此处不留行底空隙
             }
         }
         val title = TextView(host).apply {
             text = titleText
-            textSize = 14f
+            textSize = 13f
             setTextColor(THINK_TEXT)
             maxWidth = host.chatMaxW()
             maxLines = 2
@@ -573,7 +647,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             setPadding(host.dp(Ui.SP1), host.dp(2), host.dp(Ui.SP1), host.dp(2))
         }
         val detail = TextView(host).apply {
-            textSize = 14f
+            textSize = 12f
             setTextColor(THINK_TEXT)
             maxWidth = host.chatMaxW()
             setPadding(host.dp(Ui.SP3), host.dp(Ui.SP2), host.dp(Ui.SP3), host.dp(Ui.SP2))
@@ -658,7 +732,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             val sw = TextSwitcher(host).apply {
                 setFactory {
                     TextView(host).apply {
-                        textSize = 14f
+                        // 2026-10-30 第三批: 折叠条降到 13sp(正文 15sp), 字阶与正文再拉开一级
+                        textSize = 13f
                         setTextColor(THINK_TEXT)
                         maxLines = 1
                         // 宽度封顶(行整体不超 chatMaxW 且给右侧计数预留空间):
@@ -675,7 +750,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 minimumWidth = host.dp(64)   // 只兜住短片段("💭 …"量级), 避免 140dp 撑出大片右侧留白
             }
             val counter = TextView(host).apply {
-                textSize = 12f
+                textSize = 11f
                 setTextColor(THINK_TEXT)
                 maxLines = 1   // 兜底: 即使被压缩也不竖排(正常态有 sw maxWidth 预留, 不会触发截断)
                 ellipsize = TextUtils.TruncateAt.END
@@ -1008,6 +1083,12 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private fun sealBlock(b: ContentBlock) {
         b.done = true
         activeContent = null
+        cancelChunkIdle(b)
+        // 块级增量模式: 剩余不足一块的部分直接切出上屏(无占位/无淡变), 容器已在屏
+        if (!b.isTable && !ModeConfig.chatPlainText() && b.text.isNotBlank()) {
+            emitChunks(b, final = true)
+            if (b.chunked) return
+        }
         sealContentPlaceholder(b)   // 未挂过视图的段挂占位保持时间线顺序(活段已有视图, 幂等跳过)
         renderSilent(b)             // 静默排版暂存
         revealContent(b)            // 封段即显现: 占位/raw 淡出, 成品淡入
@@ -1137,9 +1218,13 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (!b.isTable && b.text.length >= SPLIT_CONTENT_LEN) {
             sealBlock(b)
         }
-        // 流式渐显(2026-10-29 两段式): 活段首个非空白字符即挂 raw 文本视图逐字上屏,
-        // 不再全程静默等收尾"拍脸"; 表格段不逐字(封段后一次性显现, 完整性优先)
-        if (!b.done && !b.isTable && b.view == null && b.text.isNotBlank()) {
+        // 块级增量上屏(2026-10-31): 每满 CHUNK_MAX 字即切块排版上屏, 已上屏块永不重排;
+        // 表格段不切(整表成形, 避免永久残缺), 纯文本模式回退旧路径
+        if (!b.isTable && !b.done && !ModeConfig.chatPlainText()) {
+            emitChunks(b, final = false)
+            scheduleChunkIdle(b)
+        } else if (!b.done && !b.isTable && b.view == null && b.text.isNotBlank()) {
+            // 纯文本模式: 活段 raw 文本视图逐字上屏(旧路径)
             attachContentView(b)?.let { tv ->
                 tv.text = suppressCards(ModeConfig.stripChatProtocolPrefix(b.text.toString()))
                 keepBubbleWidth(b, tv)
@@ -1165,6 +1250,232 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         lastDeltaNs = nowNs
         // 静默分层(阶段4): 不启动打字机(TypewriterCenter)——正文不外显半成品,
         // 收尾排版完成后占位原位切换+打字显现(alpha 淡入), 打字机节奏逻辑整体让位
+    }
+
+    // ===== 块级增量上屏(2026-10-31) =====
+    // 目标: 输出期不再"整段静默等收尾", 也不再逐帧重排(闪跳根源)。
+    // 做法: 每满 CHUNK_MAX 字即切出一块 -> 一次性排版 -> 追加进块容器上屏;
+    // 已上屏块是最终形态, 后续永不重排 —— 零闪跳从根上消除。
+    // 表格/未闭合代码围栏内挂起(整块成形), 其余硬切(中文无词间空格, 断口无感)。
+
+    /** 是否处于未闭合的 ``` 围栏内: 统计全文三反引号出现次数的奇偶 */
+    private fun inOpenFence(s: CharSequence): Boolean {
+        var n = 0
+        var i = 0
+        val len = s.length
+        while (i + 2 < len) {
+            if (s[i] == '`' && s[i + 1] == '`' && s[i + 2] == '`') { n++; i += 3 } else i++
+        }
+        return n % 2 == 1
+    }
+
+    /** 位置 p 是否处于未闭合的 ``` 围栏内(只看 p 之前的内容)。
+     *  全文奇偶只能判断"缓冲末尾", 中段破口必须按位置判断——
+     *  否则切进围栏会把 ``` 当普通文本漏给用户。 */
+    private fun inFenceAt(s: CharSequence, p: Int): Boolean {
+        var n = 0
+        var i = 0
+        while (i + 2 < p) {
+            if (s[i] == '`' && s[i + 1] == '`' && s[i + 2] == '`') { n++; i += 3 } else i++
+        }
+        return n % 2 == 1
+    }
+
+    /** 从 from 起第一个 ``` 闭合位置(返回闭合后一位); 没有返回 -1 */
+    private fun nextFenceClose(s: CharSequence, from: Int): Int {
+        var i = maxOf(0, from)
+        while (i + 2 < s.length) {
+            if (s[i] == '`' && s[i + 1] == '`' && s[i + 2] == '`') return i + 3
+            i++
+        }
+        return -1
+    }
+
+    /** p 所在行的行首索引 */
+    private fun lineStartOf(s: CharSequence, p: Int): Int {
+        var i = p
+        while (i > 0 && s[i - 1] != '\n') i--
+        return i
+    }
+
+    /** 截至 p(不含) 的最后一行文本(用于判断上一行是不是表格行) */
+    private fun lineEndingAt(s: CharSequence, p: Int): String {
+        var e = p
+        if (e > 0 && s[e - 1] == '\n') e--
+        var b = e
+        while (b > 0 && s[b - 1] != '\n') b--
+        return s.substring(b, e)
+    }
+
+    /** 行内标记安全位置: [start, cut0) 内 **粗体** / `代码` / ~~删除~~ / [链接] 全部闭合。
+     *  切点落在标记中间时, 前后两块各自解析都会把半截符号当普通文本渲染, 屏幕上就会
+     *  出现 ** 或反引号。只在闭合处落刀, 符号永远不会外泄。返回最后一个闭合位置, 无则 -1 */
+    private fun safeCutPos(s: CharSequence, start: Int, cut0: Int): Int {
+        var bold = 0
+        var ital = 0
+        var code = 0
+        var strike = 0
+        var bracket = 0
+        var last = -1
+        var i = start
+        while (i < cut0) {
+            val c = s[i]
+            when {
+                c == '`' -> {
+                    var run = 0
+                    while (i + run < cut0 && s[i + run] == '`') run++
+                    if (run < 3) code = code xor 1        // 三反引号是围栏定界, 不计行内
+                    i += run
+                }
+                c == '*' && i + 1 < cut0 && s[i + 1] == '*' -> { bold = bold xor 1; i += 2 }
+                c == '*' -> {
+                    // 两侧有空白(乘法/列表符)不算强调, 否则 5 * 3 会让切点永远不安全
+                    val nextSpace = i + 1 < cut0 && (s[i + 1] == ' ' || s[i + 1] == '\t')
+                    val prevSpace = i == 0 || s[i - 1] == ' ' || s[i - 1] == '\t' || s[i - 1] == '\n'
+                    if (!nextSpace && !prevSpace) ital = ital xor 1
+                    i++
+                }
+                c == '~' && i + 1 < cut0 && s[i + 1] == '~' -> { strike = strike xor 1; i += 2 }
+                c == '[' -> { bracket++; i++ }
+                c == ']' -> { if (bracket > 0) bracket--; i++ }
+                else -> i++
+            }
+            if (bold == 0 && ital == 0 && code == 0 && strike == 0 && bracket == 0) last = i
+        }
+        return last
+    }
+
+    /** p 处能否落刀: 不进围栏、不切表格行、不留只有标记符号的残片、行内标记闭合 */
+    private fun canCutAt(s: CharSequence, start: Int, p: Int): Boolean {
+        if (p <= start) return false
+        if (inFenceAt(s, p)) return false
+        val atLineStart = p == 0 || s[p - 1] == '\n'
+        if (!atLineStart) {
+            val t = s.substring(lineStartOf(s, p), p).trim()
+            if (t.isEmpty()) return false
+            if (t.startsWith("|")) return false                  // 表格行必须整行上屏
+            var pipes = 0
+            for (c in t) if (c == '|') pipes++
+            if (pipes >= 2) return false
+            var onlyMarks = true                                  // 只有 # - * _ > = | 的残片
+            for (c in t) {
+                if (c != '#' && c != '-' && c != '*' && c != '_' && c != '>' && c != '=' && c != '|') {
+                    onlyMarks = false; break
+                }
+            }
+            if (onlyMarks) return false
+            var numOnly = t.length in 1..3                        // "1." "12." 有序列表序号残片
+            if (numOnly) {
+                for (c in t) if (!c.isDigit() && c != '.') { numOnly = false; break }
+            }
+            if (numOnly) return false
+        } else if (lineEndingAt(s, p).trim().startsWith("|")) {
+            // 行边界: 上一行与下一行都是表格行 = 表格还没结束, 不许从中间劈开
+            var e = p
+            while (e < s.length && s[e] != '\n') e++
+            if (s.substring(p, e).trim().startsWith("|")) return false
+        }
+        return safeCutPos(s, start, p) == p
+    }
+
+    /** 计算本块切点(绝对索引); 返回 <= start 表示暂不切 */
+    private fun chunkCut(b: ContentBlock, final: Boolean, idle: Boolean): Int {
+        val s = b.text
+        val start = b.chunkStart
+        val remaining = s.length - start
+        if (remaining <= 0) return -1
+        if (final) return s.length                       // 收尾: 剩余全部切出(即使语法未闭合)
+        if (inOpenFence(s) || inTableTail(s)) return -1  // 缓冲末尾仍在围栏/表格内: 整块等
+        val floor = start + CHUNK_MIN
+        if (idle) {                                      // 停顿兜底: 也只能切在安全位置
+            var p = s.length
+            while (p > floor) {
+                if (canCutAt(s, start, p)) return p
+                p--
+            }
+            return -1
+        }
+        if (remaining <= CHUNK_MAX) return -1
+        val cut0 = start + CHUNK_MAX
+        // 1) 优先: cut0 前 15 字内的换行(自然断口), 且该处安全
+        val limit = maxOf(floor, cut0 - 15)
+        var i = cut0
+        while (i > limit) {
+            if (s[i - 1] == '\n' && canCutAt(s, start, i)) return i
+            i--
+        }
+        // 2) 兜底: 从 cut0 往回找最近的安全位置(块短一点也要保住语法完整)
+        i = cut0
+        while (i > floor) {
+            if (canCutAt(s, start, i)) return i
+            i--
+        }
+        // 3) 标记晚闭合(如一段 200 字的粗体 / 长代码块): 探针前移到语法闭合处再向后找,
+        //    避免"整块永不切出"导致长时间不上屏
+        var probe = cut0
+        if (inFenceAt(s, probe)) {
+            val close = nextFenceClose(s, probe)
+            if (close > probe) probe = close
+        }
+        i = probe + 1
+        val cap = minOf(s.length, probe + 300)
+        while (i <= cap) {
+            if (canCutAt(s, start, i)) return i
+            i++
+        }
+        return -1
+    }
+
+    /** 切块 -> 排版 -> 追加上屏: 已上屏块不再改动, 新块只 append */
+    private fun emitChunks(b: ContentBlock, final: Boolean, idle: Boolean = false) {
+        if (ModeConfig.chatPlainText()) return
+        var guard = 0
+        while (guard++ < 64) {
+            val start = b.chunkStart
+            if (start >= b.text.length) break
+            val cut = chunkCut(b, final, idle)
+            if (cut <= start) break
+            // 块间空白: 原文此处确有段落间隔(空行)才给 6dp 段间距, 否则 0(防豆腐块阵列)
+            val gap = b.text.substring(maxOf(0, start - 2), start)
+            val gapBlank = start > 0 && gap.count { it == '\n' } >= 2
+            val raw = b.text.substring(start, cut)
+            b.chunkStart = cut
+            val chunk = raw.trim('\n')
+            if (chunk.isNotBlank()) {
+                val blocks = MdToBlocks.render(chunk)
+                if (blocks.isNotEmpty()) {
+                    val first = b.blocksView == null
+                    val bv = ensureBlockContainer(b)
+                    if (bv == null) { b.chunkStart = start; break }
+                    bv.appendBlocks(blocks, if (gapBlank) host.dp(6) else 0)
+                    b.chunked = true
+                    keepBubbleWidth(b, bv)
+                    if (first) removeBodyDots()     // 首个真块上屏, 三点占位退役
+                    host.onTypeGrownFrame(false)    // 高度增长: 注册同帧锚底
+                }
+            }
+            if (idle) break                          // 兜底只切一次
+        }
+    }
+
+    /** 取/建块容器: 首块时把懒挂的占位 TextView 原位换成块容器(全程只换这一次) */
+    private fun ensureBlockContainer(b: ContentBlock): MdBlocksView? {
+        b.blocksView?.let { return it }
+        val tv = b.view ?: (attachContentView(b) ?: return null)
+        return ensureBlocksView(b, tv)
+    }
+
+    /** 闲置兜底: 模型停顿(调工具/网络卡)时不满阈值也上屏, 避免长时间僵住 */
+    private fun scheduleChunkIdle(b: ContentBlock) {
+        cancelChunkIdle(b)
+        val r = Runnable { b.chunkIdle = null; emitChunks(b, final = false, idle = true) }
+        b.chunkIdle = r
+        uiHandler.postDelayed(r, CHUNK_IDLE_MS)
+    }
+
+    private fun cancelChunkIdle(b: ContentBlock) {
+        b.chunkIdle?.let { uiHandler.removeCallbacks(it) }
+        b.chunkIdle = null
     }
 
     /** 懒挂正文气泡视图(09-24 空气泡修复): 首个非空白字符到达才创建, 挂载后立即渲染
@@ -1221,7 +1532,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 是否存在正在输出(打字/逐字未收尾)的正文段: 供 MainActivity 锚底注册/长按守卫判断;
      *  流式渐显(2026-10-29): 活段逐字上屏期(已挂视图未封段的非表格段)视同打字期 */
     fun hasActiveTypewriter(): Boolean =
-        contentBlocks.any { it.typeActive || (!it.done && !it.isTable && it.view != null) }
+        contentBlocks.any { it.typeActive || (!it.done && !it.isTable && it.view != null) || (!it.done && it.chunked) }
 
     // ===== 静默分层(阶段4): 正文输出期排版与 UI 解耦, 收尾原位显现 =====
 
@@ -1374,10 +1685,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         bv.setRenderContext(tv.maxWidth, tv.maxWidth - padH, BUBBLE_AI_TEXT, Ui.PRIMARY, Ui.INPUT_BG)
         // 长按复制(2026-10-02): 块容器取代占位 TextView 后原 makeCopyable 监听随 TextView 摘除,
         // 需在块容器上重建长按入口(与用户侧一致弹原文本对话框)
-        val rawB = ModeConfig.stripChatProtocolPrefix(b.text.toString())
+        // 块级增量: 容器在首块即建(全文未到), 长按必须实时取当前全文, 不能用建容器时的快照
         bv.setOnLongClickListener {
             if (host.aiTypewriting()) return@setOnLongClickListener false
-            host.openRawText(rawB)
+            host.openRawText(ModeConfig.stripChatProtocolPrefix(b.text.toString()))
             true
         }
         bv.isLongClickable = true
@@ -1812,7 +2123,11 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         }
         sealStatusSummary()   // 收尾定格: 状态行定格为"💭 已思考X字 · 🔧 N个工具"
         // 未封段的正文章节在此一并收尾(整体完成不再追加)
-        activeContent?.let { it.done = true }
+        activeContent?.let {
+            cancelChunkIdle(it)
+            if (!it.isTable && !ModeConfig.chatPlainText() && it.text.isNotBlank()) emitChunks(it, final = true)
+            it.done = true
+        }
         activeContent = null
         // 弱机防 ANR(2026-10-27): 收尾显现不再单帧循环全部块——长文/多工具场景的排版+首帧
         // 布局全部挤在一个绘制帧会超 ANR 阈值(努比亚 NX741J 实测 4s~74s 阻塞);
@@ -1824,6 +2139,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 while (idx < contentBlocks.size && n < 2) {
                     val b = contentBlocks[idx++]
                     n++
+                    if (b.chunked) { b.revealed = true; continue }   // 块级增量段已在屏, 无需收尾显现
                     b.done = true
                     // 流式渐显: 封段段流式期已显现——块化成品在屏直接跳过; 无块化产物
                     // (纯文本/att:// 段收尾才排版)补一次 finishTypeRender 上成品, 不再二次 reveal

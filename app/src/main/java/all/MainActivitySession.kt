@@ -92,6 +92,7 @@ import android.widget.Toast
         currentSaved = true
         currentSessionId = id
         currentSessionTitle = db.sessionTitleOf(id)
+        db.touchSessionUsed(id)   // 最近使用排序(2026-10-30 第三批): 打开即回到抽屉组内顶部
         // 能力域(2026-10-30 P3): 体检会话只读, 普通/任务会话恢复常规执行域
         // 设备面板绑定会话(2026-10-30): 库里仍是普通会话(要出现在会话列表), 但能力域降为只读,
         // 面板问 AI 只做排查不写盘/不跑 shell, 避免每轮弹安全确认

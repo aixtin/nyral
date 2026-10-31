@@ -7,23 +7,35 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
 import android.widget.Toast
 import org.json.JSONObject
+import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
@@ -62,6 +74,8 @@ class DiagnosticsActivity : Activity() {
     private lateinit var netSub: TextView
     private lateinit var netSpark: NetView
     private lateinit var mountList: LinearLayout
+    private lateinit var taskList: LinearLayout
+    private lateinit var taskHint: TextView
 
     private val tick = object : Runnable {
         override fun run() {
@@ -75,6 +89,7 @@ class DiagnosticsActivity : Activity() {
         super.onCreate(savedInstanceState)
         Diagnostics.resetPrivilegeCache()
         setContentView(buildRoot())
+        darkSystemBars()
         loadProfile()
     }
 
@@ -102,12 +117,34 @@ class DiagnosticsActivity : Activity() {
         super.onPause()
     }
 
+    /** 页面底色是深色, 状态栏/导航栏图标必须是亮色, 否则暗底暗字看不见 */
+    private fun darkSystemBars() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.insetsController?.setSystemBarsAppearance(
+                0,
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                        WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = 0
+        }
+    }
+
     // ===================== UI =====================
 
     private fun buildRoot(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(BG)
+        }
+        // targetSdk 36 强制 edge-to-edge: 根布局消费状态栏/导航栏 inset, 顶栏不再压到系统状态栏上
+        if (Build.VERSION.SDK_INT >= 35) {
+            root.setOnApplyWindowInsetsListener { v, insets ->
+                val top = insets.getInsets(WindowInsets.Type.statusBars()).top
+                val bottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                v.setPadding(0, top, 0, bottom)
+                insets
+            }
         }
         // 顶栏
         val bar = LinearLayout(this).apply {
@@ -238,7 +275,7 @@ class DiagnosticsActivity : Activity() {
         coreCard.addView(sectionTitle("每核占用"))
         coreBars = CoreBarsView(this)
         coreCard.addView(coreBars, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dpi(72)).apply { topMargin = dpi(6) })
+            ViewGroup.LayoutParams.MATCH_PARENT, dpi(84)).apply { topMargin = dpi(6) })
         coreHint = TextView(this).apply {
             text = ""
             textSize = 10.5f
@@ -250,7 +287,19 @@ class DiagnosticsActivity : Activity() {
 
         // 网络: 上下行速率 + 5 分钟曲线
         val netCard = card()
-        netCard.addView(sectionTitle("网络"))
+        val netHead = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        netHead.addView(sectionTitle("网络").apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        netHead.addView(TextView(this).apply {
+            text = legend("下行 ", ACCENT, "上行 ", WARN)
+            textSize = 10.5f
+            setTextColor(SUB)
+        })
+        netCard.addView(netHead)
         netVal = TextView(this).apply {
             text = "--"
             textSize = 21f
@@ -267,7 +316,7 @@ class DiagnosticsActivity : Activity() {
         netCard.addView(netSub)
         netSpark = NetView(this)
         netCard.addView(netSpark, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dpi(72)).apply { topMargin = dpi(6) })
+            ViewGroup.LayoutParams.MATCH_PARENT, dpi(96)).apply { topMargin = dpi(6) })
         col.addView(netCard)
 
         // 存储: 多挂载点(对应 Ubuntu 文件系统页)
@@ -283,18 +332,18 @@ class DiagnosticsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        head.addView(sectionTitle("近 5 分钟").apply {
+        head.addView(sectionTitle("近 1 分钟").apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
         head.addView(TextView(this).apply {
-            text = "CPU ● 温度 ●"
+            text = legend("CPU ", ACCENT, "温度 ", WARN)
             textSize = 10.5f
             setTextColor(SUB)
         })
         sparkCard.addView(head)
         spark = SparkView(this)
         sparkCard.addView(spark, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dpi(92)).apply { topMargin = dpi(8) })
+            ViewGroup.LayoutParams.MATCH_PARENT, dpi(104)).apply { topMargin = dpi(8) })
         statusText = TextView(this).apply {
             text = ""
             textSize = 10.5f
@@ -315,6 +364,20 @@ class DiagnosticsActivity : Activity() {
         }
         verdictCard.addView(verdictText)
         col.addView(verdictCard)
+
+        // 后台任务(P3): 运行中的脚本进程。停止按钮之外的第二道人工闸门 —— 点停止没刹住或没有对话在跑时, 这里能直接收口
+        val taskCard = card()
+        taskCard.addView(sectionTitle("后台任务"))
+        taskHint = TextView(this).apply {
+            text = "读取中…"
+            textSize = 11.5f
+            setTextColor(SUB)
+            setLineSpacing(dpi(3).toFloat(), 1f)
+        }
+        taskCard.addView(taskHint)
+        taskList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        taskCard.addView(taskList)
+        col.addView(taskCard)
 
         // 按钮
         val actions = LinearLayout(this).apply {
@@ -380,6 +443,16 @@ class DiagnosticsActivity : Activity() {
 
     private fun dpi(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
 
+    /** 图例: 两个圆点分别取各自曲线的颜色, 与线一一对应 */
+    private fun legend(l1: String, c1: Int, l2: String, c2: Int): CharSequence {
+        val s = SpannableString(l1 + "●   " + l2 + "●")
+        val a = s.indexOf('●')
+        s.setSpan(ForegroundColorSpan(c1), a, a + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val b = s.lastIndexOf('●')
+        s.setSpan(ForegroundColorSpan(c2), b, b + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return s
+    }
+
     private fun roundBg(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply {
         setColor(color)
         cornerRadius = dpi(radius).toFloat()
@@ -406,21 +479,64 @@ class DiagnosticsActivity : Activity() {
     private fun refresh() {
         Thread {
             val s = try { DeviceMetrics.sample(this) } catch (e: Throwable) { JSONObject() }
-            val (cpuSeries, tempSeries) = DeviceMetrics.series()
-            val peaks = DeviceMetrics.peaks()
+            val (allCpu, allTemp) = DeviceMetrics.series()
+            val cpuSeries = allCpu.takeLast(PLOT_POINTS)
+            val tempSeries = allTemp.takeLast(PLOT_POINTS)
+            val peaks = Pair(cpuSeries.maxOrNull() ?: 0f, tempSeries.maxOrNull() ?: 0f)
             val verdicts = try { DeviceMetrics.verdicts(s) } catch (e: Throwable) { emptyList<String>() }
             ui.post {
                 if (isFinishing || isDestroyed || !alive) return@post
                 bindValues(s)
                 spark.setData(cpuSeries, tempSeries)
                 val (dnSeries, upSeries) = DeviceMetrics.netHistory()
-                netSpark.setData(dnSeries, upSeries)
+                netSpark.setData(dnSeries.takeLast(PLOT_POINTS), upSeries.takeLast(PLOT_POINTS))
                 statusText.text = "峰值 CPU " + fmt(peaks.first.toDouble()) + "%" +
                         (if (peaks.second > 0f) " · 温度 " + fmt(peaks.second.toDouble()) + "℃" else "") +
                         " · " + cpuSeries.size + " 点 · " + timeNow()
                 verdictText.text = if (verdicts.isEmpty()) "各项读数正常区间内(只陈述事实, 不做评分)" else verdicts.joinToString("\n") { "· " + it }
+                refreshTaskPanel()
             }
         }.start()
+    }
+
+    /** 后台任务卡片: 每秒随面板一起刷新(进程结束/被终止后自动消失) */
+    private fun refreshTaskPanel() {
+        if (!::taskList.isInitialized) return
+        val items = try { ProcGuard.tasks() } catch (e: Throwable) { emptyList<ProcGuard.TaskView>() }
+        taskList.removeAllViews()
+        if (items.isEmpty()) {
+            taskHint.text = "没有运行中的脚本进程"
+            return
+        }
+        taskHint.text = "运行中 " + items.size + " 个 · 终止时按进程组整组收口(setsid 独立会话)"
+        items.forEach { t ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dpi(6), 0, dpi(6))
+            }
+            val secs = ((System.currentTimeMillis() - t.ts) / 1000L).coerceAtLeast(0L)
+            row.addView(TextView(this).apply {
+                text = t.id + " · pid " + t.pid + (if (t.root) " · root" else "") + " · 已运行 " + secs + "s"
+                textSize = 12f
+                setTextColor(SUB)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(TextView(this).apply {
+                text = "终止"
+                textSize = 12f
+                setTextColor(ACCENT)
+                setPadding(dpi(10), dpi(5), dpi(10), dpi(5))
+                background = roundBg(ACCENT_BG, 999)
+                isClickable = true
+                setOnClickListener {
+                    ProcGuard.killOne(t.id)
+                    Toast.makeText(this@DiagnosticsActivity, "已发送终止: " + t.id, Toast.LENGTH_SHORT).show()
+                    ui.postDelayed({ refreshTaskPanel() }, 500L)
+                }
+            })
+            taskList.addView(row)
+        }
     }
 
     private fun bindValues(s: JSONObject) {
@@ -453,8 +569,22 @@ class DiagnosticsActivity : Activity() {
 
         val temp = s.optJSONObject("temp") ?: JSONObject()
         val soc = temp.optDouble("soc_c", -1.0)
-        tempVal.text = if (soc > 0) fmt(soc) + "℃" else "--"
-        tempSub.text = if (temp.has("batt_c")) "电池 " + fmt(temp.optDouble("batt_c")) + "℃" else "读不到温度节点"
+        val socSuspect = temp.optInt("soc_suspect", 0) == 1
+        tempVal.text = when {
+            soc <= 0 -> "--"
+            socSuspect -> fmt(soc) + "℃?"
+            else -> fmt(soc) + "℃"
+        }
+        tempSub.text = buildString {
+            if (temp.has("batt_c")) append("电池 ").append(fmt(temp.optDouble("batt_c"))).append("℃")
+            else append("读不到温度节点")
+            when (temp.optString("soc_src")) {
+                "sysfs" -> append(" · 节点直读")
+                "sysfs-su" -> append(" · 节点读(root)")
+                "hal" -> append(" · HAL 上报")
+            }
+            if (socSuspect) append(" · 读数可疑")
+        }
         tempVal.setTextColor(if (soc > 0) heatColor(soc, 45.0, 58.0) else SUB)
 
         val b = s.optJSONObject("batt") ?: JSONObject()
@@ -539,6 +669,29 @@ class DiagnosticsActivity : Activity() {
         else -> TXT
     }
 
+    /** 量程向上取整到 1/2/2.5/5/10 档, 让纵轴刻度是整齐数字而不是 0.37 这类怪值 */
+    private fun niceCeil(v: Float): Float {
+        if (v <= 0f) return 1f
+        val exp = floor(log10(v.toDouble())).toInt()
+        val base = 10.0.pow(exp)
+        val m = v / base
+        val nm = when {
+            m <= 1.0 -> 1.0
+            m <= 2.0 -> 2.0
+            m <= 2.5 -> 2.5
+            m <= 5.0 -> 5.0
+            else -> 10.0
+        }
+        return (nm * base).toFloat()
+    }
+
+    /** 纵轴刻度文字: 单位随量程走(MB/s 或 KB/s), 保持 3~4 字符宽度 */
+    private fun axisNum(kbps: Float, top: Float): String {
+        if (kbps <= 0.001f) return "0"
+        return if (top >= 1024f) fmt((kbps / 1024f).toDouble()) + "M"
+        else fmt(kbps.toDouble()) + "K"
+    }
+
     private fun fmt(v: Double): String {
         if (v.isNaN() || v.isInfinite()) return "-"
         return if (v >= 100) v.roundToInt().toString() else ((v * 10).roundToInt() / 10.0).toString()
@@ -586,6 +739,11 @@ class DiagnosticsActivity : Activity() {
             strokeWidth = 1f
             color = GRID
         }
+        private val pPct = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 8.5f * resources.displayMetrics.density
+            color = SUB
+            textAlign = Paint.Align.CENTER
+        }
 
         fun setData(v: List<Float>) {
             vals = v
@@ -597,11 +755,18 @@ class DiagnosticsActivity : Activity() {
             val w = width.toFloat()
             val h = height.toFloat()
             if (w <= 0f || h <= 0f) return
-            val labelH = 12f * resources.displayMetrics.density
-            val barH = h - labelH
-            canvas.drawLine(0f, barH * 0.5f, w, barH * 0.5f, pGrid)
+            val d = resources.displayMetrics.density
+            val labelH = 12f * d
+            val headH = 12f * d
+            val barTop = headH
+            val barH = h - labelH - headH
+            if (barH <= 0f) return
+            for (i in 1..3) {
+                val y = barTop + barH * i / 4f
+                canvas.drawLine(0f, y, w, y, pGrid)
+            }
             if (vals.isEmpty()) {
-                canvas.drawText("无分核读数", w / 2f, barH / 2f, pText)
+                canvas.drawText("无分核读数", w / 2f, barTop + barH / 2f, pText)
                 return
             }
             val n = vals.size
@@ -609,16 +774,19 @@ class DiagnosticsActivity : Activity() {
             val barW = minOf(slot * 0.62f, 26f * resources.displayMetrics.density)
             vals.forEachIndexed { i, v ->
                 val x = slot * i + slot / 2f
-                val track = RectF(x - barW / 2f, 0f, x + barW / 2f, barH)
+                if (v >= 0f) {
+                    canvas.drawText(v.roundToInt().toString() + "%", x, headH - 2.5f * d, pPct)
+                }
+                val track = RectF(x - barW / 2f, barTop, x + barW / 2f, barTop + barH)
                 canvas.drawRoundRect(track, barW / 4f, barW / 4f, pTrack)
                 if (v >= 0f) {
-                    val top = barH - barH * (v.coerceIn(0f, 100f) / 100f)
+                    val top = barTop + barH - barH * (v.coerceIn(0f, 100f) / 100f)
                     pBar.color = when {
                         v >= 85f -> RED
                         v >= 60f -> WARN
                         else -> ACCENT
                     }
-                    canvas.drawRoundRect(RectF(x - barW / 2f, top, x + barW / 2f, barH), barW / 4f, barW / 4f, pBar)
+                    canvas.drawRoundRect(RectF(x - barW / 2f, top, x + barW / 2f, barTop + barH), barW / 4f, barW / 4f, pBar)
                 }
                 canvas.drawText(i.toString(), x, h - 1f, pText)
             }
@@ -626,17 +794,61 @@ class DiagnosticsActivity : Activity() {
     }
 
     /** 网络曲线: 上下行双线, 纵向按当前峰值自适应, 低速也不会被压成直线 */
+    /**
+     * Catmull-Rom 转三次贝塞尔: 曲线仍穿过每个采样点, 峰顶带自然弧度(乌班图观感)。
+     * 控制点 y 夹在绘图区内, 避免冲高越过 0/100 框线误导读数。
+     */
+    private fun smoothPath(data: List<Float>, x0: Float, step: Float,
+                           yOf: (Float) -> Float, h: Float): Path {
+        val p = Path()
+        val n = data.size
+        if (n == 0) return p
+        val xs = FloatArray(n) { x0 + it * step }
+        val ys = FloatArray(n) { yOf(data[it]).coerceIn(0f, h) }
+        p.moveTo(xs[0], ys[0])
+        if (n == 1) return p
+        for (i in 0 until n - 1) {
+            val y0 = ys[i]
+            val y1 = ys[i + 1]
+            val yPrev = ys[(i - 1).coerceAtLeast(0)]
+            val yNext = ys[(i + 2).coerceAtMost(n - 1)]
+            val dx = xs[i + 1] - xs[i]
+            val c1y = (y0 + (y1 - yPrev) / 6f).coerceIn(0f, h)
+            val c2y = (y1 - (yNext - y0) / 6f).coerceIn(0f, h)
+            p.cubicTo(xs[i] + dx / 3f, c1y, xs[i + 1] - dx / 3f, c2y, xs[i + 1], y1)
+        }
+        return p
+    }
+
+    /** 横轴刻度: 右端为现在(0s), 向左依次 10s/20s/30s/40s/50s/1分钟 */
+    private fun drawTimeAxis(c: Canvas, w: Float, step: Float, plotH: Float, viewH: Float, p: Paint,
+                             startX: Float = 0f) {
+        val density = resources.displayMetrics.density
+        p.color = GRID
+        c.drawLine(startX, plotH, w, plotH, p)
+        p.color = SUB
+        for (k in 1..PLOT_POINTS / 10) {
+            val x = (w - k * 10 * step).coerceIn(startX, w - 1f)
+            c.drawLine(x, plotH, x, plotH + 3f * density, p)
+            val label = if (k == PLOT_POINTS / 10) "1分钟" else (k * 10).toString() + "s"
+            c.drawText(label, x.coerceIn(12f * density, w - 2f), viewH - 2f * density, p)
+        }
+    }
+
+    /** 网络曲线: 上下行双线, 纵向按当前峰值自适应; 横轴 1 分钟 */
     private inner class NetView(c: Context) : View(c) {
         private var down: List<Float> = emptyList()
         private var up: List<Float> = emptyList()
+        private var anchor = 0L
+        private var delta = 1000f
         private val pDown = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = dpi(2).toFloat()
+            strokeWidth = dpi(1).toFloat().coerceAtLeast(1.2f)
             color = ACCENT
         }
         private val pUp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = dpi(2).toFloat()
+            strokeWidth = dpi(1).toFloat().coerceAtLeast(1.2f)
             color = WARN
         }
         private val pGrid = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -644,56 +856,110 @@ class DiagnosticsActivity : Activity() {
             strokeWidth = 1f
             color = GRID
         }
-        private val pText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 9f * resources.displayMetrics.density
+        private val pPeak = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 10.5f * resources.displayMetrics.density
             color = SUB
+            textAlign = Paint.Align.RIGHT
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        private val pTick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 8.5f * resources.displayMetrics.density
+            color = SUB
+            textAlign = Paint.Align.RIGHT
+        }
+        private val pAxis = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 8.5f * resources.displayMetrics.density
+            color = SUB
+            textAlign = Paint.Align.CENTER
+        }
+        private val animRun = object : Runnable {
+            override fun run() {
+                invalidate()
+                if (phaseNow() < 1f && isAttachedToWindow) postDelayed(this, 33L)
+            }
+        }
+
+        private fun phaseNow(): Float {
+            if (anchor == 0L) return 1f
+            return ((SystemClock.elapsedRealtime() - anchor).toFloat() / delta).coerceIn(0f, 1f)
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            removeCallbacks(animRun)
+            post(animRun)
+        }
+
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            removeCallbacks(animRun)
         }
 
         fun setData(d: List<Float>, u: List<Float>) {
+            val now = SystemClock.elapsedRealtime()
+            if (anchor != 0L) delta = (now - anchor).toFloat().coerceIn(600f, 3000f)
+            anchor = now
             down = d
             up = u
-            invalidate()
+            removeCallbacks(animRun)
+            post(animRun)
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val w = width.toFloat()
-            val h = height.toFloat()
+            val density = resources.displayMetrics.density
+            val axisH = 13f * density
+            val headH = 13f * density
+            val h = height.toFloat() - axisH - headH
             if (w <= 0f || h <= 0f) return
-            for (i in 1..3) {
-                val y = h * i / 4f
-                canvas.drawLine(0f, y, w, y, pGrid)
-            }
-            val peak = maxOf(down.maxOrNull() ?: 0f, up.maxOrNull() ?: 0f, 1f)
-            canvas.drawText("峰 " + speed(peak.toDouble()), 2f * resources.displayMetrics.density,
-                10f * resources.displayMetrics.density, pText)
-            fun line(data: List<Float>, p: Paint) {
-                if (data.size < 2) return
-                val step = w / (data.size - 1).coerceAtLeast(1)
-                val path = Path()
-                data.forEachIndexed { i, v ->
-                    val y = h - h * (v.coerceIn(0f, peak) / peak)
-                    if (i == 0) path.moveTo(0f, y) else path.lineTo(i * step, y)
+            val gutter = 30f * density
+            val plotW = (w - gutter).coerceAtLeast(1f)
+            // 量程 = 窗口峰值向上取整到 1/2/2.5/5/10 档, 刻度按量程四等分, 读数有单位可依
+            val realPeak = maxOf(down.maxOrNull() ?: 0f, up.maxOrNull() ?: 0f, 0.1f)
+            val top = niceCeil(maxOf(realPeak, 1f))
+            canvas.drawText("峰 " + speed(realPeak.toDouble()), w, headH - 3f * density, pPeak)
+            for (i in 1..4) {
+                val y = headH + h * i / 4f
+                canvas.drawLine(gutter, y, w, y, pGrid)
+                if (i < 4) {
+                    canvas.drawText(axisNum(top * (4 - i) / 4f, top),
+                        gutter - 3f * density, y - 2.5f * density, pTick)
                 }
-                canvas.drawPath(path, p)
             }
-            line(down, pDown)
-            line(up, pUp)
+            val step = plotW / (PLOT_POINTS - 1)
+            if (maxOf(down.size, up.size) >= 2) {
+                val lead = (1f - phaseNow()) * step
+                fun line(data: List<Float>, p: Paint) {
+                    if (data.size < 2) return
+                    val x0 = w + lead - (data.size - 1) * step
+                    val yOf = { v: Float -> headH + h - h * (v.coerceIn(0f, top) / top) }
+                    canvas.drawPath(smoothPath(data, x0, step, yOf, h), p)
+                }
+                line(down, pDown)
+                line(up, pUp)
+            }
+            drawTimeAxis(canvas, w, step, headH + h, height.toFloat(), pAxis, gutter)
         }
     }
 
+
     /** 双线迷你图: CPU 百分比 + SoC 温度 */
+    /** 双线迷你图: CPU 百分比 + SoC 温度, 横轴 1 分钟(右 0s -> 左 1 分钟) */
     private inner class SparkView(c: Context) : View(c) {
         private var cpu: List<Float> = emptyList()
         private var temp: List<Float> = emptyList()
+        private var anchor = 0L
+        private var delta = 1000f
+        private var gradH = -1
         private val pCpu = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = dpi(2).toFloat()
+            strokeWidth = dpi(1).toFloat().coerceAtLeast(1.2f)
             color = ACCENT
         }
         private val pTemp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = dpi(2).toFloat()
+            strokeWidth = dpi(1).toFloat().coerceAtLeast(1.2f)
             color = WARN
         }
         private val pGrid = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -705,54 +971,92 @@ class DiagnosticsActivity : Activity() {
             style = Paint.Style.FILL
             color = ACCENT_FILL
         }
+        private val pAxis = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 8.5f * resources.displayMetrics.density
+            color = SUB
+            textAlign = Paint.Align.CENTER
+        }
+        private val animRun = object : Runnable {
+            override fun run() {
+                invalidate()
+                if (phaseNow() < 1f && isAttachedToWindow) postDelayed(this, 33L)
+            }
+        }
+
+        private fun phaseNow(): Float {
+            if (anchor == 0L) return 1f
+            return ((SystemClock.elapsedRealtime() - anchor).toFloat() / delta).coerceIn(0f, 1f)
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            removeCallbacks(animRun)
+            post(animRun)
+        }
+
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            removeCallbacks(animRun)
+        }
 
         fun setData(c: List<Float>, t: List<Float>) {
+            val now = SystemClock.elapsedRealtime()
+            if (anchor != 0L) delta = (now - anchor).toFloat().coerceIn(600f, 3000f)
+            anchor = now
             cpu = c
             temp = t
-            invalidate()
+            removeCallbacks(animRun)
+            post(animRun)
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val w = width.toFloat()
-            val h = height.toFloat()
+            val density = resources.displayMetrics.density
+            val axisH = 13f * density
+            val h = height.toFloat() - axisH
             if (w <= 0f || h <= 0f) return
-            // 三档横网格(25/50/75%)
             for (i in 1..3) {
                 val y = h * i / 4f
                 canvas.drawLine(0f, y, w, y, pGrid)
             }
-            if (cpu.size < 2) return
-            val step = w / (cpu.size - 1).coerceAtLeast(1)
-            // CPU 面积
-            val fill = Path()
-            fill.moveTo(0f, h)
-            cpu.forEachIndexed { i, v -> fill.lineTo(i * step, h - h * (v.coerceIn(0f, 100f) / 100f)) }
-            fill.lineTo((cpu.size - 1) * step, h)
+            val step = w / (PLOT_POINTS - 1)
+            if (cpu.size < 2) {
+                drawTimeAxis(canvas, w, step, h, height.toFloat(), pAxis)
+                return
+            }
+            val phase = phaseNow()
+            // 最新一点先画在右边界外一格(视口外), 随 phase 滑进可视区: 新段是"滑入"而非在边缘突变
+            val lead = (1f - phase) * step
+            val x0 = w + lead - (cpu.size - 1) * step
+            if (gradH != height) {
+                gradH = height
+                pFill.shader = LinearGradient(0f, 0f, 0f, h, ACCENT_FILL, Color.TRANSPARENT,
+                    Shader.TileMode.CLAMP)
+            }
+            val yOf = { v: Float -> h - h * (v.coerceIn(0f, 100f) / 100f) }
+            val line = smoothPath(cpu, x0, step, yOf, h)
+            val xLast = x0 + (cpu.size - 1) * step
+            val fill = Path(line)
+            fill.lineTo(xLast, h)
+            fill.lineTo(x0, h)
             fill.close()
             canvas.drawPath(fill, pFill)
-            // CPU 线
-            val line = Path()
-            cpu.forEachIndexed { i, v ->
-                val y = h - h * (v.coerceIn(0f, 100f) / 100f)
-                if (i == 0) line.moveTo(0f, y) else line.lineTo(i * step, y)
-            }
             canvas.drawPath(line, pCpu)
-            // 温度线(30~75℃ 归一)
             if (temp.size >= 2) {
-                val tStep = w / (temp.size - 1).coerceAtLeast(1)
-                val t = Path()
-                temp.forEachIndexed { i, v ->
-                    val n = ((v - 30f) / 45f).coerceIn(0f, 1f)
-                    val y = h - h * n
-                    if (i == 0) t.moveTo(0f, y) else t.lineTo(i * tStep, y)
-                }
+                val tX0 = w + lead - (temp.size - 1) * step
+                val tYOf = { v: Float -> h - h * (((v - 30f) / 45f).coerceIn(0f, 1f)) }
+                val t = smoothPath(temp, tX0, step, tYOf, h)
                 canvas.drawPath(t, pTemp)
             }
+            drawTimeAxis(canvas, w, step, h, height.toFloat(), pAxis)
         }
     }
 
+
     companion object {
+        /** 曲线窗口: 60 点 x 1s = 1 分钟(手机屏宽下点距约 16px, 波动不挤) */
+        const val PLOT_POINTS = 60
         private val BG = Color.parseColor("#0E1014")
         private val CARD = Color.parseColor("#171A20")
         private val CARD2 = Color.parseColor("#1E222A")

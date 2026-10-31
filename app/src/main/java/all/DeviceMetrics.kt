@@ -25,8 +25,8 @@ import kotlin.math.roundToInt
  */
 object DeviceMetrics {
 
-    /** 环形缓冲上限: 2s 一点, 150 点 = 5 分钟 */
-    private const val MAX_POINTS = 300
+    /** 环形缓冲上限: 1s 一点, 300 点 = 5 分钟 */
+    const val MAX_POINTS = 300
     /** 采样节流: 面板 2s 刷一次, 模型连调也不重复压系统 */
     private const val MIN_INTERVAL_MS = 900L
 
@@ -283,8 +283,11 @@ object DeviceMetrics {
         if (cpuPct >= 85.0) out.add("CPU 接近满载") else if (cpuPct >= 60.0) out.add("CPU 偏高")
         val memPct = s.optJSONObject("mem")?.optDouble("used_pct", 0.0) ?: 0.0
         if (memPct >= 88.0) out.add("内存吃紧")
-        val socC = s.optJSONObject("temp")?.optDouble("soc_c", -1.0) ?: -1.0
-        if (socC >= 60.0) out.add("SoC 过热, 可能在降频") else if (socC >= 45.0) out.add("SoC 偏热")
+        val tObj = s.optJSONObject("temp")
+        val socC = tObj?.optDouble("soc_c", -1.0) ?: -1.0
+        if (tObj != null && tObj.optInt("soc_suspect", 0) == 1) {
+            out.add("SoC 温度读数异常(疑似钝化), 已跳过过热判定")
+        } else if (socC >= 60.0) out.add("SoC 过热, 可能在降频") else if (socC >= 45.0) out.add("SoC 偏热")
         val freeGb = s.optJSONObject("disk")?.optDouble("free_gb", 999.0) ?: 999.0
         if (freeGb < 5.0) out.add("存储余量不足")
         val b = s.optJSONObject("batt")
@@ -413,6 +416,16 @@ object DeviceMetrics {
         if (battC > 0) o.put("batt_c", round1(battC))
         // 温差大时给一句事实描述: 常见于重载降频
         if (soc != null && battC > 0) o.put("delta_c", round1(soc - battC))
+        if (socSrc.isNotEmpty()) o.put("soc_src", socSrc)
+        // 可疑读数: 长期纹丝不动, 或空载下比电池高出 40℃ 以上(物理上不成立)
+        val cpuPct = cpu.optDouble("pct", -1.0)
+        var suspect = socSameCount >= 8
+        if (!suspect && soc != null && battC > 0 &&
+            soc - battC >= 40.0 && (cpuPct < 0.0 || cpuPct < 40.0)
+        ) suspect = true
+        if (suspect) o.put("soc_suspect", 1)
+        dbg("temp 最终 soc=" + o.opt("soc_c") + " batt=" + o.opt("batt_c") +
+                " src=" + socSrc + " suspect=" + suspect)
         return o
     }
 
@@ -423,38 +436,130 @@ object DeviceMetrics {
      */
     private var socCacheAt = 0L
     private var socCacheV: Float? = null
+    private var socSrc: String = ""
+    private var socSameCount = 0
+    private var socLastV: Float = -1f
+    private var shSocCacheAt = 0L
+    private var shSocCacheV: Float? = null
 
+    /**
+     * 取数顺序: 进程内 sysfs → 特权通道读 sysfs → thermal HAL 上报。
+     * 部分 OEM(OxygenOS/ColorOS)的 HAL 会把 CPU 项钉成常数(实测一加恒定 80.0, 而电池仅 23℃),
+     * 所以只要能读到 sysfs 真实节点就以节点为准, HAL 仅作最后兜底。
+     */
     private fun socTemp(): Float? {
-        sysfsSocTemp()?.let { return it }
+        sysfsSocTemp()?.let { track(it, "sysfs"); dbg("A 进程内直读 $it"); return it }
+        shSocTemp()?.let { track(it, "sysfs-su"); dbg("B 特权读节点 $it"); return it }
         val now = SystemClock.elapsedRealtime()
         if (socCacheV != null && now - socCacheAt < 2000L) return socCacheV
-        if (Diagnostics.currentLevel() < 1) return null
+        if (Diagnostics.currentLevel() < 1) { dbg("C 无特权通道, 放弃"); return null }
         val dump = Diagnostics.execRead("dumpsys thermalservice", 4000L) ?: return null
         val v = thermalHalSocTemp(dump)
         if (v != null) {
             socCacheV = v
             socCacheAt = now
+            track(v, "hal")
+            dbg("C HAL 兜底 $v")
         }
         return v
+    }
+
+    private fun dbg(msg: String) {
+        try {
+            android.util.Log.d("NyralTemp", msg + " | level=" + Diagnostics.currentLevel())
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** 记录读数是否长期卡死: 钝化值不参与过热判定 */
+    private fun track(v: Float, src: String) {
+        socSrc = src
+        if (v == socLastV) socSameCount++ else {
+            socSameCount = 0
+            socLastV = v
+        }
+    }
+
+    /** 特权通道读 thermal_zone: 绕过 shell uid 的 SELinux 屏蔽 */
+    private fun shSocTemp(): Float? {
+        val now = SystemClock.elapsedRealtime()
+        if (shSocCacheV != null && now - shSocCacheAt < 3000L) return shSocCacheV
+        val cmd = "for z in /sys/class/thermal/thermal_zone*; do " +
+                "t=\$(cat \$z/type 2>/dev/null); v=\$(cat \$z/temp 2>/dev/null); " +
+                "[ -n \"\$v\" ] && echo \"\$t=\$v\"; done"
+        // Shizuku/shell 通道常返回空串(cat 被拒但不报错), 必须在解析失败后才继续尝试 root
+        val shellOut = Diagnostics.execRead(cmd, 4000L)
+        var v = parseZoneDump(shellOut ?: "")
+        dbg("B1 shell 通道 len=" + (shellOut?.length ?: -1) + " -> " + v)
+        if (v == null) {
+            val rootOut = Diagnostics.execRoot(cmd, 4000L)
+            v = parseZoneDump(rootOut ?: "")
+            dbg("B2 root 通道 len=" + (rootOut?.length ?: -1) + " -> " + v)
+        }
+        if (v == null) return null
+        shSocCacheV = v
+        shSocCacheAt = now
+        return v
+    }
+
+    /** 解析 "type=temp" 列表: 只认 SoC/CPU/GPU 类节点, 取最高值(自动换算 千分之一℃) */
+    private fun parseZoneDump(out: String): Float? {
+        val got = ArrayList<Pair<String, Float>>()
+        for (raw in out.lineSequence()) {
+            val line = raw.trim()
+            val eq = line.lastIndexOf('=')
+            if (eq <= 0) continue
+            val type = line.substring(0, eq).lowercase()
+            val rawV = line.substring(eq + 1).trim().toFloatOrNull() ?: continue
+            got.add(type to rawV)
+        }
+        return pickZone(got)
     }
 
     /** 直读 /sys/class/thermal(不需要特权, 能读就最快; 读不到返回 null) */
     private fun sysfsSocTemp(): Float? {
         val dir = File("/sys/class/thermal")
         val zones = dir.listFiles() ?: return null
-        var best: Float? = null
+        val got = ArrayList<Pair<String, Float>>()
         for (z in zones) {
             if (!z.name.startsWith("thermal_zone")) continue
             val type = readText(z.path + "/type")?.lowercase() ?: continue
-            val hit = type.contains("soc") || type.contains("cpu") || type.contains("gpu") ||
-                    type.contains("ap_") || type.contains("tsens") || type.contains("silver") ||
-                    type.contains("gold") || type.contains("big")
-            if (!hit) continue
             val raw = readText(z.path + "/temp")?.trim()?.toFloatOrNull() ?: continue
-            val v = if (raw > 1000f) raw / 1000f else raw
-            if (v in 5f..120f) best = if (best == null) v else maxOf(best, v)
+            got.add(type to raw)
         }
-        return best
+        return pickZone(got)
+    }
+
+    /**
+     * 节点分类: 0=CPU 类, 1=GPU/其他 die 类, -1=忽略。
+     * OEM 会把非温度量塞进 thermal_zone —— 一加的 socd(qcom SoC droop)恒为 80,
+     * 按 "soc" 子串匹配就会把它当成 SoC 温度(实测踩坑), 必须按节点名精确筛。
+     */
+    private fun zoneClass(type: String): Int {
+        if (type.contains("socd") || type.contains("droop") || type.contains("bcl")) return -1
+        if (type.contains("limit") || type.contains("trip") || type.contains("cool")) return -1
+        if (type.contains("vbat") || type.contains("ibat") || type.contains("batt")) return -1
+        if (Regex("^(cpu|cpuss)[-_0-9]").containsMatchIn(type)) return 0
+        if (Regex("^(gpu|gpuss)[-_0-9]").containsMatchIn(type)) return 1
+        if (type.contains("tsens") || type.contains("soc_therm") || type.contains("soc-therm") ||
+            type.contains("silver") || type.contains("gold")
+        ) return 1
+        return -1
+    }
+
+    /** 优先取 CPU 类节点的最高温, 没有则退 GPU/其他 die 类 */
+    private fun pickZone(list: List<Pair<String, Float>>): Float? {
+        var cpu: Float? = null
+        var alt: Float? = null
+        for ((type, raw) in list) {
+            val cls = zoneClass(type)
+            if (cls < 0) continue
+            val v = if (raw > 1000f) raw / 1000f else raw
+            if (v !in 5f..120f) continue
+            if (cls == 0) cpu = if (cpu == null) v else maxOf(cpu!!, v)
+            else alt = if (alt == null) v else maxOf(alt!!, v)
+        }
+        return cpu ?: alt
     }
 
     /** 解析 dumpsys thermalservice 的 "Current temperatures from HAL" 段, 取 CPU 温度(退而取最高温) */
@@ -471,11 +576,13 @@ object DeviceMetrics {
             val v = Regex("mValue=([-0-9.]+)").find(line)
                 ?.groupValues?.get(1)?.toFloatOrNull() ?: continue
             if (v !in 1f..130f) continue
-            val n = Regex("mName=([A-Za-z_]+)").find(line)?.groupValues?.get(1) ?: ""
-            when {
-                n.equals("CPU", true) -> cpu = v
-                n.equals("GPU", true) -> gpu = v
-            }
+            val n = Regex("mName=([A-Za-z_0-9]+)").find(line)?.groupValues?.get(1) ?: ""
+            // 只认 CPU/GPU 传感器项; socd/skin/vbat/ibat/nsp 等不是 die 温度(部分机型 socd 恒定 80)
+            val isCpu = n.startsWith("CPU", true)
+            val isGpu = n.startsWith("GPU", true)
+            if (!isCpu && !isGpu) continue
+            if (isCpu) cpu = if (cpu == null) v else maxOf(cpu!!, v)
+            if (isGpu) gpu = if (gpu == null) v else maxOf(gpu!!, v)
             if (maxV == null || v > maxV!!) maxV = v
         }
         return cpu ?: gpu ?: maxV

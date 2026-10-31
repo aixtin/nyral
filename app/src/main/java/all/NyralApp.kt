@@ -61,6 +61,8 @@ class NyralApp : Application() {
         checkUnexplainedExit()
         installLifecycleMarkers()
         exportPendingCrashes()
+        // 2026-10-31: 回收上次运行遗留的本机脚本进程组(崩溃/被杀/断电后仍占 CPU 的场景)
+        ProcGuard.sweepAsync(this)
     }
 
     private fun installCrashHandler() {

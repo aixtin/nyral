@@ -170,6 +170,7 @@ internal class ChatFlowController(
         activity.sendBtn.visibility = View.GONE
         activity.stopBtn.visibility = View.VISIBLE
         activity.stopBtn.isEnabled = true
+        activity.stopBtn.alpha = 1f
         executor.execute {
             val holder = AiBubbleHolder(activity)
             activity.activeAiHolder = holder
@@ -202,6 +203,7 @@ internal class ChatFlowController(
         activity.sendBtn.visibility = View.GONE
         activity.stopBtn.visibility = View.VISIBLE
         activity.stopBtn.isEnabled = true
+        activity.stopBtn.alpha = 1f
         executor.execute {
             val holder = AiBubbleHolder(activity)
             activity.activeAiHolder = holder

@@ -192,6 +192,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
 
         // 幂等兜底：sessions.kind 会话类型列(v13)，缺失则补齐
         ensureSessionKind(db)
+        // 幂等兜底：sessions.last_used 最近使用时间列(2026-10-30 第三批), 老库 user_version 未升也能补
+        ensureSessionLastUsed(db)
         // 幂等兜底：体检档案表(v13)，缺失则补齐
         ensureDiagArchive(db)
 
@@ -228,6 +230,28 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_sessions_kind ON sessions(kind, mode, updated_at)")
     }
 
+    /** 幂等补列(2026-10-30 第三批): sessions.last_used 记录"最近打开时间",
+     *  抽屉列表按 MAX(updated_at, last_used) 排序, 打开旧会话即回到列表顶部 */
+    private fun ensureSessionLastUsed(db: SQLiteDatabase) {
+        var exists = false
+        db.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sessions'", null).use { c ->
+            exists = c.moveToFirst()
+        }
+        if (!exists) return
+        var hasLast = false
+        db.rawQuery("PRAGMA table_info(sessions)", null).use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == "last_used") {
+                    hasLast = true
+                    break
+                }
+            }
+        }
+        if (!hasLast) {
+            db.execSQL("ALTER TABLE sessions ADD COLUMN last_used INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     /** 幂等建表: 体检档案(v13 新增) */
     private fun ensureDiagArchive(db: SQLiteDatabase) {
             db.execSQL(
@@ -248,6 +272,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 13) {
             ensureSessionKind(db)
+            ensureSessionLastUsed(db)
             ensureDiagArchive(db)
         }
         if (oldVersion < 9) {
@@ -773,7 +798,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         lock.withLock {
             val out = mutableListOf<SessionInfo>()
             readableDatabase.rawQuery(
-                "SELECT id, title, updated_at, pinned, kind FROM sessions WHERE mode = ? AND kind = ? ORDER BY pinned DESC, updated_at DESC LIMIT ?",
+                // 最近使用排序(2026-10-30 第三批): 发消息或打开会话都会把该会话顶到组内最前
+                "SELECT id, title, MAX(updated_at, COALESCE(last_used, 0)) AS t, pinned, kind FROM sessions WHERE mode = ? AND kind = ? ORDER BY pinned DESC, t DESC LIMIT ?",
                 arrayOf(mode.toString(), kind.toString(), limit.toString())
             ).use { c ->
                 while (c.moveToNext()) {
@@ -781,6 +807,23 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 }
             }
             return out
+        }
+    }
+
+    /** 标记会话最近打开(2026-10-30 第三批): 60s 内重复打开不写库, 避免频繁 IO */
+    fun touchSessionUsed(id: Long) {
+        lock.withLock {
+            try {
+                val db = writableDatabase
+                val now = System.currentTimeMillis()
+                var last = 0L
+                db.rawQuery("SELECT COALESCE(last_used, 0) FROM sessions WHERE id = ?", arrayOf(id.toString())).use { c ->
+                    if (c.moveToFirst()) last = c.getLong(0)
+                }
+                if (now - last < 60_000L) return
+                db.execSQL("UPDATE sessions SET last_used = ? WHERE id = ?", arrayOf(now.toString(), id.toString()))
+            } catch (_: Throwable) {
+            }
         }
     }
 

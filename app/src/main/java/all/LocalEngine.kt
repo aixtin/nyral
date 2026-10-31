@@ -171,10 +171,34 @@ object LocalEngine {
     @Volatile
     private var activeConn: HttpURLConnection? = null
 
-    /** 请求停止当前 AI 输出/工具循环 */
+    /** 本轮全部活跃连接(2026-10-31 刹车加固): 多连接同时登记, 取消时逐个断开, 防漏断致读阻塞卡死 */
+    private val activeConns = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<HttpURLConnection, Boolean>())
+
+    /** 请求停止当前 AI 输出/工具循环(软停: 断链 + 进度打断) */
     fun requestCancel() {
         cancelRequested = true
-        activeConn?.disconnect()
+        activeConn?.let { try { it.disconnect() } catch (_: Throwable) {} }
+        for (c in activeConns.toList()) { try { c.disconnect() } catch (_: Throwable) {} }
+        // 进程级刹车: 本机脚本进程组整组终止(异步, 不阻塞 UI 线程)
+        ProcGuard.killAllAsync()
+    }
+
+    /** 强制停止(第二击 / 兜底): 再杀一遍进程组, 已有的 UI 渲染队列由 cancelRequested 统一作废 */
+    fun requestCancelHard() {
+        cancelRequested = true
+        activeConn?.let { try { it.disconnect() } catch (_: Throwable) {} }
+        for (c in activeConns.toList()) { try { c.disconnect() } catch (_: Throwable) {} }
+        ProcGuard.killAllNow()
+    }
+
+    /** 可取消退避: 弱网重试的 sleep 支持被停止按钮提前打断(旧实现 Thread.sleep 不可中断, 最坏拖 4s) */
+    private fun sleepCancellable(ms: Long) {
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            if (cancelRequested) return
+            try { Thread.sleep(100) } catch (_: InterruptedException) { return }
+        }
     }
 
     internal val toolRegistry = listOf(
@@ -255,6 +279,31 @@ object LocalEngine {
         fun onDelta(text: String)      // 正文增量(流式)
         fun onDone(reply: String)
         fun onError(msg: String)
+    }
+
+    /**
+     * 停止后现场取舍 —— 方案B(2026-10-31 拍板): 保留现场。
+     *
+     * 旧实现(方案A)取消时统一 cb.onDone(""), 已流式显示的内容既不落库也不回填,
+     * 表现为"停止后切会话/重启, 刚看到的一大段输出凭空消失"; 而 StreamUiBridge 又把
+     * cancelRequested 重置为 false 后照常重建行, 气泡还会在停止瞬间被清空。
+     * 现方案: 取消异常携带已产生正文(partial), 主循环拼上跨轮累计(full)交给 onDone,
+     * UI 侧落库并在尾部追加〔已中断〕标记 —— 内容可回溯、可复制、可据此续跑。
+     * 只有确实零输出时才维持"不落库"(避免每次误点停止都产生空气泡)。
+     */
+    class CancelWithPartial(val partial: String) : CancellationException("cancelled by user") {
+        companion object {
+            /** 拼接跨轮累计与当前轮现场: partial 已含于 full 尾部时不重复追加 */
+            fun merge(full: String, partial: String): String {
+                val p = partial.trim()
+                return when {
+                    p.isEmpty() -> full.trimEnd()
+                    full.isBlank() -> p
+                    full.trimEnd().endsWith(p) -> full.trimEnd()
+                    else -> full.trimEnd() + "\n\n" + p
+                }
+            }
+        }
     }
 
     // ================= 工具 Schema 注册(原生 function calling) =================
@@ -541,7 +590,8 @@ object LocalEngine {
 
             while (true) {
                 if (cancelRequested) {
-                    cb.onDone("")
+                    // 方案B: 轮间停止也带回已累计正文(旧实现 onDone("") 丢弃)
+                    cb.onDone(full.toString())
                     return
                 }
                 val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded, taskId = taskId)
@@ -558,7 +608,7 @@ object LocalEngine {
                     messages.put(JSONObject().put("role", "user").put("content",
                         "你刚才的回答因网络中断未能完整输出。请严格从断点继续完整输出剩余内容，不要重复已输出的部分。"))
                     // 指数退避: 与零输出重连对齐(1s/2s/4s), 给弱网恢复窗口
-                    try { Thread.sleep((1000L shl (attempt - 1))) } catch (_: InterruptedException) {}
+                    sleepCancellable(1000L shl (attempt - 1))
                     continue
                 }
                 val toolCalls = res.toolCalls
@@ -586,8 +636,13 @@ object LocalEngine {
                     toolCount += execCalls.size
                     val schemaBlocks = StringBuilder()
                     for ((name, arg) in execCalls) {
+                        // 2026-10-31: 停止在工具循环内同样生效——已取消则剪枝剩余调用, 不再执行
+                        // 方案B: 携带本轮已产出正文(工具轮通常为空, 但引导语要保留)
+                        if (cancelRequested) throw CancelWithPartial(res.accumulated)
                         cb.onTool(name, arg)
                         val result = ToolExecutor.execute(context, name, arg, hotLoaded, silentMode, allowTools)
+                        // 工具执行返回后立刻判定: 长耗时工具(sh_run/ssh_run)期间按了停止, 不再回填+继续下一个
+                        if (cancelRequested) throw CancelWithPartial(res.accumulated)
                         cb.onToolResult(name, result)
                         execResults.add(name to result)
                         toolSeqUsed.add(name)
@@ -731,13 +786,20 @@ object LocalEngine {
             android.util.Log.w("Nyral", "chat network interrupted, auto-retry #$attempt: ${e.message}")
             cb.onDelta("\n\n[网络波动，已自动重连一次]")
             // 指数退避: 1s/2s/4s, 给弱网恢复窗口
-            try { Thread.sleep((1000L shl (attempt - 1))) } catch (_: InterruptedException) {}
+            sleepCancellable(1000L shl (attempt - 1))
             continue
+        } catch (e: CancelWithPartial) {
+            // 方案B(2026-10-31): 停止保留现场 —— 跨轮累计 + 本轮已流式产出的正文一并交回 UI,
+            // 由 StreamUiBridge 落库并追加〔已中断〕标记(空内容时仍按"不落库"处理)
+            val body = CancelWithPartial.merge(full.toString(), e.partial)
+            android.util.Log.i("Nyral", "chat cancelled by user, keep partial len=${body.length}")
+            cb.onDone(body)
+            return
         } catch (e: Exception) {
             if (cancelRequested) {
-                // 用户主动停止: 不视为错误
-                android.util.Log.i("Nyral", "chat cancelled by user")
-                cb.onDone("")
+                // 用户主动停止: 不视为错误; 方案B 带上已累计正文, 不再空 onDone 丢弃现场
+                android.util.Log.i("Nyral", "chat cancelled by user, keep len=${full.length}")
+                cb.onDone(full.toString())
                 return
             }
             android.util.Log.e("Nyral", "chat error", e)
@@ -823,6 +885,7 @@ object LocalEngine {
         conn.connectTimeout = 20000
         conn.readTimeout = 60000
         activeConn = conn
+        activeConns.add(conn)
         val accumulated = StringBuilder()
         val toolCalls = mutableListOf<Pair<String, String>>()
         // 与 toolCalls 按序一一对应的 tool_call_id(并行同名工具必须各自独立 id, 按 name 建映射会覆盖
@@ -879,7 +942,7 @@ object LocalEngine {
 
         try {
         while (true) {
-            if (cancelRequested) throw CancellationException("cancelled by user")
+            if (cancelRequested) throw CancelWithPartial(accumulated.toString())
             val rd = reader ?: break
             val line = rd.readLine()
             if (line == null) { eofAborted = true; break }
@@ -1136,6 +1199,7 @@ object LocalEngine {
             try { reader?.close() } catch (_: Throwable) {}
             try { conn.disconnect() } catch (_: Throwable) {}
             activeConn = null
+            activeConns.clear()
         }
         return StreamResult(accumulated.toString(), toolCalls, restartOut.firstOrNull(), toolCallIds, dsmlRaw,
             interrupted = interruptedOut)

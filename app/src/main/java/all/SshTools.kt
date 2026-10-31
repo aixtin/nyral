@@ -164,10 +164,17 @@ object SshTools {
         val tag = "SshTools"
         Log.i(tag, "execOnce: conn=" + cfg.name + " target=" + cfg.user + "@" + cfg.host + ":" + cfg.port +
                 " proxy=" + (if (cfg.hasProxy) cfg.proxyHost + ":" + cfg.proxyPort else "none") + " cmdLen=" + command.length)
+        // 2026-10-31 停止链路: 给远端命令打唯一标记(注释式 no-op, 不影响命令语义),
+        // 客户端断链后按标记在目标机整组清理, 防 nohup/& 起的远端进程继续跑
+        val mid = "NYRAL_TASK_" + System.currentTimeMillis().toString(36) + "_" + (System.nanoTime() % 997L).toString(36)
+        // 打标: 导出 NYRAL_TASK_ID 环境变量(供 nohup/setsid 起的子进程继承, 后续按 /proc/*/environ 兜底清理)
+        //      + 写 pid 文件(供停止时按进程组整组 KILL)
+        val marked = "sh -c 'export NYRAL_TASK_ID=" + mid + "; echo $$ > /tmp/.nyral_" + mid + ".pid; " +
+                command.replace("'", "'\\''") + "'"
         try {
             val session = connect(context, cfg)
             val channel = session.openChannel("exec") as ChannelExec
-            channel.setCommand(command)
+            channel.setCommand(marked)
             channel.setInputStream(null)
             // 不调用 setErrStream(System.err): 它会关闭内部 pipe 导致 stderr 永远读不到
             val out = channel.inputStream
@@ -184,6 +191,14 @@ object SshTools {
             var lastDataTime = System.currentTimeMillis()
             var timedOut = false
             while (true) {
+                // 2026-10-31: 停止按下立刻收口(旧实现只能等 idle 8s 或总超时 5min, 停不下来)
+                if (LocalEngine.cancelRequested) {
+                    Log.i(tag, "execOnce cancelled by user, mark=" + mid)
+                    try { channel.disconnect() } catch (_: Exception) {}
+                    try { session.disconnect() } catch (_: Exception) {}
+                    remoteKill(context, cfg, mid)
+                    return "[已停止] 用户中断执行(远端已按标记清理)"
+                }
                 if (out.available() > 0) {
                     val n = out.read(buf, 0, buf.size)
                     if (n < 0) break
@@ -243,6 +258,77 @@ object SshTools {
     }
 
     /** 长输出截断: 超过上限只保留头尾, 中间用省略行标注, 防单次结果刷爆上下文 */
+
+    /** 远端兜底清理(2026-10-31): 原通道已断, 新开独立连接按标记 pkill + 进程组 KILL */
+    private fun remoteKill(context: Context, cfg: SshConfigStore.SshConfig, mid: String) {
+        val t = Thread {
+            var s: com.jcraft.jsch.Session? = null
+            var ch: ChannelExec? = null
+            try {
+                s = connect(context, cfg)
+                ch = s.openChannel("exec") as ChannelExec
+                // 清理策略(2026-10-31 跨机实测后重写, 见下):
+                //   旧实现先 kill -9 -pgid 整组杀, 实测暴露致命缺陷 —— pid 文件里的进程若属某 sshd 会话进程组
+                //   (pgid != pid 的常态), 组杀会把该会话连同"清理命令自身"一起带走, 后面的 environ / pgrep 层根本
+                //   没机会执行, setsid 逃逸的孙进程(pid==pgid==sid)100% 存活(188 跨机实测残留 sleep 600 实证)。
+                //   新策略: 全程只按单 PID 精确终止, 绝不整组杀(零误伤), 顺序按覆盖面从大到小:
+                //     ① environ 两遍扫描 —— 覆盖 nohup/setsid/双 fork 逃逸(只要继承环境变量就能抓到, 这是唯一能抓
+                //        setsid 孙进程的层); 且清理命令自身命令行不含标记值, 不会自伤, 更不会波及 sshd 会话。
+                //     ② pid 文件 + 其直接子进程 —— environ 不可读(跨 uid / root 任务由非 root 清理)时的兜底。
+                //     ③ pgrep 按标记单杀 —— 命令行含标记但环境变量被清空的场景(如 exec env -i)。
+                val pf = "/tmp/.nyral_" + mid + ".pid"
+                val pat = "[" + mid.substring(0, 1) + "]" + mid.substring(1)   // 方括号避免匹配清理命令自身
+                val envTag = "NYRAL_TASK_ID=" + mid
+                ch.setCommand(
+                    "K=" + pf + "; P=\$(cat \$K 2>/dev/null); " +
+                    // ① 环境变量标记: 两遍(第一遍杀父后, 第二轮收拢刚被 init 收养的孙子)
+                    "for i in 1 2; do " +
+                        "for e in /proc/[0-9]*/environ; do " +
+                            "if grep -qa '" + envTag + "' \$e 2>/dev/null; then " +
+                                "p=\${e#/proc/}; p=\${p%/environ}; kill -9 \$p 2>/dev/null; " +
+                            "fi; " +
+                        "done; " +
+                    "done; " +
+                    // ② pid 文件单杀 + 直接子进程
+                    "if [ -n \"\$P\" ]; then " +
+                        "for c in \$(pgrep -P \$P 2>/dev/null); do kill -9 \$c 2>/dev/null; done; " +
+                        "kill -9 \$P 2>/dev/null; rm -f \$K; " +
+                    "fi; " +
+                    // ③ 按标记 pgrep 单杀(排除自身与父 shell)
+                    "for p in \$(pgrep -f '" + pat + "' 2>/dev/null); do " +
+                        "if [ \"\$p\" = \"\$\$\" ] || [ \"\$p\" = \"\$PPID\" ]; then continue; fi; " +
+                        "kill -9 \$p 2>/dev/null; " +
+                    "done; " +
+                    "echo REMOTE_KILL_DONE")
+                ch.setInputStream(null)
+                val ins = ch.inputStream
+                ch.connect(8000)
+                val buf = ByteArray(512)
+                val sb = StringBuilder()
+                val deadline = System.currentTimeMillis() + 8000
+                while (System.currentTimeMillis() < deadline) {
+                    if (ins.available() > 0) {
+                        val n = ins.read(buf, 0, buf.size)
+                        if (n < 0) break
+                        sb.append(String(buf, 0, n))
+                    } else if (ch.isClosed) {
+                        break
+                    } else {
+                        Thread.sleep(50)
+                    }
+                }
+                Log.i("SshTools", "remoteKill done: " + sb.toString().trim())
+            } catch (e: Exception) {
+                Log.w("SshTools", "remoteKill failed: " + e.message)
+            } finally {
+                try { ch?.disconnect() } catch (_: Exception) {}
+                try { s?.disconnect() } catch (_: Exception) {}
+            }
+        }
+        t.isDaemon = true
+        t.start()
+    }
+
     private fun truncate(body: String): String {
         val maxChars = 20000
         if (body.length <= maxChars) return body

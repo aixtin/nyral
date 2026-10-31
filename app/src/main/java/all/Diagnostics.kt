@@ -571,6 +571,10 @@ object Diagnostics {
     /** 只读通道入口(2026-10-30): 供设备面板数据层复用同一套 Shizuku/su 隔离通道读受限路径 */
     internal fun execRead(cmd: String, timeoutMs: Long = 4000L): String? = Sh.exec(cmd, timeoutMs)
 
+    /** 强制走 su(root uid) 的只读入口: OEM 对 shell uid 屏蔽了 thermal_zone, 只有 root 读得到真实节点 */
+    internal fun execRoot(cmd: String, timeoutMs: Long = 4000L): String? =
+        Sh.exec(cmd, timeoutMs, forceRoot = true)
+
     /**
      * 只读命令执行器。仅接受本文件内写死的常量命令, 不接受任何外部输入。
      * 通道优先级: Shizuku(adb 级) > su > 不可用。
@@ -706,11 +710,11 @@ object Diagnostics {
             }
         }
 
-        fun exec(cmd: String, timeoutMs: Long = 5000L): String? {
+        fun exec(cmd: String, timeoutMs: Long = 5000L, forceRoot: Boolean = false): String? {
             val p: Process = try {
                 when {
                     // stderr 合并进 stdout: 失败时也能拿到真实报错
-                    hasShizuku() -> newProcess(arrayOf("sh", "-c", cmd + " 2>&1")) ?: return null
+                    !forceRoot && hasShizuku() -> newProcess(arrayOf("sh", "-c", cmd + " 2>&1")) ?: return null
                     hasRoot() -> ProcessBuilder(suPath ?: "su", "-c", cmd).redirectErrorStream(true).start()
                     else -> {
                         lastError = "无可用特权通道(Shizuku 未授权且无 su)"
