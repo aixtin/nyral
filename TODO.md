@@ -1,5 +1,6 @@
 # Nyral 待办
 
+- [x] v2.8.27 发版（2026-10-31，versionCode 109）：安全加固批次（调试端口注入修复/未授权请求防护/令牌加强/进程回收身份核验/远端重试收紧/确认与等待体验修复），真机回归通过；GitHub/Gitee 双端 Release 附正式签名 APK
 - [x] v2.8.16 发版（2026-10-29，versionCode 99）：ANR 看门狗只记录真卡死（剔除整机冻结造成的假 ANR）+ 弹窗背景模糊；GitHub Release 附正式签名 APK
 - [x] v2.8.7 发版（2026-10-26，versionCode 70）：修复 Agent 模式用户视频/图片气泡左右越界与圆角被裁直角（v2.8.0 回归：用户气泡最大宽误用全屏宽）、思考/工具胶囊塌缩成半个图标、流式淡出被取消导致气泡空白；补齐 98 个英文资源；双端 Release 发布
 - [x] v2.8.4 发版（2026-10-24，versionCode 67）：近期日志毫秒时间戳（HH:mm:ss.SSS，兼容旧格式）+ ANR 存活探测抓现场（captured_while_blocked 标记）；双端 Release 发布
@@ -27,6 +28,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-10-31: v2.8.27 发布（versionCode 109）：安全加固批次，四项高危（调试端口注入/未授权大请求/进程误杀/远端双执行）全部修复并真机验证
 - 2026-10-29: v2.8.16 发布（versionCode 99）：ANR 看门狗只记录真卡死（剔除整机冻结假 ANR，息屏/SIGSTOP 压测 0 假报）+ 弹窗背景模糊，GitHub Release 附正式签名 APK
 - 2026-10-27: v2.8.14 发布（versionCode 97）：弱机长文收尾防 ANR（文本块段落级切碎 + 成品文本 SpannedString/StaticLayout 化 + finishContent 分帧显现），根治「一调用工具就无响应」类卡顿，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-10-26: v2.8.13 发布（versionCode 96）：全 UI 主题化收口（自绘 SwitchView 主题开关 + Markdown 语义色随主题 + 状态色收敛 Ui.OK/DANGER）+ 视频抽帧 SurfaceTexture+PixelCopy 修复 MTK 原生崩溃 + 附件链路优化（识图/音频内联直发、Office 文档可读、表情动图不再误判视频），GitHub/Gitee 双端 Release 附正式签名 APK

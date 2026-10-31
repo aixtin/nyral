@@ -30,7 +30,7 @@ AIGC:
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
-![release](https://img.shields.io/badge/release-v2.8.16-brightgreen)
+![release](https://img.shields.io/badge/release-v2.8.27-brightgreen)
 
 [**Download APK**](../../releases/latest) ｜ [Quick start](#quick-start) ｜ [What it does](#what-it-does) ｜ [Project status](#project-status)
 
@@ -214,7 +214,8 @@ android-agent-app/
 
 
 ## Changelog
-- **[Latest] v2.8.16 (2026-10-29, versionCode 99)**: Blurred dialog backdrops + quieter ANR watchdog — every custom dialog now gaussian-blurs the chat behind it so focus lands on the dialog itself; the watchdog now records only genuine main-thread stalls, filtering out false ANRs caused by whole-device freezes (system-level sleep / debugger suspend): the heartbeat probe keeps running during a freeze and a recovered device no longer produces a late report — 0 false positives in both the 40s screen-off and 10s SIGSTOP stress tests.
+- **[Latest] v2.8.27 (2026-10-31, versionCode 109)**: Security hardening — fixed command injection in debug-endpoint text input (payload now travels encoded); authentication now happens before the request body is read, with a 32MB body cap blocking unauthorized oversized requests; stronger debug tokens; the residual-process sweep verifies the task marker before killing, so unrelated processes are never hit; remote commands are no longer auto-retried once execution may have started; strict-mode confirmations no longer prompt twice; ask-user waits now time out and honor cancellation; chunked file writes abort on the first failed chunk with honest errors. Verified on a real device (injection payload rendered literally, process-group cleanup confirmed).
+- **[Latest] v2.8.27 (2026-10-31, versionCode 109)**: Blurred dialog backdrops + quieter ANR watchdog — every custom dialog now gaussian-blurs the chat behind it so focus lands on the dialog itself; the watchdog now records only genuine main-thread stalls, filtering out false ANRs caused by whole-device freezes (system-level sleep / debugger suspend): the heartbeat probe keeps running during a freeze and a recovered device no longer produces a late report — 0 false positives in both the 40s screen-off and 10s SIGSTOP stress tests.
 
 - **v2.8.14 (2026-10-27, versionCode 97)**: Fix for long-answer finish ANR on low-end devices — crash logs pinpointed the "freezes right after a tool call" complaint: the entire reply body was parsed and laid out in a single frame at stream finish, and re-breaking thousands of dense CJK glyphs in one pass blew past the ANR threshold on weaker hardware (4~74s main-thread blocks measured on a nubia NX741J; users force-closed the app, perceiving it as a crash). Three fixes: oversized text blocks are now split into multiple TextViews at paragraph boundaries (per-view layout cost is capped; unbroken no-newline text such as PDF extracts falls back to hard splits), finished text switches from Editable/DynamicLayout to immutable SpannedString/StaticLayout, and the finish reveal is staggered (at most 2 blocks per frame, 40ms apart), visually a fast section-by-section fade-in.
 
@@ -308,6 +309,6 @@ MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the ship
 
 > **Completed (2026-10-16)** — the project concluded on October 16, 2026; later changes are just post-completion improvisation: no roadmap, no release schedule. The 54-day build retrospective: [END.md](./END.md).
 
-- Latest: v2.8.16 (2026-10-29, versionCode 99)
+- Latest: v2.8.27 (2026-10-31, versionCode 109)
 - Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
 - Maintained as a personal project, not commercially; issues are welcome, schedules are not promised.

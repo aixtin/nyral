@@ -331,7 +331,7 @@
     <string name="perm_13">Install Unknown Apps</string>
     <string name="perm_14">In-app self-update installs</string>
     <string name="perm_15">All permissions granted</string>
-    <string name="perm_16">Granted $granted / $total</string>
+    <string name="perm_16">Granted %1$d / %2$d</string>
     <string name="perm_17">Not needed</string>
     <string name="perm_18">Granted</string>
     <string name="perm_19">Missing</string>
@@ -432,6 +432,13 @@
     <string name="mmcfg_25">OK</string>
     <string name="mmcfg_26">Cancel</string>
     <string name="mcp_31">Test failed: %1$s</string>
+    <string name="mcp_32">Preset services · tap an entry to auto-fill the endpoint</string>
+    <string name="mcp_33">Reverse invocation (experimental): after enabling it in Settings → Debug service, a desktop client can use this phone itself as an MCP server.</string>
+    <string name="mcp_34">Endpoint http://&lt;phone-ip&gt;:8765/mcp · Token is the one shown on the debug service page, passed via Authorization: Bearer or X-Auth-Token. Read-only tools only: device status, local memory search, current screen capture.</string>
+    <string name="mcp_35">Delete this service</string>
+    <string name="mcp_37">Delete "%1$s"? All tools from this service will be removed from chats.</string>
+    <string name="mcp_38">Delete</string>
+    <string name="mcp_39">Deleted</string>
     <string name="about_21">%1$d more taps to enable debug service entry</string>
     <string name="about_22">Disclaimer</string>
     <string name="about_23">Tap to read</string>
