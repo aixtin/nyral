@@ -30,7 +30,7 @@ AIGC:
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
-![release](https://img.shields.io/badge/release-v2.8.27-brightgreen)
+![release](https://img.shields.io/badge/release-v2.8.29-brightgreen)
 
 [**Download APK**](../../releases/latest) ｜ [Quick start](#quick-start) ｜ [What it does](#what-it-does) ｜ [Project status](#project-status)
 
@@ -214,6 +214,8 @@ android-agent-app/
 
 
 ## Changelog
+- **[Latest] v2.8.29 (2026-11-01, versionCode 111)**: User-facing batch — new profile page (avatar placeholder, user config, title-bar transparency following scroll); chat background settings (three sliders unified, transparency semantics corrected, custom dialog merged); default theme switched to a light-gray DefaultTheme (#F7F7F8) with onboarding semantic colors; drawer layout rework (gate row, three-entry rows, font sizes, divider lines); thinking interaction adapts to content length; avatar global-refresh root cause fix; bubble transparency off-screen cache refresh fix; streaming block-level chunk safety (boundary snap points).
+- **[Latest] v2.8.29 (2026-11-01, versionCode 111)**: SSH & safety — direct SSH connections with a new ssh_config_add tool (proxy-jump / ED25519); remote task stop upgraded to three-layer termination (cancel → process-group kill → orphan sweep), with keep-on-stop persisting the execution scene to disk; leak interception hardening (XML leak parsing blocked, normal calls unaffected).
 - **[Latest] v2.8.27 (2026-10-31, versionCode 109)**: Security hardening — fixed command injection in debug-endpoint text input (payload now travels encoded); authentication now happens before the request body is read, with a 32MB body cap blocking unauthorized oversized requests; stronger debug tokens; the residual-process sweep verifies the task marker before killing, so unrelated processes are never hit; remote commands are no longer auto-retried once execution may have started; strict-mode confirmations no longer prompt twice; ask-user waits now time out and honor cancellation; chunked file writes abort on the first failed chunk with honest errors. Verified on a real device (injection payload rendered literally, process-group cleanup confirmed).
 - **[Latest] v2.8.27 (2026-10-31, versionCode 109)**: Blurred dialog backdrops + quieter ANR watchdog — every custom dialog now gaussian-blurs the chat behind it so focus lands on the dialog itself; the watchdog now records only genuine main-thread stalls, filtering out false ANRs caused by whole-device freezes (system-level sleep / debugger suspend): the heartbeat probe keeps running during a freeze and a recovered device no longer produces a late report — 0 false positives in both the 40s screen-off and 10s SIGSTOP stress tests.
 
@@ -309,6 +311,6 @@ MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the ship
 
 > **Completed (2026-10-16)** — the project concluded on October 16, 2026; later changes are just post-completion improvisation: no roadmap, no release schedule. The 54-day build retrospective: [END.md](./END.md).
 
-- Latest: v2.8.27 (2026-10-31, versionCode 109)
+- Latest: v2.8.29 (2026-11-01, versionCode 111)
 - Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
 - Maintained as a personal project, not commercially; issues are welcome, schedules are not promised.

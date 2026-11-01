@@ -1,5 +1,6 @@
 package io.github.aixtin.nyral
 
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -74,6 +75,7 @@ internal class ChatAdapter(
     private val viewPool = HashMap<Int, View>()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        Log.d("AVFIX", "CTA onCreateViewHolder viewType=" + viewType)
         return VH(LinearLayout(parent.context).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false   // 行内气泡阴影不被裁剪
@@ -86,6 +88,7 @@ internal class ChatAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val row = getItem(position)
         holder.root.removeAllViews()
+        Log.d("AVFIX", "CTA onBind pos=" + position + " type=" + row.javaClass.simpleName)
         if (row is ChatRow.Streaming) {
             row.bubbleBox?.let { box ->
                 (box.parent as? ViewGroup)?.removeView(box)
@@ -97,11 +100,13 @@ internal class ChatAdapter(
         if (pt >= 0) {
             val cached = viewPool[pt]
             if (cached != null && cached.parent == null) {
+                Log.d("AVFIX", "CTA POOL-HIT pos=" + position + " pt=" + pt)
                 holder.root.addView(cached)
                 bindView(cached, row)
                 return
             }
         }
+        Log.d("AVFIX", "CTA BUILD-NEW pos=" + position + " pt=" + pt)
         val nv = buildRow(row)
         holder.root.addView(nv)
         if (pt >= 0) viewPool[pt] = nv

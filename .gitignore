@@ -62,3 +62,7 @@ yral_check_*.png
 temp/
 scripts_archive/
 _patch/
+
+# 备份快照/临时补丁脚本(不入库)
+bak_*
+apply_*.py

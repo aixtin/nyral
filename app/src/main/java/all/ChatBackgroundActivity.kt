@@ -117,12 +117,16 @@ class ChatBackgroundActivity : Activity() {
             setPadding(dp(16), dp(12), dp(16), dp(16))
         }
 
-        // 分组1: 内置预设
+        // 分组1: 内置预设 + 自定义入口
         content.addView(Ui.groupLabel(this, getString(R.string.cb_group_preset)))
-        val grid = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val presetWrap = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             setPadding(dp(12), dp(14), dp(12), dp(14))
             background = Ui.rounded(Ui.SURFACE, 16, this@ChatBackgroundActivity)
+        }
+        val grid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         presetCells = Array(6) { TextView(this) }
         for (row in 0 until 2) {
@@ -142,35 +146,33 @@ class ChatBackgroundActivity : Activity() {
             }
             grid.addView(rowLay)
         }
-        content.addView(grid)
-
-        // 分组2: 自定义图片
-        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_custom)))
-        val cardImg = Ui.card(this)
-        cardImg.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(14), dp(12), dp(14))
+        presetWrap.addView(grid)
+        // 右侧自定义入口: 点击弹窗(从相册选择/恢复默认)
+        presetWrap.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
             isClickable = true
-            setOnClickListener {
-                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                    type = "image/*"
-                }
-                startActivityForResult(intent, REQ_PICK)
-            }
+            setOnClickListener { showCustomDialog() }
             Ui.press(this)
-            addView(Ui.iconBadge(this@ChatBackgroundActivity, getString(R.string.cba_img_badge), 4))
-            addView(LinearLayout(this@ChatBackgroundActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(dp(12), 0, dp(8), 0)
-                }
-                addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.persona_pick_album)))
-                addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_sub_auto_blur)))
+            background = Ui.roundedBorder(0x26000000, 12, 1, this@ChatBackgroundActivity)
+            layoutParams = LinearLayout.LayoutParams(dp(60), ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                marginStart = dp(10)
+            }
+            addView(TextView(this@ChatBackgroundActivity).apply {
+                text = "＋"
+                textSize = 20f
+                setTextColor(Ui.PRIMARY)
+                gravity = Gravity.CENTER
             })
-            addView(Ui.arrow(this@ChatBackgroundActivity))
+            addView(TextView(this@ChatBackgroundActivity).apply {
+                text = getString(R.string.cb_custom_entry)
+                textSize = 11f
+                setTextColor(Ui.TEXT)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, 0)
+            })
         })
-        content.addView(cardImg)
+        content.addView(presetWrap)
 
         // 分组3: 模糊强度
         content.addView(Ui.groupLabel(this, getString(R.string.cb_group_blur)))
@@ -273,7 +275,7 @@ class ChatBackgroundActivity : Activity() {
                 modeRow.addView(barCells[idx])
             }
             addView(modeRow)
-            // 不透明度滑条 0-100
+            // 透明度滑条 0-100: 左0不透明 右100全透明
             addView(LinearLayout(this@ChatBackgroundActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -291,7 +293,7 @@ class ChatBackgroundActivity : Activity() {
             val alphaSeek = SeekBar(this@ChatBackgroundActivity).apply {
                 max = 100
                 styleSeek(this)
-                progress = currentBarAlpha
+                progress = 100 - currentBarAlpha
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(2)
@@ -302,7 +304,7 @@ class ChatBackgroundActivity : Activity() {
                     }
                     override fun onStartTrackingTouch(seekBar: SeekBar?) {}
                     override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                        currentBarAlpha = (seekBar?.progress ?: 100).coerceIn(0, 100)
+                        currentBarAlpha = 100 - (seekBar?.progress ?: 0).coerceIn(0, 100)
                         saveState()
                     }
                 })
@@ -316,71 +318,45 @@ class ChatBackgroundActivity : Activity() {
         content.addView(Ui.groupLabel(this, getString(R.string.cb_group_msg_alpha)))
         val cardMsgAlpha = Ui.card(this)
         cardMsgAlpha.addView(LinearLayout(this@ChatBackgroundActivity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.cb_msg_alpha_title)))
-            msgAlphaText = TextView(this@ChatBackgroundActivity).apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = dp(8)
-                }
-                gravity = Gravity.END
-                textSize = 14f
-                setTextColor(Ui.PRIMARY)
-            }
-            addView(msgAlphaText)
-        })
-        val msgAlphaSeek = SeekBar(this@ChatBackgroundActivity).apply {
-            max = 100
-            styleSeek(this)
-            progress = currentMsgAlpha
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(2)
-            }
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    refreshMsgAlphaText(progress)
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    currentMsgAlpha = (seekBar?.progress ?: 45).coerceIn(0, 100)
-                    saveState()
-                }
-            })
-        }
-        cardMsgAlpha.addView(msgAlphaSeek)
-        cardMsgAlpha.addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_msg_alpha_hint)))
-        content.addView(cardMsgAlpha)
-
-        // 分组4: 恢复默认
-        content.addView(Ui.groupLabel(this, getString(R.string.cb_group_reset)))
-        val cardReset = Ui.card(this)
-        cardReset.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(14), dp(12), dp(14))
-            isClickable = true
-            setOnClickListener {
-                currentType = "none"
-                saveState()
-                File(filesDir, CUSTOM_FILE).delete()
-                File(filesDir, ORIG_FILE).delete()
-                Toast.makeText(this@ChatBackgroundActivity, getString(R.string.cb_toast_restored), Toast.LENGTH_SHORT).show()
-                refreshAll()
-            }
-            Ui.press(this)
-            addView(Ui.iconBadge(this@ChatBackgroundActivity, getString(R.string.cba_def_badge), 5))
             addView(LinearLayout(this@ChatBackgroundActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(dp(12), 0, dp(8), 0)
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.cb_msg_alpha_title)))
+                msgAlphaText = TextView(this@ChatBackgroundActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(8)
+                    }
+                    gravity = Gravity.END
+                    textSize = 14f
+                    setTextColor(Ui.PRIMARY)
                 }
-                addView(Ui.itemTitle(this@ChatBackgroundActivity, getString(R.string.cb_reset_title)))
-                addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_reset_sub)))
+                addView(msgAlphaText)
             })
-            addView(Ui.arrow(this@ChatBackgroundActivity))
+            val msgAlphaSeek = SeekBar(this@ChatBackgroundActivity).apply {
+                max = 100
+                styleSeek(this)
+                progress = currentMsgAlpha
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(2)
+                }
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        refreshMsgAlphaText(progress)
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                        currentMsgAlpha = (seekBar?.progress ?: 45).coerceIn(0, 100)
+                        saveState()
+                    }
+                })
+            }
+            addView(msgAlphaSeek)
+            addView(Ui.itemSub(this@ChatBackgroundActivity, getString(R.string.cb_msg_alpha_hint)))
         })
-        content.addView(cardReset)
+        content.addView(cardMsgAlpha)
 
         root.addView(ScrollView(this).apply {
             addView(content)
@@ -397,6 +373,43 @@ class ChatBackgroundActivity : Activity() {
         if (requestCode == REQ_PICK && resultCode == RESULT_OK && data?.data != null) {
             applyCustomImage(data.data!!)
         }
+    }
+
+    /** 自定义入口弹窗: 从相册选择图片 / 恢复默认背景 */
+    private fun showCustomDialog() {
+        val (dlg, box) = Ui.dialog(this, getString(R.string.cb_custom_dialog_title), jellyOvershoot = 1.4f, animate = false)
+        val vstack = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        val pickBtn = Ui.dialogCancelBtn(this, getString(R.string.persona_pick_album), {
+            dlg.dismiss()
+            val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }
+            try {
+                startActivityForResult(i, REQ_PICK)
+            } catch (e: Exception) {
+                Toast.makeText(this@ChatBackgroundActivity, getString(R.string.cb_err_fail, e.message), Toast.LENGTH_SHORT).show()
+            }
+        })
+        pickBtn.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        vstack.addView(pickBtn)
+        val restoreBtn = Ui.dangerBtn(this@ChatBackgroundActivity, getString(R.string.cb_reset_title), {
+            dlg.dismiss()
+            currentType = "none"
+            saveState()
+            File(filesDir, CUSTOM_FILE).delete()
+            File(filesDir, ORIG_FILE).delete()
+            Toast.makeText(this@ChatBackgroundActivity, getString(R.string.cb_toast_restored), Toast.LENGTH_SHORT).show()
+            refreshAll()
+        })
+        restoreBtn.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        }
+        vstack.addView(restoreBtn)
+        box.addView(vstack)
+        dlg.show()
     }
 
     private fun presetCell(idx: Int): TextView {
@@ -459,12 +472,13 @@ class ChatBackgroundActivity : Activity() {
                 barCells[i].background = gd
             }
         }
-        refreshBarAlphaText(currentBarAlpha)
+        refreshBarAlphaText(100 - currentBarAlpha)
         refreshMsgAlphaText(currentMsgAlpha)
     }
 
     private fun refreshBarAlphaText(p: Int) {
         if (!::barAlphaText.isInitialized) return
+        // p 为透明度: 0=完全不透明, 100=全透明
         barAlphaText.text = "$p%"
     }
 

@@ -246,6 +246,11 @@
             android:label="AI 个性化"
             android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
+            android:name=".UserProfileActivity"
+            android:exported="false"
+            android:label="我的资料"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
+        <activity
             android:name=".AppearanceActivity"
             android:exported="false"
             android:label="外观设置"

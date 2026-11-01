@@ -58,6 +58,9 @@ internal const val LIVE_TICK_MS = 200L
 internal const val STATUS_CAROUSEL_MS = 1000L
 /** 片段最大字符数: 超长截断加省略号 */
 internal const val STATUS_SNIPPET_LEN = 20
+/** 思考交互自适应(2026-10-31): 点击思考入口, 内容 <= 阈值就地展开, 超出弹底部抽屉;
+ *  聊天状态行 / Agent 胶囊 / 历史摘要行三路径共用同一规则 */
+internal const val THINK_INLINE_MAX = 200
 
 internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickable {
     private var bubbleBox: LinearLayout? = null
@@ -166,6 +169,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         var titleView: TextView? = null   // 行动轨道: 标题行(尾部摘要, 实时刷新)
         var capsule: LinearLayout? = null   // 单轨折叠流(2026-10-25): 折叠胶囊行(Agent 模式)
         var capTitle: TextView? = null      // 单轨折叠流: 胶囊摘要文本(尾部摘要实时刷新)
+        var inlineWrap: LinearLayout? = null   // 自适应就地展开(2026-10-31): 胶囊下方展开容器(短思考)
+        var inlineView: TextView? = null       // 自适应就地展开: 全文块(流式实时刷新)
         val count: Int get() = text.codePointCount(0, text.length)
     }
 
@@ -452,12 +457,65 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return cap to tv
     }
 
-    /** 点击胶囊: 打开底部抽屉, 按该事件在时间线中的 index 定位并高亮 */
-    private fun openTimelineSheet(target: Any) {
+    /** 点击思考入口: 打开底部抽屉, 按该事件在时间线中的 index 定位并高亮(target 为空取最新事件) */
+    private fun openTimelineSheet(target: Any?) {
         val pairs = statusEvents()
-        val focus = pairs.indexOfFirst { it.second === target }
-        if (focus < 0) return
-        TimelineSheet(host).show(pairs.map { it.first }, focus)
+        if (pairs.isEmpty()) return
+        val focus = if (target == null) pairs.size - 1
+        else pairs.indexOfFirst { it.second === target }.takeIf { it >= 0 } ?: (pairs.size - 1)
+        TimelineSheet(host).show(pairs.map { it.first }, focus.coerceAtLeast(0))
+    }
+
+    /** 思考入口点击分流(2026-10-31): ≤THINK_INLINE_MAX 就地展开, 超出弹底部抽屉 */
+    private fun openThinkingAt(target: Any?) {
+        host.markUserTakeover()   // 点击视同用户接管, 防自动滚动追底
+        val len = when (target) {
+            is ThinkingBlock -> target.text.length
+            else -> statusEvents().sumOf { it.first.text.length + it.first.name.length + it.first.arg.length + it.first.result.length }
+        }
+        if (len <= THINK_INLINE_MAX) toggleInline(target as? ThinkingBlock) else openTimelineSheet(target)
+    }
+
+    /** Agent 模式短思考就地展开/收起: 胶囊下方插入全文块(≤阈值), 再点收起 */
+    private fun toggleInline(blk: ThinkingBlock?) {
+        val b = blk ?: return
+        val cap = b.capsule ?: return
+        val box = bubbleBox ?: return
+        val wrap = b.inlineWrap
+        if (wrap != null && wrap.parent === box) {
+            box.removeView(wrap)
+            b.inlineWrap = null
+            b.inlineView = null
+            return
+        }
+        val tv = TextView(host).apply {
+            textSize = 14f
+            setTextColor(THINK_TEXT)
+            maxWidth = host.chatMaxW()
+            setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
+            background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
+            elevation = host.dp(2).toFloat()
+            text = b.text.toString()
+            setTextIsSelectable(true)
+            breakStrategy = android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE
+            hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+            tag = NO_FLOAT_TAG
+        }
+        val w = LinearLayout(host).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        w.addView(tv, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = host.dp(2)
+        })
+        val idx = box.indexOfChild(cap)
+        box.addView(w, idx + 1)
+        b.inlineWrap = w
+        b.inlineView = tv
+        host.onStatusGrown()   // 展开块上屏: 通知主层锚底跟随
     }
 
     /** 思考段开始: 新建思考块(多轮思考按真实顺序进脉络时间线), 状态行切 💭 态启动片段轮播 */
@@ -483,7 +541,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             if (b.capsule == null) {
                 val blk = b   // 捕获前固定引用: var b 在 lambda 内不可智能转换
                 val (cap, tv) = makeAgentCapsule(Ui.lucideBrain(host, THINK_TEXT, 14), "思考中…") {
-                    openTimelineSheet(blk)
+                    openThinkingAt(blk)
                 }
                 b.capsule = cap
                 b.capTitle = tv
@@ -522,10 +580,11 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     fun appendThinking(text: String) {
         activeThinking?.let { it.text.append(text) }
         if (agentFold()) {
-            // 折叠流: 胶囊尾部摘要实时滚动(思考全文在抽屉时间线)
+            // 折叠流: 胶囊尾部摘要实时滚动(思考全文在抽屉/就地展开块)
             activeThinking?.let { b ->
                 val s = snippet(tailThinking(b).replace("\n", " ").trim())
                 b.capTitle?.let { if (it.text.toString() != s) it.text = s }
+                b.inlineView?.let { it.text = b.text.toString() }   // 短思考就地展开态: 全文实时刷新
             }
             return
         }
@@ -854,6 +913,22 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 状态行点击: 原地展开/收起脉络时间线(竖线+圆点+思考/工具块, 非弹窗) */
     private fun toggleStatusExpand() {
         Log.d("SlowDbg", "statusToggle expand=" + statusExpanded + " slowMul=" + TypewriterCenter.slowMul() + " dur=" + statusToggleAnimMs())
+        // 2026-10-31 自适应: 时间线内容超长(>THINK_INLINE_MAX)不走就地展开, 直接弹底部抽屉
+        val evts = statusEvents()
+        val totalLen = evts.sumOf { it.first.text.length + it.first.name.length + it.first.arg.length + it.first.result.length }
+        if (totalLen > THINK_INLINE_MAX) {
+            host.markUserTakeover()
+            // 若已就地展开先收起(无动画直接移除, 不残留布局)
+            timelineView?.let { tv ->
+                if (tv.parent === statusCol) {
+                    (tv.parent as? ViewGroup)?.removeView(tv)
+                    timelineView = null
+                    statusExpanded = false
+                }
+            }
+            openTimelineSheet(null)
+            return
+        }
         val col = statusCol ?: return
         host.markUserTakeover()   // 展开/收起视同用户接管, 防自动滚动追底(09-24)
         statusToggleAnim?.cancel()
@@ -1860,6 +1935,18 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         b.dimBg = bg
         tv.background = bg
         tv.setTextColor(dimColor(b.dimBaseText, b.dimFactor))
+    }
+
+    /** 全局消息气泡透明度变更后的段级同步: 段上缓存的亮/暗背景色按新全局 alpha 重算,
+     *  进行中的渐亮动画立即取消落定(旧 alpha 滞留根因: 动画每帧 setColor 覆盖就地刷新值) */
+    internal fun refreshMsgAlpha() {
+        Log.d("ALPHAFIX", "holder refreshMsgAlpha blocks=" + contentBlocks.size + " dimmed=" + contentBlocks.count { it.dimBaseBg != 0 })
+        for (b in contentBlocks) {
+            if (b.dimBaseBg == 0) continue
+            b.dimBaseBg = floatBubbleColor(BUBBLE_AI)
+            b.dimBg?.setColor(dimColor(b.dimBaseBg, b.dimFactor))
+            b.dimAnim?.cancel()
+        }
     }
 
     /** 输出完成渐亮: 按本段速率参数时长缓出(DecelerateInterpolator 先快后缓, 收尾柔和),

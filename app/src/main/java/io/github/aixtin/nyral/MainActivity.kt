@@ -342,6 +342,8 @@ class MainActivity : Activity() {
     private var drawerAnimator: ValueAnimator? = null
     // 顶栏/底栏对侧圆角背景(常驻内侧两角圆角, 抽屉联动时外侧两角随进度圆角化)
     private lateinit var titleBarBg: GradientDrawable
+    /** 状态带胶囊背景: 跟随标题栏透明(外观设置滑条 alpha) */
+    private lateinit var statusWrapBg: GradientDrawable
     private lateinit var inputBarBg: GradientDrawable
     private lateinit var swipeDetector: GestureDetector
     /** 抽屉跟手拖拽控制器(微信式): root 拦截水平边缘/遮罩手势, 1:1 跟随 + 抬手吸附 */
@@ -538,6 +540,7 @@ class MainActivity : Activity() {
         ModeConfig.init(this)
         AvatarConfig.init(this)
         lastAvatarStamp = AvatarConfig.avatarStamp()
+        Log.d("AVFIX", "init lastAvatarStamp=" + lastAvatarStamp)
         LogStore.init(this)
         MemoryKeeper.init(this)
         db = MemoryDb(this)
@@ -753,7 +756,7 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
                 cornerRadius = dp(11).toFloat()
-            }
+            }.also { statusWrapBg = it }
         }
         statusDot = View(this).apply {
             background = GradientDrawable().apply {
@@ -1899,6 +1902,7 @@ class MainActivity : Activity() {
             refreshSessionList()
         }
         // 从设置页更换头像返回: 头像文件版本变化时重建当前会话气泡, 旧气泡无需重启即刷新
+        Log.d("AVFIX", "onResume pre-refresh stamp=" + AvatarConfig.avatarStamp() + " last=" + lastAvatarStamp)
         refreshChatAvatars()
     }
 
@@ -1935,6 +1939,7 @@ class MainActivity : Activity() {
         applyBarStyle()
         // 全局消息气泡透明度: 按聊天背景页滑条换算 alpha 并刷新已渲染气泡(文字类; 图片/视频/文件跳过)
         msgBubbleAlpha = (100 - ChatBackgroundActivity.loadMsgAlpha(this)) * 255 / 100
+        Log.d("ALPHAFIX", "applyChatBackground msgBubbleAlpha=" + msgBubbleAlpha + " load=" + ChatBackgroundActivity.loadMsgAlpha(this))
         refreshMsgAlphaOnBubbles()
     }
 
@@ -1942,20 +1947,40 @@ class MainActivity : Activity() {
      *  图片(背景 null)/视频/文件(NO_FLOAT_TAG)跳过; 流式行 bubbleBox 常驻同样刷新 */
     private fun refreshMsgAlphaOnBubbles() {
         val alpha = msgBubbleAlpha
+        Log.d("ALPHAFIX", "refreshMsgAlphaOnBubbles alpha=" + alpha + " child=" + chatRec.childCount + " rows=" + chatAdapter.currentList.size)
         fun apply(v: View) {
             if (v.tag == NO_FLOAT_TAG) return
+            if (v.background != null) Log.d("ALPHAFIX", "applybg v=" + v.javaClass.simpleName + " tag=" + v.tag + " bg=" + v.background.javaClass.simpleName + " gd=" + (v.background is android.graphics.drawable.GradientDrawable))
             (v.background as? android.graphics.drawable.GradientDrawable)?.let { d ->
                 val cur = d.color?.defaultColor ?: 0
                 if (cur != 0) {
                     val g = d.mutate() as android.graphics.drawable.GradientDrawable
                     g.setColor((cur and 0x00FFFFFF) or (alpha shl 24))
+                    Log.d("ALPHAFIX", "apply setColor cur=0x" + Integer.toHexString(cur) + " ->alpha=" + alpha)
                 }
             }
             if (v is ViewGroup) for (j in 0 until v.childCount) apply(v.getChildAt(j))
         }
-        for (i in 0 until chatRec.childCount) apply(chatRec.getChildAt(i))
+        for (i in 0 until chatRec.childCount) {
+            val c = chatRec.getChildAt(i)
+            Log.d("ALPHAFIX", "child i=" + i + " pos=" + chatRec.getChildAdapterPosition(c) + " rootTag=" + c.tag + " rootBg=" + (c.background?.javaClass?.simpleName ?: "null"))
+            apply(c)
+        }
         val list = chatAdapter.currentList
-        for (row in list) if (row is ChatRow.Streaming) row.bubbleBox?.let { apply(it) }
+        for (row in list) if (row is ChatRow.Streaming) {
+            row.bubbleBox?.let { apply(it) }
+            // 段级 dimBaseBg/dimAnim 同步: 就地刷新只改 View 背景, 段上缓存旧 alpha 会被渐亮动画打回
+            row.holder.refreshMsgAlpha()
+        }
+        // 池化缓存同步刷新: 分片 TextView/chatWrap 容器不在屏时处于池中,
+        // 不刷则滚回复用时背景仍是旧 alpha(气泡透明度"有的透明有的不透明"根因)
+        for (tv in aiRichSegPool) apply(tv)
+        for (wrap in aiRichWrapPool) apply(wrap)
+        // 离屏 holder 可绕过 onBind 直接复用旧树，清形态池后还须让 RecyclerView 缓存行全部重绑
+        if (::chatAdapter.isInitialized) {
+            chatAdapter.clearPool()
+            chatAdapter.notifyDataSetChanged()
+        }
     }
 
     /** 顶栏/输入框栏透明样式: 按聊天背景页设置重挂背景
@@ -1966,6 +1991,19 @@ class MainActivity : Activity() {
         if (!::titleBarBg.isInitialized || !::inputBarBg.isInitialized || !::inputBar.isInitialized || !::titleBar.isInitialized) return
         val mode = ChatBackgroundActivity.loadBarMode(this)
         val alpha = ChatBackgroundActivity.loadBarAlpha(this) * 255 / 100
+        // 状态带胶囊(模型 · 上下文)与标题下方渐隐层跟随标题栏透明, 避免透明标题下露出白条
+        fun syncFollowers(a: Int) {
+            if (::statusWrapBg.isInitialized) {
+                statusWrapBg.setColor(Ui.SURFACE)
+                statusWrapBg.alpha = a
+            }
+            val fade = fadeTopView.background as? GradientDrawable
+            if (fade != null) {
+                fade.setColors(intArrayOf(
+                    (Ui.BG and 0x00FFFFFF) or (a shl 24),
+                    Ui.BG and 0x00FFFFFF))
+            }
+        }
         val blurBg: BlurBarDrawable? = if (mode == "blur") {
             val type = ChatBackgroundActivity.loadType(this)
             val f = java.io.File(filesDir, ChatBackgroundActivity.CUSTOM_FILE)
@@ -1982,6 +2020,7 @@ class MainActivity : Activity() {
             blurBg.alpha = alpha
             titleBar.background = blurBg
             inputBar.background = blurBg
+            syncFollowers(alpha)
             return
         }
         titleBar.background = titleBarBg
@@ -1995,6 +2034,7 @@ class MainActivity : Activity() {
             titleBarBg.alpha = 255
             inputBarBg.alpha = 255
         }
+        syncFollowers(if (mode == "alpha") alpha else 255)
     }
 
     override fun onStop() {
@@ -2053,27 +2093,43 @@ class MainActivity : Activity() {
         LogStore.i(LogStore.MAIN, "切会话取消进行中请求, 代际=${session.epoch}")
     }
 
+    /** 递归刷新一棵 View 子树内所有头像 TextView(findViewWithTag 只返首个, Streaming/AiRich 行多段各带一个头像会漏刷) */
+    private fun refreshAvatarsIn(root: View) {
+        if (root is TextView) {
+            val tag = root.tag as? String
+            if (tag == AVATAR_AI_TAG) { bindAvatar(root, isAi = true); return }
+            if (tag == AVATAR_USER_TAG) { bindAvatar(root, isAi = false); return }
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) refreshAvatarsIn(root.getChildAt(i))
+        }
+    }
+
     /** 换头像后刷新当前会话旧气泡: 头像版本戳变化时按 messages 重建 chatRows(RecyclerView), 保留滚动位置 */
     private fun refreshChatAvatars() {
         val stamp = AvatarConfig.avatarStamp()
-        if (stamp == lastAvatarStamp) return
+        Log.d("AVFIX", "refresh enter stamp=" + stamp + " last=" + lastAvatarStamp + " busy=" + session.aiBusy + " msgs=" + messages.size)
+        if (stamp == lastAvatarStamp) { Log.d("AVFIX", "refresh skip: same stamp"); return }
         lastAvatarStamp = stamp
         // AI 正在输出时跳过, 避免打断流式渲染(其后的新气泡自然使用新头像)
-        if (session.aiBusy || messages.isEmpty() || !::chatAdapter.isInitialized) return
+        // 清池不设前置守卫: 即使 AI 正在流式输出/列表为空, 也必须先让后续 bind 从空池新建(新配置),
+        // 否则池化复用旧头像导致"换头像后部分行不跟随"间歇性复现
+        if (::chatAdapter.isInitialized) chatAdapter.clearPool()
+        aiAvatarPool.clear()
+        Log.d("AVFIX", "refresh pools cleared")
+        if (session.aiBusy || messages.isEmpty()) { Log.d("AVFIX", "refresh early-return busy=" + session.aiBusy + " msgs=" + messages.size); return }
         // DiffUtil 不感知头像(areContentsTheSame 只比较文本字段), 池化行 bind 也不更新头像,
         // 重建列表无法让旧气泡换图, 只能遍历可见 ViewHolder 直接替换头像内容
-        // 同时清空形态池: 池化行复用旧 View 树不重建, 换头像时未在屏上的行滚回仍显旧图(新旧头像交替)
-        chatAdapter.clearPool()
-        aiAvatarPool.clear()
+        // (此时形态池与 aiAvatarPool 已清, 未在屏的池化行滚回会走 buildRow 重建出新头像)
         chatRec.post {
             val lm = chatRec.layoutManager as? LinearLayoutManager ?: return@post
             val first = lm.findFirstVisibleItemPosition()
             val last = lm.findLastVisibleItemPosition()
+            Log.d("AVFIX", "refresh notify first=" + first + " last=" + last)
             if (first < 0 || last < first) return@post
             for (i in first..last) {
                 val root = chatRec.findViewHolderForAdapterPosition(i)?.itemView ?: continue
-                root.findViewWithTag<TextView>(AVATAR_AI_TAG)?.let { bindAvatar(it, isAi = true) }
-                root.findViewWithTag<TextView>(AVATAR_USER_TAG)?.let { bindAvatar(it, isAi = false) }
+                refreshAvatarsIn(root)
             }
         }
     }
@@ -3681,6 +3737,7 @@ class MainActivity : Activity() {
     /** AI 头像: 圆形深灰蓝底 + 固定 N(Nyral), 放气泡上方(与 MD 排版解耦) */
     private fun aiAvatar(): TextView = TextView(this@MainActivity).apply {
         tag = AVATAR_AI_TAG
+        Log.d("AVFIX", "aiAvatar NEW stamp=" + AvatarConfig.avatarStamp())
         bindAvatar(this, isAi = true)
         layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply {
             bottomMargin = dp(Ui.SP1)
@@ -3691,11 +3748,16 @@ class MainActivity : Activity() {
         }
     }
 
-    /** 用户头像: 圆形蓝底"我", 聊天模式用户消息右侧并排 */
+    /** 用户头像: 圆形蓝底"A"(对外昵称 atin 首字母), 聊天模式用户消息右侧并排; 点击进入我的资料(与AI头像平级) */
     private fun userAvatar(): TextView = TextView(this@MainActivity).apply {
         tag = AVATAR_USER_TAG
+        Log.d("AVFIX", "userAvatar NEW stamp=" + AvatarConfig.avatarStamp())
         bindAvatar(this, isAi = false)
         layoutParams = LinearLayout.LayoutParams(dp(30), dp(30))
+        // 点击用户头像进入我的资料（UserProfileActivity），与点 AI 头像进 AI 个性化对称
+        setOnClickListener {
+            startActivity(Intent(this@MainActivity, UserProfileActivity::class.java))
+        }
     }
 
     /** 按当前 AvatarConfig 填充头像: 自定义圆形图优先, 否则默认文字圆(换头像后旧气泡实时更新复用) */
@@ -3703,11 +3765,12 @@ class MainActivity : Activity() {
         val s = dp(30)
         val file = if (isAi) AvatarConfig.aiAvatarFile() else AvatarConfig.userAvatarFile()
         val custom = AvatarConfig.avatarDrawable(file, s)
+        Log.d("AVFIX", "bindAvatar isAi=" + isAi + " stamp=" + AvatarConfig.avatarStamp() + " custom=" + (custom != null) + " v=" + System.identityHashCode(v))
         if (custom != null) {
             v.background = custom
             v.text = ""
         } else {
-            v.text = if (isAi) "N" else getString(R.string.ma_me)
+            v.text = if (isAi) "N" else "A"
             v.textSize = 15f
             v.setTextColor(Color.WHITE)
             v.gravity = Gravity.CENTER
@@ -3888,7 +3951,9 @@ class MainActivity : Activity() {
                 }
             }
             row.removeAllViews()
-            val avatar = aiAvatarPool.removeLastOrNull() ?: aiAvatar()
+            val pooled = aiAvatarPool.removeLastOrNull()
+            if (pooled != null) Log.d("AVFIX", "aiAvatar POOL reuse stamp=" + AvatarConfig.avatarStamp())
+            val avatar = pooled?.also { bindAvatar(it as TextView, isAi = true) } ?: aiAvatar()
             row.addView(avatar, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
                 rightMargin = dp(Ui.SP2)
             })
@@ -3922,7 +3987,10 @@ class MainActivity : Activity() {
                 addView(tv, LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
                 setOnClickListener {
-                    toggleStatusDrop(this, events)   // 09-25 窗帘式下拉面板(覆盖式, 不挤 RV 布局流)
+                    // 2026-10-31 自适应: 思考内容超长走底部抽屉, 短思考保持窗帘式下拉就地展开
+                    val tl = events.sumOf { it.text.length + it.name.length + it.arg.length + it.result.length }
+                    if (tl > THINK_INLINE_MAX) TimelineSheet(this@MainActivity).show(events, events.size - 1)
+                    else toggleStatusDrop(this, events)   // 09-25 窗帘式下拉面板(覆盖式, 不挤 RV 布局流)
                 }
             }
             col.addView(summary)

@@ -93,6 +93,7 @@
 | `SettingsActivity.kt` | 设置主页（模型/SSH/记忆/外观/调试服务/AI 悬浮终端开关） |
 | `FirstRunSetupActivity.kt` / `Agreements.kt` / `GuideActivity.kt` | 首启授权、用户协议、引导流程 |
 | `AboutActivity.kt` | 关于页 |
+| `UserProfileActivity.kt` / `UserConfig.kt` | 资料页与用户配置（头像占位、标题栏透明跟随） |
 
 ### 资源
 
@@ -122,7 +123,7 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.8.27 / versionCode 109）
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.8.29 / versionCode 111）
 
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 

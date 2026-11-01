@@ -55,7 +55,7 @@ object ToolExecutor {
 
     /** H3(2026-10-03): 危险工具确认名单: 工具名 或 工具:action; 命中即需用户确认 */
     private val DANGER_CONFIRM_TOOLS = setOf(
-        "ssh_run", "sh_run", "js_run", "web_download",
+        "ssh_run", "ssh_config_add", "sh_run", "js_run", "web_download",
         "file:write", "file:upload", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
         "app:click", "app:text", "app:tap", "app:launch",
@@ -138,10 +138,23 @@ object ToolExecutor {
                 // 白名单命中即视为已预授权, 静默跳过确认直接执行; 非静默场景照常逐次确认
                 if (!silentlyAllowed) {
                     // R3-3(2026-10-04): ssh_trust 信任类确认直接展示待确认主机指纹, 供用户核对后再批准
-                    val displayArg = if (n == "security_set" && arg.contains("ssh_trust")) {
-                        val fp = SshTools.pendingFingerprint()
-                        if (fp != null) "$arg\n\n待信任主机密钥指纹: $fp\n请与 SSH 安全告警中的指纹核对一致后再批准。" else arg
-                    } else null
+                    val displayArg = when {
+    n == "security_set" && arg.contains("ssh_trust") -> {
+        val fp = SshTools.pendingFingerprint()
+        if (fp != null) "$arg\n\n待信任主机密钥指纹: $fp\n请与 SSH 安全告警中的指纹核对一致后再批准。" else arg
+    }
+    n == "ssh_config_add" -> {
+        val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+        if (jo != null) {
+            val lines = listOf("name","host","port","user","password","privateKey","passphrase","proxyHost","proxyPort","proxyUser","proxyPassword","proxyPrivateKey","proxyPassphrase")
+                .filter { jo.has(it) }
+                .joinToString("\n") { "$it = ${jo.opt(it)}" }
+            val overwrite = if (jo.has("name") && SshConfigStore.load(context).any { it.name == jo.optString("name") }) "（同名已存在, 本次将覆盖）" else ""
+            "$lines\n\n将写入 SSH 配置库$overwrite, 请核对以上参数后再批准。"
+        } else arg
+    }
+    else -> null
+}
                     when (SecurityUi.requestConfirm(context, key0, arg, risk, displayArg)) {
                         true -> { /* 允许: 票据已在决策回调中签发, 继续执行本调用 */ }
                         false -> return "【安全确认】用户拒绝了工具 [$n] 的执行请求，本次调用已停止。如需执行，请用户重新发起。"
@@ -183,6 +196,7 @@ object ToolExecutor {
             "calc" -> MemoryTools.calc(arg)
             "memory_search" -> MemoryTools.search(context, arg)
             "ssh_run" -> SshTools.run(context, arg)
+            "ssh_config_add" -> SshTools.addConfig(context, arg)
             "file" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
                 when (jo?.optString("action")) {

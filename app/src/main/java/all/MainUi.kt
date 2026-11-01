@@ -212,28 +212,36 @@ import android.widget.Toast
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
         })
-        // 门禁状态行(2026-10-11): 原安全中心位置仅保留状态
+        // 门禁状态行(2026-11-01): 经两轮调换后回到上方, 仅保留状态
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER
             setPadding(dp(Ui.SP5), dp(Ui.SP3), dp(Ui.SP5), dp(Ui.SP3))
             setBackgroundColor(Ui.BG)
             addView(TextView(this@buildDrawer).apply {
                 text = "安全模式"
-                textSize = 15f
+                textSize = 13f
                 setTextColor(Ui.TEXT)
             })
             addView(TextView(this@buildDrawer).apply {
                 text = SecurityConfig.modeText(SecurityConfig.dangerMode(this@buildDrawer))
                 textSize = 13f
                 setTextColor(Ui.SUB)
-                gravity = Gravity.END
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(dp(Ui.SP3), 0, 0, 0)
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(dp(Ui.SP2), 0, 0, 0)
                 }
             })
         })
-                // 底部三入口横向一行(2026-10-11): 左安全中心 / 中文档 / 右设置, 上方保留门禁状态行
+        drawerPanel.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(View(this@buildDrawer).apply {
+                setBackgroundColor(Ui.DIVIDER)
+                layoutParams = LinearLayout.LayoutParams(dp(90), dp(1))
+            })
+        })
+                // 底部三入口横向一行(2026-11-01): 与门禁状态行再次调换后位于下方, 左安全中心 / 中文档 / 右设置
         drawerPanel.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -261,7 +269,7 @@ import android.widget.Toast
                 })
                 addView(TextView(this@buildDrawer).apply {
                     text = "安全中心"
-                    textSize = 13f
+                    textSize = 15f
                     setTextColor(Ui.TEXT)
                 })
             })
@@ -292,7 +300,7 @@ import android.widget.Toast
                 })
                 addView(TextView(this@buildDrawer).apply {
                     text = "文档"
-                    textSize = 13f
+                    textSize = 15f
                     setTextColor(Ui.TEXT)
                 })
             })
@@ -316,7 +324,7 @@ import android.widget.Toast
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 addView(TextView(this@buildDrawer).apply {
                     text = getString(R.string.mui_settings)
-                    textSize = 13f
+                    textSize = 15f
                     setTextColor(Ui.TEXT)
                 })
             })

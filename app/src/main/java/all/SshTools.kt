@@ -65,6 +65,16 @@ object SshTools {
         }
     }
 
+    /** 2026-10-31 fix: 待确认主机键(hostKeyId)与配置比对, 兼容 JSch 的 [host]:port / host:port / host(22) 三种格式 */
+    private fun hostKeyIdMatches(hostKeyId: String, cfg: SshConfigStore.SshConfig): Boolean {
+        val cands = if (cfg.port == 22) {
+            setOf(cfg.host, "[${cfg.host}]:22", "${cfg.host}:22")
+        } else {
+            setOf("[${cfg.host}]:${cfg.port}", "${cfg.host}:${cfg.port}")
+        }
+        return hostKeyId.trim() in cands
+    }
+
     /**
      * H2: 信任待确认主机(把 pending 主机密钥指纹写入白名单); 返回结果描述。
      * 触发路径: 首次连接未知主机 -> SSH 安全告警 -> 用户确认 -> security_set {"ssh_trust":"连接名"}
@@ -75,8 +85,8 @@ object SshTools {
         val match = SshConfigStore.load(context).firstOrNull { it.name == nameOrHost }
             ?: return "未找到连接名 [$nameOrHost]，请确认 SSH 配置中的连接名"
         val host = p.first
-        if (match.host != host) {
-            return "连接 [$nameOrHost] 的主机地址(${match.host}) 与待确认主机($host) 不一致，已拒绝信任"
+        if (!hostKeyIdMatches(host, match)) {
+            return "连接 [$nameOrHost] 的主机地址(${match.host}:${match.port}) 与待确认主机($host) 不一致，已拒绝信任"
         }
         val fp = p.second.getFingerPrint(JSch())
         val cur = (context.getSharedPreferences("ssh_known_hosts", Context.MODE_PRIVATE)
@@ -99,6 +109,50 @@ object SshTools {
     }
 
     /** 从配置存储读取, 若命令含连接名则优先匹配; 匹配失败返回可用列表, 绝不静默连第一个 */
+    /**
+     * ssh_config_add (2026-10-31): AI 自动写入 SSH 配置库。
+     * 必填 name/host/user, port 默认 22; 同名 name 覆盖(编辑语义);
+     * 支持 password/privateKey/passphrase 与 proxy* 跳板全套字段。
+     * 危险门禁由 ToolExecutor 负责(确认框展示完整参数), 本方法只落库。
+     */
+    fun addConfig(context: Context, arg: String): String {
+        val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+            ?: return "错误: 参数不是合法 JSON: $arg"
+        val name = jo.optString("name", "").trim()
+        val host = jo.optString("host", "").trim()
+        val user = jo.optString("user", "").trim()
+        if (name.isEmpty() || host.isEmpty() || user.isEmpty()) {
+            return "错误: 必填字段缺失, 需要 name(连接名)/host(主机)/user(用户名), 如 {\"name\":\"vps\",\"host\":\"<VPS_PUBLIC_IP>\",\"port\":22,\"user\":\"root\"}"
+        }
+        val port = jo.optInt("port", 22).takeIf { it in 1..65535 } ?: 22
+        val cfg = SshConfigStore.SshConfig(
+            name = name,
+            host = host,
+            port = port,
+            user = user,
+            password = jo.optString("password", "").ifEmpty { null },
+            privateKey = jo.optString("privateKey", "").ifEmpty { null },
+            passphrase = jo.optString("passphrase", "").ifEmpty { null },
+            proxyHost = jo.optString("proxyHost", "").ifEmpty { null },
+            proxyPort = jo.optInt("proxyPort", 22).takeIf { it in 1..65535 } ?: 22,
+            proxyUser = jo.optString("proxyUser", "").ifEmpty { null },
+            proxyPassword = jo.optString("proxyPassword", "").ifEmpty { null },
+            proxyPrivateKey = jo.optString("proxyPrivateKey", "").ifEmpty { null },
+            proxyPassphrase = jo.optString("proxyPassphrase", "").ifEmpty { null }
+        )
+        val configs = SshConfigStore.load(context).toMutableList()
+        val existed = configs.any { it.name == name }
+        configs.removeAll { it.name == name }
+        configs.add(cfg)
+        SshConfigStore.save(context, configs)
+        val sb = StringBuilder()
+        sb.append(if (existed) "已覆盖" else "已新增").append(" SSH 连接 [").append(name)
+        sb.append("]: ").append(user).append("@").append(host).append(":").append(port)
+        if (cfg.hasProxy) sb.append(" (经跳板 ").append(cfg.proxyHost).append(":").append(cfg.proxyPort).append(")")
+        sb.append("。连接名 ").append(name).append(" 可直接用于 ssh_run, 如 {\"command\":\"").append(name).append(":ls /\"}")
+        return sb.toString()
+    }
+
     fun run(context: Context, command: String): String {
         val configs = SshConfigStore.load(context)
         if (configs.isEmpty()) return "未配置 SSH 连接，请先在「SSH 配置」中添加"
@@ -286,7 +340,7 @@ object SshTools {
                 // 清理策略(2026-10-31 跨机实测后重写, 见下):
                 //   旧实现先 kill -9 -pgid 整组杀, 实测暴露致命缺陷 —— pid 文件里的进程若属某 sshd 会话进程组
                 //   (pgid != pid 的常态), 组杀会把该会话连同"清理命令自身"一起带走, 后面的 environ / pgrep 层根本
-                //   没机会执行, setsid 逃逸的孙进程(pid==pgid==sid)100% 存活(188 跨机实测残留 sleep 600 实证)。
+                //   没机会执行, setsid 逃逸的孙进程(pid==pgid==sid)100% 存活(跨机实测残留 sleep 600 实证)。
                 //   新策略: 全程只按单 PID 精确终止, 绝不整组杀(零误伤), 顺序按覆盖面从大到小:
                 //     ① environ 两遍扫描 —— 覆盖 nohup/setsid/双 fork 逃逸(只要继承环境变量就能抓到, 这是唯一能抓
                 //        setsid 孙进程的层); 且清理命令自身命令行不含标记值, 不会自伤, 更不会波及 sshd 会话。

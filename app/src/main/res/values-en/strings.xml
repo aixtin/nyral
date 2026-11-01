@@ -207,6 +207,14 @@
     <string name="persona_hint_avatar_set">Custom avatar set</string>
     <string name="persona_hint_change">Change avatar</string>
     <string name="persona_me">Me</string>
+    <string name="persona_group_user">My Profile</string>
+    <string name="persona_user_name">My Name</string>
+    <string name="persona_user_hobby">My Hobbies</string>
+    <string name="persona_hint_user_name">Enter your name (empty shows "Me")</string>
+    <string name="persona_hint_user_name_sub">Empty = "Me" · max 20 chars · saved with profile</string>
+    <string name="persona_hint_user_hobby">Describe your hobbies and interests… (optional)</string>
+    <string name="persona_hint_user_hobby_sub">Optional · max 100 chars</string>
+    <string name="persona_toast_user_saved">Profile saved</string>
     <string name="persona_hint_ai_name">Enter AI name (empty to restore default Nyral)</string>
     <string name="persona_hint_ai_name_sub">Empty = default · max 20 chars · saved with persona</string>
     <string name="persona_hint_ai_persona">Describe the AI identity and reply style…</string>
@@ -228,6 +236,8 @@
     <!-- 聊天背景页 -->
     <string name="cb_title">Chat Background</string>
     <string name="cb_group_preset">Presets</string>
+    <string name="cb_custom_entry">Custom</string>
+    <string name="cb_custom_dialog_title">Custom Background</string>
     <string name="cb_group_custom">Custom Image</string>
     <string name="cb_sub_auto_blur">Auto pre-blur after selection</string>
     <string name="cb_group_blur">Blur Strength</string>

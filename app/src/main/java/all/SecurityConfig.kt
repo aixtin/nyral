@@ -45,7 +45,7 @@ object SecurityConfig {
     // ===== 风险分级(自动档内两级, 预留多级扩展) =====
     private val CRITICAL_TOOLS = setOf("security_set")
     private val HIGH_TOOLS = setOf(
-        "ssh_run", "sh_run", "js_run", "browser_eval", "web_download",
+        "ssh_run", "ssh_config_add", "sh_run", "js_run", "browser_eval", "web_download",
         "file:write", "file:upload", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
         "app:click", "app:text", "app:tap", "app:launch"
@@ -55,6 +55,7 @@ object SecurityConfig {
     /** 危险工具 key -> 展示名; 与 ToolExecutor 危险工具名单一致, 任务静默执行命中即放行 */
     val ALLOW_CATALOG: Map<String, String> = linkedMapOf(
         "ssh_run" to "SSH 远程执行命令",
+        "ssh_config_add" to "写入 SSH 配置",
         "sh_run" to "本地 Shell 执行",
         "js_run" to "JS 代码执行",
         "web_download" to "下载网页文件",

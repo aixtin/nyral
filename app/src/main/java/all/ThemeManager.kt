@@ -12,20 +12,20 @@ object ThemeManager {
 
     /** 全部可用主题（有序，顺序即设置页展示顺序；首位为默认主题） */
     val themes: List<AppTheme> = listOf(
+        DefaultTheme,
         WhiteTheme,
         IconTheme,
-        DefaultTheme,
         FlatTheme,
         KawaiiTheme,
         KiwiDarkTheme,
         OledTheme
     )
 
-    /** 当前主题（无记录时默认使用图标主题） */
+    /** 当前主题（无记录时默认使用默认主题） */
     fun current(ctx: Context): AppTheme {
         val id = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_THEME_ID, WhiteTheme.id)
-        return themes.firstOrNull { it.id == id } ?: WhiteTheme
+            .getInt(KEY_THEME_ID, DefaultTheme.id)
+        return themes.firstOrNull { it.id == id } ?: DefaultTheme
     }
 
     /** 切换并持久化主题 */

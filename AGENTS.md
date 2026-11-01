@@ -72,7 +72,7 @@ BrowserPage 已按此模式拆 8 刀（1796 → 146 行），产物 12 个域文
 
 | 场景 | 命令 |
 |---|---|
-| 188 经 VPS 回连 | `ssh -i <SSH_KEY_188> -p 2222 <USER>@127.0.0.1` |
+| <DEV_MACHINE> 经 VPS 回连 | `ssh -i <SSH_KEY_188> -p 2222 <USER>@127.0.0.1` |
 | 有线真机 | `adb -s <DEVICE_SERIAL> install -r <apk>` |
 | 无线（局域网） | `~/adb-hotspot.sh` 自动探测后 `adb install` |
 | 无线（WireGuard） | VPS 上 `adb connect <WG_PHONE_IP>:5555` 后 install |

@@ -23,10 +23,12 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * AI 个性化（设置 → 外观 → AI 个性化）— 资料卡式三级页面。
- * - 顶部资料卡：AI 头像（左）/ 用户头像（右）左右并排，点击各自头像弹更换窗口
- * - 下方分组：AI 名字（点击输入框弹窗）、AI 人设（页面内平面化输入框）
- * 头像选择/裁剪流程与逻辑在此页自持（相册选图→拷私有目录→裁剪→落盘）。
+ * AI 个性化 — 纯 AI 侧资料页。
+ * - 顶部资料卡：AI 头像（居中），点击弹更换窗口
+ * - 下方分组：AI 名字、AI 人设（页面内平面化输入框）
+ * 头像选择/裁剪流程仅处理 AI 侧（相册选图→拷私有目录→裁剪→落盘）；
+ * 用户侧资料（头像/名字/爱好）独立在 UserProfileActivity，
+ * 由聊天页点击用户头像直接进入。
  */
 class PersonalityActivity : Activity() {
 
@@ -38,13 +40,13 @@ class PersonalityActivity : Activity() {
     private var pendingAvatarIsAi = false
     private var personaCardContainer: LinearLayout? = null
     private var personaCardRef: LinearLayout? = null
-
-    private val REQ_AVATAR_USER = 3001
+    private lateinit var scrollView: ScrollView
     private val REQ_AVATAR_AI = 3002
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PersonaConfig.init(this)
+        UserConfig.init(this)
         AvatarConfig.init(this)
         Ui.statusBar(this)
 
@@ -55,6 +57,7 @@ class PersonalityActivity : Activity() {
             setBackgroundColor(Color.TRANSPARENT)
             isFillViewport = true
         }
+        scrollView = scroll
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(16))
@@ -101,40 +104,29 @@ class PersonalityActivity : Activity() {
         setContentView(root)
     }
 
-    /** 资料卡：AI 头像（左）/ 用户头像（右）左右并排，点击各自头像弹出更换窗口 */
+    /** 资料卡：AI 头像（居中），点击弹更换窗口 */
     private fun personaCard(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         setPadding(0, 0, 0, 0)
         background = Ui.rounded(Ui.SURFACE, 16, this@PersonalityActivity)
-        // 左：AI 头像
+        // 仅 AI 头像（weight=1 居中占满）
         addView(avatarCell(
-            avatar = avatarBig(true),
+            avatar = avatarBig(),
             name = PersonaConfig.aiName(),
-            hint = if (AvatarConfig.hasAiAvatar()) getString(R.string.persona_hint_avatar_set) else getString(R.string.persona_hint_change),
-            isAi = true
-        ), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        // 中间竖分隔线
-        addView(View(this@PersonalityActivity).apply {
-            setBackgroundColor(Ui.INPUT_BG)
-            layoutParams = LinearLayout.LayoutParams(dp(1), dp(96))
-        })
-        // 右：用户头像
-        addView(avatarCell(
-            avatar = avatarBig(false),
-            name = getString(R.string.persona_me),
-            hint = if (AvatarConfig.hasUserAvatar()) getString(R.string.persona_hint_avatar_set) else getString(R.string.persona_hint_change),
-            isAi = false
+            hint = if (AvatarConfig.hasAiAvatar()) getString(R.string.persona_hint_avatar_set) else getString(R.string.persona_hint_change)
         ), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
     /** 单个头像单元：大头像 + 名字 + 提示，整块可点击 */
-    private fun avatarCell(avatar: View, name: String, hint: String, isAi: Boolean): LinearLayout =
+    private fun avatarCell(avatar: View, name: String, hint: String): LinearLayout =
         LinearLayout(this@PersonalityActivity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(20), dp(18), dp(20), dp(18))
             isClickable = true
-            setOnClickListener { showAvatarDialog(isAi) }
+            setOnClickListener {
+                showAvatarDialog()
+            }
             Ui.press(this)
             addView(avatar)
             addView(TextView(this@PersonalityActivity).apply {
@@ -165,32 +157,20 @@ class PersonalityActivity : Activity() {
         }
 
     /** 大头像：有自定义头像用圆形图片，否则文字占位（同聊天页视觉） */
-    private fun avatarBig(isAi: Boolean): TextView {
+    private fun avatarBig(): TextView {
         val s = dp(64)
-        val file = if (isAi) AvatarConfig.aiAvatarFile() else AvatarConfig.userAvatarFile()
-        val custom = AvatarConfig.avatarDrawable(file, s)
+        val custom = AvatarConfig.avatarDrawable(AvatarConfig.aiAvatarFile(), s)
         return TextView(this).apply {
             if (custom != null) {
                 background = custom
             } else {
-                if (isAi) {
-                    text = "N"
-                    textSize = 26f
-                    setTextColor(Color.WHITE)
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(Color.parseColor("#5A6478"))
-                    }
-                } else {
-                    text = getString(R.string.persona_me)
-                    textSize = 26f
-                    setTextColor(Color.WHITE)
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(Ui.PRIMARY)
-                    }
+                text = "N"
+                textSize = 26f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#5A6478"))
                 }
             }
             layoutParams = LinearLayout.LayoutParams(s, s)
@@ -308,9 +288,9 @@ class PersonalityActivity : Activity() {
 
     // ==================== 头像更换（含相册→裁剪→落盘） ====================
 
-    private fun showAvatarDialog(isAi: Boolean) {
-        val has = if (isAi) AvatarConfig.hasAiAvatar() else AvatarConfig.hasUserAvatar()
-        val (dlg, box) = Ui.dialog(this, if (isAi) getString(R.string.persona_change_ai) else getString(R.string.persona_change_user), jellyOvershoot = 1.4f, animate = false)
+    private fun showAvatarDialog() {
+        val has = AvatarConfig.hasAiAvatar()
+        val (dlg, box) = Ui.dialog(this, getString(R.string.persona_change_ai), jellyOvershoot = 1.4f, animate = false)
         box.addView(Ui.hint(this, if (has) getString(R.string.persona_current_custom) else getString(R.string.persona_current_default)))
         val vstack = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -318,17 +298,17 @@ class PersonalityActivity : Activity() {
         }
         vstack.addView(Ui.dialogCancelBtn(this, getString(R.string.persona_pick_album), {
             dlg.dismiss()
-            pendingAvatarIsAi = isAi
+            pendingAvatarIsAi = true
             val i = Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }
             try {
-                startActivityForResult(i, if (isAi) REQ_AVATAR_AI else REQ_AVATAR_USER)
+                startActivityForResult(i, REQ_AVATAR_AI)
             } catch (e: Exception) {
                 Toast.makeText(this@PersonalityActivity, getString(R.string.persona_err_album, e.message), Toast.LENGTH_SHORT).show()
             }
         }))
         if (has) {
             val restoreBtn = Ui.dangerBtn(this, getString(R.string.persona_restore_default), {
-                if (isAi) AvatarConfig.clearAiAvatar() else AvatarConfig.clearUserAvatar()
+                AvatarConfig.clearAiAvatar()
                 dlg.dismiss()
                 rebuildPersonaCard()
                 Toast.makeText(this@PersonalityActivity, getString(R.string.persona_toast_restored), Toast.LENGTH_SHORT).show()
@@ -366,8 +346,7 @@ class PersonalityActivity : Activity() {
             val path = data.getStringExtra(AvatarCropActivity.EXTRA_RESULT_PATH)
             if (path == null) return
             val file = File(path)
-            val ok = if (pendingAvatarIsAi) AvatarConfig.setAiAvatarFromSquare(file)
-            else AvatarConfig.setUserAvatarFromSquare(file)
+            val ok = AvatarConfig.setAiAvatarFromSquare(file)
             Toast.makeText(this, if (ok) getString(R.string.persona_avatar_updated) else getString(R.string.persona_avatar_failed), Toast.LENGTH_SHORT).show()
             rebuildPersonaCard()
             file.delete()

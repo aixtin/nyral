@@ -102,7 +102,7 @@ class GuideActivity : Activity() {
         applyBubbleTheme(theme)
         Ui.statusBar(this)
         val root = Ui.pageRoot(this)
-        root.setBackgroundColor(Color.WHITE)
+        root.setBackgroundColor(Ui.BG)
         // edge-to-edge（targetSdk 36，API 35+ 强制）统一消费系统栏 inset：状态栏顶 + 导航栏底，
         // 否则矮屏/手势条/三键机型底部内容被导航栏遮挡（表现为“引导页超出屏幕底部”）
         if (android.os.Build.VERSION.SDK_INT >= 35) {
@@ -125,7 +125,7 @@ class GuideActivity : Activity() {
         // 矮屏机型无需滑动即可操作，实现不同屏幕高度自适应
         bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Ui.SURFACE)
             setPadding(dp(24), dp(10), dp(24), dp(10))
         }
         root.addView(buildTabBar(), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -171,7 +171,7 @@ class GuideActivity : Activity() {
     private fun buildTabBar(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
-        setBackgroundColor(Color.WHITE)
+        setBackgroundColor(Ui.SURFACE)
         val titles = arrayOf(
             getString(R.string.guide_tab_intro),
             getString(R.string.guide_tab_provider),
@@ -220,7 +220,7 @@ class GuideActivity : Activity() {
             }
             addView(ImageView(this@GuideActivity).apply {
                 setImageResource(R.mipmap.ic_launcher)
-                background = Ui.rounded(Color.WHITE, 24, this@GuideActivity)
+                background = Ui.rounded(Ui.SURFACE, 24, this@GuideActivity)
                 clipToOutline = true
                 layoutParams = LinearLayout.LayoutParams(dp(88), dp(88))
             })
@@ -1320,9 +1320,9 @@ class GuideActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             background = GradientDrawable().apply {
-                setColor(Color.WHITE)
+                setColor(Ui.SURFACE)
                 cornerRadius = dp(16).toFloat()
-                setStroke(dp(1), 0xFFE5E7EB.toInt())
+                setStroke(dp(1), Ui.STROKE)
             }
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setPadding(dp(14), dp(20), dp(14), dp(20))
