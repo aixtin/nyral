@@ -70,6 +70,17 @@ AIGC:
 
 ---
 
+## In-depth Articles
+
+Real-world engineering notes on keeping a personal agent alive on Android (background keep-alive, scheduled jobs, Live Updates / Dynamic Island):
+
+- Juejin: [How a Personal Agent Survives on Android: Background Keep-alive, Scheduled Jobs and Live Updates](https://juejin.cn/post/7702914241569472547)
+- Zhihu: [移动智能体的安卓生存法则：厂商收权时代下个人 Agent 的后台保活、定时岗位与灵动岛实战](https://zhuanlan.zhihu.com/p/2100298508075062070)
+- Bilibili: [移动智能体的安卓生存法则：厂商收权时代下个人 Agent 的后台保活、定时岗位与灵动岛实战](https://www.bilibili.com/opus/1265696668531032098)
+
+---
+
+
 ## Overview
 
 Nyral is an open-source personal agent for Android: LLM chat, long-term local memory, SSH remote operations, web tools, and voice/attachment multimodality in a single app. Data stays on your device by default — no account, no behavioral tracking, no analytics or ad SDKs; model and tools are fully under your control, bring your own API key or self-host an endpoint.
