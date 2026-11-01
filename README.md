@@ -320,7 +320,7 @@ MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the ship
 
 ## Project status
 
-> **Completed (2026-10-16)** — the project concluded on October 16, 2026; later changes are just post-completion improvisation: no roadmap, no release schedule. The 54-day build retrospective: [END.md](./END.md).
+> **Active development** — Nyral is actively maintained by its solo developer. Features ship as they are proven on real devices; no roadmap, no release schedule. The 54-day build retrospective: [END.md](./END.md).
 
 - Latest: v2.8.29 (2026-11-01, versionCode 111)
 - Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
