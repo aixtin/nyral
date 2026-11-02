@@ -124,6 +124,18 @@ class SettingsActivity : Activity() {
         cardModel.addView(buildVideoDirectRow())
         content.addView(cardModel)
 
+        // 分组3：数据备份(2026-11-02)
+        content.addView(Ui.groupLabel(this, "数据"))
+        val cardData = Ui.card(this)
+        cardData.addView(settingsItem("备份", "对话 · 产物 · 设置 打包保存，可设密码", R.drawable.ic_settings_upload, 8, {
+            startBackupFlow()
+        }))
+        cardData.addView(Ui.divider(this, 64))
+        cardData.addView(settingsItem("还原备份", "从备份包恢复（覆盖当前数据）", R.drawable.ic_guide_folder, 4, {
+            startRestoreFlow()
+        }))
+        content.addView(cardData)
+
         // 分组4：其他
         content.addView(Ui.groupLabel(this, getString(R.string.settings_group_other)))
         val cardAbout = Ui.card(this)
@@ -174,6 +186,174 @@ class SettingsActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         setContentView(root)
+    }
+
+    // ===== 数据备份/还原(2026-11-02) =====
+    private var pendingBackupPassword: String? = null
+    private var restoreRawFile: File? = null
+
+    private fun startBackupFlow() {
+        val ctx = this@SettingsActivity
+        val (dlg, box) = Ui.dialog(ctx, "备份数据")
+        box.addView(Ui.dialogText(ctx, "可选设置一个密码加密备份包，留空则不加密。\n加密后还原必须输密码，忘记将无法恢复，请牢记。"))
+        val et1 = EditText(ctx).apply {
+            hint = "密码（可留空）"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            textSize = 14f
+        }
+        val et2 = EditText(ctx).apply {
+            hint = "再次输入密码"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            textSize = 14f
+        }
+        box.addView(et1, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        box.addView(et2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        box.addView(buttonRow(dlg, "开始备份") {
+            val p1 = et1.text.toString()
+            val p2 = et2.text.toString()
+            if (p1 != p2) {
+                Toast.makeText(ctx, "两次输入的密码不一致", Toast.LENGTH_SHORT).show()
+                return@buttonRow
+            }
+            pendingBackupPassword = p1.ifBlank { null }
+            dlg.dismiss()
+            val fmt = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.CHINA)
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/octet-stream"
+                putExtra(Intent.EXTRA_TITLE, "Nyral备份_" + fmt.format(java.util.Date()) + ".nyrbak")
+            }
+            startActivityForResult(intent, 9101)
+        })
+        dlg.show()
+    }
+
+    private fun startRestoreFlow() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        startActivityForResult(intent, 9102)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != Activity.RESULT_OK || data?.data == null) return
+        when (requestCode) {
+            9101 -> data.data?.let { uri -> Thread { doBackup(uri) }.start() }
+            9102 -> data.data?.let { uri -> Thread { doRestore(uri) }.start() }
+        }
+    }
+
+    private fun doBackup(uri: android.net.Uri) {
+        try {
+            val os = contentResolver.openOutputStream(uri) ?: throw IllegalStateException("无法写入所选位置")
+            val r = BackupManager.backup(this, pendingBackupPassword, os)
+            toastUi(r.message)
+        } catch (e: Exception) {
+            toastUi("备份失败: " + e.message)
+        }
+    }
+
+    private fun doRestore(uri: android.net.Uri) {
+        try {
+            val raw = File(cacheDir, "restore_tmp.bin")
+            raw.delete()
+            contentResolver.openInputStream(uri)?.use { ins -> raw.outputStream().use { ins.copyTo(it) } }
+                ?: throw IllegalStateException("无法读取所选文件")
+            restoreRawFile = raw
+            when (BackupManager.archiveKind(raw)) {
+                0 -> askConfirmRestore(null)
+                1 -> askRestorePassword()
+                else -> { toastUi("不是本应用的备份文件"); raw.delete(); restoreRawFile = null }
+            }
+        } catch (e: Exception) {
+            toastUi("读取备份文件失败: " + e.message)
+        }
+    }
+
+    private fun askRestorePassword() = runOnUiThread {
+        val ctx = this@SettingsActivity
+        val (dlg, box) = Ui.dialog(ctx, "输入备份密码")
+        box.addView(Ui.dialogText(ctx, "该备份包已加密，请输入备份时设置的密码"))
+        val et = EditText(ctx).apply {
+            hint = "密码"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            textSize = 14f
+        }
+        box.addView(et, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        box.addView(buttonRow(dlg, "确定") {
+            dlg.dismiss()
+            askConfirmRestore(et.text.toString())
+        })
+        dlg.show()
+    }
+
+    private fun askConfirmRestore(password: String?) = runOnUiThread {
+        val ctx = this@SettingsActivity
+        val (dlg, box) = Ui.dialog(ctx, "确认还原")
+        box.addView(Ui.dialogText(ctx, "还原会覆盖当前全部数据（对话、产物、设置），\n完成后应用将自动重启。\n确定继续吗？"))
+        box.addView(buttonRow(dlg, "还原并重启") {
+            dlg.dismiss()
+            Thread {
+                val raw = restoreRawFile
+                if (raw == null || !raw.exists()) { toastUi("备份文件已失效，请重选"); return@Thread }
+                var zip = raw
+                if (password != null) {
+                    val dec = File(cacheDir, "restore_dec.zip")
+                    if (!BackupManager.decryptToFile(raw, password, dec)) {
+                        toastUi("密码错误或备份文件损坏"); return@Thread
+                    }
+                    zip = dec
+                }
+                if (BackupManager.manifestOf(zip) == null) {
+                    toastUi(if (password != null) "密码错误或备份文件损坏" else "不是本应用的备份文件")
+                    return@Thread
+                }
+                val tooNew = BackupManager.findTooNewDb(this@SettingsActivity, zip)
+                if (tooNew != null) {
+                    toastUi("该备份来自更新版本的应用(" + tooNew + "), 请先升级应用再还原")
+                    return@Thread
+                }
+                val r = BackupManager.restore(this@SettingsActivity, zip)
+                if (r.ok) {
+                    toastUi("还原完成，即将重启")
+                    android.os.Handler(mainLooper).postDelayed({ BackupManager.restartApp(this@SettingsActivity) }, 800)
+                } else {
+                    toastUi(r.message)
+                }
+            }.start()
+        })
+        dlg.show()
+    }
+
+    /** 弹窗底部按钮行: 取消(灰) + 确认(主题色) */
+    private fun buttonRow(dlg: android.app.Dialog, okText: String, onOk: () -> Unit): View {
+        val ctx = this@SettingsActivity
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(14), 0, 0)
+        }
+        row.addView(Ui.dialogCancelBtn(ctx, "取消", { dlg.dismiss() }),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(6) })
+        val ok = TextView(ctx).apply {
+            text = okText
+            textSize = 15f
+            isClickable = true
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = Ui.rounded(Ui.PRIMARY, 14, ctx)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            Ui.press(this)
+            setOnClickListener { onOk() }
+        }
+        row.addView(ok, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
+        return row
+    }
+
+    private fun toastUi(msg: String) = runOnUiThread {
+        Toast.makeText(this@SettingsActivity, msg, Toast.LENGTH_LONG).show()
     }
 
     override fun onResume() {

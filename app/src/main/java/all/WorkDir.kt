@@ -251,6 +251,51 @@ object WorkDir {
         }
     }
 
+    // ==== 导出目录(2026-11-02): 产物"保存"按钮专用, 与 AI 工作区(Nyral_work)分离 ====
+    const val EXPORT_IMG_REL = "Pictures/Nyral"     // 图片: 相册可见
+    const val EXPORT_FILE_REL = "Download/Nyral"    // 其他: 独立导出目录(用户可直接管理)
+
+    /**
+     * 产物导出: 图片写 Pictures/Nyral(系统相册可见), 其余写 Download/Nyral。
+     * 同名覆盖; 经 MediaStore 插入天然入索引, 不存在工作目录的扫描漏检问题。返回展示路径, 失败返回 null。
+     */
+    fun export(context: Context, name: String, bytes: ByteArray): String? {
+        if (!supported()) return null
+        val safeName = sanitize(name)
+        if (safeName.isEmpty()) return null
+        val mime = AttachmentStore.mimeOf(safeName)
+        val rel = if (mime.startsWith("image/")) EXPORT_IMG_REL else EXPORT_FILE_REL
+        val disp = "/storage/emulated/0/$rel/"
+        return try {
+            val resolver = context.contentResolver
+            val uri = MediaStore.Files.getContentUri("external_primary")
+            val existing = resolver.query(uri, arrayOf(MediaStore.MediaColumns._ID),
+                "(${MediaStore.MediaColumns.RELATIVE_PATH} = ? OR ${MediaStore.MediaColumns.RELATIVE_PATH} = ?) AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+                arrayOf(rel, "$rel/", safeName), null
+            )?.use { c -> if (c.moveToFirst()) ContentUris.withAppendedId(uri, c.getLong(0)) else null }
+            if (existing != null) {
+                // 同名覆盖: "wt" 截断写
+                resolver.openOutputStream(existing, "wt")?.use { it.write(bytes) } ?: return null
+            } else {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, rel)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val newUri = resolver.insert(uri, values) ?: return null
+                try {
+                    resolver.openOutputStream(newUri)?.use { it.write(bytes) } ?: return null
+                } finally {
+                    resolver.update(newUri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+                }
+            }
+            disp
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** 读文件内容; 不存在返回 null(索引/owner过滤时先重扫, 再 File 直读兜底) */
     fun read(context: Context, name: String): ByteArray? {
         if (!supported()) return null

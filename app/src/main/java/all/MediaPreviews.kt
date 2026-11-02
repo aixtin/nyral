@@ -99,6 +99,10 @@ fun Activity.openAttachmentPreview(files: List<String>, startIndex: Int) {
         return
     }
     val mime = AttachmentStore.mimeOf(act, file)
+    if (AttachmentStore.metaOf(act, file) != null) {
+        startActivity(android.content.Intent(act, ArtifactViewerActivity::class.java).putExtra("file_name", file))
+        return
+    }
     when {
         mime.startsWith("image/") || mime.startsWith("video/") -> {
             // 同一条消息的图片/视频: 全屏左右滑动切换浏览

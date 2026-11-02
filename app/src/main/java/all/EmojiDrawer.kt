@@ -438,7 +438,7 @@ private fun MainActivity.buildUploadGrid(): LinearLayout {
         return holder
     }
     val cells = listOf(
-        Triple(R.drawable.ic_upload_camera, "拍照", { Toast.makeText(this, "原型占位: 拍照待接入", Toast.LENGTH_SHORT).show() }),
+        Triple(R.drawable.ic_upload_camera, "拍照", { launchCamera(); hideEmojiDrawer() }),
         Triple(R.drawable.ic_upload_image, "相册", { pickMedia(); hideEmojiDrawer() }),
         Triple(R.drawable.ic_upload_location, "位置", { Toast.makeText(this, "原型占位: 位置待接入", Toast.LENGTH_SHORT).show() }),
         Triple(R.drawable.ic_upload_file, "文件", { pickFile(); hideEmojiDrawer() })

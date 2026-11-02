@@ -160,6 +160,24 @@ class LocalFileProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         val path = uri.path ?: return null
         val ctx = context ?: return null
+        // 拍照暂存(2026-11-03 抽屉拍照接入): content://<pkg>.files/camera/<文件名>
+        // ACTION_IMAGE_CAPTURE 经 EXTRA_OUTPUT 让相机写入 cacheDir/camera/, 发送端再读取
+        if (path.startsWith("/camera/")) {
+            val name = Uri.decode(path.removePrefix("/camera/"))
+            // 防路径穿越: 仅允许纯文件名
+            if (name.isEmpty() || name != java.io.File(name).name) return null
+            val f = java.io.File(ctx.cacheDir, "camera/$name")
+            val write = mode.contains("w")
+            if (!f.exists()) {
+                if (!write) return null
+                f.parentFile?.mkdirs()
+                try { f.createNewFile() } catch (e: Exception) { return null }
+            }
+            return ParcelFileDescriptor.open(
+                f,
+                if (write) ParcelFileDescriptor.MODE_READ_WRITE else ParcelFileDescriptor.MODE_READ_ONLY
+            )
+        }
         // 工作目录文件(content://<pkg>.files/work/<文件名>): 供浏览器上传 file input 使用
         if (path.startsWith("/work/")) {
             val name = Uri.decode(path.removePrefix("/work/"))
@@ -187,8 +205,27 @@ class LocalFileProvider : ContentProvider() {
         return AttachmentStore.mimeOf(name)
     }
 
+    // 拍照暂存路径返回文件名/大小, 供附件发送端 OpenableColumns.DISPLAY_NAME 解析文件名
     override fun query(uri: Uri, projection: Array<String>?, selection: String?,
-                       selectionArgs: Array<String>?, sortOrder: String?): Cursor? = null
+                       selectionArgs: Array<String>?, sortOrder: String?): Cursor? {
+        val path = uri.path ?: return null
+        if (!path.startsWith("/camera/")) return null
+        val name = Uri.decode(path.removePrefix("/camera/"))
+        val ctx = context ?: return null
+        val f = java.io.File(ctx.cacheDir, "camera/$name")
+        val cols = if (projection != null) projection else arrayOf(
+            android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE)
+        val mc = android.database.MatrixCursor(cols, 1)
+        val row = cols.map { col ->
+            when (col) {
+                android.provider.OpenableColumns.DISPLAY_NAME -> name
+                android.provider.OpenableColumns.SIZE -> if (f.exists()) f.length() else 0L
+                else -> null
+            }
+        }
+        mc.addRow(row)
+        return mc
+    }
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun update(uri: Uri, values: ContentValues?, selection: String?,
                         selectionArgs: Array<String>?): Int = 0

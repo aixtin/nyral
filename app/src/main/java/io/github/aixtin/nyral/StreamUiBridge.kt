@@ -151,9 +151,18 @@ internal class StreamUiBridge(
                             // 第一条(通常正文)挂 thinking/tools 快照, 表情行独立无快照
                             val replyParts = activity.splitAiEmojiReply(reply)
                             replyPartCount = replyParts.size
-                            contentIdx = if (replyParts.isEmpty()) -1 else activity.messages.size
+                            // 表情在头部时 replyParts[0] 是纯表情条: rendered 与快照须落在第一个正文条,
+                            // 否则表情条(AiRich)回显整条流式渲染(〔表情〕+正文) → 正文重复(2026-11-02)
+                            val firstBodyIdx = replyParts.indexOfFirst { p ->
+                                !p.matches(Regex("\\[表情:[^\\]]+\\]\\(att://[^)]+\\)"))
+                            }
+                            contentIdx = when {
+                                replyParts.isEmpty() -> -1
+                                firstBodyIdx < 0 -> activity.messages.size
+                                else -> activity.messages.size + firstBodyIdx
+                            }
                             for ((pi, p) in replyParts.withIndex()) {
-                                val snap = if (pi == 0) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
+                                val snap = if (pi == firstBodyIdx) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
                                 activity.messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))
                                 MemoryKeeper.push("assistant", p, activity.replySessionId, activity.messages.size - 1)
                             }

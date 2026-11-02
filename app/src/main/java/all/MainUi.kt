@@ -268,7 +268,7 @@ import android.widget.Toast
                     }
                 })
                 addView(TextView(this@buildDrawer).apply {
-                    text = "安全中心"
+                    text = "安全"
                     textSize = 15f
                     setTextColor(Ui.TEXT)
                 })

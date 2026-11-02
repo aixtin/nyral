@@ -1,6 +1,7 @@
 package io.github.aixtin.nyral
 
 import android.app.ActivityManager
+import android.net.TrafficStats
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -623,17 +624,27 @@ object DeviceMetrics {
     private fun netBlock(): JSONObject {
         val o = JSONObject()
         val raw = readText("/proc/net/dev", true)
-        if (raw == null) return o
         var rx = 0L
         var tx = 0L
-        for (line in raw.lineSequence()) {
-            val i = line.indexOf(':')
-            if (i < 0) continue
-            val name = line.substring(0, i).trim()
-            if (name == "lo" || name.startsWith("ifb") || name.startsWith("dummy") || name.startsWith("rmnet_ipa")) continue
-            val nums = line.substring(i + 1).trim().split(Regex("\\s+"))
-            rx += nums.getOrNull(0)?.toLongOrNull() ?: 0L
-            tx += nums.getOrNull(8)?.toLongOrNull() ?: 0L
+        var iface = 0
+        if (raw != null) {
+            for (line in raw.lineSequence()) {
+                val i = line.indexOf(':')
+                if (i < 0) continue
+                val name = line.substring(0, i).trim()
+                if (name == "lo" || name.startsWith("ifb") || name.startsWith("dummy") || name.startsWith("rmnet_ipa")) continue
+                val nums = line.substring(i + 1).trim().split(Regex("\\s+"))
+                rx += nums.getOrNull(0)?.toLongOrNull() ?: 0L
+                tx += nums.getOrNull(8)?.toLongOrNull() ?: 0L
+                iface++
+            }
+        }
+        // 读不到接口(普通应用被屏蔽 / ColorOS shell 域返回空串)时切 TrafficStats 兜底:
+        // 系统级总流量计数器, 无需特权, 差值算速率与 /proc/net/dev 同口径。
+        if (iface == 0) {
+            rx = TrafficStats.getTotalRxBytes()
+            tx = TrafficStats.getTotalTxBytes()
+            if (rx <= 0 && tx <= 0) return o
         }
         val now = SystemClock.elapsedRealtime()
         if (lastNetRx >= 0 && now > lastNetAt) {
@@ -785,7 +796,12 @@ object DeviceMetrics {
         } catch (_: Throwable) {
         }
         if (!privileged || Diagnostics.currentLevel() < 1) return null
-        return Diagnostics.execRead("cat " + shellSafe(path))
+        // 坑: ColorOS 对 shell uid(Shizuku 通道)屏蔽 /proc 关键节点, cat 返回空串不报错
+        var out = Diagnostics.execRead("cat " + shellSafe(path))
+        if (out == null || out.isBlank()) {
+            out = Diagnostics.execRoot("cat " + shellSafe(path))
+        }
+        return out?.trim()
     }
 
     private fun round1(v: Double): Double = (v * 10).roundToInt() / 10.0

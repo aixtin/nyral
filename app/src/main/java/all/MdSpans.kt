@@ -271,8 +271,21 @@ object MdToSpans {
             is Link -> {
                 val dest = node.destination ?: ""
                 if (dest.startsWith("att://")) {
-                    // Nyral 附件卡: 流式阶段轻量占位, 收尾 markwon 渲染真实卡片
-                    sb.append("\uD83D\uDCCE 附件")
+                    // Nyral 附件卡: 流式阶段轻量占位, 收尾渲染真实卡片/可点击(产物通道 2026-11-02)
+                    val label0 = StringBuilder()
+                    digText(node.firstChild, label0)
+                    if (label0.startsWith("产物:")) {
+                        // 一排一个(2026-11-02): 产物卡独占一行, 超长名中间省略; span 排除首尾换行
+                        if (sb.isNotEmpty() && sb[sb.length - 1] != '\n') sb.append('\n')
+                        val s0 = sb.length
+                        sb.append(ModeConfig.artifactCardLabel(label0.toString().removePrefix("产物:")))
+                        sb.append('\n')
+                        spans += MdSpan(s0, sb.length - 1, MdSpanType.LINK, dest)
+                    } else {
+                        val s0 = sb.length
+                        sb.append("\uD83D\uDCCE 附件")
+                        spans += MdSpan(s0, sb.length, MdSpanType.LINK, dest)
+                    }
                 } else {
                     // 脚注引用 [^n] 无脚注扩展时被解析成 link reference: 降级为纯文本, 不渲染成链接
                     val label = StringBuilder()

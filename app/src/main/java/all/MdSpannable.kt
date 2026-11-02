@@ -1,21 +1,29 @@
 package io.github.aixtin.nyral
 
+import android.content.res.Resources
 import android.graphics.Bitmap
+import android.graphics.RectF
 import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.Layout
+import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.ImageSpan
 import android.text.style.LeadingMarginSpan
+import android.text.style.LineBackgroundSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
+import android.text.style.ClickableSpan
 import android.text.style.URLSpan
+import android.text.TextPaint
+import android.view.View
 import android.graphics.drawable.BitmapDrawable
 import io.noties.markwon.ext.tables.TableTheme
 import org.json.JSONArray
@@ -26,9 +34,57 @@ import org.json.JSONArray
  * 流式(2026-09-22): 文本区间样式映射; 方案B(2026-10-01)表格改走块化 MdBlocksView, 不再构造表格 span
  * 标题按 level 分级倍率对齐 markwon headingTextSizeMultipliers, 代码块整块圆角背景。
  */
+/** 附件/产物占位链接 span: 点击走 attLinkOpener 进预览分发; 快照按 att:// url 类型往返(RenderedCodec) */
+class AttLinkSpan(val file: String) : ClickableSpan() {
+    override fun onClick(widget: View) { MdSpannable.attLinkOpener?.invoke(file) }
+    override fun updateDrawState(ds: TextPaint) { ds.isUnderlineText = false; ds.color = MdSpannable.linkColor }
+}
+
+/** 产物卡描边(2026-11-02): "📦 产物 · x"标签区间的圆角边框+底色, LineBackgroundSpan 在文字下层绘制 */
+class ArtifactCardBorderSpan(val indentPx: Int = 0) : LineBackgroundSpan {
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.1f * Resources.getSystem().displayMetrics.density
+        color = Ui.STROKE
+    }
+
+    override fun drawBackground(canvas: Canvas, paint: Paint, left: Int, right: Int, top: Int, baseline: Int,
+                                bottom: Int, text: CharSequence, start: Int, end: Int, lnum: Int) {
+        val d = Resources.getSystem().displayMetrics.density
+        val w = paint.measureText(text, start, end)
+        if (w <= 0f) return
+        // 文字因整卡缩进右移 indentPx: 框跟随文字, 两侧各留 6dp 内边距, 完全包住图标和文字
+        val x0 = left + indentPx
+        val rect = RectF(x0 - 6 * d, top - 5 * d, x0 + w + 6 * d, bottom + 3 * d)
+        // 仅描边无底色(2026-11-02 用户要求)
+        canvas.drawRoundRect(rect, 13 * d, 13 * d, stroke)
+    }
+}
+
+/** 给富文本中"📦 产物"开头的附件标签区间挂描边(附件/图片卡不加, 仅产物卡) */
+fun attachArtifactCardBorders(sp: Spannable) {
+    for (s in sp.getSpans(0, sp.length, AttLinkSpan::class.java)) {
+        val st = sp.getSpanStart(s)
+        val en = sp.getSpanEnd(s)
+        if (st >= 0 && en > st && sp.substring(st, en).startsWith("\uD83D\uDCE6 产物")) {
+            val indentPx = (10f * Resources.getSystem().displayMetrics.density).toInt()
+            sp.setSpan(ArtifactCardBorderSpan(indentPx), st, en, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            // 2026-11-02: 整卡右移 10dp, 避免左侧框线被气泡边缘裁切
+            sp.setSpan(android.text.style.LeadingMarginSpan.Standard(indentPx), st, en, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            // 2026-11-02: 标签首的 emoji 用 Lucide package 矢量图标替换显示(display-only, 原文不动)
+            MdSpannable.artifactIconFactory?.invoke()?.let { d ->
+                sp.setSpan(ImageSpan(d, ImageSpan.ALIGN_CENTER), st, st + 2, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+    }
+}
+
 object MdSpannable {
     // 链接/标题/引用竖线色随主题注入（Ui.applyTheme），暗色主题下不再深蓝/深色不可读
     const val LINK_COLOR = 0xFF1565C0.toInt()     // 链接蓝（浅色兜底）
+
+    // 产物卡图标工厂(2026-11-02): Lucide package 矢量图, 宿主 onCreate 注入; 每次 produce 新实例(含 bounds/着色)
+    @Volatile var artifactIconFactory: (() -> Drawable?)? = null
     const val HEADING_COLOR = 0xFF0D47A1.toInt()  // 标题深蓝（浅色兜底）
     @Volatile var linkColor: Int = LINK_COLOR
     @Volatile var headingColor: Int = HEADING_COLOR
@@ -48,6 +104,8 @@ object MdSpannable {
     @Volatile var codeBlockBg: Int = CODE_BG
     @Volatile var inlineCodeBg: Int = INLINE_CODE_BG
 
+    /** att:// 链接打开回调(2026-11-02 产物通道): 宿主注入, 点击气泡内附件/产物占位进预览 */
+    @Volatile var attLinkOpener: ((String) -> Unit)? = null
     /** 知识库图片池渲染(2026-10-19 阶段3): 详情页注入, 按相对路径(kb_images/...)加载本地图 */
     @Volatile var kbImageLoader: ((path: String) -> Bitmap?)? = null
     /** 图片显示最大宽度(px): 渲染前由宿主注入 TextView 可用宽度, 超宽等比缩放 */
@@ -76,8 +134,15 @@ object MdSpannable {
                     sb.setSpan(RoundedBlockBgSpan(codeBlockBg, density), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 MdSpanType.LINK -> {
-                    sp.extra?.let { sb.setSpan(URLSpan(it), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
-                    sb.setSpan(ForegroundColorSpan(linkColor), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    val dest0 = sp.extra ?: ""
+                    if (dest0.startsWith("att://")) {
+                        // 附件/产物占位: 点击走宿主注入的预览分发(产物进查看页, 其余附件进媒体预览)
+                        val file0 = dest0.removePrefix("att://")
+                        sb.setSpan(AttLinkSpan(file0), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    } else {
+                        sb.setSpan(URLSpan(dest0), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        sb.setSpan(ForegroundColorSpan(linkColor), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
                 }
                 MdSpanType.HEADING -> {
                     val level = sp.extra?.toIntOrNull() ?: 1
@@ -121,6 +186,8 @@ object MdSpannable {
                 }
             }
         }
+        // 产物卡描边(2026-11-02): "📦 产物"标签区间挂圆角边框背景
+        if (sb.contains("\uD83D\uDCE6 产物")) attachArtifactCardBorders(sb)
         return sb
     }
 

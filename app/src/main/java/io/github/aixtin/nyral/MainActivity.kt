@@ -114,6 +114,8 @@ import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TableTheme
 import io.noties.markwon.core.MarkwonTheme
 import org.commonmark.node.FencedCodeBlock
+import org.commonmark.node.Link
+import io.noties.markwon.core.CoreProps
 import org.commonmark.node.IndentedCodeBlock
 import io.noties.markwon.SpanFactory
 import io.noties.markwon.RenderProps
@@ -177,6 +179,13 @@ class MainActivity : Activity() {
                     }
                     builder.setFactory(FencedCodeBlock::class.java, codeBlockFactory)
                     builder.setFactory(IndentedCodeBlock::class.java, codeBlockFactory)
+                    // 产物通道(2026-11-02): att:// 链接走 AttLinkSpan 进宿主预览分发(与自研链同行为),
+                    // 其余链接保持 markwon 默认 LinkSpan
+                    builder.setFactory(Link::class.java) { configuration, props ->
+                        val dest = props.get(CoreProps.LINK_DESTINATION) ?: ""
+                        if (dest.startsWith("att://")) AttLinkSpan(dest.removePrefix("att://"))
+                        else io.noties.markwon.core.spans.LinkSpan(configuration.theme(), dest, io.noties.markwon.LinkResolverDef())
+                    }
                 }
             })
             .usePlugin(StrikethroughPlugin.create())
@@ -195,6 +204,7 @@ class MainActivity : Activity() {
     private val MAX_MSG_HISTORY = 8000
     /** 当前会话窗口化加载时, 窗口起点在 DB 中的全局 seq(=总条数-窗口条数); 非窗口化时为 0, 保存时据此保留窗口外旧消息 */
     internal var sessionBaseSeq = 0
+    private var pendingCameraFile: File? = null   // 拍照暂存文件, onActivityResult 消费
     /** 上次检测的头像版本戳, 换头像返回时比对变化以刷新旧气泡 */
     private var lastAvatarStamp = 0L
     internal val chatRows = ArrayList<ChatRow>()
@@ -297,6 +307,7 @@ class MainActivity : Activity() {
     private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
     internal val REQ_EMOJI_PICK = 1008  // 表情库选图: 结果存表情库而非聊天发送
     internal val REQ_MEDIA = 1009  // 相册(图片+视频混合): 系统 Photo Picker, 低版本降级 DocumentsUI
+    private val REQ_CAMERA = 1010  // 拍照(2026-11-03 抽屉接入): ACTION_IMAGE_CAPTURE 写 cacheDir/camera/
     // 图片压缩上限: 最长边/质量
     internal val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
     // 录音: 上限 60 秒 / 10MB(语音消息足够, 超限直接拒)
@@ -475,6 +486,17 @@ class MainActivity : Activity() {
         MdSpannable.density = resources.displayMetrics.density
         MdSpannable.codeBlockBg = Ui.INPUT_BG
         MdSpannable.inlineCodeBg = Ui.INPUT_BG
+        MdSpannable.attLinkOpener = { file -> openAttachmentPreview(listOf(file), 0) }
+        // 2026-11-02: 产物卡图标(Lucide package) — 每次新 Drawable 实例, 着色随主题链接色
+        MdSpannable.artifactIconFactory = {
+            val dr = getDrawable(R.drawable.ic_artifact_package)?.mutate()
+            if (dr != null) {
+                dr.setTint(MdSpannable.linkColor)
+                val sz = (15f * resources.displayMetrics.density).toInt()
+                dr.setBounds(0, 0, sz, sz)
+            }
+            dr
+        }
         initConfigs()
         setupBrowserControllers()
         setupSwipeDetector()
@@ -4526,6 +4548,26 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 抽屉"拍照": 相机经 LocalFileProvider content://<pkg>.files/camera/<名> 直接写入暂存文件 */
+    internal fun launchCamera() {
+        try {
+            val dir = File(cacheDir, "camera").apply { mkdirs() }
+            // 清掉上次遗留(取消拍摄或已消费的残留), 暂存区只留本次文件
+            dir.listFiles()?.forEach { it.delete() }
+            val name = "IMG_" + System.currentTimeMillis() + ".jpg"
+            pendingCameraFile = File(dir, name)
+            val uri = Uri.Builder().scheme("content").authority(packageName + ".files")
+                .path("/camera/").appendPath(name).build()
+            val i = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                .putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            startActivityForResult(i, REQ_CAMERA)
+        } catch (e: Exception) {
+            pendingCameraFile = null
+            Toast.makeText(this, getString(R.string.toast_picker_fail, e.message), Toast.LENGTH_SHORT).show()
+        }
+    }
+
     internal fun pickAudio() {
         startPick(Intent.ACTION_OPEN_DOCUMENT, "audio/*", REQ_AUDIO, "选择音频")
     }
@@ -4554,6 +4596,17 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        // 拍照: EXTRA_OUTPUT 写文件模式回调 data 为 null, 先于 data 判空处理
+        if (requestCode == REQ_CAMERA) {
+            val f = pendingCameraFile
+            pendingCameraFile = null
+            if (resultCode == Activity.RESULT_OK && f != null && f.isFile && f.length() > 0) {
+                val uri = Uri.Builder().scheme("content").authority(packageName + ".files")
+                    .path("/camera/").appendPath(f.name).build()
+                attachmentSender.sendAttachmentFromUri(uri)
+            }
+            return
+        }
         if (resultCode != Activity.RESULT_OK || data == null) return
         // 支持一次多选, 但每次携带上限 6 个: 超出部分丢弃并提示
         // 去重: 部分选择器单选时 data 与 clipData 同时携带同一 URI, 直接收集会重复上传同一文件
@@ -4705,11 +4758,11 @@ class MainActivity : Activity() {
         // 聊天模式: 屏幕宽-聊天框padding(12*2)-头像(40*2)-间距(8*2)=w-120dp, 气泡右缘停在对头像内侧(左右对称);
         // Agent 模式: 全屏宽 w (2026-10-02 起 Agent 模式全屏, 聊天模式恢复对称收窄)
         return if (ModeConfig.chatMode()) {
-            // 2026-10-30 第三批: 文本气泡最大宽收口到屏宽 78%(原 w-120dp 在 400dp 级屏上仅约 70%,
-            // 长段落读起来过窄); 同时不超过"到对方头像内侧"的可用宽度, 防窄屏越界/压头像
+            // 2026-11-03 恢复走廊约束: 气泡最宽限制在两侧头像之间的走廊 w-120dp,
+            // AI 气泡最宽右缘 = 用户气泡右锚点(右头像内侧), 用户气泡最宽左缘 = AI 气泡起始线, 互不越界
+            // (2026-10-30 的 78% 方案会让两边气泡压进对方头像区, 按用户要求回退)
             val w = resources.displayMetrics.widthPixels
-            val ratio = (w * 0.78f).toInt()
-            ratio.coerceAtMost((w - dp(96)).coerceAtLeast(dp(100))).coerceAtLeast(dp(100))
+            (w - dp(120)).coerceAtLeast(dp(100))
         } else {
             resources.displayMetrics.widthPixels
         }

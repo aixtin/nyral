@@ -84,6 +84,13 @@
             android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
 
+        <!-- 产物查看页(2026-11-02 产物通道): AI 登记产物的全屏查看/保存/分享 -->
+        <activity
+            android:name=".ArtifactViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Nyral.NoActionBar">
+        </activity>
+
         <receiver
             android:name=".TaskControlReceiver"
             android:exported="false" />

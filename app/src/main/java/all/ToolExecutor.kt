@@ -408,6 +408,42 @@ object ToolExecutor {
                     else -> "browser 需指定 action: open/scan/text/scroll/click/type/upload/clear_cache/save_cookies"
                 }
             }
+            "artifact_save" -> {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val name = jo?.optString("name", "")?.trim().orEmpty()
+                val content = jo?.optString("content", "").orEmpty()
+                if (name.isEmpty() || content.isEmpty()) "错误: 缺少 name 或 content, 如 {\"name\":\"demo.html\",\"content\":\"<html>...\"}"
+                else {
+                    val fn = ArtifactStore.save(context, name, content)
+                    if (fn.startsWith("错误:")) fn
+                    else {
+                        val meta = ArtifactStore.metaOf(context, fn)
+                        val v = meta?.optInt("artifact_version", 1) ?: 1
+                        SecurityConfig.audit(context, "artifact_save", "name=$name v=$v len=${content.length}", "ai", "bubble")
+                        "产物已登记: $name (第 $v 版, ${content.length} 字符)。请立即在回复正文中单独一行原样输出 [产物:$name](att://$fn) 向用户展示产物卡片; 不要再重复贴出产物全文。"
+                    }
+                }
+            }
+            "artifact_save_bin" -> {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val name = jo?.optString("name", "")?.trim().orEmpty()
+                val dataB64 = jo?.optString("data", "").orEmpty()
+                if (name.isEmpty() || dataB64.isEmpty()) "错误: 缺少 name 或 data, 如 {\"name\":\"icon.png\",\"data\":\"<base64>\"}"
+                else {
+                    val bytes = try { android.util.Base64.decode(dataB64, android.util.Base64.DEFAULT) } catch (e: Exception) { ByteArray(0) }
+                    if (bytes.isEmpty()) "错误: data 不是合法 Base64, 请给完整文件的 Base64 编码"
+                    else {
+                        val fn = ArtifactStore.saveBytes(context, name, bytes)
+                        if (fn.startsWith("错误:")) fn
+                        else {
+                            val meta = ArtifactStore.metaOf(context, fn)
+                            val v = meta?.optInt("artifact_version", 1) ?: 1
+                            SecurityConfig.audit(context, "artifact_save_bin", "name=$name v=$v bytes=${bytes.size}", "ai", "bubble")
+                            "产物已登记: $name (第 $v 版, ${bytes.size} 字节)。请立即在回复正文中单独一行原样输出 [产物:$name](att://$fn) 向用户展示产物卡片; 不要再重复贴出产物内容。"
+                        }
+                    }
+                }
+            }
             "web_search" -> WebTools.search(arg)
             "web_fetch" -> WebTools.fetch(context, arg)
             "site_auth" -> WebTools.siteAuth(context, arg)

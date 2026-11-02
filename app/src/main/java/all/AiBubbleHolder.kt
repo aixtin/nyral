@@ -492,7 +492,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             textSize = 14f
             setTextColor(THINK_TEXT)
             maxWidth = host.chatMaxW()
-            setPadding(host.dp(10), host.dp(8), host.dp(10), host.dp(8))
+            setPadding(host.dp(Ui.SP3), host.dp(Ui.SP2), host.dp(Ui.SP3), host.dp(Ui.SP2))
             background = rounded(host.dp(10), floatBubbleColor(THINK_BG))
             elevation = host.dp(2).toFloat()
             text = b.text.toString()
@@ -1559,6 +1559,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
      *  不再显示打字机进度(静默期无打字), 内容由 finishTypeRender 一次性填充 */
     private fun attachContentView(b: ContentBlock): TextView? {
         val tv = TextView(host).apply {
+            movementMethod = android.text.method.LinkMovementMethod.getInstance()
             textSize = 15f
             setTextColor(BUBBLE_AI_TEXT)
             setLineSpacing(host.dp(3).toFloat(), 1.45f)
@@ -1784,7 +1785,9 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 continue
             }
             val v = b.view   // 局部捕获: 成员 var 不能智能转换
-            if (v != null && b.revealed) {
+            // 附件/产物段(2026-11-02): 成品视图文本是"📦 产物 · x"展示形态, 不含 att:// 引用,
+            // 持久化用它会把产物链接弄丢 -> 一律落原始 MD
+            if (v != null && b.revealed && !b.text.contains("att://")) {
                 sb.append(v.text?.toString() ?: b.text.toString())
             } else {
                 sb.append(ModeConfig.stripChatProtocolPrefix(b.text.toString()).trim())
@@ -2122,6 +2125,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 // 含附件(att://): 卡片挂载依赖视图, 静默期未排版, 收尾走 markwon 渲染真实卡片
                 b.streamRenderer.clearCache()
                 host.markwon.setMarkdown(tv, stripped)
+                (tv.text as? android.text.Spannable)?.let { attachArtifactCardBorders(it) }
                 host.makeCopyable(tv) { ModeConfig.stripChatProtocolPrefix(b.text.toString()) }
                 keepBubbleWidth(b, tv)
             } else {
@@ -2153,12 +2157,18 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         s = s.replace(Regex("""\[视频:[^\]]*\]\(att://[^)]*\)"""), "\uD83D\uDCCE 视频")
         s = s.replace(Regex("""\[图片\]\(att://[^)]*\)"""), "\uD83D\uDDBC\uFE0F 图片")
         s = s.replace(Regex("""\[音频\]\(att://[^)]*\)"""), "\uD83C\uDFA4 音频")
+        s = s.replace(Regex("""\[产物:[^\]]*\]\(att://[^)]*\)"""), "\uD83D\uDCE6 产物")
         // 完整 markdown 图片/产品图 -> 占位(URL 尚在流式中或已完整均不展开)
         s = s.replace(Regex("""!\[[^\]]*\]\([^)]*\)"""), "\uD83D\uDDBC\uFE0F 图片")
         // 半截未闭合标记(如 "[文件:" / "[文件:xxx" / "![图片](url") -> 隐藏, 避免显示半成品
-        s = s.replace(Regex("""\[(?:文件|视频|图片|音频)[^\]\n]*$"""), "")
+        s = s.replace(Regex("""\[(?:文件|视频|图片|音频|产物)[^\]\n]*$"""), "")
         s = s.replace(Regex("""!\[[^\]\n]*$"""), "")
         s = s.replace(Regex("""\[[^\]\n]*\(att://[^)]*$"""), "")
+        // 产物卡变体兜底(2026-11-02): 历史快照回灌/模型仿写可能产出 [📦 产物 · x](att://..) 变体,
+        // canonical 正则罩不住 -> 打字期间同样只给占位, 不露原文(修复"重启后先见原文再变卡片")
+        s = s.replace(Regex("""\[\uD83D\uDCE6[^\]\n]*\]\(att://[^)]*\)"""), "\uD83D\uDCE6 产物")
+        s = s.replace(Regex("""\[[^\]\n]*产物[^\]\n]*\]\(att://[^)]*\)"""), "\uD83D\uDCE6 产物")
+        s = s.replace(Regex("""\[\uD83D\uDCE6[^\]\n]*$"""), "")
         return s
     }
 

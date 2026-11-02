@@ -229,6 +229,8 @@ object LocalEngine {
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}"),
         ToolSpec("security_set", "安全管理开关(2026-10-30 收紧): 模型侧仅保留 ssh_trust —— 信任待确认的SSH主机密钥。危险门禁三档(danger_mode)与 root 自动补权(root_auto_grant)已从模型侧收回: 调用这些参数会被直接拒绝, 只能由用户在 设置 → 安全中心 手动修改; 用户提出关/改门禁时应引导其自行前往该页面, 不要代为操作", "JSON: {\"ssh_trust\":\"连接名\"}"),
         ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}"),
+        ToolSpec("artifact_save", "产物登记通道: 把完整成品以卡片形式交付给用户, 成品全文不要直接贴在回复里。必须调用的场景: 用户要完整代码文件/可运行的 HTML 网页/成品文档/SVG 图形, 或产出连续代码超过 30 行, 或用户要求保存/导出/交付文件。不要滥用: 简短代码片段(<10行)、解释性示例、纯思路讨论不登记。只接受纯文本内容(代码/HTML/SVG/Markdown/PDF源码等): PNG/MP4/DOCX 等二进制格式走本工具会损坏, 一律拒绝并说明改用文件通道。content 必须是产物文件本身的正文, 不要把工具调用指令/JSON包装/解释文字混进 content。同名再登记自动覆盖升版, 历史卡片展示最新版。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片, 不要重复贴全文", "JSON: {\"name\":\"产物文件名(带扩展名, 如 demo.html / report.md)\",\"content\":\"完整产物内容(纯文本)\"}"),
+        ToolSpec("artifact_save_bin", "二进制产物登记通道: 把图片/音频/视频/压缩包等二进制成品以 Base64 编码登记为产物卡片, 供用户查看或分享。适用: 用户要图片文件/音频/视频小样/zip 包, 且内容能一次给全(解码后不超过 512KB)。data 必须是文件完整二进制的标准 Base64(不要混入 data: 前缀、引号或说明文字)。纯文本产物(HTML/SVG/Markdown/代码)仍走 artifact_save, 不要用本工具。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片", "JSON: {\"name\":\"产物文件名(带扩展名)\",\"data\":\"<完整文件的 Base64>\"}"),
         ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}")
     )
 
@@ -269,7 +271,7 @@ object LocalEngine {
     private val TOOL_WHITELIST = setOf(
         "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
         "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "pdf_page", "image_view", "audio_read", "file_export", "security_set",
-        "timer_task_create", "write_clipboard"
+        "timer_task_create", "write_clipboard", "artifact_save", "artifact_save_bin"
     )
 
     interface Callback {
@@ -511,6 +513,12 @@ object LocalEngine {
                 "name" to str("附件文件名(可带 att:// 前缀)"))
             "write_clipboard" -> obj(listOf("text"),
                 "text" to str("要复制到手机系统剪贴板的完整文本(用户可粘贴到其他 App)"))
+            "artifact_save" -> obj(listOf("name", "content"),
+                "name" to str("产物文件名(带扩展名, 如 demo.html / report.md)"),
+                "content" to str("完整产物内容(整文件一次给全, 不要截断)"))
+            "artifact_save_bin" -> obj(listOf("name", "data"),
+                "name" to str("产物文件名(带扩展名, 如 icon.png / ring.mp3)"),
+                "data" to str("完整文件内容的 Base64 编码(标准字母表, 不要换行前缀), 原始文件不超过 512KB"))
             "tool_detail" -> obj(listOf("name"),
                 "name" to str("要查询并临时激活的工具名(来自 system 工具索引)"))
             "workdir" -> obj(listOf("action"),

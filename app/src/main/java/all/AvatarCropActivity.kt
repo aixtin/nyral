@@ -149,23 +149,29 @@ class AvatarCropActivity : Activity() {
         }
     }
 
-    /** 从裁剪框输出 1:1 正方形并写临时文件返回 */
+    /** 从裁剪框输出 1:1 正方形并写临时文件返回（压缩挪到后台线程，避免主线程阻塞 ANR） */
     private fun doCrop() {
         val out = cropView.cropBitmap() ?: run {
             Toast.makeText(this, getString(R.string.crop_err_fail), Toast.LENGTH_SHORT).show(); return
         }
-        try {
-            val tmp = File(cacheDir, "avatar_crop_${System.currentTimeMillis()}.png")
-            FileOutputStream(tmp).use { fos ->
-                out.compress(Bitmap.CompressFormat.PNG, 100, fos)
+        Thread {
+            try {
+                val tmp = File(cacheDir, "avatar_crop_${System.currentTimeMillis()}.png")
+                FileOutputStream(tmp).use { fos ->
+                    out.compress(Bitmap.CompressFormat.PNG, 100, fos)
+                }
+                runOnUiThread {
+                    setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT_PATH, tmp.absolutePath))
+                    finish()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, getString(R.string.crop_err_save, e.message), Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                if (!out.isRecycled) out.recycle()
             }
-            setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT_PATH, tmp.absolutePath))
-            finish()
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.crop_err_save, e.message), Toast.LENGTH_SHORT).show()
-        } finally {
-            if (!out.isRecycled) out.recycle()
-        }
+        }.start()
     }
 }
 
@@ -372,16 +378,9 @@ class CropImageView(context: Context) : View(context) {
                         invalidate()
                     }
                     MODE_DRAG_CROP -> {
-                        var nx = cropRect.left + (event.x - lastX)
-                        var ny = cropRect.top + (event.y - lastY)
-                        val side = cropRect.width()
-                        // 限制在图片可视区域内（safeCoerce 防空区间浮点误差崩溃）
-                        val imgRect = imageViewRect()
-                        if (side <= imgRect.width() && side <= imgRect.height()) {
-                            nx = nx.safeCoerce(maxOf(0f, imgRect.left), minOf(width.toFloat() - side, imgRect.right - side))
-                            ny = ny.safeCoerce(maxOf(0f, imgRect.top), minOf(height.toFloat() - side, imgRect.bottom - side))
-                        }
-                        cropRect.set(nx, ny, nx + side, ny + side)
+                        // 无条件钳制：即使裁剪框大于图片显示区域，也由 clampCropRectToImage 收缩回图片内
+                        cropRect.offset(event.x - lastX, event.y - lastY)
+                        clampCropRectToImage()
                         lastX = event.x
                         lastY = event.y
                         invalidate()
@@ -532,14 +531,20 @@ class CropImageView(context: Context) : View(context) {
     /** 裁剪框整体不越出图片可视区域（用于拖动时），并保证仍完整可见 */
     private fun clampCropRectToImage() {
         val imgRect = imageViewRect()
-        val side = cropRect.width()
+        var side = cropRect.width()
         if (side <= 0f) return
+        // 图片显示区域比裁剪框小时，先把框收缩到能容纳的尺寸，杜绝越界
+        val maxSide = minOf(imgRect.width(), imgRect.height())
+        if (side > maxSide) {
+            side = maxSide
+            cropRect.set(cropRect.left, cropRect.top, cropRect.left + side, cropRect.top + side)
+        }
         // 合法活动范围 = 图片区域 ∩ 视图区域
         val minX = maxOf(0f, imgRect.left)
         val maxX = minOf(width.toFloat() - side, imgRect.right - side)
         val minY = maxOf(0f, imgRect.top)
         val maxY = minOf(height.toFloat() - side, imgRect.bottom - side)
-        if (maxX < minX || maxY < minY) return // 图片过小，保持原位置由覆盖约束保证
+        if (maxX < minX || maxY < minY) return // 极端情况：图片完全移出可视区，保持原位置
         var l = cropRect.left.coerceIn(minX, maxX)
         var t = cropRect.top.coerceIn(minY, maxY)
         cropRect.set(l, t, l + side, t + side)
@@ -566,7 +571,7 @@ class CropImageView(context: Context) : View(context) {
         val after = imageViewRect()
         val needW = baseRect.width()
         val needH = baseRect.height()
-        if (after.width() < needW * 0.999f || after.height() < needH * 0.999f) {
+        if (after.width() < needW || after.height() < needH) {
             // 最小缩放 = 让图片至少覆盖裁剪框
             val sw = (src?.width ?: 1).toFloat()
             val sh = (src?.height ?: 1).toFloat()
@@ -581,8 +586,12 @@ class CropImageView(context: Context) : View(context) {
 
     /** 平移/缩放后保证图片覆盖裁剪框（图片边缘不越过裁剪框中心区域） */
     private fun clampImageCover() {
+        // 先保证裁剪框不越出图片（框过大时收缩到图片短边），杜绝悬空状态
+        clampCropRectToImage()
         val imgRect = imageViewRect()
         val r = cropRect
+        // 图片仍比裁剪框小（极端情况）则放弃平移，保持现状
+        if (imgRect.width() < r.width() || imgRect.height() < r.height()) return
         // 图片不能比裁剪框小（应已保证），只约束平移使裁剪框在图片内
         val maxDX = imgRect.right - r.right
         val minDX = imgRect.left - r.left

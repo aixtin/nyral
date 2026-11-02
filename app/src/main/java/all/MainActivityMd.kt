@@ -20,7 +20,18 @@ import android.util.LruCache
             if (t.contains("|") && t.contains("-") && t.all { it == '|' || it == '-' || it == ':' || it.isWhitespace() }) continue
             sb.append(line).append('\n')
         }
-        return sb.toString().trimEnd('\n')
+        // 附件/产物占位净化(2026-11-02): 滑动/预热期占位不得露出 [产物:x](att://..) 原文
+        // (重启恢复闪帧的根源), 统一替换为与流式占位/成品卡片同形态的轻量标记
+        var out = sb.toString().trimEnd('\n')
+        out = Regex("""\[产物:([^\]]*)\]\(att://[^)]*\)""").replace(out) { m -> ModeConfig.artifactCardLabel(m.groupValues[1]) }
+        out = Regex("""\[📦 产物 · ([^\]]*)\]\(att://[^)]*\)""").replace(out) { m -> ModeConfig.artifactCardLabel(m.groupValues[1]) }
+        out = out.replace(Regex("""\[\uD83D\uDCE6[^\]\n]*\]\(att://[^)]*\)"""), "\uD83D\uDCE6 产物")
+        out = out.replace(Regex("""\[文件:([^\]]*)\]\(att://[^)]*\)"""), "\uD83D\uDCCE $1")
+        out = out.replace(Regex("""\[视频:([^\]]*)\]\(att://[^)]*\)"""), "\uD83D\uDCCE $1")
+        out = out.replace(Regex("""\[音频\]\(att://[^)]*\)"""), "\uD83C\uDFA4 音频")
+        out = out.replace(Regex("""\[图片\]\(att://[^)]*\)"""), "\uD83D\uDDBC\uFE0F 图片")
+        out = out.replace(Regex("""\[[^\]\n]*\]\(att://[^)]*\)"""), "\uD83D\uDCCE 附件")
+        return out
     }
     /** 高度缓存 key: md 分片内容 + 当前气泡宽度(px) 分档, 宽度变化不串档 */
     internal fun MainActivity.heightKey(md: String) = md + "@" + chatMaxW()
@@ -81,6 +92,7 @@ import android.util.LruCache
      *  所有路径挂高度漂移补偿, 抵御 Markwon 表格 span 布局后二次测量 */
 
     internal fun MainActivity.setMarkdownCached(tv: TextView, md: String, rendered: String? = null, writeback: ((Spanned) -> Unit)? = null) {
+        if (tv.movementMethod == null) tv.movementMethod = android.text.method.LinkMovementMethod.getInstance()
         // 方案B(2026-10-01): 历史渲染统一块化, 本入口只应收无表格文本;
         // 若仍收到表格语法说明有渲染点漏走块化预判 -> 告警便于发现(表格会退化为 span 旧路径)
         if (containsTableSyntax(md)) android.util.Log.w("NyralTbl", "setMarkdownCached got table md len=" + md.length)
@@ -96,7 +108,7 @@ import android.util.LruCache
         // 阶段5 span 宽度现算: 表格行宽度固化在 span 里, 渲染/反序列化前必须注入当前 TextView 可用宽,
         // 与 AiBubbleHolder 一致, 保证池化复用/重启直读与现场渲染同宽(消除表格二次跳变)
         val renderW = if (tv.maxWidth > 0) tv.maxWidth else MdSpannable.tableMaxWidth
-        if (mdCache.get(md) == null && !rendered.isNullOrBlank()) {
+        if (mdCache.get(md) == null && !rendered.isNullOrBlank() && !md.contains("att://")) {
             val dec = RenderedCodec.decode(
                 rendered,
                 markwon.configuration().theme(),
@@ -430,6 +442,12 @@ import android.util.LruCache
         return false
     }
 
+    /** markwon 渲染结果挂产物卡描边(2026-11-02) */
+    private fun attachCardBordersMd(sp: CharSequence?): Spanned? {
+        (sp as? android.text.Spannable)?.let { attachArtifactCardBorders(it) }
+        return sp as? Spanned
+    }
+
     /** 历史渲染统一入口(2026-10-18 列表圆点丢失修复): 含列表语法走自研 MdToSpans(圆点随缩进文本),
      *  其余保持 markwon 原路径。自研链失败回退 markwon, 保证渲染不中断。 */
     internal fun MainActivity.renderHistoryMd(md: String, renderW: Int): Spanned? {
@@ -440,10 +458,10 @@ import android.util.LruCache
                 val cs = MdSpannable.toSpannable(ms)
                 cs as? Spanned
             } catch (e: Exception) {
-                synchronized(markwonRenderLock) { markwon.toMarkdown(md) }
+                attachCardBordersMd(synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
             }
         } else {
-            synchronized(markwonRenderLock) { markwon.toMarkdown(md) }
+            attachCardBordersMd(synchronized(markwonRenderLock) { markwon.toMarkdown(md) })
         }
     }
 
@@ -457,7 +475,7 @@ import android.util.LruCache
                 return
             } catch (e: Exception) { /* 回退 markwon */ }
         }
-        synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md) }
+        synchronized(markwonRenderLock) { markwon.setMarkdown(tv, md); (tv.text as? android.text.Spannable)?.let { attachArtifactCardBorders(it) } }
     }
 
     /** 轻量预判 Markdown 表格语法(竖线表): 首行含 |, 次行为分隔行(|---|) */

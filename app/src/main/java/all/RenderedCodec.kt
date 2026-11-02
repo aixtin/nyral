@@ -101,7 +101,11 @@ object RenderedCodec {
             "strike" -> sb.setSpan(StrikethroughSpan(), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             "url" -> {
                 val u = o.optString("url", "")
-                if (u.isNotEmpty()) sb.setSpan(URLSpan(u), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                if (u.isNotEmpty()) {
+                    // att:// 引用: 还原为可点击附件/产物 span(产物通道 2026-11-02)
+                    if (u.startsWith("att://")) sb.setSpan(AttLinkSpan(u.removePrefix("att://")), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    else sb.setSpan(URLSpan(u), s, e, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
             }
             "typeface" -> {
                 val f = o.optString("family", "monospace")
@@ -143,6 +147,7 @@ object RenderedCodec {
             is ForegroundColorSpan -> { o.put(KEY_T, "fg"); o.put("color", sp.foregroundColor); o }
             is BackgroundColorSpan -> { o.put(KEY_T, "bg"); o.put("color", sp.backgroundColor); o }
             is StrikethroughSpan -> { o.put(KEY_T, "strike"); o }
+            is AttLinkSpan -> { o.put(KEY_T, "url"); o.put("url", "att://" + sp.file); o }
             is URLSpan -> { o.put(KEY_T, "url"); o.put("url", sp.url); o }
             is TypefaceSpan -> {
                 o.put(KEY_T, "typeface")

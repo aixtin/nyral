@@ -57,12 +57,58 @@ object ModeConfig {
      */
     fun stripChatProtocolPrefix(s: String): String {
         if (s.isBlank()) return s
-        return s.replace(Regex("(?m)^\\s*思考\\s*[:：][^\\r\\n]*\\r?\\n?"), "")
+        // 产物通道(2026-11-02): 产物链接文案统一为卡片样式(仅渲染层改写, 不动消息原文), markwon/自研链两路一致
+        var t0 = s.replace(Regex("\\[产物\\s*[:：]\\s*([^\\]]+)\\]\\((att://[^)]+)\\)")) { m ->
+            "[${artifactCardLabel(m.groupValues[1])}](${m.groupValues[2]})"
+        }
+        // 一排一个(2026-11-02): 每张产物卡独立成段, 长名/多卡不与正文挤在一行
+        t0 = rebuildArtifactLines(t0)
+        return t0.replace(Regex("(?m)^\\s*思考\\s*[:：][^\\r\\n]*\\r?\\n?"), "")
             .replace(Regex("(?m)^\\s*TOOL\\s*[:：][^\\r\\n]*\\r?\\n?"), "")
             .replace(Regex("(?m)^\\s*答案\\s*[:：]\\s*"), "")
-            .replace(Regex("\\n{3,}"), "\\n\\n")
+            .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
     }
+
+    /** 产物名宽度: CJK/全角记 2, 半角记 1 */
+    private fun artNameW(c: Char): Int = if (c.code > 0x2E7F) 2 else 1
+
+    /** 产物名展示(2026-11-02): 超长名中间省略(头部 60% + 省略号 + 尾部 40%, 扩展名可见), 预算内原样; 幂等 */
+    fun artifactDisplayName(name: String, budget: Int = 28): String {
+        if (name.sumOf { artNameW(it) } <= budget) return name
+        val headBudget = (budget - 1) * 3 / 5
+        val tailBudget = (budget - 1) * 2 / 5
+        var acc = 0; var headEnd = 0
+        while (headEnd < name.length && acc + artNameW(name[headEnd]) <= headBudget) { acc += artNameW(name[headEnd]); headEnd++ }
+        var tailStart = name.length; acc = 0
+        while (tailStart > headEnd && acc + artNameW(name[tailStart - 1]) <= tailBudget) { acc += artNameW(name[tailStart - 1]); tailStart-- }
+        return name.substring(0, headEnd) + "…" + name.substring(tailStart)
+    }
+
+    /** 产物卡标签: "📦 产物 · 展示名"(展示名已按预算中间省略) */
+    fun artifactCardLabel(name: String): String = "📦 产物 · " + artifactDisplayName(name)
+
+    private val ART_LINK = Regex("\\[📦 产物 · [^\\]]*\\]\\(att://[^)]*\\)")
+
+    /** 一排一个(2026-11-02): 逐行扫描, 含产物卡的行重建为 独立段(卡前有文字另起段/卡与卡之间空行/卡后接文字另起段) */
+    fun rebuildArtifactLines(s: String): String =
+        s.split('\n').joinToString("\n") { line ->
+            if (!line.contains("📦 产物 · ")) line
+            else {
+                val out = StringBuilder(); var rest = line
+                while (true) {
+                    val m = ART_LINK.find(rest) ?: break
+                    val before = rest.substring(0, m.range.first).trim()
+                    if (before.isNotEmpty()) { out.append(before).append("\n\n") }
+                    out.append(m.value).append("\n\n")
+                    rest = rest.substring(m.range.last + 1)
+                }
+                val tail = rest.trim()
+                if (tail.isNotEmpty()) { out.append(tail).append("\n\n") }
+                // 卡所在行结尾补一个换行: 相邻两卡间/卡与后续文字间的单个换行会被渲染器当软换行并回一行, 强制成段
+                out.toString().trimEnd('\n', ' ') + "\n"
+            }
+        }
 
     /** 聊天模式纯文本渲染: 剥 Markdown 语法(代码围栏/粗斜体/删除线/链接图片/标题/引用/列表/表格), 留可读纯文本;
      *  先走 stripChatProtocolPrefix 剥协议前缀(幂等), 所有渲染路径统一调用: 流式收尾/历史恢复/正文气泡。
