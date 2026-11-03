@@ -34,6 +34,8 @@ AIGC:
 
 [**Download APK**](../../releases/latest) ｜ [Quick start](#quick-start) ｜ [What it does](#what-it-does) ｜ [Project status](#project-status)
 
+> **Official downloads only:** the APK is published on the [GitHub Releases](../../releases/latest) and [Gitee Releases](https://gitee.com/aixtin/Nyral/releases) pages. Packages on third-party mirror sites are not built or verified by us — please download only from the official channels.
+
 </div>
 
 <p align="center"><img src="docs/screen-home.jpg" width="420" alt="Nyral home screen"></p>

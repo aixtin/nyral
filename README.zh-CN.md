@@ -34,6 +34,8 @@ AIGC:
 
 [**下载 APK**](../../releases/latest) ｜ [五分钟上手](#五分钟上手) ｜ [能做什么](#它能做什么) ｜ [项目状态](#项目状态)
 
+> **仅认官方渠道：** 请从 [GitHub Releases](../../releases/latest) 或 [Gitee Releases](https://gitee.com/aixtin/Nyral/releases) 页面下载 APK。第三方网站上的安装包未经我们构建与校验，请勿轻信。
+
 </div>
 
 <p align="center"><img src="docs/screen-home.jpg" width="420" alt="Nyral 主界面"></p>
