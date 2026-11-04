@@ -39,6 +39,7 @@ The App periodically checks the official GitHub repository (`github.com/aixtin/n
 
 - **Browser component**: when you use the built-in browser, it loads the pages you open, and requests follow the same network rules as a normal browser (including cookies for the sites you visit).
 - **MCP servers**: if you enable MCP servers, the App connects to the addresses you configured. No data is sent to an MCP server unless you actively use it.
+- **Image generation (AI image tools)**: when you use the image generation feature, the prompt text and generation settings you provide are sent to the image provider you configured (built-in: Zhipu GLM-Image/CogView at open.bigmodel.cn, Volcano Ark Seedream at ark.cn-beijing.volces.com; or any custom OpenAI-compatible endpoint). Only the data needed to generate the image is transmitted; other local data stays on your device.
 - **Remote debug (Developer mode)**: the DebugServer is disabled by default; when enabled on your local network, it exposes debugging interfaces only on your LAN.
 
 ## 3. Permissions
