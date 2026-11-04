@@ -1,9 +1,11 @@
 package io.github.aixtin.nyral
 
 import android.app.Activity
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.widget.LinearLayout
@@ -11,31 +13,47 @@ import android.widget.Toast
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 应用更新检查（GitHub Releases 方案）。
+ * 应用更新检查（GitHub + Gitee 双通道）。
  *   - 启动自动检查（同一天只查一次，静默）
  *   - 关于页手动检查（不节流，失败/无新版均有提示）
  *   - 发现新版本弹窗："是否前往更新？" -> 按钮【取消 / 前往下载】
- *   - 点击"前往下载"跳转浏览器打开 GitHub Releases 页面，由用户自行下载
+ *   - 点击"前往下载"：并行探测 GitHub/Gitee 下载通道，选可达且延迟低的一侧，
+ *     交给系统 DownloadManager 后台下载（通知栏可见进度，下载完成可直接打开安装）。
+ *     国内网络 GitHub 常不通/极慢，Gitee 通道兜底，双通道探测自动选优。
  */
 object UpdateChecker {
 
-    // GitHub Releases 最新版接口
-    private const val UPDATE_URL = "https://api.github.com/repos/aixtin/nyral/releases/latest"
-    // 跳转目标：仓库 Releases 页面
-    private const val RELEASE_URL = "https://github.com/aixtin/nyral/releases/latest"
+    // 双源最新版接口：GitHub 优先，失败自动回退 Gitee
+    private val UPDATE_URLS = listOf(
+        "https://api.github.com/repos/aixtin/nyral/releases/latest",
+        "https://gitee.com/api/v5/repos/aixtin/Nyral/releases/latest"
+    )
+    // 双通道 APK 下载地址模板（%s 为 tag，如 v2.9.0）
+    private val DOWNLOAD_URLS = listOf(
+        "https://github.com/aixtin/nyral/releases/download/%s/nyral-%s.apk",
+        "https://gitee.com/aixtin/Nyral/releases/download/%s/nyral-%s.apk"
+    )
     // 「此版本不再提醒」持久化
     private const val PREFS = "app_prefs"
     private const val KEY_IGNORED_VERSION = "update_ignored_version"
+    // 通道探测超时
+    private const val PROBE_TIMEOUT_MS = 4000L
 
     private val main = Handler(Looper.getMainLooper())
 
-    /** manual=true 来自关于页手动点击；false 为启动自动检查（每次启动均检查）。 */
+    /** manual=true 来自关于页手动点击；false 为启动自动检查。 */
     fun check(ctx: Context, manual: Boolean) {
+        // F-Droid 版由商店渠道更新(签名与官网包不同, 内置更新会安装失败), 直接跳过内置更新
+        if (BuildConfig.IS_FDROID) {
+            if (manual) toast(ctx, "F-Droid 版本请前往 F-Droid 客户端更新")
+            return
+        }
         Thread {
             when (val result = fetchLatest()) {
                 is FetchResult.NoRelease -> {
@@ -50,7 +68,7 @@ object UpdateChecker {
                         val ignored = ignoredVersion(ctx)
                         if (result.version == ignored) {
                             // 该版本已被用户选择「此版本不再提醒」: 自动检查静默跳过, 手动检查给出提示
-                            if (manual) toast(ctx, "该版本已设置不再提醒，可前往 GitHub Releases 查看")
+                            if (manual) toast(ctx, "该版本已设置不再提醒，可前往更新页查看")
                         } else {
                             main.post { showUpdateDialog(ctx, result.version) }
                         }
@@ -68,14 +86,23 @@ object UpdateChecker {
         data class Ok(val version: String) : FetchResult()
     }
 
-    /** 拉取最新版信息：404 视为仓库暂无 Release，其余异常归为 Error。 */
+    /** 拉取最新版信息：GitHub 优先，异常回退 Gitee；404 视为仓库暂无 Release。 */
     private fun fetchLatest(): FetchResult {
-        val conn = URL(UPDATE_URL).openConnection() as HttpURLConnection
+        for (url in UPDATE_URLS) {
+            val r = fetchLatestFrom(url)
+            if (r is FetchResult.Ok) return r
+            if (r is FetchResult.NoRelease) return r
+        }
+        return FetchResult.Error
+    }
+
+    private fun fetchLatestFrom(url: String): FetchResult {
+        val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 8000
             conn.readTimeout = 8000
             conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept", "application/vnd.github+json")
+            conn.setRequestProperty("Accept", "application/json")
             val code = conn.responseCode
             if (code == 404) return FetchResult.NoRelease
             if (code != 200) return FetchResult.Error
@@ -115,7 +142,7 @@ object UpdateChecker {
         box.addView(Ui.dialogText(ctx, "检测到新版本，是否前往更新？"))
         box.addView(Ui.primaryBtn(ctx, "前往下载") {
             d.dismiss()
-            openReleasePage(ctx)
+            startBestDownload(ctx, version)
         })
         val ignoreBtn = Ui.dialogCancelBtn(ctx, "此版本不再提醒") {
             ignoreVersion(ctx, version)
@@ -132,11 +159,72 @@ object UpdateChecker {
         d.show()
     }
 
-    private fun openReleasePage(ctx: Context) {
-        try {
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(RELEASE_URL)))
+    /**
+     * 双通道选优下载：并行探测 GitHub/Gitee 的 APK 直链（HEAD + 计时），
+     * 选可达且延迟最低的一侧，交给系统 DownloadManager 后台下载。
+     */
+    private fun startBestDownload(ctx: Context, version: String) {
+        val tag = version.trim()
+        val candidates = DOWNLOAD_URLS.map { String.format(Locale.US, it, tag, tag) }
+        val latch = CountDownLatch(candidates.size)
+        val best = AtomicReference<Pair<String, Long>?>(null) // (url, latencyMs)
+        candidates.forEach { url ->
+            Thread {
+                val lat = probe(url)
+                if (lat != null) {
+                    synchronized(best) {
+                        val cur = best.get()
+                        if (cur == null || lat < cur.second) best.set(url to lat)
+                    }
+                }
+                latch.countDown()
+            }.start()
+        }
+        Thread {
+            latch.await(PROBE_TIMEOUT_MS + 2000, TimeUnit.MILLISECONDS)
+            val chosen = best.get()
+            if (chosen == null) {
+                toast(ctx, "下载通道均不可达，请稍后重试")
+                return@Thread
+            }
+            if (enqueueDownload(ctx, chosen.first, tag)) {
+                toast(ctx, "开始下载 v$tag，进度见通知栏")
+            } else {
+                toast(ctx, "下载启动失败，请稍后重试")
+            }
+        }.start()
+    }
+
+    /** HEAD 探测通道可达性与延迟, 返回耗时 ms, 失败返回 null。 */
+    private fun probe(url: String): Long? {
+        val start = System.currentTimeMillis()
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "HEAD"
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            conn.instanceFollowRedirects = true
+            val code = conn.responseCode
+            conn.disconnect()
+            if (code in 200..399) System.currentTimeMillis() - start else null
         } catch (e: Exception) {
-            toast(ctx, "未找到可用的浏览器")
+            null
+        }
+    }
+
+    /** 系统 DownloadManager 下载到公共 Download 目录, 通知栏可见, 完成可直接打开安装。 */
+    private fun enqueueDownload(ctx: Context, url: String, tag: String): Boolean {
+        return try {
+            val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val req = DownloadManager.Request(Uri.parse(url))
+                .setTitle("Nyral v$tag")
+                .setDescription("正在下载更新包")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "nyral-$tag.apk")
+                .setMimeType("application/vnd.android.package-archive")
+            dm.enqueue(req) >= 0
+        } catch (e: Exception) {
+            false
         }
     }
 

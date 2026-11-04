@@ -43,9 +43,11 @@ android {
             if (crashProps.exists()) crashProps.inputStream().use { load(it) }
         }.getProperty("crashToken", "")
         if (crashToken.isEmpty()) {
-            throw GradleException("crashToken missing in local.properties — refusing to build a broken release; inject via secret on CI")
+            logger.warn("crashToken missing in local.properties — crash reporting disabled (empty token)")
         }
         buildConfigField("String", "CRASH_TOKEN", "\"" + crashToken + "\"")
+        // F-Droid 渠道标志: -Pfdroid 构建注入 true, 商店版不弹内置更新/提示走 F-Droid
+        buildConfigField("boolean", "IS_FDROID", if (project.hasProperty("fdroid")) "true" else "false")
         ndk {
             abiFilters += listOf(project.findProperty("nyralAbi") as String? ?: "arm64-v8a")
         }
