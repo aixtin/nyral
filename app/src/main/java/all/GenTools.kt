@@ -17,6 +17,7 @@ object GenTools {
 
     private const val TAG = "GenTools"
     private const val MAX_POLL_MS = 120 * 1000L
+    private const val GEN_IMAGE_MAX = 4 * 1024 * 1024
 
     /** 生图入口(ToolExecutor 分发): arg = {"prompt":"...","size":"1024*1024","n":1,"provider":"可选厂商id"} */
     fun genImage(context: Context, arg: String): String {
@@ -54,7 +55,8 @@ object GenTools {
             } ?: return "错误: 生图请求失败(厂商 ${entry.displayName})。本次未计费, 请检查配置或稍后重试。"
             val bytes = download(imgUrl)
                 ?: return "错误: 图片下载失败(厂商 ${entry.displayName})。本次未计费。"
-            val fn = ArtifactStore.saveBytes(context, "gen_image_${System.currentTimeMillis()}.png", bytes)
+            val fn = persistGenImage(context, bytes)
+                ?: return "错误: 生图产物落盘失败(原图过大且压缩失败)。本次未计费。"
             if (fn.startsWith("错误:")) return fn
             // 成本门禁第二道: 落盘成功才计数
             GenConfig.consume(context)
@@ -76,7 +78,7 @@ object GenTools {
         val prompt = "一只橙色小猫坐在窗台上看向镜头"
         return try {
             if (c.mode == "async") {
-                val body = buildBody(c, prompt, "512*512", 1)
+                val body = buildBody(c, prompt, "1024*1024", 1)
                 val submitUrl = c.submitEndpoint.ifBlank { c.endpoint }
                 val sr = request("POST", submitUrl, c, key, body.toString())
                 if (sr == null) return "失败: 提交请求异常(端点不可达/超时/证书)"
@@ -87,7 +89,7 @@ object GenTools {
                 if (imgUrl.isNullOrBlank()) "失败: 轮询未到成功状态(任务ID $taskId)。请检查状态路径/成功值契约。"
                 else "成功: 已连通并取到图片地址, 可保存配置后正式使用。\n${imgUrl.take(120)}"
             } else {
-                val body = buildBody(c, prompt, "512*512", 1)
+                val body = buildBody(c, prompt, "1024*1024", 1)
                 val resp = request("POST", c.endpoint, c, key, body.toString())
                 if (resp == null) return "失败: 请求异常(端点不可达/超时/证书)"
                 if (resp.first !in 200..299) return "失败: HTTP ${resp.first}\n${resp.second.take(200)}"
@@ -234,6 +236,28 @@ object GenTools {
             }
         }
         return cur?.toString() ?: ""
+    }
+
+    /** 生图产物落盘: 原样直存上限 4MB(高清图不再被 512KB 卡死), 超限则 Bitmap 转 JPEG 逐级降质量压缩兜底。返回产物名或 null */
+    private fun persistGenImage(context: Context, bytes: ByteArray): String? {
+        val name = "gen_image_${System.currentTimeMillis()}.png"
+        val direct = ArtifactStore.saveBytes(context, name, bytes, GEN_IMAGE_MAX)
+        if (!direct.startsWith("错误:")) return direct
+        try {
+            val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            for (quality in intArrayOf(90, 80, 70, 60)) {
+                val bos = java.io.ByteArrayOutputStream()
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, bos)
+                val out = bos.toByteArray()
+                if (out.size <= GEN_IMAGE_MAX) {
+                    val fn = ArtifactStore.saveBytes(context, name.replace(".png", "_q$quality.jpg"), out, GEN_IMAGE_MAX)
+                    if (!fn.startsWith("错误:")) return fn
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "persistGenImage compress fail", e)
+        }
+        return null
     }
 
     private fun download(url: String): ByteArray? {

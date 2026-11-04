@@ -80,6 +80,8 @@ object ApiConfig {
             // deepseek-flash 仅 text+image(官方 models 接口 input_modalities 实测, 2026-10-26), 无视频输入
             p.id == "deepseek" && (m.contains("vision") || m.contains("flash")) -> setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)
             p.id == "deepseek" -> setOf(CAP_TEXT, CAP_TOOL)
+            p.id == "zhipu" && (m.contains("cogview") || m.contains("glm-image")) ->
+                setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)
             p.id == "zhipu" || m.contains("glm") -> setOf(CAP_TEXT, CAP_TOOL)
             m.contains("vl") || m.contains("vision") || m.contains("omni") -> setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)
             m.contains("audio") -> setOf(CAP_TEXT, CAP_AUDIO, CAP_TOOL)
@@ -97,6 +99,8 @@ object ApiConfig {
         return when {
             m.contains("mimo") || m.contains("omni") ->
                 setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_AUDIO, CAP_TOOL)
+            m.contains("cogview") || m.contains("glm-image") ->
+                setOf(CAP_TEXT, CAP_IMAGE, CAP_TOOL)
             m.contains("vision") || m.contains("-vl") || m.contains("_vl") ->
                 setOf(CAP_TEXT, CAP_IMAGE, CAP_VIDEO, CAP_TOOL)
             m.contains("audio") || m.contains("voice") || m.contains("speech") ->

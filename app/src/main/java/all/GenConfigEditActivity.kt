@@ -242,8 +242,8 @@ class GenConfigEditActivity : Activity() {
             Toast.makeText(this, "请先粘贴官方示例", Toast.LENGTH_SHORT).show()
             return
         }
-        val (key, model, url) = GenConfig.parseExample(example)
-        if (url.isBlank() && model.isBlank() && key.isBlank()) {
+        val (_, model, url) = GenConfig.parseExample(example)
+        if (url.isBlank() && model.isBlank()) {
             Toast.makeText(this, "没认出有效内容, 请确认粘贴的是完整调用示例(含请求地址)", Toast.LENGTH_SHORT).show()
             return
         }
@@ -267,9 +267,8 @@ class GenConfigEditActivity : Activity() {
         etAuth.setText(c2.authType)
         etImagePath.setText(c2.imageUrlPath)
         etSep.setText(c2.sizeSeparator)
-        if (key.isNotBlank()) etKey.setText(key)
         tvTestResult.text = "已识别: ${c2.displayName} / ${c2.provider} / ${c2.template} / ${c2.mode}" +
-            (if (key.isNotBlank()) "\n示例中含 Key, 已填入(请核对是否你自己的 Key)" else "\n示例中未找到 Key, 请自行填写")
+            "\nKey 请自行填写(示例中 Key 多为占位符, 不做自动抓取)"
     }
 
     /** 测试连接: 构造临时 Entry 发最小请求 */

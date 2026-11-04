@@ -30,7 +30,7 @@ AIGC:
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
-![release](https://img.shields.io/badge/release-v2.9.0-brightgreen)
+![release](https://img.shields.io/badge/release-v2.9.2-brightgreen)
 
 [**下载 APK**](../../releases/latest) ｜ [五分钟上手](#五分钟上手) ｜ [能做什么](#它能做什么) ｜ [项目状态](#项目状态)
 
@@ -229,6 +229,8 @@ android-agent-app/
 
 
 ## 版本记录
+- **【最新】v2.9.2（2026-11-05，versionCode 115）**：新增：生图通道扩展——智谱 GLM-Image/CogView（open.bigmodel.cn）与火山方舟 Seedream（ark.cn-beijing.volces.com）独立契约适配（同步返回、`data[0].url` 提取、各自尺寸格式；方舟只认 1K/2K/4K 档位不认像素对，改为不下发 size 用默认档位）。Key 改为纯手填——移除从粘贴示例文本自动提取 sk- 的正则，避免误抓密钥。测试按钮探测尺寸 512→1024。修复：产物库 512KB 上限卡死生图（曾被迫降到 384×384），生图专用上限提至 4MB，超限自动 JPEG 逐级降质兜底。
+- **v2.9.1（2026-11-05，versionCode 114）**：新增双通道下载（GitHub/Gitee 多源）与 F-Droid 通道支持；版本号补发。
 - **【最新】v2.9.0（2026-11-04，versionCode 113）**：新增：文件管理页重构（附件卡片带 AI 产物紫色角标、独立「AI 产物」分组、类型+AI 双维度分组、批量删除二次确认）；删除审计闭环（每次删除记录删除前快照到私有审计日志，附件引用失效时 AI 可经只读工具 read_file_audit 自查是否已被删）；AI 生图配置（GenConfig：模型/参数预设，快捷预设+内联试跑）；产物查看通道分离（仅带 artifact_name 标记的 AI 产物进入产物查看页，用户上传附件走普通预览；超大文件改为提示分享而非全量读入内存）。修复：产物查看页大文件 OOM（全量 readText 改为大小守卫，保存同样加守卫）。
 - **v2.8.30（2026-11-03，versionCode 112）**：新增备份/还原（设置→数据：数据库+偏好+文件打包 .nyrbak，可选密码加密 AES-GCM，含版本自适应保险——备份库比当前库新则拒绝还原）；抽屉"拍照"接入（系统相机拍照直接进附件流程，支持预览后补文发送）；AI 产物通道（artifact_save / artifact_save_bin 工具：完整代码/网页/文档/二进制成品以卡片交付，查看页支持保存/分享/复制，同名产物自动升版本）。修复：聊天气泡双向越界（恢复两侧头像间走廊宽度约束）；表情在消息头部时正文重复；部分设备面板 CPU/网络读数不全（TrafficStats 兜底）；头像裁剪压缩挪后台线程防 ANR。
 - **v2.8.29（2026-11-01，versionCode 111）**：用户可见批次——新增资料页（头像占位、用户配置、标题栏透明跟随滚动）；聊天背景设置（三滑条统一、透明度语义纠正、自定义弹窗合并）；默认主题切为浅灰 DefaultTheme（#F7F7F8）+ 引导页语义色同步；汉堡页布局重排（门禁行、三入口行、字号、分割线）；思考交互按内容长度自适应；头像全局刷新漏刷根因修复；气泡透明度离屏缓存刷新修复；流式块级上屏切点安全化。

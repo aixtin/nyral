@@ -103,10 +103,10 @@ object ArtifactStore {
      * 由 artifact_save_bin 工具先做 Base64 解码, 这里直接落盘原始字节。
      * 同名覆盖升版本逻辑与文本 save 一致。
      */
-    fun saveBytes(context: Context, name: String, bytes: ByteArray): String {
+    fun saveBytes(context: Context, name: String, bytes: ByteArray, maxBytes: Int = MAX_BYTES): String {
         val artName = name.trim().replace(Regex("[\\/:*?\"<>|]"), "_").ifBlank { "artifact" }
         if (bytes.isEmpty()) return "错误: 产物内容为空"
-        if (bytes.size > MAX_BYTES) return "错误: 产物过大(${bytes.size / 1024}KB), 上限 512KB; 请压缩或换小文件"
+        if (bytes.size > maxBytes) return "错误: 产物过大(${bytes.size / 1024}KB), 上限 ${maxBytes / 1024}KB; 请压缩或换小文件"
         val existing = findExisting(context, artName)
         return try {
             if (existing != null) {

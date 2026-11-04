@@ -236,6 +236,22 @@ object GenConfig {
                 imageUrlPath = "output.results[0].url",
                 pricePerImage = 0.14
             )
+            u.contains("bigmodel.cn") -> GenContract(
+                provider = "zhipu", displayName = "智谱 GLM-Image/CogView",
+                endpoint = "https://open.bigmodel.cn/api/paas/v4/images/generations",
+                authType = "bearer", authHeaderName = "Authorization", authPrefix = "Bearer ",
+                mode = "sync", template = "prompt", sizeSeparator = "x",
+                imageUrlPath = "data[0].url",
+                pricePerImage = 0.1
+            )
+            u.contains("volces.com") -> GenContract(
+                provider = "ark", displayName = "火山方舟 Seedream", sizeField = "",
+                endpoint = "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+                authType = "bearer", authHeaderName = "Authorization", authPrefix = "Bearer ",
+                mode = "sync", template = "prompt", sizeSeparator = "x",
+                imageUrlPath = "data[0].url",
+                pricePerImage = 0.0
+            )
             u.contains("/v1/images/generations") || (u.contains("/v1/") && u.contains("images")) -> GenContract(
                 provider = "openai", displayName = "OpenAI 兼容",
                 endpoint = url,
@@ -248,9 +264,9 @@ object GenConfig {
         }
     }
 
-    /** 从粘贴的官方示例提取硬特征: Key / model / URL */
+    /** 从粘贴的官方示例提取硬特征: model / URL（Key 一律由用户手填, 不自动抓取: 各家格式各异且示例多为占位符） */
     fun parseExample(example: String): Triple<String, String, String> {
-        val key = Regex("""sk-[A-Za-z0-9]{6,}""").find(example)?.value ?: ""
+        val key = ""
         val model = Regex("""["']?model["']?\s*[:=]\s*["']([A-Za-z0-9._-]+)["']""").find(example)?.groupValues?.get(1) ?: ""
         val url = Regex("""https?://[^\s"'\)\]]+""").find(example)?.value ?: ""
         return Triple(key, model, url)

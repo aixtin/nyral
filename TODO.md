@@ -1,5 +1,9 @@
 # Nyral 待办
 
+- [x] v2.9.2 发版（2026-11-05，versionCode 115）：生图通道扩展（智谱 GLM-Image/CogView、火山方舟 Seedream，方舟不下发 size）；生图产物上限 512KB→4MB + JPEG 降质兜底；Key 纯手填（移除 sk- 自动提取）；测试按钮 1024；双端 Release 附正式签名 APK
+
+- [x] v2.9.1 发版（2026-11-05，versionCode 114）：双通道下载与 F-Droid 通道支持；版本号补发
+
 - [x] v2.9.0 发版（2026-11-04，versionCode 113）：文件管理页重构（AI 产物角标/分组/批量删除）/删除审计闭环/read_file_audit 只读工具/AI 生图配置（GenConfig）/产物查看通道分离+大文件 OOM 修复；双端 Release 附正式签名 APK
 
 - [x] v2.8.30 发版（2026-11-03，versionCode 112）：备份/还原（密码加密+版本自适应保险）/抽屉拍照/AI 产物通道；修复聊天气泡越界、头部表情正文重复、设备面板读数不全、头像裁剪 ANR；双端 Release 附正式签名 APK
