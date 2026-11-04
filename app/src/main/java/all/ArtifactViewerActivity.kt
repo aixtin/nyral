@@ -53,10 +53,17 @@ class ArtifactViewerActivity : Activity() {
             finish(); return
         }
         val meta = ArtifactStore.metaOf(this, fileName)
-        val artName = meta?.optString("artifact_name", "")?.ifBlank { null } ?: File(fileName).name
+        if (meta == null) {
+            Toast.makeText(this, "不是 AI 产物，请在文件管理中查看", Toast.LENGTH_SHORT).show()
+            finish(); return
+        }
+        val artName = meta.optString("artifact_name", "").ifBlank { null } ?: File(fileName).name
         val version = meta?.optInt("artifact_version", 1) ?: 1
         val mime = meta?.optString("mime", "")?.ifBlank { null } ?: AttachmentStore.mimeOf(this, fileName)
-        fileText = try { f.readText(Charsets.UTF_8) } catch (e: Exception) { "" }
+        fileText = if (f.length() > 8 * 1024 * 1024) {
+            Toast.makeText(this, "文件过大(${f.length() / 1024 / 1024}MB)，请用分享按钮查看", Toast.LENGTH_LONG).show()
+            ""
+        } else try { f.readText(Charsets.UTF_8) } catch (e: Exception) { "" }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -202,7 +209,12 @@ class ArtifactViewerActivity : Activity() {
             }
 
         act("保存", 1f, primary = true) {
-            val bytes = try { AttachmentStore.fileOf(this, fileName)?.readBytes() } catch (e: Exception) { null }
+            val srcFile = AttachmentStore.fileOf(this, fileName)
+            if (srcFile != null && srcFile.length() > 8 * 1024 * 1024) {
+                Toast.makeText(this, "文件过大，请用分享", Toast.LENGTH_LONG).show()
+                return@act
+            }
+            val bytes = try { srcFile?.readBytes() } catch (e: Exception) { null }
             if (bytes == null) Toast.makeText(this, "读取失败", Toast.LENGTH_SHORT).show()
             else {
                 // 导出名优先用产物注册名(干净无内部前缀); 无扩展名时退回存储文件名

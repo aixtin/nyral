@@ -66,3 +66,4 @@ _patch/
 # 备份快照/临时补丁脚本(不入库)
 bak_*
 apply_*.py
+*_backup_*/

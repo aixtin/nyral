@@ -124,19 +124,27 @@ class SettingsActivity : Activity() {
         cardModel.addView(buildVideoDirectRow())
         content.addView(cardModel)
 
-        // 分组3：数据备份(2026-11-02)
+        // 分组3：AI 生成(2026-11-04)
+        content.addView(Ui.groupLabel(this, "AI 生成"))
+        val cardGen = Ui.card(this)
+        cardGen.addView(settingsItem("生图配置", "通义万相 Key · 月度限额", R.drawable.ic_settings_gen, 15, {
+            startActivity(Intent(this@SettingsActivity, GenConfigActivity::class.java))
+        }))
+        content.addView(cardGen)
+
+        // 分组4：数据备份(2026-11-02)
         content.addView(Ui.groupLabel(this, "数据"))
         val cardData = Ui.card(this)
         cardData.addView(settingsItem("备份", "对话 · 产物 · 设置 打包保存，可设密码", R.drawable.ic_settings_upload, 8, {
             startBackupFlow()
         }))
         cardData.addView(Ui.divider(this, 64))
-        cardData.addView(settingsItem("还原备份", "从备份包恢复（覆盖当前数据）", R.drawable.ic_guide_folder, 4, {
+        cardData.addView(settingsItem("还原备份", "从备份包恢复（覆盖当前数据）", R.drawable.ic_settings_restore, 4, {
             startRestoreFlow()
         }))
         content.addView(cardData)
 
-        // 分组4：其他
+        // 分组5：其他
         content.addView(Ui.groupLabel(this, getString(R.string.settings_group_other)))
         val cardAbout = Ui.card(this)
         cardAbout.addView(settingsItem(getString(R.string.settings_log), getString(R.string.settings_log_sub), R.drawable.ic_settings_log, 5, {
@@ -156,12 +164,12 @@ class SettingsActivity : Activity() {
             addView(settingsItem(getString(R.string.settings_debug), DebugServer.statusText(this@SettingsActivity), R.drawable.ic_settings_debug, 11, {
                 showDebugDialog()
             }) { debugSubtitle = it })
+            // 分隔线放进同一容器: 调试入口隐藏时一起隐藏, 不留孤线
+            addView(Ui.divider(this@SettingsActivity, 64))
         }
         debugBox.visibility = if (DebugServer.unlocked(this)) View.VISIBLE else View.GONE
         cardAbout.addView(debugBox)
-        cardAbout.addView(Ui.divider(this, 64))
         // 权限管理: 查看/补开全部依赖权限(部分手机长时间不用会自动收回)
-        cardAbout.addView(Ui.divider(this, 64))
         cardAbout.addView(settingsItem(getString(R.string.settings_perm), getString(R.string.settings_perm_sub), R.drawable.ic_settings_perm, 9, {
             startActivity(Intent(this@SettingsActivity, PermissionsActivity::class.java))
         }) { permSubtitleView = it })

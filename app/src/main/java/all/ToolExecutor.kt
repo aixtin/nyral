@@ -59,7 +59,7 @@ object ToolExecutor {
         "file:write", "file:upload", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
         "app:click", "app:text", "app:tap", "app:launch",
-        "security_set"
+        "security_set", "gen_image"
     )
 
     /**
@@ -195,6 +195,10 @@ object ToolExecutor {
             "get_time" -> MemoryTools.getTime()
             "calc" -> MemoryTools.calc(arg)
             "memory_search" -> MemoryTools.search(context, arg)
+            "read_file_audit" -> {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                FileAuditStore.readAsText(context, jo?.optInt("limit", 50) ?: 50)
+            }
             "ssh_run" -> SshTools.run(context, arg)
             "ssh_config_add" -> SshTools.addConfig(context, arg)
             "file" -> run {
@@ -490,6 +494,7 @@ object ToolExecutor {
                 ScriptEngine.runShConfirmed(context, arg, skipConfirm = true)
             }
             "security_set" -> SecurityConfig.set(context, arg)
+            "gen_image" -> GenTools.genImage(context, arg)
             "timer_task_create" -> timerTaskCreate(context, arg, silent)
             "tool_detail" -> {
                 val tName = try { JSONObject(arg.trim()).optString("name", "").trim() } catch (e: Exception) { "" }

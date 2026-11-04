@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -31,22 +30,83 @@ class FileListActivity : Activity() {
 
     private lateinit var container: LinearLayout
     private lateinit var tabRow: LinearLayout
-    private lateinit var emptyView: TextView
+    private lateinit var emptyView: LinearLayout
 
     /** 当前选中的类型 Tab, null = 全部 */
     private var selectedType: String? = null
+
+    /** 总占用行 / 批量删除入口 */
+    private lateinit var totalBar: TextView
+    private lateinit var batchBtn: TextView
+    private lateinit var batchBar: LinearLayout
+    private lateinit var batchActionBtn: TextView
+    private val selected = LinkedHashSet<String>()
+    private var batchMode = false
+
+    /** AI 产物专属配色: 紫色系, 区别于类型角标的主题蓝 */
+    companion object {
+        private val AI_COLOR = Color.parseColor("#8B5CF6")
+        private val AI_COLOR_LIGHT = Color.parseColor("#F3EEFF")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.statusBar(this)
         val root = Ui.pageRoot(this)
 
-        root.addView(Ui.titleBar(this, getString(R.string.settings_files)))
+        val logBtn = TextView(this).apply {
+            text = "日志"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Ui.SUB)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Ui.INPUT_BG)
+                cornerRadius = dp(14).toFloat()
+            }
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            isClickable = true
+            Ui.press(this)
+            setOnClickListener {
+                startActivity(Intent(this@FileListActivity, FileAuditActivity::class.java))
+            }
+        }
+        root.addView(Ui.titleBar(this, getString(R.string.settings_files), right = { bar ->
+            bar.addView(logBtn)
+        }))
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(16))
         }
+        // 总占用行 + 批量删除入口
+        val summaryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2), 0, dp(8))
+        }
+        totalBar = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Ui.SUB)
+        }
+        summaryRow.addView(totalBar, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        batchBtn = TextView(this).apply {
+            text = "批量删除"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Ui.DANGER)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(1), Ui.DANGER)
+                cornerRadius = dp(14).toFloat()
+            }
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            isClickable = true
+            Ui.press(this)
+            setOnClickListener { toggleBatch() }
+        }
+        summaryRow.addView(batchBtn)
+        content.addView(summaryRow)
+
         tabRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(2), 0, dp(8))
@@ -61,15 +121,62 @@ class FileListActivity : Activity() {
         }
         content.addView(container)
 
-        emptyView = TextView(this).apply {
-            text = getString(R.string.files_empty)
-            textSize = 14f
+        emptyView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setTextColor(Ui.TEXT)
-            setPadding(0, dp(48), 0, dp(48))
+            setPadding(0, dp(56), 0, dp(56))
             visibility = View.GONE
+            addView(ImageView(this@FileListActivity).apply {
+                setImageResource(R.drawable.ic_upload_file)
+                setColorFilter(Ui.DIVIDER)
+            })
+            addView(TextView(this@FileListActivity).apply {
+                text = getString(R.string.files_empty)
+                textSize = 14f
+                setTextColor(Ui.SUB)
+                setPadding(0, dp(10), 0, 0)
+            })
         }
         content.addView(emptyView)
+
+        // 批量删除操作条(多选模式下显示)
+        batchBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(0, dp(10), 0, dp(4))
+        }
+        batchActionBtn = TextView(this).apply {
+            text = "删除选中(0)"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Ui.DANGER)
+                cornerRadius = dp(14).toFloat()
+            }
+            setPadding(0, dp(10), 0, dp(10))
+            Ui.press(this)
+            setOnClickListener { confirmBatchDelete() }
+        }
+        batchBar.addView(batchActionBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        batchBar.addView(TextView(this).apply {
+            text = "取消"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Ui.SUB)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(1), Ui.DIVIDER)
+                cornerRadius = dp(14).toFloat()
+            }
+            setPadding(0, dp(10), 0, dp(10))
+            Ui.press(this)
+            setOnClickListener { toggleBatch() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = dp(12)
+        })
+        content.addView(batchBar)
 
         root.addView(ScrollView(this).apply {
             addView(content)
@@ -88,13 +195,24 @@ class FileListActivity : Activity() {
     private fun refresh() {
         container.removeAllViews()
         val files = AttachmentStore.list(this)
+        totalBar.text = "共 ${files.size} 个附件 · 占用 ${humanSize(files.sumOf { it.length() })}"
+        batchBtn.text = if (batchMode) "取消" else "批量删除"
+        batchBtn.setTextColor(if (batchMode) Ui.TEXT else Ui.DANGER)
+        batchBtn.background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            setStroke(dp(1), if (batchMode) Ui.TEXT else Ui.DANGER)
+            cornerRadius = dp(14).toFloat()
+        }
         emptyView.visibility = if (files.isEmpty()) View.VISIBLE else View.GONE
-        // 按类型分组: 视频 / 图片 / 音频 / 其他
+        // 按类型分组: AI 产物单独成组(不再混入普通类型组), 其余按 mime 分
+        val aiList = files.filter { isArtifact(it) }
+        val nonAI = files.filter { !isArtifact(it) }
         val groups = listOf(
-            "视频" to files.filter { AttachmentStore.mimeOf(it.name).startsWith("video/") },
-            "图片" to files.filter { AttachmentStore.mimeOf(it.name).startsWith("image/") },
-            "音频" to files.filter { AttachmentStore.mimeOf(it.name).startsWith("audio/") },
-            "其他" to files.filter {
+            "AI 产物" to aiList,
+            "视频" to nonAI.filter { AttachmentStore.mimeOf(it.name).startsWith("video/") },
+            "图片" to nonAI.filter { AttachmentStore.mimeOf(it.name).startsWith("image/") },
+            "音频" to nonAI.filter { AttachmentStore.mimeOf(it.name).startsWith("audio/") },
+            "其他" to nonAI.filter {
                 val m = AttachmentStore.mimeOf(it.name)
                 !m.startsWith("video/") && !m.startsWith("image/") && !m.startsWith("audio/")
             }
@@ -123,18 +241,60 @@ class FileListActivity : Activity() {
                 })
             }
         }
+        batchBar.visibility = if (batchMode) View.VISIBLE else View.GONE
+        batchActionBtn.text = "删除选中(${selected.size})"
     }
 
-    /** 类型 Tab: 描边胶囊按钮, 未选中灰描边灰字, 选中主题蓝描边 + 浅蓝底 */
+    /** 是否为 AI 产物: 复用 ArtifactStore 判定(meta 带 artifact_name 标记才是产物) */
+    private fun isArtifact(f: File): Boolean = ArtifactStore.metaOf(this, f.name) != null
+
+    /** 进入/退出批量删除模式 */
+    private fun toggleBatch() {
+        batchMode = !batchMode
+        selected.clear()
+        refresh()
+    }
+
+    private fun confirmBatchDelete() {
+        if (selected.isEmpty()) {
+            Toast.makeText(this, "请先勾选要删除的附件", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val (dlg, box) = Ui.dialog(this, "批量删除")
+        box.addView(Ui.dialogText(this, "确认删除选中的 ${selected.size} 个附件？删除后不可恢复"))
+        box.addView(Ui.dangerBtn(this, "确认删除") {
+            dlg.dismiss()
+            var ok = 0
+            for (n in selected.toList()) if (AttachmentStore.delete(this, n, "user_batch")) ok++
+            Toast.makeText(this, if (ok > 0) "已删除 $ok 个附件" else "删除失败", Toast.LENGTH_SHORT).show()
+            selected.clear()
+            batchMode = false
+            refresh()
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+        box.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            })
+        dlg.show()
+    }
+
+    /** 类型 Tab: 描边胶囊按钮, 未选中灰描边灰字, 选中主题蓝描边 + 浅蓝底; AI 产物 Tab 用紫色系 */
     private fun typeTab(label: String, count: Int, selected: Boolean, onClick: () -> Unit): TextView {
+        val isAI = label == "AI 产物"
+        val c = if (isAI) AI_COLOR else Ui.PRIMARY
+        val cl = if (isAI) AI_COLOR_LIGHT else Ui.PRIMARY_LIGHT
         return TextView(this).apply {
             text = "$label $count"
             textSize = 13f
             gravity = Gravity.CENTER
-            setTextColor(if (selected) Ui.PRIMARY else Ui.SUB)
+            setTextColor(if (selected) c else Ui.SUB)
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(if (selected) Ui.PRIMARY_LIGHT else Color.TRANSPARENT)
-                setStroke(dp(1), if (selected) Ui.PRIMARY else Ui.DIVIDER)
+                setColor(if (selected) cl else Color.TRANSPARENT)
+                setStroke(dp(1), if (selected) c else Ui.DIVIDER)
                 cornerRadius = dp(16).toFloat()
             }
             setPadding(dp(14), dp(7), dp(14), dp(7))
@@ -148,44 +308,84 @@ class FileListActivity : Activity() {
         }
     }
 
-    /** 附件卡片: 类型角标 + 显示名 + 大小/时长 + 操作行(查看/导出/删除) */
+    /** 附件卡片: 类型角标(+AI角标) + 显示名 + 大小/时长 + 操作行(查看/导出/删除) */
     private fun fileCard(f: File): LinearLayout {
         val mime = AttachmentStore.mimeOf(f.name)
         val meta = try { AttachmentStore.metaOf(this, f.name)?.let { JSONObject(it) } } catch (e: Exception) { null }
         val durSec = meta?.optLong("durationSec", 0L) ?: 0L
         val disp = displayName(f.name)
+        val isAI = isArtifact(f)
+        val checked = selected.contains(f.name)
+        // 白色圆角卡片 + 浅灰描边（批量选中时描边主题蓝）
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            // 白色圆角卡片 + 浅灰描边（区别于全局无描边 card, 文件卡片更立体）
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Ui.SURFACE)
-                setStroke(dp(1), Ui.STROKE)
+                setStroke(dp(1), if (checked) Ui.PRIMARY else Ui.STROKE)
                 cornerRadius = dp(16).toFloat()
             }
-            addView(FrameLayout(this@FileListActivity).apply {
-                addView(LinearLayout(this@FileListActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(TextView(this@FileListActivity).apply {
-                        text = disp
-                        textSize = 15f
-                        setTextColor(Ui.TEXT)
-                        maxLines = 1
-                        setPadding(dp(12), dp(5), dp(60), 0)
-                    })
-                    addView(TextView(this@FileListActivity).apply {
-                        text = buildString {
-                            append(humanSize(f.length()))
-                            if (durSec > 0) append("  ·  ${fmtDuration(durSec)}")
-                            if (meta?.optInt("width", 0)?.takeIf { it > 0 } != null) {
-                                append("  ·  ${meta.optInt("width")}x${meta.optInt("height")}")
-                            }
-                        }
-                        textSize = 12f
-                        setTextColor(Ui.SUB)
-                        setPadding(dp(12), dp(1), 0, 0)
-                    })
+            isClickable = true
+            Ui.press(this)
+            setOnClickListener {
+                if (batchMode) {
+                    if (selected.contains(f.name)) selected.remove(f.name) else selected.add(f.name)
+                    batchActionBtn.text = "删除选中(${selected.size})"
+                    refresh()
+                } else {
+                    openAttachment(f.name)
+                }
+            }
+        // 卡片头: [勾选点] + 类型图标徽章 + 标题列 + 右侧角标, 正规横排行, 去掉 FrameLayout 悬浮 hack
+        addView(LinearLayout(this@FileListActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(10))
+            if (batchMode) {
+                addView(TextView(this@FileListActivity).apply {
+                    text = if (checked) "✓" else ""
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(if (checked) Ui.PRIMARY else Ui.DIVIDER)
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                    }
+                }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(10) })
+            }
+            addView(ImageView(this@FileListActivity).apply {
+                setImageResource(iconResOf(mime))
+                setColorFilter(if (isAI) AI_COLOR else Ui.PRIMARY)
+            }, LinearLayout.LayoutParams(dp(26), dp(26)))
+            addView(LinearLayout(this@FileListActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(this@FileListActivity).apply {
+                    text = disp
+                    textSize = 15f
+                    setTextColor(Ui.TEXT)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
                 })
-                // 类型角标: 垂直居中于分割线与卡片顶之间, 右缘与删除按钮对齐
+                addView(TextView(this@FileListActivity).apply {
+                    text = buildString {
+                        append(humanSize(f.length()))
+                        if (durSec > 0) append("  ·  ${fmtDuration(durSec)}")
+                        if (meta?.optInt("width", 0)?.takeIf { it > 0 } != null) {
+                            append("  ·  ${meta.optInt("width")}x${meta.optInt("height")}")
+                        }
+                    }
+                    textSize = 12f
+                    setTextColor(Ui.SUB)
+                    setPadding(0, dp(2), 0, 0)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(10)
+                marginEnd = dp(8)
+            })
+            addView(LinearLayout(this@FileListActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
                 addView(TextView(this@FileListActivity).apply {
                     text = badgeOf(mime)
                     textSize = 11f
@@ -197,14 +397,32 @@ class FileListActivity : Activity() {
                         cornerRadius = dp(10).toFloat()
                     }
                     setPadding(dp(8), dp(3), dp(8), dp(3))
-                }, FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.CENTER_VERTICAL or Gravity.END).apply {
-                    marginEnd = dp(35) // 向右回移一点点(约5dp)
-                    translationY = dp(1).toFloat() // 上移约2.75px, 视觉更贴顶部区间
                 })
+                if (isAI) {
+                    addView(TextView(this@FileListActivity).apply {
+                        text = "AI"
+                        textSize = 11f
+                        gravity = Gravity.CENTER
+                        setTextColor(AI_COLOR)
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(AI_COLOR_LIGHT)
+                            setStroke(dp(1), AI_COLOR)
+                            cornerRadius = dp(10).toFloat()
+                        }
+                        setPadding(dp(8), dp(3), dp(8), dp(3))
+                    }, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        marginStart = dp(4)
+                    })
+                }
             })
-            addView(Ui.divider(this@FileListActivity).apply { setPadding(0, dp(8), 0, dp(8)) })
+        })
+        addView(Ui.divider(this@FileListActivity, 12).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
+                setMargins(dp(12), 0, 0, 0)
+            }
+        })
             addView(LinearLayout(this@FileListActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
@@ -318,6 +536,14 @@ class FileListActivity : Activity() {
         mime.startsWith("image/") -> "图片"
         mime.startsWith("audio/") -> "音频"
         else -> "文件"
+    }
+
+    /** 文件类型对应图标资源（AI 产物由调用方换色） */
+    private fun iconResOf(mime: String): Int = when {
+        mime.startsWith("video/") -> R.drawable.ic_upload_video
+        mime.startsWith("image/") -> R.drawable.ic_upload_image
+        mime.startsWith("audio/") -> R.drawable.ic_perm_mic
+        else -> R.drawable.ic_upload_file
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

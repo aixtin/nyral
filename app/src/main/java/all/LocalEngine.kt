@@ -211,6 +211,7 @@ object LocalEngine {
         ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web_fetch/web_download 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}"),
         ToolSpec("get_time", "获取当前日期时间", "无参数"),
         ToolSpec("calc", "数学计算", "JSON: {\"expr\":\"表达式\"} 如 {\"expr\":\"17*23\"}"),
+        ToolSpec("read_file_audit", "只读审计: 查看附件删除历史(时间/落库文件名/大小/mime/是否AI产物/删除来源), 供AI排查被删文件; 仅文件管理器私有目录, 用户不可删", "JSON: {\"limit\":50}"),
         ToolSpec("device_snapshot", "读取手机设备面板实时快照(只读): CPU 占用与最高核频率、内存、SoC 温度、电池、负载、数据分区余量、近5分钟峰值。用户问手机现在什么状态/为什么卡/烫不烫/还剩多少空间时调用; 动态指标不会自动进上下文, 需要时才取", "JSON: {\"fields\":[\"cpu\",\"mem\",\"temp\"]} (可省略=全部; 可选 profile/cpu/mem/temp/batt/load/disk/series)", CapabilityScope.ZONE_READONLY),
         ToolSpec("device_probe", "只读探针追单个对象: 传包名或进程名, 返回安装/版本/pid/常驻内存 RSS/线程数/进程状态/是否有同名内核模块; 权限通道不足的字段会如实说明缺哪个通道", "JSON: {\"target\":\"com.tencent.mm\"} (或 system_server 这类进程名)", CapabilityScope.ZONE_READONLY),
         ToolSpec("memory_search", "语义检索本地记忆", "JSON: {\"query\":\"查询内容\"}"),
@@ -231,7 +232,8 @@ object LocalEngine {
         ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}"),
         ToolSpec("artifact_save", "产物登记通道: 把完整成品以卡片形式交付给用户, 成品全文不要直接贴在回复里。必须调用的场景: 用户要完整代码文件/可运行的 HTML 网页/成品文档/SVG 图形, 或产出连续代码超过 30 行, 或用户要求保存/导出/交付文件。不要滥用: 简短代码片段(<10行)、解释性示例、纯思路讨论不登记。只接受纯文本内容(代码/HTML/SVG/Markdown/PDF源码等): PNG/MP4/DOCX 等二进制格式走本工具会损坏, 一律拒绝并说明改用文件通道。content 必须是产物文件本身的正文, 不要把工具调用指令/JSON包装/解释文字混进 content。同名再登记自动覆盖升版, 历史卡片展示最新版。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片, 不要重复贴全文", "JSON: {\"name\":\"产物文件名(带扩展名, 如 demo.html / report.md)\",\"content\":\"完整产物内容(纯文本)\"}"),
         ToolSpec("artifact_save_bin", "二进制产物登记通道: 把图片/音频/视频/压缩包等二进制成品以 Base64 编码登记为产物卡片, 供用户查看或分享。适用: 用户要图片文件/音频/视频小样/zip 包, 且内容能一次给全(解码后不超过 512KB)。data 必须是文件完整二进制的标准 Base64(不要混入 data: 前缀、引号或说明文字)。纯文本产物(HTML/SVG/Markdown/代码)仍走 artifact_save, 不要用本工具。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片", "JSON: {\"name\":\"产物文件名(带扩展名)\",\"data\":\"<完整文件的 Base64>\"}"),
-        ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}")
+        ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}"),
+        ToolSpec("gen_image", "AI 生图(2026-11-04, 成本门禁, 多厂商契约驱动): 根据画面描述生成图片, 产物自动落盘并作为图片卡片回显。当前可用厂商、模型与额度元信息由本机配置动态注入。用户明确要求\"画一张/生成图片/配图/封面/示意图/插图\"时调用; 每次调用需用户确认, 且受月度限额保护。", "JSON: {\"prompt\":\"画面描述(必填, 尽量详细: 主体/风格/构图/光线)\",\"size\":\"图片尺寸(默认 1024*1024, 长*宽)\",\"n\":\"本次生成张数 1~4(默认 1, 计入月度限额)\",\"provider\":\"可选: 指定厂商显示名(如 通义万相/腾讯混元), 不填走默认\"}")
     )
 
     /**
@@ -250,6 +252,7 @@ object LocalEngine {
         "get_time" to "获取当前日期时间",
         "calc" to "数学计算",
         "memory_search" to "语义检索本地记忆",
+        "read_file_audit" to "只读: 附件删除审计历史(时间/落库名/大小/mime/是否AI产物/来源), 排查被删文件",
         "device_snapshot" to "设备面板实时快照(CPU/最高核频率/内存/SoC温度/电池/负载/存储/近5分钟峰值), 只读",
         "device_probe" to "只读探针: 包名或进程名 → pid/RSS/线程/状态/同名内核模块",
         "ssh_run" to "SSH 远程执行命令",
@@ -260,7 +263,8 @@ object LocalEngine {
         "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
         "tool_detail" to "查询未列出工具的完整规格并激活(激活后可直接调用)",
         "security_set" to "信任SSH主机密钥(ssh_trust); 门禁档位/root补权仅用户UI可改, 模型调用会被拒绝",
-        "timer_task_create" to "创建定时岗位任务(name/goal/cron + 危险工具授权清单[每项必须给具体用途]), 需用户确认, 拒绝零残留"
+        "timer_task_create" to "创建定时岗位任务(name/goal/cron + 危险工具授权清单[每项必须给具体用途]), 需用户确认, 拒绝零残留",
+        "gen_image" to "AI 生图(多厂商契约驱动, 按张计费, 每次需确认+月度限额): 根据画面描述生成图片并落盘回显"
     )
 
     // ===== Top N 动态装载(2026-09-16): 白名单+热度常驻, 冷门工具经 tool_detail 按需激活 =====
@@ -271,7 +275,8 @@ object LocalEngine {
     private val TOOL_WHITELIST = setOf(
         "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
         "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "pdf_page", "image_view", "audio_read", "file_export", "security_set",
-        "timer_task_create", "write_clipboard", "artifact_save", "artifact_save_bin"
+        "timer_task_create", "write_clipboard", "artifact_save", "artifact_save_bin", "gen_image",
+        "read_file_audit"
     )
 
     interface Callback {
@@ -389,7 +394,7 @@ object LocalEngine {
                 .put("type", "function")
                 .put("function", JSONObject()
                     .put("name", spec.name)
-                    .put("description", spec.desc)
+                    .put("description", if (spec.name == "gen_image") buildGenImageDesc(context) else spec.desc)
                     .put("parameters", builtinSchema(spec.name))))
         }
         // MCP 动态工具: 按热度取前 MCP_TOP_N + hotLoaded 激活项; schema 直接用 server 下发的 JSON Schema
@@ -411,6 +416,12 @@ object LocalEngine {
         }
         return arr
     }
+
+    /** 动态生成 gen_image 描述: 注入本机已启用厂商元信息(不含 Key) */
+    private fun buildGenImageDesc(context: Context): String =
+        "AI 生图(多厂商契约驱动): 根据画面描述生成图片, 产物落盘回显。当前可用生图厂商:\n" +
+        GenConfig.describeForAI(context) + "\n" +
+        "用户不指定厂商时走 [默认]; 每次调用需用户确认, 受月度限额保护。"
 
     /** 内置工具参数 JSON Schema(与 executeTool 的字段解析严格对应) */
     private fun builtinSchema(name: String): JSONObject {
@@ -480,6 +491,8 @@ object LocalEngine {
             "get_time" -> obj()
             "calc" -> obj(listOf("expr"), "expr" to str("数学表达式, 如 17*23"))
             "memory_search" -> obj(listOf("query"), "query" to str("要检索的记忆查询内容"))
+            "read_file_audit" -> obj(emptyList(),
+                "limit" to int("返回最近N条(默认50)", 50))
             "device_snapshot" -> obj(emptyList(),
                 "fields" to JSONObject().put("type", "array")
                     .put("description", "要返回的字段: profile/cpu/mem/temp/batt/load/disk/series; 省略=全部")
@@ -519,6 +532,11 @@ object LocalEngine {
             "artifact_save_bin" -> obj(listOf("name", "data"),
                 "name" to str("产物文件名(带扩展名, 如 icon.png / ring.mp3)"),
                 "data" to str("完整文件内容的 Base64 编码(标准字母表, 不要换行前缀), 原始文件不超过 512KB"))
+            "gen_image" -> obj(listOf("prompt"),
+                "prompt" to str("画面描述(必填, 尽量详细: 主体/风格/构图/光线)"),
+                "size" to str("图片尺寸(默认 1024*1024, 长*宽)", required = false),
+                "n" to int("本次生成张数 1~4(默认 1, 计入月度限额)", 1),
+                "provider" to str("可选: 指定厂商显示名(如 通义万相/腾讯混元), 不填走默认", required = false))
             "tool_detail" -> obj(listOf("name"),
                 "name" to str("要查询并临时激活的工具名(来自 system 工具索引)"))
             "workdir" -> obj(listOf("action"),

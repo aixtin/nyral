@@ -48,7 +48,8 @@ object SecurityConfig {
         "ssh_run", "ssh_config_add", "sh_run", "js_run", "browser_eval", "web_download",
         "file:write", "file:upload", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
-        "app:click", "app:text", "app:tap", "app:launch"
+        "app:click", "app:text", "app:tap", "app:launch",
+        "gen_image"
     )
 
     // ===== 能力预授权目录(2026-10-13, 自 TimerTaskActivity 上移共享) =====
@@ -71,7 +72,8 @@ object SecurityConfig {
         "app:text" to "App 输入",
         "app:tap" to "App 轻点",
         "app:launch" to "App 启动",
-        "security_set" to "安全设置变更"
+        "security_set" to "安全设置变更",
+        "gen_image" to "AI 生图(按张计费)"
     )
 
     fun riskOf(name: String): RiskLevel = when {

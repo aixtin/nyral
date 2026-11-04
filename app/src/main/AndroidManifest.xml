@@ -157,6 +157,18 @@
             android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity
+            android:name=".GenConfigActivity"
+            android:exported="false"
+            android:label="AI 生成设置"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
+
+        <activity
+            android:name=".GenConfigEditActivity"
+            android:exported="false"
+            android:label="厂商配置"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
+
+        <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:label="设置"
@@ -196,6 +208,11 @@
             android:name=".FileListActivity"
             android:exported="false"
             android:label="文件管理"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
+        <activity
+            android:name=".FileAuditActivity"
+            android:exported="false"
+            android:label="删除日志"
             android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <activity

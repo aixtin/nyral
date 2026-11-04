@@ -78,6 +78,7 @@
 | `DocTextExtractor.kt` / `PdfTextExtractor.kt` | PDF/txt/md/docx/xlsx 文本提取 |
 | `VideoCompressor.kt` | 视频转码压缩（超限降质） |
 | `MainActivity.sendAttachmentFromUri` | 附件读取 → 发送主流程入口 |
+| `FileAuditStore.kt` / `FileAuditActivity.kt` | 删除审计闭环：删除前快照私有落盘，文件管理页只读展示，AI 经 read_file_audit 自查 |
 
 ### 调试与可视化
 
@@ -91,6 +92,7 @@
 | 载体 | 职责 |
 |------|------|
 | `SettingsActivity.kt` | 设置主页（模型/SSH/记忆/外观/调试服务/AI 悬浮终端开关） |
+| `GenConfig.kt` / `GenConfigActivity.kt` / `GenConfigEditActivity.kt` / `GenTools.kt` | AI 生图配置（模型/参数预设）与多模态生图工具 |
 | `FirstRunSetupActivity.kt` / `Agreements.kt` / `GuideActivity.kt` | 首启授权、用户协议、引导流程 |
 | `AboutActivity.kt` | 关于页 |
 | `UserProfileActivity.kt` / `UserConfig.kt` | 资料页与用户配置（头像占位、标题栏透明跟随） |
@@ -123,7 +125,7 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.8.30 / versionCode 112）
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.9.0 / versionCode 113）
 
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 

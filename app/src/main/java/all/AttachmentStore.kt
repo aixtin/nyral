@@ -139,12 +139,30 @@ object AttachmentStore {
             ?.sortedByDescending { it.lastModified() } ?: emptyList()
     }
 
-    /** 删除附件及其配对 meta(同生共死), 返回是否成功 */
-    fun delete(context: Context, fileName: String): Boolean {
+    /** 删除附件及其配对 meta(同生共死), 返回是否成功; source 标记删除来源(user/user_batch/ai...) */
+    fun delete(context: Context, fileName: String, source: String = "user"): Boolean {
         val f = fileOf(context, fileName) ?: return false
+        // 删除前快照: 写审计日志(2026-11-04, 用户不可删, 仅文件管理器私有目录)
+        val metaJson = metaOf(context, fileName)
+        val disp = try {
+            val n = org.json.JSONObject(metaJson).optString("name")
+            if (n.isNotBlank()) n else fileName
+        } catch (e: Exception) { fileName }
+        val size = f.length()
+        val mime = mimeOf(context, fileName)
+        val isArtifact = ArtifactStore.metaOf(context, fileName) != null
         val ok = try { f.delete() } catch (e: Exception) { false }
         if (ok) {
             try { fileOf(context, "$fileName.meta.json")?.delete() } catch (e: Exception) { }
+            FileAuditStore.append(context, org.json.JSONObject().apply {
+                put("ts", System.currentTimeMillis())
+                put("fileName", fileName)
+                put("displayName", disp)
+                put("size", size)
+                put("mime", mime)
+                put("isArtifact", isArtifact)
+                put("source", source)
+            })
         }
         return ok
     }

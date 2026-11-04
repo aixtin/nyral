@@ -99,7 +99,7 @@ fun Activity.openAttachmentPreview(files: List<String>, startIndex: Int) {
         return
     }
     val mime = AttachmentStore.mimeOf(act, file)
-    if (AttachmentStore.metaOf(act, file) != null) {
+    if (ArtifactStore.metaOf(act, file) != null) {
         startActivity(android.content.Intent(act, ArtifactViewerActivity::class.java).putExtra("file_name", file))
         return
     }
