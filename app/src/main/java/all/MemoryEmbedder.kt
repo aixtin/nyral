@@ -7,8 +7,9 @@ import android.content.Context
 import java.io.File
 
 /**
- * bge-small-zh-v1.5 ONNX 语义嵌入器(模型热更新版)。
- * 加载优先级: filesDir 热更模型 -> assets 内置模型(旧包兜底) -> 未就绪(ModelUpdater 下载完成后 reloadAll)。
+ * bge-small-zh-v1.5 ONNX 语义嵌入器(模型纯热更版)。
+ * 加载源: filesDir 热更模型, 未就绪时由 ModelUpdater 冷启动下载, 完成后 reloadAll() 接管。
+ * v2.9.7 起不再内置 assets 模型(APK 减 24MB), 单一来源避免两份模型维护不同步。
  */
 class MemoryEmbedder(context: Context) {
 
@@ -30,23 +31,8 @@ class MemoryEmbedder(context: Context) {
         return try {
             val modelFile = File(ctx.filesDir, "bge_model.onnx")
             val vocabFile = File(ctx.filesDir, "bge_vocab.txt")
-            var loaded = modelFile.exists() && vocabFile.exists()
-            if (!loaded) {
-                // assets 兜底: 旧包仍内置模型
-                try {
-                    modelFile.parentFile?.mkdirs()
-                    ctx.assets.open("mem_model/model_quantized.onnx").use { input ->
-                        modelFile.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    ctx.assets.open("mem_model/vocab.txt").use { input ->
-                        vocabFile.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    loaded = true
-                } catch (e: Exception) {
-                    loaded = false
-                }
-            }
-            if (!loaded) {
+            // 仅认 filesDir 热更模型; 缺失即视为未就绪, 交由 ModelUpdater 冷启动下载
+            if (!modelFile.exists() || !vocabFile.exists()) {
                 closeSession()
                 return false
             }

@@ -61,7 +61,7 @@ object ModelUpdater {
         version = p.getInt(K_VERSION, 0)
         state = if (p.getBoolean(K_READY, false)) ST_READY else ST_NOT_DOWNLOADED
         // 冷启动自愈: 热更模型从未落地 -> 后台自动拉取(用户无需知道该模型存在)
-        // 注意: assets 内置兜底会让 MemoryEmbedder.isReady() 恒为 true, 归档路径永远等不到,
+        // 注意: v2.9.7 前 assets 内置兜底会让 MemoryEmbedder.isReady() 恒为 true, 归档路径永远等不到,
         // 因此自动下载必须在 Application 初始化时发起, 不能依赖归档流程触发。
         if (state != ST_READY) {
             val lastFail = p.getLong(K_LAST_FAIL, 0L)

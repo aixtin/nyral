@@ -101,6 +101,11 @@ object MemoryTools {
             ensureInit(context)
             val e = embedder!!
             val d = db!!
+            if (!e.isReady()) {
+                // v2.9.7: 不再有 assets 兜底, 首次安装下载期间保存会走到这里
+                ModelUpdater.ensureDownloaded()
+                return "语义模型正在准备(后台下载中), 请稍后再保存这条记忆。"
+            }
             val v = e.embed(content)
             d.add(content, v, sessionTitleProvider?.invoke())
             "已保存到记忆 (共${d.count()}条): $content"
