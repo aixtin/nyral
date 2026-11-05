@@ -32,9 +32,9 @@ AIGC:
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
 ![release](https://img.shields.io/badge/release-v2.9.7-brightgreen)
 
-[**Download APK**](../../releases/latest) ｜ [APKPure](https://apkpure.com/p/io.github.aixtin.nyral) ｜ [Quick start](#quick-start) ｜ [What it does](#what-it-does) ｜ [Project status](#project-status)
+[**Download APK**](../../releases/latest) ｜ [APKPure](https://apkpure.com/p/io.github.aixtin.nyral) ｜ [Website](https://atin.asia/nyral/) ｜ [Quick start](#quick-start) ｜ [What it does](#what-it-does) ｜ [Project status](#project-status)
 
-> **Official downloads only:** the APK is published on the [GitHub Releases](../../releases/latest) and [Gitee Releases](https://gitee.com/aixtin/Nyral/releases) pages, and on [APKPure](https://apkpure.com/p/io.github.aixtin.nyral), where the developer uploads the build directly (official mirror). Packages on any other third-party mirror site are not built or verified by us — please download only from these channels.
+> **Official downloads only:** the APK is published on the [GitHub Releases](../../releases/latest) and [Gitee Releases](https://gitee.com/aixtin/Nyral/releases) pages, and on [APKPure](https://apkpure.com/p/io.github.aixtin.nyral), where the developer uploads the build directly (official mirror). Packages on any other third-party mirror site are not built or verified by us — please download only from these channels. Project home page: [atin.asia/nyral](https://atin.asia/nyral/).
 
 </div>
 

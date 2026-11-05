@@ -32,9 +32,9 @@ AIGC:
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
 ![release](https://img.shields.io/badge/release-v2.9.7-brightgreen)
 
-[**下载 APK**](../../releases/latest) ｜ [APKPure](https://apkpure.com/p/io.github.aixtin.nyral) ｜ [五分钟上手](#五分钟上手) ｜ [能做什么](#它能做什么) ｜ [项目状态](#项目状态)
+[**下载 APK**](../../releases/latest) ｜ [APKPure](https://apkpure.com/p/io.github.aixtin.nyral) ｜ [官网](https://atin.asia/nyral/) ｜ [五分钟上手](#五分钟上手) ｜ [能做什么](#它能做什么) ｜ [项目状态](#项目状态)
 
-> **仅认官方渠道：** 请从 [GitHub Releases](../../releases/latest) 或 [Gitee Releases](https://gitee.com/aixtin/Nyral/releases) 页面下载 APK；[APKPure](https://apkpure.com/p/io.github.aixtin.nyral) 上的安装包由开发者本人上传（官方镜像），同样可用。除此之外的第三方镜像站安装包未经我们构建与校验，请勿轻信。
+> **仅认官方渠道：** 请从 [GitHub Releases](../../releases/latest) 或 [Gitee Releases](https://gitee.com/aixtin/Nyral/releases) 页面下载 APK；[APKPure](https://apkpure.com/p/io.github.aixtin.nyral) 上的安装包由开发者本人上传（官方镜像），同样可用。除此之外的第三方镜像站安装包未经我们构建与校验，请勿轻信。项目主页：[atin.asia/nyral](https://atin.asia/nyral/)。
 
 </div>
 
