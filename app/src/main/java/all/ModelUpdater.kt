@@ -6,6 +6,9 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
+import java.io.OutputStream
+import java.io.InputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -37,6 +40,7 @@ object ModelUpdater {
      *  故按 4MB 切片独立下载, 弱网/反复开关 App 只重下未完成的那一片 */
     private const val PART_CHUNK = 4L * 1024 * 1024
     private const val PART_BASE = "https://gitee.com/aixtin/nyral-models/releases/download/v1/"
+    private const val COPY_BUF = 64 * 1024
     private const val PREF = "model_updater"
     private const val K_VERSION = "version"
     private const val K_READY = "ready"
@@ -324,23 +328,23 @@ object ModelUpdater {
         // 大文件优先走分片通道(各片独立落盘, 天然断点续传); 分片缺失或失败自动回退整文件
         val remoteName = urls.firstOrNull()?.substringAfterLast('/') ?: target.name
         if (size > PART_CHUNK && downloadByParts(target, remoteName, md5, size, onProgress)) return true
-        // 一律先写 .part 临时文件: 主文件可能被 onnxruntime mmap 持有, 直接覆写/追加会内容错位
+        return downloadWhole(target, urls, md5, size, onProgress)
+    }
+
+    /** 整文件多源续传: 一律先写 .part, 校验通过后原子替换主文件 */
+    private fun downloadWhole(
+        target: File,
+        urls: List<String>,
+        expectMd5: String,
+        size: Long,
+        onProgress: (Long) -> Unit
+    ): Boolean {
+        // 主文件可能被 onnxruntime mmap 持有, 直接覆写/追加会内容错位, 故统一写 .part
         val part = File(target.parentFile, target.name + ".part")
         for (url in urls) {
             try {
-                if (downloadResume(url, part, md5, size, onProgress)) {
-                    if (target.exists() && !target.delete()) {
-                        // 删除失败也不能 append, 用覆盖写兜底
-                        part.inputStream().use { input ->
-                            target.outputStream().use { out -> input.copyTo(out) }
-                        }
-                        part.delete()
-                    } else if (!part.renameTo(target)) {
-                        part.inputStream().use { input ->
-                            target.outputStream().use { out -> input.copyTo(out) }
-                        }
-                        part.delete()
-                    }
+                if (downloadResume(url, part, expectMd5, size, onProgress)) {
+                    replaceWithPart(target, part)
                     onProgress(size)
                     return true
                 }
@@ -352,6 +356,19 @@ object ModelUpdater {
             onProgress(part.length())
         }
         return false
+    }
+
+    /** .part 校验通过后替换正式文件; 删除/重命名失败时用覆盖写兜底 */
+    private fun replaceWithPart(target: File, part: File) {
+        if (target.exists() && !target.delete()) {
+            part.inputStream().use { input -> target.outputStream().use { out -> input.copyTo(out) } }
+            part.delete()
+            return
+        }
+        if (!part.renameTo(target)) {
+            part.inputStream().use { input -> target.outputStream().use { out -> input.copyTo(out) } }
+            part.delete()
+        }
     }
 
     /** 按 4MB 分片下载: 每片单独校验长度并落盘, 已完成的分片在重启后直接复用 */
@@ -366,80 +383,108 @@ object ModelUpdater {
         val dir = File(ctx.filesDir, "model_parts").apply { mkdirs() }
         val count = ((size + PART_CHUNK - 1) / PART_CHUNK).toInt()
         val chunks = (0 until count).map { File(dir, "$remoteName.p$it") }
-        var done = 0L
-        for (c in chunks) if (c.exists() && c.length() <= PART_CHUNK) done += c.length()
+        var done = chunks.filter { it.exists() && it.length() <= PART_CHUNK }.sumOf { it.length() }
         if (done > 0) {
             onProgress(progressOf(done, size))
             LogStore.i(LogStore.MEM, "分片续传: 本地已有 ${done / 1048576}MB/共 ${size / 1048576}MB")
         }
         for (i in 0 until count) {
-            val expect = if (i == count - 1) size - PART_CHUNK * i else PART_CHUNK
+            val expected = if (i == count - 1) size - PART_CHUNK * i else PART_CHUNK
             val f = chunks[i]
-            if (f.exists() && f.length() == expect) continue
+            if (f.exists() && f.length() == expected) continue
             if (f.exists()) {
                 done -= f.length()
                 f.delete()
             }
-            val url = PART_BASE + remoteName + ".p" + i
-            var ok = false
-            for (attempt in 1..3) {
-                val tmp = File(dir, f.name + ".tmp")
-                try {
-                    val conn = URL(url).openConnection() as HttpURLConnection
-                    conn.connectTimeout = 10000
-                    conn.readTimeout = 30000
-                    conn.instanceFollowRedirects = true
-                    conn.setRequestProperty("User-Agent", "Nyral-Android")
-                    conn.connect()
-                    val code = conn.responseCode
-                    if (code == 404 || code == 403) {
-                        LogStore.i(LogStore.MEM, "分片资源不可用(HTTP $code), 回退整文件下载")
-                        tmp.delete()
-                        return false
-                    }
-                    if (code != 200) throw RuntimeException("HTTP $code")
-                    var got = 0L
-                    conn.inputStream.use { input ->
-                        tmp.outputStream().use { out ->
-                            val buf = ByteArray(64 * 1024)
-                            var n: Int
-                            while (input.read(buf).also { n = it } != -1) {
-                                out.write(buf, 0, n)
-                                got += n
-                            }
-                        }
-                    }
-                    if (got != expect) throw RuntimeException("分片长度异常 $got/$expect")
-                    if (f.exists()) f.delete()
-                    if (!tmp.renameTo(f)) {
-                        tmp.copyTo(f, overwrite = true)
-                        tmp.delete()
-                    }
-                    done += got
-                    onProgress(progressOf(done, size))
-                    ok = true
-                    break
-                } catch (e: Exception) {
-                    tmp.delete()
-                    Log.w(TAG, "分片 $i 第 $attempt 次失败: ${e.message}")
-                    if (attempt < 3) Thread.sleep(if (isOffline(e)) 3000L else 1000L * attempt)
-                }
-            }
-            if (!ok) return false
+            // -1 表示该分片不可用(旧包/未上传/重试耗尽), 直接回退整文件通道, 别把下载拖住
+            val got = fetchChunkWithRetry(PART_BASE + remoteName + ".p" + i, f, expected)
+            if (got < 0) return false
+            done += got
+            onProgress(progressOf(done, size))
         }
-        // 拼接 + 整体 MD5 校验(签名 manifest 里的 md5 是最终裁判)
+        return assembleParts(target, chunks, size, expectMd5, onProgress)
+    }
+
+    /** 单片下载, 最多 3 次; 返回 -1 表示该分片不可用(资源缺失或重试耗尽), 调用方回退整文件 */
+    private fun fetchChunkWithRetry(url: String, dest: File, expected: Long): Long {
+        for (attempt in 1..3) {
+            try {
+                return fetchChunk(url, dest, expected)
+            } catch (e: PartMissingException) {
+                LogStore.i(LogStore.MEM, "分片资源不可用(${e.message}), 回退整文件下载")
+                break
+            } catch (e: Exception) {
+                Log.w(TAG, "分片下载第 $attempt 次失败: ${e.message}")
+                if (attempt < 3) Thread.sleep(if (isOffline(e)) 3000L else 1000L * attempt)
+            }
+        }
+        return -1L
+    }
+
+    private class PartMissingException : Exception("part not available")
+
+    /** 拉取单个分片到 .tmp, 长度不符直接判失败, 成功后再改名落盘 */
+    private fun fetchChunk(url: String, dest: File, expected: Long): Long {
+        val tmp = File(dest.parentFile, dest.name + ".tmp")
+        try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 10000
+            conn.readTimeout = 30000
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Nyral-Android")
+            conn.connect()
+            val code = conn.responseCode
+            if (code == 404 || code == 403) throw PartMissingException()
+            if (code != 200) throw IOException("HTTP $code")
+            val got = conn.inputStream.use { input ->
+                tmp.outputStream().use { out -> copyTo(input, out) }
+            }
+            if (got != expected) throw IOException("分片长度异常 $got/$expected")
+            if (dest.exists()) dest.delete()
+            if (!tmp.renameTo(dest)) {
+                tmp.copyTo(dest, overwrite = true)
+                tmp.delete()
+            }
+            return got
+        } catch (e: Exception) {
+            tmp.delete()
+            throw e
+        }
+    }
+
+    /** 64KB 块复制, 返回累计字节数 */
+    private fun copyTo(input: InputStream, out: OutputStream): Long {
+        val buf = ByteArray(COPY_BUF)
+        var total = 0L
+        var n: Int
+        while (input.read(buf).also { n = it } != -1) {
+            out.write(buf, 0, n)
+            total += n
+        }
+        return total
+    }
+
+    /** 按序拼接全部分片到 dest */
+    private fun concatParts(chunks: List<File>, dest: File) {
+        dest.outputStream().use { out ->
+            for (f in chunks) f.inputStream().use { copyTo(it, out) }
+        }
+    }
+
+    /** 拼接全部分片并按 manifest 的 MD5 校验, 通过后原子替换主文件 */
+    private fun assembleParts(
+        target: File,
+        chunks: List<File>,
+        size: Long,
+        expectMd5: String,
+        onProgress: (Long) -> Unit
+    ): Boolean {
         val part = File(target.parentFile, target.name + ".part")
         try {
-            part.outputStream().use { out ->
-                for (f in chunks) f.inputStream().use { it.copyTo(out, 64 * 1024) }
-            }
-            if (part.length() != size) throw RuntimeException("拼接长度异常 ${part.length()}/$size")
-            if (md5(part) != expectMd5) throw RuntimeException("拼接 MD5 异常")
-            if (target.exists()) target.delete()
-            if (!part.renameTo(target)) {
-                part.copyTo(target, overwrite = true)
-                part.delete()
-            }
+            concatParts(chunks, part)
+            if (part.length() != size) throw IOException("拼接长度异常 ${part.length()}/$size")
+            if (md5(part) != expectMd5) throw IOException("拼接 MD5 异常")
+            replaceWithPart(target, part)
             for (f in chunks) f.delete()
             onProgress(100L)
             return true

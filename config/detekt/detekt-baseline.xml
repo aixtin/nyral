@@ -59,6 +59,7 @@
     <ID>ComplexCondition:MainActivityMd.kt$t.contains("|") &amp;&amp; t.contains("-") &amp;&amp; t.all { it == '|' || it == '-' || it == ':' || it.isWhitespace() }</ID>
     <ID>ComplexCondition:MediaPreviews.kt$w != null &amp;&amp; h != null &amp;&amp; w &gt; 0 &amp;&amp; h &gt; 0</ID>
     <ID>ComplexCondition:MemModelConfigActivity.kt$MemModelConfigActivity$enabled &amp;&amp; (base.isEmpty() || key.isEmpty() || model.isEmpty())</ID>
+    <ID>ComplexCondition:ModelUpdater.kt$ModelUpdater$n.contains("UnknownHost") || n.contains("ConnectException") || n.contains("NoRouteToHost") || n.contains("SocketTimeout") || n.contains("SocketException") || n.contains("SSLException") || n.contains("EOFException")</ID>
     <ID>ComplexCondition:PdfTextExtractor.kt$PdfTextExtractor$end &gt; 0 &amp;&amp; (bytes[end - 1] == 0x0a.toByte() || bytes[end - 1] == 0x0d.toByte() || bytes[end - 1] == 0x20.toByte())</ID>
     <ID>ComplexCondition:ScriptEngine.kt$ScriptEngine$j &lt; toks.size &amp;&amp; !toks[j].startsWith("$") &amp;&amp; toks[j] !in setOf("&amp;&amp;", "||", ";", "|")</ID>
     <ID>ComplexCondition:SshTools.kt$SshTools$cfg.proxyPrivateKey.isNullOrEmpty() &amp;&amp; cfg.proxyPassword.isNullOrEmpty() &amp;&amp; cfg.privateKey.isNullOrEmpty() &amp;&amp; cfg.password.isNullOrEmpty()</ID>
@@ -215,7 +216,7 @@
     <ID>CyclomaticComplexMethod:ModelEditActivity.kt$ModelEditActivity$private fun renderSelectedModels()</ID>
     <ID>CyclomaticComplexMethod:ModelEditActivity.kt$ModelEditActivity$private fun showModelPicker(models: List&lt;String&gt;)</ID>
     <ID>CyclomaticComplexMethod:ModelEditActivity.kt$ModelEditActivity$private fun testConnectivity(base: String, key: String, model: String): TestResult</ID>
-    <ID>CyclomaticComplexMethod:ModelUpdater.kt$ModelUpdater$private fun downloadResume(urlStr: String, target: File, md5: String, size: Long): Boolean</ID>
+    <ID>CyclomaticComplexMethod:ModelUpdater.kt$ModelUpdater$private fun downloadResume( urlStr: String, target: File, md5: String, size: Long, onProgress: (Long) -&gt; Unit ): Boolean</ID>
     <ID>CyclomaticComplexMethod:NyralApp.kt$NyralApp$private fun exportPendingCrashes()</ID>
     <ID>CyclomaticComplexMethod:PdfTextExtractor.kt$PdfTextExtractor$private fun unescape(s: String): String</ID>
     <ID>CyclomaticComplexMethod:PermissionsActivity.kt$PermissionsActivity$private fun buildRow(item: PermItem): LinearLayout</ID>
@@ -566,6 +567,7 @@
     <ID>LongMethod:ModelEditActivity.kt$ModelEditActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:ModelEditActivity.kt$ModelEditActivity$private fun renderSelectedModels()</ID>
     <ID>LongMethod:ModelEditActivity.kt$ModelEditActivity$private fun showModelPicker(models: List&lt;String&gt;)</ID>
+    <ID>LongMethod:ModelUpdater.kt$ModelUpdater$private fun downloadResume( urlStr: String, target: File, md5: String, size: Long, onProgress: (Long) -&gt; Unit ): Boolean</ID>
     <ID>LongMethod:ProcGuard.kt$ProcGuard$private fun runShInner(context: Context, script: String, timeoutMsRaw: Long): String</ID>
     <ID>LongMethod:SecurityCenterActivity.kt$SecurityCenterActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:SettingsActivity.kt$SettingsActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
@@ -630,6 +632,7 @@
     <ID>LoopWithTooManyJumpStatements:MdBlocks.kt$MdBlocks$for</ID>
     <ID>LoopWithTooManyJumpStatements:MdSpannable.kt$MdSpannable$for</ID>
     <ID>LoopWithTooManyJumpStatements:ModelUpdater.kt$ModelUpdater$for</ID>
+    <ID>LoopWithTooManyJumpStatements:ModelUpdater.kt$ModelUpdater$while</ID>
     <ID>LoopWithTooManyJumpStatements:NyralApp.kt$NyralApp$while</ID>
     <ID>LoopWithTooManyJumpStatements:PatternStore.kt$PatternStore$for</ID>
     <ID>LoopWithTooManyJumpStatements:PdfTextExtractor.kt$PdfTextExtractor$for</ID>
@@ -1911,6 +1914,7 @@
     <ID>MagicNumber:MemModelConfigActivity.kt$MemModelConfigActivity$402</ID>
     <ID>MagicNumber:MemModelConfigActivity.kt$MemModelConfigActivity$6</ID>
     <ID>MagicNumber:MemModelConfigActivity.kt$MemModelConfigActivity$8</ID>
+    <ID>MagicNumber:MemModelConfigActivity.kt$MemModelConfigActivity.&lt;no name provided&gt;$500L</ID>
     <ID>MagicNumber:MemoryDb.kt$MemoryDb$10</ID>
     <ID>MagicNumber:MemoryDb.kt$MemoryDb$11</ID>
     <ID>MagicNumber:MemoryDb.kt$MemoryDb$12</ID>
@@ -2003,13 +2007,30 @@
     <ID>MagicNumber:ModelEditActivity.kt$ModelEditActivity$6</ID>
     <ID>MagicNumber:ModelEditActivity.kt$ModelEditActivity$8</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$100</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$1000</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$10000</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$1000L</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$100L</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$1024</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$1048576</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$15000</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$16000L</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$200</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$2000L</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$206</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$24</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$256</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$3</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$30</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$30000</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$3000L</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$4</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$403</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$404</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$5</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$60</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$60000</ID>
+    <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$60_000L</ID>
     <ID>MagicNumber:ModelUpdater.kt$ModelUpdater$64</ID>
     <ID>MagicNumber:NyralApp.kt$NyralApp$10000</ID>
     <ID>MagicNumber:NyralApp.kt$NyralApp$1000L</ID>
@@ -2142,6 +2163,7 @@
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$9</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$9101</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$9102</ID>
+    <ID>MagicNumber:SettingsActivity.kt$SettingsActivity.&lt;no name provided&gt;$1000L</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity.&lt;no name provided&gt;$1024</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity.&lt;no name provided&gt;$65535</ID>
     <ID>MagicNumber:SlowBall.kt$SlowBall$0.5f</ID>
@@ -3278,12 +3300,12 @@
     <ID>NestedBlockDepth:MdSpans.kt$MdToSpans$private fun walkChildrenSkip(node: Node, sb: StringBuilder, spans: MutableList&lt;MdSpan&gt;, skipChars: Int)</ID>
     <ID>NestedBlockDepth:MediaFileUtils.kt$MediaFileUtils$fun motionVideoUriOf(cr: ContentResolver, imgUri: Uri): Uri?</ID>
     <ID>NestedBlockDepth:MediaPreviews.kt$private fun Activity.createMediaPreviewContent(media: List&lt;String&gt;, startIndex: Int, d: Dialog, adaptH: Boolean = false): View</ID>
-    <ID>NestedBlockDepth:MemoryEmbedder.kt$MemoryEmbedder$@Synchronized fun reload(): Boolean</ID>
     <ID>NestedBlockDepth:MemoryEmbedder.kt$MemoryEmbedder$fun embed(text: String): FloatArray</ID>
     <ID>NestedBlockDepth:MemoryKeeper.kt$MemoryKeeper$private fun archive(): Boolean</ID>
     <ID>NestedBlockDepth:MemoryKeeper.kt$MemoryKeeper$private fun chunkText(text: String, size: Int): List&lt;String&gt;</ID>
     <ID>NestedBlockDepth:MemoryTools.kt$MemoryTools$fun search(context: android.content.Context, query: String): String</ID>
-    <ID>NestedBlockDepth:ModelUpdater.kt$ModelUpdater$private fun downloadResume(urlStr: String, target: File, md5: String, size: Long): Boolean</ID>
+    <ID>NestedBlockDepth:ModelUpdater.kt$ModelUpdater$private fun downloadResume( urlStr: String, target: File, md5: String, size: Long, onProgress: (Long) -&gt; Unit ): Boolean</ID>
+    <ID>NestedBlockDepth:ModelUpdater.kt$ModelUpdater$private fun fetchVerifiedManifest(): JSONObject?</ID>
     <ID>NestedBlockDepth:NyralApp.kt$NyralApp$private fun exportToDownload(src: File): Boolean</ID>
     <ID>NestedBlockDepth:PdfTextExtractor.kt$PdfTextExtractor$fun extractPages(data: ByteArray): List&lt;String&gt;</ID>
     <ID>NestedBlockDepth:PdfTextExtractor.kt$PdfTextExtractor$private fun extractTj(content: String): String</ID>
@@ -3471,8 +3493,11 @@
     <ID>ReturnCount:ModelEditActivity.kt$ModelEditActivity$private fun doSave(setAsCurrent: Boolean): String?</ID>
     <ID>ReturnCount:ModelEditActivity.kt$ModelEditActivity$private fun fetchModelsFromNetwork(base: String, key: String): List&lt;String&gt;?</ID>
     <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$fun ensureDownloaded(force: Boolean = false)</ID>
-    <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun downloadFileWithResume(target: File, urls: List&lt;String&gt;, md5: String, size: Long): Boolean</ID>
-    <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun downloadResume(urlStr: String, target: File, md5: String, size: Long): Boolean</ID>
+    <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun downloadByParts( target: File, remoteName: String, expectMd5: String, size: Long, onProgress: (Long) -&gt; Unit ): Boolean</ID>
+    <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun downloadFileWithResume( target: File, urls: List&lt;String&gt;, md5: String, size: Long, onProgress: (Long) -&gt; Unit = {} ): Boolean</ID>
+    <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun downloadResume( urlStr: String, target: File, md5: String, size: Long, onProgress: (Long) -&gt; Unit ): Boolean</ID>
+    <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun fetchVerifiedManifest(): JSONObject?</ID>
+    <ID>ReturnCount:ModelUpdater.kt$ModelUpdater$private fun isOffline(e: Throwable): Boolean</ID>
     <ID>ReturnCount:NyralApp.kt$NyralApp$private fun uploadCrash(f: File, attempts: Int = 4): Boolean</ID>
     <ID>ReturnCount:PersonalityActivity.kt$PersonalityActivity$override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)</ID>
     <ID>ReturnCount:ProcGuard.kt$ProcGuard$private fun runShInner(context: Context, script: String, timeoutMsRaw: Long): String</ID>
@@ -3604,6 +3629,7 @@
     <ID>SwallowedException:MediaPreviews.kt$e: Exception</ID>
     <ID>SwallowedException:MemoryEmbedder.kt$MemoryEmbedder$e: Exception</ID>
     <ID>SwallowedException:MemoryTools.kt$MemoryTools$ex: Exception</ID>
+    <ID>SwallowedException:ModelUpdater.kt$ModelUpdater$ex: Exception</ID>
     <ID>SwallowedException:NyralApp.kt$NyralApp$e: Exception</ID>
     <ID>SwallowedException:PatternStore.kt$PatternStore$e: Exception</ID>
     <ID>SwallowedException:PdfTextExtractor.kt$PdfTextExtractor$e: Exception</ID>
@@ -3636,6 +3662,8 @@
     <ID>SwallowedException:WorkDir.kt$WorkDir$e: Exception</ID>
     <ID>SwallowedException:WorkTools.kt$WorkTools$e: Exception</ID>
     <ID>ThrowsCount:LocalEngine.kt$LocalEngine$private fun streamOnce( context: Context, messages: JSONArray, cb: Callback, answerGate: () -&gt; String?, injectedTools: MutableSet&lt;String&gt;, hotLoaded: Set&lt;String&gt;, forceNoTools: Boolean = false, taskId: Long = 0L ): StreamResult</ID>
+    <ID>ThrowsCount:ModelUpdater.kt$ModelUpdater$private fun downloadResume( urlStr: String, target: File, md5: String, size: Long, onProgress: (Long) -&gt; Unit ): Boolean</ID>
+    <ID>ThrowsCount:ModelUpdater.kt$ModelUpdater$private fun fetchChunk(url: String, dest: File, expected: Long): Long</ID>
     <ID>TooGenericExceptionCaught:AITerminal.kt$AITerminalService$e2: Exception</ID>
     <ID>TooGenericExceptionCaught:AITerminal.kt$AITerminalService$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AITerminal.kt$AITerminalService.Companion$e: Exception</ID>
@@ -3707,6 +3735,7 @@
     <ID>TooGenericExceptionCaught:MemoryTools.kt$MemoryTools$e: Exception</ID>
     <ID>TooGenericExceptionCaught:MemoryTools.kt$MemoryTools$ex: Exception</ID>
     <ID>TooGenericExceptionCaught:ModelUpdater.kt$ModelUpdater$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ModelUpdater.kt$ModelUpdater$ex: Exception</ID>
     <ID>TooGenericExceptionCaught:NyralApp.kt$NyralApp$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PatternStore.kt$PatternStore$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PdfTextExtractor.kt$PdfTextExtractor$e: Exception</ID>
@@ -3755,10 +3784,13 @@
     <ID>TooGenericExceptionThrown:McpClientManager.kt$McpClientManager$throw RuntimeException("无法解析 MCP 响应: ${text.take(200)}")</ID>
     <ID>TooGenericExceptionThrown:MemoryGate.kt$MemoryGate$throw RuntimeException("MemoryGate judge API 失败: ${it.message}")</ID>
     <ID>TooGenericExceptionThrown:MemoryKeeper.kt$MemoryKeeper$throw RuntimeException("API 失败: ${it.message}")</ID>
+    <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("Content-Range 起点异常: [$cr] 期望 $existing")</ID>
     <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("HTTP $code")</ID>
     <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("HTTP ${conn.responseCode}")</ID>
     <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("manifest 拉取或签名校验失败: $lastError")</ID>
-    <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("下载失败: $name")</ID>
+    <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("下载失败: $remoteName")</ID>
+    <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("响应超出 manifest 声明长度")</ID>
+    <ID>TooGenericExceptionThrown:ModelUpdater.kt$ModelUpdater$throw RuntimeException("连接提前结束: $written/$size")</ID>
     <ID>TooManyFunctions:AiBubbleHolder.kt$AiBubbleHolder : TypewriterTickable</ID>
     <ID>TooManyFunctions:ApiConfig.kt$ApiConfig</ID>
     <ID>TooManyFunctions:AppearanceActivity.kt$AppearanceActivity : Activity</ID>
@@ -3793,6 +3825,7 @@
     <ID>TooManyFunctions:MainActivityVoice.kt$io.github.aixtin.nyral.MainActivityVoice.kt</ID>
     <ID>TooManyFunctions:MainUi.kt$io.github.aixtin.nyral.MainUi.kt</ID>
     <ID>TooManyFunctions:McpClientManager.kt$McpClientManager</ID>
+    <ID>TooManyFunctions:MemModelConfigActivity.kt$MemModelConfigActivity : Activity</ID>
     <ID>TooManyFunctions:MemoryDb.kt$MemoryDb : SQLiteOpenHelper</ID>
     <ID>TooManyFunctions:MemoryListActivity.kt$MemoryListActivity : Activity</ID>
     <ID>TooManyFunctions:ModeConfig.kt$ModeConfig</ID>
