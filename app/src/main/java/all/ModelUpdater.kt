@@ -33,12 +33,18 @@ object ModelUpdater {
         "https://gitee.com/aixtin/nyral-models/releases/download/v1/manifest.json",
         "https://raw.githubusercontent.com/aixtin/nyral/main/models/bge/v1/manifest.json"
     )
+    /** 分片通道: Gitee 附件 CDN 实测忽略 Range(回 200 全量), 单文件断流只能从 0 重来,
+     *  故按 4MB 切片独立下载, 弱网/反复开关 App 只重下未完成的那一片 */
+    private const val PART_CHUNK = 4L * 1024 * 1024
+    private const val PART_BASE = "https://gitee.com/aixtin/nyral-models/releases/download/v1/"
     private const val PREF = "model_updater"
     private const val K_VERSION = "version"
     private const val K_READY = "ready"
     private const val K_LAST_FAIL = "last_fail_ts"
-    /** 失败退避窗口: 24h 内不自动重试, 避免每次冷启动重复拉取 24MB 模型 */
-    private const val FAIL_BACKOFF_MS = 24L * 60 * 60 * 1000
+    /** 连续失败次数: 用于分级退避, 下载成功即清零 */
+    private const val K_FAIL_COUNT = "fail_count"
+    /** 断点分片最大重试次数(单次连接层), 超过交给外层退避与网络回调 */
+    private const val MAX_ATTEMPTS = 8
 
     @Volatile private var app: Context? = null
     @Volatile var state = ST_NOT_DOWNLOADED
@@ -63,14 +69,84 @@ object ModelUpdater {
         // 冷启动自愈: 热更模型从未落地 -> 后台自动拉取(用户无需知道该模型存在)
         // 注意: v2.9.7 前 assets 内置兜底会让 MemoryEmbedder.isReady() 恒为 true, 归档路径永远等不到,
         // 因此自动下载必须在 Application 初始化时发起, 不能依赖归档流程触发。
+        registerNetworkCallback()
         if (state != ST_READY) {
-            val lastFail = p.getLong(K_LAST_FAIL, 0L)
-            if (System.currentTimeMillis() - lastFail > FAIL_BACKOFF_MS) {
-                LogStore.i(LogStore.MEM, "冷启动检测到热更模型未落地, 触发后台下载")
+            val waited = System.currentTimeMillis() - p.getLong(K_LAST_FAIL, 0L)
+            val backoff = backoffMs(p.getInt(K_FAIL_COUNT, 0))
+            val part = partFile()
+            val hasPart = part.exists() && part.length() > 0
+            // 存在断点分片说明上次被中途打断(关 App / 断流), 不套长退避, 直接续传
+            if (hasPart || waited >= backoff) {
+                LogStore.i(LogStore.MEM, "冷启动触发模型下载(断点=${hasPart}, 退避=${backoff}ms, 已等=${waited}ms)")
                 ensureDownloaded()
             } else {
-                LogStore.i(LogStore.MEM, "热更模型上次下载失败, 处于退避窗口, 跳过自动下载")
+                LogStore.i(LogStore.MEM, "模型下载退避中, 还需 ${(backoff - waited) / 1000}s, 联网或手动重试可提前")
             }
+        }
+    }
+
+    /** 连续失败次数 -> 退避窗口 60s/5min/30min/2h/24h: 不再"失败一次锁一整天" */
+    private fun backoffMs(fails: Int): Long = when {
+        fails <= 0 -> 0L
+        fails == 1 -> 60_000L
+        fails == 2 -> 5 * 60_000L
+        fails == 3 -> 30 * 60_000L
+        fails == 4 -> 2 * 60 * 60_000L
+        else -> 24 * 60 * 60_000L
+    }
+
+    private fun partFile(): File = File(app!!.filesDir, "bge_model.onnx.part")
+
+    /** 网络恢复即自动续传: 除冷启动外多一条自愈路径, 用户不必反复开关 App */
+    private fun registerNetworkCallback() {
+        val ctx = app ?: return
+        try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return
+            val req = android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(req, object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    if (state == ST_READY || running.get()) return
+                    val p = prefs()
+                    val waited = System.currentTimeMillis() - p.getLong(K_LAST_FAIL, 0L)
+                    if (waited < backoffMs(p.getInt(K_FAIL_COUNT, 0))) return
+                    LogStore.i(LogStore.MEM, "网络已恢复, 触发模型续传")
+                    ensureDownloaded()
+                }
+            })
+        } catch (e: Exception) {
+            Log.w(TAG, "注册网络回调失败", e)
+        }
+    }
+
+    /** 失败文案是否属于"网络暂时不通"(大小写无关): 这类不惩罚退避, 等网络回来即可 */
+    private fun isOfflineText(msg: String): Boolean {
+        val m = msg.lowercase()
+        return m.contains("unable to resolve host") || m.contains("network is unreachable") ||
+            m.contains("failed to connect") || m.contains("connect timed out") ||
+            m.contains("connection abort") || m.contains("connection reset") ||
+            m.contains("no address associated with hostname") || m.contains("timeout")
+    }
+
+    /** 判定"暂时没网"类失败: 不计入退避, 等网络回来即可 */
+    private fun isOffline(e: Throwable): Boolean {
+        var c: Throwable? = e
+        while (c != null) {
+            val n = c.javaClass.simpleName
+            if (n.contains("UnknownHost") || n.contains("ConnectException") ||
+                n.contains("NoRouteToHost") || n.contains("SocketTimeout") || n.contains("SocketException") ||
+                n.contains("SSLException") || n.contains("EOFException")
+            ) return true
+            if (isOfflineText(c.message ?: "")) return true
+            c = c.cause
+        }
+        return try {
+            val cm = app?.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            caps == null || !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (ex: Exception) {
+            false
         }
     }
 
@@ -82,7 +158,8 @@ object ModelUpdater {
     fun statusText(): String {
         if (app == null) return "语义模型未就绪"
         return when (state) {
-            ST_DOWNLOADING -> "语义模型下载中 $progress% ($currentTask)"
+            ST_DOWNLOADING -> "语义模型下载中 $progress% ($currentTask)" +
+                partFile().let { if (it.exists()) " ${it.length() / 1048576}MB" else "" }
             ST_READY -> "语义模型已就绪 v$version"
             ST_FAILED -> "语义模型下载失败，点击重试"
             else -> "语义模型未下载，点击下载"
@@ -142,7 +219,8 @@ object ModelUpdater {
             progress = 100
             notifyChanged()
             version = manifest.getInt("version")
-            prefs().edit().putInt(K_VERSION, version).putBoolean(K_READY, true).remove(K_LAST_FAIL).apply()
+            prefs().edit().putInt(K_VERSION, version).putBoolean(K_READY, true)
+                .remove(K_LAST_FAIL).remove(K_FAIL_COUNT).apply()
             state = ST_READY
             currentTask = ""
             Log.i(TAG, "模型就绪 v$version")
@@ -152,7 +230,16 @@ object ModelUpdater {
             Log.e(TAG, "下载失败", e)
             lastError = e.message ?: "未知错误"
             state = ST_FAILED
-            prefs().edit().putLong(K_LAST_FAIL, System.currentTimeMillis()).apply()
+            val p = prefs()
+            if (isOffline(e)) {
+                // 离线不记失败次数: 否则没网时启动一次就被罚退避一整天, 反复开关也不会重试
+                p.edit().remove(K_LAST_FAIL).apply()
+                LogStore.i(LogStore.MEM, "网络不可达, 保留断点 ${partFile().length()}B, 联网后自动续传")
+            } else {
+                val fails = p.getInt(K_FAIL_COUNT, 0) + 1
+                p.edit().putInt(K_FAIL_COUNT, fails).putLong(K_LAST_FAIL, System.currentTimeMillis()).apply()
+                LogStore.i(LogStore.MEM, "下载失败第 $fails 次, 退避 ${backoffMs(fails) / 1000}s")
+            }
         }
         notifyChanged()
     }
@@ -178,18 +265,29 @@ object ModelUpdater {
     }
     private fun fetchVerifiedManifest(): JSONObject? {
         var lastErr = ""
-        for (url in MANIFEST_URLS) {
-            try {
-                val raw = httpGetBytes(url) ?: continue
-                val sigText = httpGetText(sigUrlOf(url))?.trim() ?: continue
-                if (verifySig(raw, sigText)) {
-                    return JSONObject(String(raw, Charsets.UTF_8))
-                } else {
-                    lastErr = "签名校验失败"
+        // 两轮: WiFi/移动数据切换的瞬间首个请求常被 abort, 立刻重来一次即可, 不必等下次冷启动
+        for (round in 1..2) {
+            for (url in MANIFEST_URLS) {
+                try {
+                    val raw = httpGetBytes(url) ?: continue
+                    val sigText = httpGetText(sigUrlOf(url))?.trim() ?: continue
+                    if (verifySig(raw, sigText)) {
+                        return JSONObject(String(raw, Charsets.UTF_8))
+                    } else {
+                        lastErr = "签名校验失败"
+                    }
+                } catch (e: Exception) {
+                    lastErr = e.message ?: "网络错误"
+                    Log.w(TAG, "manifest 源失败(第 $round 轮) $url: $e")
                 }
-            } catch (e: Exception) {
-                lastErr = e.message ?: "网络错误"
-                Log.w(TAG, "manifest 源失败 $url: $e")
+            }
+            if (round == 1) {
+                // 断网时别把两轮耗完, 直接交给外层"离线不惩罚"分支
+                if (isOfflineText(lastErr)) {
+                    lastError = lastErr
+                    return null
+                }
+                Thread.sleep(2000L)
             }
         }
         lastError = lastErr
@@ -223,6 +321,9 @@ object ModelUpdater {
             onProgress(size)
             return true
         }
+        // 大文件优先走分片通道(各片独立落盘, 天然断点续传); 分片缺失或失败自动回退整文件
+        val remoteName = urls.firstOrNull()?.substringAfterLast('/') ?: target.name
+        if (size > PART_CHUNK && downloadByParts(target, remoteName, md5, size, onProgress)) return true
         // 一律先写 .part 临时文件: 主文件可能被 onnxruntime mmap 持有, 直接覆写/追加会内容错位
         val part = File(target.parentFile, target.name + ".part")
         for (url in urls) {
@@ -246,11 +347,111 @@ object ModelUpdater {
             } catch (e: Exception) {
                 Log.w(TAG, "下载源失败 $url: $e")
             }
-            if (part.exists()) part.delete()
-            onProgress(0L)
+            // 保留已下分片: 备用源是同一份文件, 换源后 Range 起点照样可复用, 不必从 0 再来
+            if (part.exists() && part.length() >= size) part.delete()
+            onProgress(part.length())
         }
         return false
     }
+
+    /** 按 4MB 分片下载: 每片单独校验长度并落盘, 已完成的分片在重启后直接复用 */
+    private fun downloadByParts(
+        target: File,
+        remoteName: String,
+        expectMd5: String,
+        size: Long,
+        onProgress: (Long) -> Unit
+    ): Boolean {
+        val ctx = app ?: return false
+        val dir = File(ctx.filesDir, "model_parts").apply { mkdirs() }
+        val count = ((size + PART_CHUNK - 1) / PART_CHUNK).toInt()
+        val chunks = (0 until count).map { File(dir, "$remoteName.p$it") }
+        var done = 0L
+        for (c in chunks) if (c.exists() && c.length() <= PART_CHUNK) done += c.length()
+        if (done > 0) {
+            onProgress(progressOf(done, size))
+            LogStore.i(LogStore.MEM, "分片续传: 本地已有 ${done / 1048576}MB/共 ${size / 1048576}MB")
+        }
+        for (i in 0 until count) {
+            val expect = if (i == count - 1) size - PART_CHUNK * i else PART_CHUNK
+            val f = chunks[i]
+            if (f.exists() && f.length() == expect) continue
+            if (f.exists()) {
+                done -= f.length()
+                f.delete()
+            }
+            val url = PART_BASE + remoteName + ".p" + i
+            var ok = false
+            for (attempt in 1..3) {
+                val tmp = File(dir, f.name + ".tmp")
+                try {
+                    val conn = URL(url).openConnection() as HttpURLConnection
+                    conn.connectTimeout = 10000
+                    conn.readTimeout = 30000
+                    conn.instanceFollowRedirects = true
+                    conn.setRequestProperty("User-Agent", "Nyral-Android")
+                    conn.connect()
+                    val code = conn.responseCode
+                    if (code == 404 || code == 403) {
+                        LogStore.i(LogStore.MEM, "分片资源不可用(HTTP $code), 回退整文件下载")
+                        tmp.delete()
+                        return false
+                    }
+                    if (code != 200) throw RuntimeException("HTTP $code")
+                    var got = 0L
+                    conn.inputStream.use { input ->
+                        tmp.outputStream().use { out ->
+                            val buf = ByteArray(64 * 1024)
+                            var n: Int
+                            while (input.read(buf).also { n = it } != -1) {
+                                out.write(buf, 0, n)
+                                got += n
+                            }
+                        }
+                    }
+                    if (got != expect) throw RuntimeException("分片长度异常 $got/$expect")
+                    if (f.exists()) f.delete()
+                    if (!tmp.renameTo(f)) {
+                        tmp.copyTo(f, overwrite = true)
+                        tmp.delete()
+                    }
+                    done += got
+                    onProgress(progressOf(done, size))
+                    ok = true
+                    break
+                } catch (e: Exception) {
+                    tmp.delete()
+                    Log.w(TAG, "分片 $i 第 $attempt 次失败: ${e.message}")
+                    if (attempt < 3) Thread.sleep(if (isOffline(e)) 3000L else 1000L * attempt)
+                }
+            }
+            if (!ok) return false
+        }
+        // 拼接 + 整体 MD5 校验(签名 manifest 里的 md5 是最终裁判)
+        val part = File(target.parentFile, target.name + ".part")
+        try {
+            part.outputStream().use { out ->
+                for (f in chunks) f.inputStream().use { it.copyTo(out, 64 * 1024) }
+            }
+            if (part.length() != size) throw RuntimeException("拼接长度异常 ${part.length()}/$size")
+            if (md5(part) != expectMd5) throw RuntimeException("拼接 MD5 异常")
+            if (target.exists()) target.delete()
+            if (!part.renameTo(target)) {
+                part.copyTo(target, overwrite = true)
+                part.delete()
+            }
+            for (f in chunks) f.delete()
+            onProgress(100L)
+            return true
+        } catch (e: Exception) {
+            part.delete()
+            Log.w(TAG, "分片拼接失败: ${e.message}")
+            return false
+        }
+    }
+
+    private fun progressOf(done: Long, size: Long): Long =
+        if (size <= 0) 0L else ((done * 100) / size).coerceIn(0L, 100L)
 
     private fun downloadResume(
         urlStr: String,
@@ -261,7 +462,7 @@ object ModelUpdater {
     ): Boolean {
         var lastErr = ""
         var attempts = 0
-        while (attempts < 6) {
+        while (attempts < MAX_ATTEMPTS) {
             var existing = if (target.exists()) target.length() else 0L
             // 长度越界(历史脏数据/源异常)一律重来, 绝不在超长文件上继续追加
             if (existing > size) {
@@ -273,9 +474,13 @@ object ModelUpdater {
             try {
                 val conn = URL(urlStr).openConnection() as HttpURLConnection
                 conn.connectTimeout = 15000
-                conn.readTimeout = 30000
+                // 弱网放宽读超时: 30s 在移动网络抖动下过短, 断一次就浪费已下载进度
+                conn.readTimeout = 60000
                 conn.instanceFollowRedirects = true
                 conn.setRequestProperty("Range", "bytes=$existing-")
+                // 部分 CDN 无 UA 直接拒绝; 显式 identity 避免 gzip 让字节数与 manifest 对不上
+                conn.setRequestProperty("User-Agent", "Nyral-Android")
+                conn.setRequestProperty("Accept-Encoding", "identity")
                 conn.connect()
                 val code = conn.responseCode
                 if (code != 200 && code != 206) throw RuntimeException("HTTP $code")
@@ -323,8 +528,11 @@ object ModelUpdater {
                 if (written < size) throw RuntimeException("连接提前结束: $written/$size")
             } catch (e: Exception) {
                 lastErr = e.message ?: "IO 异常"
-                if (attempts >= 6) break
-                Thread.sleep(1000L * attempts)
+                if (attempts >= MAX_ATTEMPTS) break
+                // 指数退避 1s/2s/4s/8s/16s; 离线只短等, 把机会留给网络恢复
+                val backoff = if (isOffline(e)) 2000L else ((1000L shl (attempts - 1)).coerceAtMost(16000L))
+                Log.w(TAG, "第 $attempts 次下载中断: ${e.message}, ${backoff}ms 后重试")
+                Thread.sleep(backoff)
             }
         }
         if (!target.exists() || target.length() != size) {
@@ -342,11 +550,14 @@ object ModelUpdater {
     private fun httpGetText(urlStr: String): String? =
         httpGetBytes(urlStr)?.toString(Charsets.UTF_8)
 
-    private fun httpGetBytes(urlStr: String): ByteArray? {
+    private fun httpGetBytes(urlStr: String, connectTimeoutMs: Int = 8000, readTimeoutMs: Int = 20000): ByteArray? {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000
-        conn.readTimeout = 30000
+        // manifest/sig 只有几 KB, 短超时足够: raw.githubusercontent 国内常年不可达,
+        // 长等会把"该换源了"的判断拖成半分钟, 用户侧表现为下载迟迟不动
+        conn.connectTimeout = connectTimeoutMs
+        conn.readTimeout = readTimeoutMs
         conn.requestMethod = "GET"
+        conn.setRequestProperty("User-Agent", "Nyral-Android")
         conn.connect()
         if (conn.responseCode != 200) throw RuntimeException("HTTP ${conn.responseCode}")
         return conn.inputStream.use { it.readBytes() }

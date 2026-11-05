@@ -67,3 +67,6 @@ _patch/
 bak_*
 apply_*.py
 *_backup_*/
+
+# 模型分片(本地切分产物, 只用于上传 release 附件)
+models/bge/v1/parts/
