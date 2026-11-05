@@ -59,7 +59,7 @@ AIGC:
 | Capability | Details |
 | --- | --- |
 | **On-device long-term memory** | bge-small ONNX embeddings + keyword recall over SQLite; remembers across sessions, text never leaves the phone |
-| **21 built-in tools** | Web search/fetch, SSH with jump hosts, local shell, file read/write, video frame extraction, accessibility control of other apps |
+| **32 built-in tools** | Web search/fetch, SSH with jump hosts, local shell, in-house Agent browser, accessibility control of third-party apps, on-demand PDF/image/audio/video reading, scheduled jobs, AI image generation |
 | **Built-in agent browser** | The agent opens pages, clicks, fills forms and reads them; captchas are handed back to you in one tap |
 | **Any model, your key** | MiMo / DeepSeek / GLM / any OpenAI-compatible endpoint, switchable per chat |
 
@@ -111,22 +111,24 @@ Nyral is an open-source personal agent for Android: LLM chat, long-term local me
 - Optional separate "auxiliary AI" for memory indexing without consuming the main chat model
 - Pending queue persisted + atomic consumption transactions: no lost or duplicated messages after process kill
 
-**Tool Calling (40-round cap, 21 built-in tools across 8 shared bases)**
+**Tool Calling (40-round cap, 32 built-in tools across 13 capability groups)**
 
 <details>
-<summary><b>Tool list</b> (click to expand · 21 built-in tools)</summary>
+<summary><b>Tool list</b> (click to expand · 32 built-in tools)</summary>
 
-- Network: `web_search` (four-engine rotation: Sogou mobile → Bing RSS → Bing web → Baidu; direct access in mainland China, no key) / `web_fetch` / `web_download` / `site_auth` (per-domain cookie auto-injection)
-- SSH: `ssh_run` / `file` (remote read/write/upload/download), proxy jumps (ProxyJump over JSch), ED25519 (BouncyCastle), dual auth
-- Execution: `js_run` (sandboxed JS with ClassShutter class restrictions) / `sh_run` (local shell with dangerous-command interception + root elevation)
-- Device: `app` (accessibility-driven control of third-party apps)
-- Files: `workdir` (local workdir `Download/Nyral_work`: list/read/write/grep/head/stats; the AI pulls files locally, edits, and pushes them back — avoids SSH quoting hell)
-- Attachments: `attach_read` / `video_frame` / `file_export`
-- Memory: `memory_search` (semantic local search) / `get_time` / `calc` (Rhino interpreter)
-- Security: `security_set` (dangerous-op confirmation / root permission grant / SSH trust switch)
-- Browser (in-house agent-browser prototype): full-screen WebView takeover, AI step narration + highlight rings + one-tap CAPTCHA handoff to the user
-- Meta tools: `ask_user` (interactive clarification) / `tool_detail` (tool documentation)
-- Scheduling: `timer_task_create` (scheduled-job station: goal analysis, dangerous-tool authorization list with per-item purposes, one-shot approval, task-scoped capability pre-authorization)
+- Network (4): `web_search` (four-engine rotation: Sogou mobile → Bing RSS → Bing web → Baidu; direct access in mainland China, no key) / `web_fetch` / `web_download` / `site_auth` (per-domain cookie auto-injection)
+- SSH (3): `ssh_run` / `ssh_config_add` (add or edit jump-host connections, usable immediately) / `file` (remote list/read/info/write/upload/download, ProxyJump over JSch, ED25519, dual auth)
+- Execution (2): `js_run` (sandboxed JS with ClassShutter class restrictions) / `sh_run` (local shell with dangerous-command interception + root elevation)
+- Device (4): `app` (accessibility-driven control of third-party apps) / `device_snapshot` (live CPU / RAM / SoC temp / battery / disk panel) / `device_probe` (read-only probe of one package or process) / `write_clipboard` (write text to the system clipboard)
+- Files (1): `workdir` (local workdir `Download/Nyral_work`: list/read/write/grep/head/stats; the AI pulls files locally, edits, and pushes them back — avoids SSH quoting hell)
+- Attachments (7): `attach_read` (chunked read of text / docx / xlsx / pptx / archives) / `pdf_page` (read a PDF page by page as image or text) / `image_view` / `audio_read` / `video_frame` (frame sampling) / `file_export` (export to the public workdir) / `read_file_audit` (attachment deletion audit log)
+- Memory & utils (3): `memory_search` (semantic local search) / `get_time` / `calc` (Rhino interpreter)
+- Security (1): `security_set` (SSH host-key trust; the danger gate and root auto-grant stay user-only via Settings → Security Center)
+- Browser (1): `browser` (in-house agent-browser: open / scan / text / scroll / click / type / upload, cookie cache, `save_cookies` into site_auth, one-tap CAPTCHA handoff to the user)
+- Delivery (2): `artifact_save` (text artifacts as cards) / `artifact_save_bin` (base64 binary artifacts)
+- Media (1): `gen_image` (AI image generation, provider-driven, monthly quota gated)
+- Meta (2): `ask_user` (interactive clarification) / `tool_detail` (tool documentation)
+- Scheduling (1): `timer_task_create` (scheduled-job station: goal analysis, per-item dangerous-tool authorization with reasons, one-shot approval, task-scoped capability pre-authorization)
 
 </details>
 

@@ -59,7 +59,7 @@ AIGC:
 | 能力 | 说明 |
 | --- | --- |
 | **端侧长期记忆** | bge-small ONNX 语义向量 + 关键词 LIKE 双路召回，跨会话记得你说过什么，原文不出手机 |
-| **21 个内置工具** | 联网搜索与抓取、SSH 远程执行（支持跳板机）、本机 Shell、本地文件读写、视频抽帧、无障碍操作第三方 App |
+| **32 个内置工具** | 联网搜索与抓取、SSH 远程执行（支持跳板机）、本机 Shell、自研 Agent 浏览器、无障碍操作第三方 App、PDF/图片/音视频按需读取、定时岗位、AI 生图 |
 | **自研 Agent 浏览器** | AI 自己开网页、点按钮、填表单、读页面，遇到验证码一键交还给你 |
 | **多模型任选** | MiMo / DeepSeek / GLM / 任意 OpenAI 兼容端点，可按对话切换，Key 自己拿着 |
 
@@ -111,22 +111,24 @@ Nyral 是一款运行在 Android 上的开源个人智能体（Agent）：把大
 - 可配置独立"辅助 AI"做记忆索引，不占用主对话模型
 - pending 队列落盘 + 原子消费事务：进程被杀不丢消息、不重复归档
 
-**工具调用（40 轮上限，21 个内置工具挂在 8 个公共底座上）**
+**工具调用（40 轮上限，32 个内置工具，分 13 个能力组）**
 
 <details>
-<summary><b>工具清单</b>（点击展开 · 21 个内置工具）</summary>
+<summary><b>工具清单</b>（点击展开 · 32 个内置工具）</summary>
 
-- 网络底座：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
-- SSH 底座：ssh_run / file（远端文件读写/上传/下载），支持跳板机（ProxyJump over JSch）、ED25519（BouncyCastle）、双认证
-- 执行底座：js_run（沙箱执行 JS，ClassShutter 限制类访问）/ sh_run（本机 Shell，危险命令拦截 + root 提权）
-- 设备底座：app（第三方 App 无障碍控制）
-- 文件底座：workdir（本地工作目录 Download/Nyral_work：list/read/write/grep/head/stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义）
-- 附件底座：attach_read（附件读取）/ video_frame（视频抽帧）/ file_export（文件导出）
-- 记忆底座：memory_search（语义检索本地记忆）/ get_time / calc（Rhino 解释模式）
-- 安全底座：security_set（危险操作确认 / root 补权 / SSH 信任开关）
-- 浏览器（自研 Agent 浏览器雏形）：整屏 WebView 接管，AI 步骤播报 + 页面高亮圈 + 验证码一键交还用户
-- 元工具：ask_user（交互澄清）/ tool_detail（工具说明）
-- 定时岗位：timer_task_create（创建定时任务：分析 goal 后列出危险工具授权清单并逐项写明用途，task_create 壳一次打包批准，任务级能力预授权随任务销毁回收）
+- 网络（4）：web_search（四引擎轮换：搜狗移动端 → 必应 RSS → 必应网页 → 百度，国内直连免 key）/ web_fetch / web_download / site_auth（按域名 Cookie 自动注入）
+- SSH（3）：ssh_run / ssh_config_add（新增或编辑跳板连接，写完即可用）/ file（远端列目录/读/详情/写/上传/下载，ProxyJump over JSch、ED25519、双认证）
+- 执行（2）：js_run（沙箱执行 JS，ClassShutter 限制类访问）/ sh_run（本机 Shell，危险命令拦截 + root 提权）
+- 设备（4）：app（第三方 App 无障碍控制）/ device_snapshot（CPU / 内存 / SoC 温度 / 电池 / 磁盘实时面板）/ device_probe（单包名或进程只读探针）/ write_clipboard（写入系统剪贴板）
+- 文件（1）：workdir（本地工作目录 Download/Nyral_work：list/read/write/grep/head/stats，AI 拉文件到本地改再传回，绕开 SSH 命令行嵌套转义）
+- 附件（7）：attach_read（纯文本 / docx / xlsx / pptx / 压缩包分段读）/ pdf_page（PDF 按页读取，可出图或出文字）/ image_view / audio_read / video_frame（抽帧）/ file_export（导出到公共工作目录）/ read_file_audit（附件删除审计日志）
+- 记忆与工具（3）：memory_search（语义检索本地记忆）/ get_time / calc（Rhino 解释模式）
+- 安全（1）：security_set（SSH 主机密钥信任；危险门禁与 root 自动补权仍仅限用户在 设置 → 安全中心 手动修改）
+- 浏览器（1）：browser（自研 Agent 浏览器：open / scan / text / scroll / click / type / upload，Cookie 缓存、save_cookies 存入 site_auth、验证码一键交还用户）
+- 交付（2）：artifact_save（文本产物卡片）/ artifact_save_bin（Base64 二进制产物卡片）
+- 生成（1）：gen_image（AI 生图，厂商契约驱动，月度限额保护）
+- 元工具（2）：ask_user（交互澄清）/ tool_detail（工具说明）
+- 定时岗位（1）：timer_task_create（创建定时任务：分析 goal 后列出危险工具授权清单并逐项写明用途，一次打包批准，任务级能力预授权随任务销毁回收）
 
 </details>
 
