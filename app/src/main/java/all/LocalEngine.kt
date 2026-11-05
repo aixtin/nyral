@@ -978,9 +978,8 @@ object LocalEngine {
             val line = rd.readLine()
             if (line == null) { eofAborted = true; break }
             android.util.Log.v("Nyral", "SSE chunk len=${line.length}")
-            if (!line.startsWith("data:")) continue
-            val data = line.substring(5).trim()
-            if (data == "[DONE]") { seenDone = true; break }
+            val data = SseLine.payload(line) ?: continue
+            if (SseLine.isDone(data)) { seenDone = true; break }
             val parsed = try { JSONObject(data) } catch (e: Exception) { null } ?: continue
             val choices = parsed.optJSONArray("choices")
             val usage = parsed.optJSONObject("usage")

@@ -71,7 +71,11 @@ object MdToSpans {
         val spans = ArrayList<MdSpan>()
         walk(doc, sb, spans, blockStart = true, listPrefix = null)
         val t = sb.toString().trimEnd('\n')
-        return MdSpans(t, spans)
+        // 越界/零长 span 在源头丢弃(2026-11-06 fuzz 发现: 单独一个 "```" 会产出
+        // displayText="" 却带 [0,1) span)。渲染侧 MdSpannable 有兜底不崩, 但其它消费方
+        // (表格切分/产物卡)没有, 统一在此收敛。
+        val valid = spans.filter { it.start >= 0 && it.end <= t.length && it.start < it.end }
+        return MdSpans(t, valid)
     }
 
     private fun walk(

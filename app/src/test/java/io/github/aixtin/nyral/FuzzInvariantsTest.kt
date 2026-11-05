@@ -168,7 +168,16 @@ class FuzzInvariantsTest {
                     "parse 抛异常: input=${md.replace("\n", "\\n").take(160)} -> ${e::class.simpleName}: ${e.message}", e
                 )
             }
-            // 不变量: 确定性(同输入必须同输出, 流式重渲染依赖此性质)
+            // 不变量1: span 必须落在 displayText 范围内(2026-11-06 已在 MdSpans.convert 收敛)
+            for (sp in a.spans) {
+                if (sp.start < 0 || sp.end > a.displayText.length || sp.start >= sp.end) {
+                    throw AssertionError(
+                        "span 越界: start=${sp.start} end=${sp.end} len=${a.displayText.length} " +
+                            "input=${md.replace("\n", "\\n").take(160)}"
+                    )
+                }
+            }
+            // 不变量2: 确定性(同输入必须同输出, 流式重渲染依赖此性质)
             val b = MdToSpans.parse(md)
             if (a.displayText != b.displayText || a.spans != b.spans) {
                 throw AssertionError("parse 非确定性: input=${md.take(120)}")
@@ -184,10 +193,15 @@ class FuzzInvariantsTest {
      */
     @Test
     fun fenceOnlyInputStaysRenderSafe() {
-        val sp = MdToSpans.parse("```")
-        if (sp.displayText.isNotEmpty()) return // 将来若修成有文本, 本用例自然失效即可
-        // displayText 为空时, 渲染侧 toSpannable 直接早退, 不触及越界 span
-        check(sp.displayText.isEmpty())
+        // 2026-11-06 fuzz 发现: "```" 曾产出 displayText="" 且 spans=[0,1) 越界
+        for (md in listOf("```", "~~~", "````", "```\n```", "```")) {
+            val sp = MdToSpans.parse(md)
+            for (s in sp.spans) {
+                if (s.start < 0 || s.end > sp.displayText.length || s.start >= s.end) {
+                    throw AssertionError("空 fence 仍有越界 span: input=[$md] $s len=${sp.displayText.length}")
+                }
+            }
+        }
     }
 
     // ---------- 5. 登录态判定 ----------
@@ -217,6 +231,33 @@ class FuzzInvariantsTest {
         }
     }
 
+    // ---------- 5b. SSE 单行协议 ----------
+
+    @Test
+    fun fuzzSseLineProtocol() {
+        val r = kotlin.random.Random(7007L)
+        val prefixes = listOf("data:", "data: ", "DATA:", "data", "", " ", "event: x", ": ping", "id: 1", "data:\t")
+        val bodies = listOf("", " ", "[DONE]", " [DONE] ", "{\"a\":1}", "\t{}\r", "中文载荷", "x".repeat(200))
+        repeat(iterations) {
+            val line = prefixes[r.nextInt(prefixes.size)] + bodies[r.nextInt(bodies.size)]
+            val p = SseLine.payload(line)
+            if (!line.startsWith("data:")) {
+                if (p != null) throw AssertionError("非 data 行不应产出载荷: [$line] -> [$p]")
+            } else {
+                if (p == null) throw AssertionError("data 行丢了载荷: [$line]")
+                if (p != p.trim()) throw AssertionError("载荷未 trim: [$line] -> [$p]")
+                if (p != line.substring(5).trim()) throw AssertionError("载荷解析不一致: [$line]")
+            }
+            val expectDone = line.startsWith("data:") && line.substring(5).trim() == "[DONE]"
+            if (SseLine.isDone(p ?: "") != expectDone) throw AssertionError("结束标记误判: [$line] p=[$p]")
+        }
+        if (SseLine.payload("data:[DONE]") != "[DONE]") throw AssertionError("data:[DONE] 解析失败")
+        if (SseLine.payload("DATA:{}") != null) throw AssertionError("字段名必须大小写敏感")
+        if (SseLine.payload(": keep-alive") != null) throw AssertionError("注释行不应产出载荷")
+        if (SseLine.payload("") != null) throw AssertionError("空行不应产出载荷")
+        if (!SseLine.isDone(SseLine.payload("data: [DONE] ")!!)) throw AssertionError("带空格 [DONE] 未被识别")
+    }
+
     // ---------- 6. 块缓存读写一致性 ----------
 
     @Test
@@ -235,6 +276,40 @@ class FuzzInvariantsTest {
                 }
             }
             cache.clear()
+        }
+    }
+
+    // ---------- 7. 缓存容量与 LRU ----------
+
+    @Test
+    fun mdBlockCacheIsBoundedAndLru() {
+        val cap = MdBlockCache.DEFAULT_MAX_BLOCKS
+        val c = MdBlockCache()
+        val sp = MdToSpans.parse("x")
+        repeat(cap * 4) { c.put("k$it", sp) }
+        if (c.size() > cap) throw AssertionError("缓存超出上限: size=${c.size()} cap=$cap")
+        c.clear()
+        if (c.size() != 0) throw AssertionError("clear 未清空")
+        repeat(cap) { c.put("k$it", sp) }
+        c.get("k0") // 命中, 提升为最近使用
+        repeat(10) { c.put("new$it", sp) }
+        if (c.get("k0") == null) throw AssertionError("最近访问的块被误淘汰(LRU 失效)")
+        if (c.get("k1") != null) throw AssertionError("最久未用块未被淘汰")
+        if (c.size() > cap) throw AssertionError("容量失控: ${c.size()}")
+    }
+
+    // ---------- 8. 块 key 抗碰撞 ----------
+
+    @Test
+    fun blockKeyHasNoKnownCollision() {
+        if ("Aa".hashCode() != "BB".hashCode()) throw AssertionError("前提失效: Aa/BB hash 已不同, 用例可删")
+        if (MdBlocks.keyOf("Aa") == MdBlocks.keyOf("BB")) throw AssertionError("key 仍然碰撞: Aa/BB")
+        val base = "## 标题\n正文段落 **粗** `code`"
+        if (MdBlocks.keyOf(base) != MdBlocks.keyOf(base)) throw AssertionError("同文本 key 不稳定")
+        for (i in base.indices) {
+            val repl = if (base[i] == 'x') 'y' else 'x'
+            val v = base.substring(0, i) + repl + base.substring(i + 1)
+            if (MdBlocks.keyOf(v) == MdBlocks.keyOf(base)) throw AssertionError("单字符差异撞 key: [$base] vs [$v]")
         }
     }
 }
