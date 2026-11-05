@@ -99,6 +99,11 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 
+    // 随机化 fuzz 轮数透传(2026-11-06): 默认 2 万轮走常规 CI, nightly 用 -Dnyral.fuzz.iters=200000 深度扫
+    tasks.withType<Test>().configureEach {
+        systemProperty("nyral.fuzz.iters", System.getProperty("nyral.fuzz.iters", "20000"))
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
