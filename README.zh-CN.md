@@ -30,7 +30,7 @@ AIGC:
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
-![release](https://img.shields.io/badge/release-v2.9.3-brightgreen)
+![release](https://img.shields.io/badge/release-v2.9.4-brightgreen)
 
 [**下载 APK**](../../releases/latest) ｜ [五分钟上手](#五分钟上手) ｜ [能做什么](#它能做什么) ｜ [项目状态](#项目状态)
 
@@ -229,7 +229,8 @@ android-agent-app/
 
 
 ## 版本记录
-- **【最新】v2.9.3（2026-11-05，versionCode 116）**：UI 统一与显示修复批次：诊断页接入全局界面规范（返回图标、标题栏间距、点击反馈、半点字号取整，同步首启引导/指南页/浏览器菜单）；修复产物查看页标题栏与系统状态栏重叠（根布局补系统留白消费，底部操作条同步适配手势条）。新增发布前敏感扫描脚本（scripts/sensitive_scan.sh，合作声明豁免已登记）。
+- **【最新】v2.9.4（2026-11-05，versionCode 117）**：语义模型热更下载修复：签名地址改为同级 `manifest.sig`（此前在 `manifest.json` 后追加 `.sig`，双源 404，手动下载必然失败）；下载落盘名对齐嵌入器读取名（`bge_model.onnx` / `bge_vocab.txt`，原先按 manifest 的 `model_quantized.onnx` / `vocab.txt` 落盘，下完也不会被加载）；进度改为按字节实时上报，不再只在整文件完成时跳变；状态卡在页面可见期间每 500ms 轮询，下载中/进度/已就绪无需切页即刷新。另加固续传：服务端忽略 `Range` 返回 200 时重置半截文件，不再追加出错误内容。
+- **v2.9.3（2026-11-05，versionCode 116）**：UI 统一与显示修复批次：诊断页接入全局界面规范（返回图标、标题栏间距、点击反馈、半点字号取整，同步首启引导/指南页/浏览器菜单）；修复产物查看页标题栏与系统状态栏重叠（根布局补系统留白消费，底部操作条同步适配手势条）。新增发布前敏感扫描脚本（scripts/sensitive_scan.sh，合作声明豁免已登记）。
 - **v2.9.2（2026-11-05，versionCode 115）**：新增：生图通道扩展——智谱 GLM-Image/CogView（open.bigmodel.cn）与火山方舟 Seedream（ark.cn-beijing.volces.com）独立契约适配（同步返回、`data[0].url` 提取、各自尺寸格式；方舟只认 1K/2K/4K 档位不认像素对，改为不下发 size 用默认档位）。Key 改为纯手填——移除从粘贴示例文本自动提取 sk- 的正则，避免误抓密钥。测试按钮探测尺寸 512→1024。修复：产物库 512KB 上限卡死生图（曾被迫降到 384×384），生图专用上限提至 4MB，超限自动 JPEG 逐级降质兜底。
 - **v2.9.1（2026-11-05，versionCode 114）**：新增双通道下载（GitHub/Gitee 多源）与 F-Droid 通道支持；版本号补发。
 - **【最新】v2.9.0（2026-11-04，versionCode 113）**：新增：文件管理页重构（附件卡片带 AI 产物紫色角标、独立「AI 产物」分组、类型+AI 双维度分组、批量删除二次确认）；删除审计闭环（每次删除记录删除前快照到私有审计日志，附件引用失效时 AI 可经只读工具 read_file_audit 自查是否已被删）；AI 生图配置（GenConfig：模型/参数预设，快捷预设+内联试跑）；产物查看通道分离（仅带 artifact_name 标记的 AI 产物进入产物查看页，用户上传附件走普通预览；超大文件改为提示分享而非全量读入内存）。修复：产物查看页大文件 OOM（全量 readText 改为大小守卫，保存同样加守卫）。

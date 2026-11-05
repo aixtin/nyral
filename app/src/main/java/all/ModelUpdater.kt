@@ -97,23 +97,34 @@ object ModelUpdater {
         try {
             val manifest = fetchVerifiedManifest() ?: throw RuntimeException("manifest 拉取或签名校验失败: $lastError")
             val files = manifest.getJSONArray("files")
-            var done = 0
+            // 总字节数用于按字节推进进度(而非按文件个数跳变)
+            var totalBytes = 0L
+            for (i in 0 until files.length()) totalBytes += files.getJSONObject(i).getLong("size")
+            var doneBytes = 0L
             for (i in 0 until files.length()) {
                 val f = files.getJSONObject(i)
-                val name = f.getString("name")
+                val remoteName = f.getString("name")
+                val localName = localNameOf(remoteName)
                 val urls = jsonArrayToList(f.getJSONArray("urls"))
                 val md5 = f.getString("md5")
                 val size = f.getLong("size")
-                currentTask = name
+                currentTask = localName
                 notifyChanged()
-                val target = File(ctx.filesDir, name)
-                if (!downloadFileWithResume(target, urls, md5, size)) {
-                    throw RuntimeException("下载失败: $name")
+                val target = File(ctx.filesDir, localName)
+                val base = doneBytes
+                val ok = downloadFileWithResume(target, urls, md5, size) { downloaded ->
+                    val p = if (totalBytes > 0) (((base + downloaded) * 100) / totalBytes).toInt() else 0
+                    val np = p.coerceIn(0, 100)
+                    if (np != progress) {
+                        progress = np
+                        notifyChanged()
+                    }
                 }
-                done++
-                progress = (done * 100) / files.length()
-                notifyChanged()
+                if (!ok) throw RuntimeException("下载失败: $remoteName")
+                doneBytes += size
             }
+            progress = 100
+            notifyChanged()
             version = manifest.getInt("version")
             prefs().edit().putInt(K_VERSION, version).putBoolean(K_READY, true).apply()
             state = ST_READY
@@ -136,12 +147,24 @@ object ModelUpdater {
     }
 
     // ---- manifest 拉取 + ECDSA 签名校验(校验原始字节, 签名文件为 manifest.sig) ----
+    /** manifest.json 的签名文件与 manifest 同级, 即 manifest.sig, 不能简单拼接 ".sig" */
+    private fun sigUrlOf(manifestUrl: String): String =
+        if (manifestUrl.endsWith("manifest.json"))
+            manifestUrl.dropLast("manifest.json".length) + "manifest.sig"
+        else manifestUrl + ".sig"
+
+    /** manifest 里的远程文件名 -> filesDir 下的本地文件名(必须与 MemoryEmbedder 读取名一致) */
+    private fun localNameOf(remote: String): String = when (remote) {
+        "model_quantized.onnx" -> "bge_model.onnx"
+        "vocab.txt" -> "bge_vocab.txt"
+        else -> remote
+    }
     private fun fetchVerifiedManifest(): JSONObject? {
         var lastErr = ""
         for (url in MANIFEST_URLS) {
             try {
                 val raw = httpGetBytes(url) ?: continue
-                val sigText = httpGetText(url + ".sig")?.trim() ?: continue
+                val sigText = httpGetText(sigUrlOf(url))?.trim() ?: continue
                 if (verifySig(raw, sigText)) {
                     return JSONObject(String(raw, Charsets.UTF_8))
                 } else {
@@ -172,12 +195,21 @@ object ModelUpdater {
     }
 
     // ---- 断点续传下载(Range) + MD5 ----
-    private fun downloadFileWithResume(target: File, urls: List<String>, md5: String, size: Long): Boolean {
-        if (target.exists() && target.length() == size && md5(target) == md5) return true
+    private fun downloadFileWithResume(
+        target: File,
+        urls: List<String>,
+        md5: String,
+        size: Long,
+        onProgress: (Long) -> Unit = {}
+    ): Boolean {
+        if (target.exists() && target.length() == size && md5(target) == md5) {
+            onProgress(size)
+            return true
+        }
         if (target.exists()) target.delete()
         for (url in urls) {
             try {
-                if (downloadResume(url, target, md5, size)) return true
+                if (downloadResume(url, target, md5, size, onProgress)) return true
             } catch (e: Exception) {
                 Log.w(TAG, "下载源失败 $url: $e")
             }
@@ -185,7 +217,13 @@ object ModelUpdater {
         return false
     }
 
-    private fun downloadResume(urlStr: String, target: File, md5: String, size: Long): Boolean {
+    private fun downloadResume(
+        urlStr: String,
+        target: File,
+        md5: String,
+        size: Long,
+        onProgress: (Long) -> Unit
+    ): Boolean {
         var existing = if (target.exists()) target.length() else 0L
         var lastErr = ""
         var attempts = 0
@@ -199,14 +237,26 @@ object ModelUpdater {
                 conn.connect()
                 val code = conn.responseCode
                 if (code != 200 && code != 206) throw RuntimeException("HTTP $code")
+                if (code == 200 && existing > 0) {
+                    // 服务端忽略了 Range, 必须丢弃已下载部分重新写, 否则内容错位
+                    target.delete()
+                    existing = 0L
+                    onProgress(0L)
+                }
                 conn.inputStream.use { input ->
                     FileOutputStream(target, true).use { out ->
                         val buf = ByteArray(64 * 1024)
                         var n: Int
+                        var lastCb = existing
                         while (input.read(buf).also { n = it } != -1) {
                             out.write(buf, 0, n)
                             existing += n
+                            if (existing - lastCb >= 256 * 1024) {
+                                lastCb = existing
+                                onProgress(existing)
+                            }
                         }
+                        onProgress(existing)
                     }
                 }
             } catch (e: Exception) {

@@ -4,6 +4,8 @@ import io.github.aixtin.nyral.R
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -37,10 +39,20 @@ class MemModelConfigActivity : Activity() {
     private lateinit var modelFileStatus: TextView
     private var enabled = false
 
+    // 状态卡轮询: 下载进度是异步推进的, 页面停留期间需定时刷新
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val statusTicker = object : Runnable {
+        override fun run() {
+            renderModelFile()
+            uiHandler.postDelayed(this, 500L)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ApiConfig.init(this)
         MemoryApiConfig.init(this)
+        ModelUpdater.init(this)
         Ui.statusBar(this)
 
         val cfg = MemoryApiConfig.load()
@@ -323,6 +335,18 @@ class MemModelConfigActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    override fun onResume() {
+        super.onResume()
+        uiHandler.removeCallbacks(statusTicker)
+        uiHandler.post(statusTicker)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        uiHandler.removeCallbacks(statusTicker)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         uiScope.cancel()
