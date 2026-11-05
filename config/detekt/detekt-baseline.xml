@@ -80,6 +80,7 @@
     <ID>CyclomaticComplexMethod:ApiConfig.kt$ApiConfig$fun guessModelCaps(model: String): Set&lt;String&gt;</ID>
     <ID>CyclomaticComplexMethod:ApiConfig.kt$ApiConfig$fun providers(): List&lt;Provider&gt;</ID>
     <ID>CyclomaticComplexMethod:ApiConfig.kt$ApiConfig$fun thinkingEffortParams(id: String, model: String, effort: String): JSONObject?</ID>
+    <ID>CyclomaticComplexMethod:ApiConfig.kt$ApiConfig$private fun presetCapabilities(p: Provider, model: String): Set&lt;String&gt;</ID>
     <ID>CyclomaticComplexMethod:AppearanceActivity.kt$AppearanceActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>CyclomaticComplexMethod:ArtifactStore.kt$ArtifactStore$fun mimeOf(name: String): String</ID>
     <ID>CyclomaticComplexMethod:ArtifactViewerActivity.kt$ArtifactViewerActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
@@ -137,9 +138,15 @@
     <ID>CyclomaticComplexMethod:EmojiFrameAnimator.kt$EmojiFrameAnimator$fun warmup(f: File)</ID>
     <ID>CyclomaticComplexMethod:EmojiFrameAnimator.kt$EmojiFrameAnimator$private fun extractFrames(f: File, onFirst: ((Bitmap) -&gt; Unit)? = null): List&lt;Bitmap&gt;?</ID>
     <ID>CyclomaticComplexMethod:EmojiFrameAnimator.kt$EmojiFrameAnimator.Controller$fun startDecode()</ID>
+    <ID>CyclomaticComplexMethod:FileAuditActivity.kt$FileAuditActivity$private fun card(e: JSONObject): View</ID>
+    <ID>CyclomaticComplexMethod:FileListActivity.kt$FileListActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>CyclomaticComplexMethod:FileListActivity.kt$FileListActivity$private fun fileCard(f: File): LinearLayout</ID>
     <ID>CyclomaticComplexMethod:FileTools.kt$FileTools$fun write(context: Context, arg: String): String</ID>
     <ID>CyclomaticComplexMethod:FormatSniffer.kt$FormatSniffer$fun sniff(head: ByteArray, lowName: String): String</ID>
+    <ID>CyclomaticComplexMethod:GenConfigActivity.kt$GenConfigActivity$private fun buildEntryCard(e: GenConfig.Entry): View</ID>
+    <ID>CyclomaticComplexMethod:GenConfigEditActivity.kt$GenConfigEditActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
+    <ID>CyclomaticComplexMethod:GenTools.kt$GenTools$fun genImage(context: Context, arg: String): String</ID>
+    <ID>CyclomaticComplexMethod:GenTools.kt$GenTools$fun testConnection(context: Context, entry: GenConfig.Entry, key: String): String</ID>
     <ID>CyclomaticComplexMethod:GifToMp4.kt$GifToMp4$fun convert(bytes: ByteArray, outFile: File, maxDurationMs: Long = Long.MAX_VALUE): Int</ID>
     <ID>CyclomaticComplexMethod:GifToMp4.kt$GifToMp4$private fun countFrames(bytes: ByteArray): Int</ID>
     <ID>CyclomaticComplexMethod:GifToMp4.kt$GifToMp4$private fun countFramesInWindow(bytes: ByteArray, maxDurMs: Long): Pair&lt;Int, Long&gt;</ID>
@@ -258,6 +265,7 @@
     <ID>EmptyCatchBlock:DebugServer.kt$DebugServer${}</ID>
     <ID>EmptyCatchBlock:DeviceAssist.kt$DeviceAssist${ }</ID>
     <ID>EmptyCatchBlock:EmojiDrawer.kt${}</ID>
+    <ID>EmptyCatchBlock:FileAuditStore.kt$FileAuditStore${ }</ID>
     <ID>EmptyCatchBlock:MainActivity.kt$MainActivity${}</ID>
     <ID>EmptyCatchBlock:MainActivityVoice.kt${}</ID>
     <ID>EmptyCatchBlock:MediaPreviews.kt${ }</ID>
@@ -275,6 +283,7 @@
     <ID>EmptyElseBlock:WorkDir.kt$WorkDir$if (uri != null) indexed.set(true)</ID>
     <ID>EmptyFunctionBlock:AppearanceActivity.kt$AppearanceActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:ChatBackgroundActivity.kt$ChatBackgroundActivity.&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:GenConfigEditActivity.kt$GenConfigEditActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:KnowledgeBaseDb.kt$KnowledgeBaseDb${}</ID>
     <ID>EmptyFunctionBlock:MainActivity.kt$MainActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:MediaPreviews.kt$&lt;no name provided&gt;${}</ID>
@@ -353,10 +362,16 @@
     <ID>InvalidPackageDeclaration:Drawables.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:EmojiDrawer.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:EmojiFrameAnimator.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:FileAuditActivity.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:FileAuditStore.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:FileListActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:FileTools.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:FirstRunSetupActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:FormatSniffer.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:GenConfig.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:GenConfigActivity.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:GenConfigEditActivity.kt$package io.github.aixtin.nyral</ID>
+    <ID>InvalidPackageDeclaration:GenTools.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:GifToMp4.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:GuideActivity.kt$package io.github.aixtin.nyral</ID>
     <ID>InvalidPackageDeclaration:HrSpan.kt$package io.github.aixtin.nyral</ID>
@@ -497,8 +512,11 @@
     <ID>LongMethod:DiagnosticsActivity.kt$DiagnosticsActivity$private fun buildRoot(): View</ID>
     <ID>LongMethod:EmojiDrawer.kt$internal fun MainActivity.buildEmojiDrawer(): LinearLayout</ID>
     <ID>LongMethod:EmojiDrawer.kt$private fun MainActivity.refreshEmojiLib()</ID>
+    <ID>LongMethod:FileListActivity.kt$FileListActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:FileListActivity.kt$FileListActivity$private fun fileCard(f: File): LinearLayout</ID>
     <ID>LongMethod:FirstRunSetupActivity.kt$FirstRunSetupActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
+    <ID>LongMethod:GenConfigActivity.kt$GenConfigActivity$private fun buildEntryCard(e: GenConfig.Entry): View</ID>
+    <ID>LongMethod:GenConfigEditActivity.kt$GenConfigEditActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:GifToMp4.kt$GifToMp4$fun convert(bytes: ByteArray, outFile: File, maxDurationMs: Long = Long.MAX_VALUE): Int</ID>
     <ID>LongMethod:GuideActivity.kt$GuideActivity$private fun buildPermRow(item: PermItem): LinearLayout</ID>
     <ID>LongMethod:GuideActivity.kt$GuideActivity$private fun buildStep0(c: LinearLayout, bottom: LinearLayout)</ID>
@@ -767,6 +785,7 @@
     <ID>MagicNumber:AppearanceActivity.kt$AppearanceActivity$9</ID>
     <ID>MagicNumber:ArtifactStore.kt$ArtifactStore$1024</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$10</ID>
+    <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$1024</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$11</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$11f</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$12</ID>
@@ -776,6 +795,7 @@
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$16</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$20</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$24</ID>
+    <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$35</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$4</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$5</ID>
     <ID>MagicNumber:ArtifactViewerActivity.kt$ArtifactViewerActivity$6</ID>
@@ -891,8 +911,7 @@
     <ID>MagicNumber:BrowserPageEngines.kt$9</ID>
     <ID>MagicNumber:BrowserPageHamburger.kt$1.2f</ID>
     <ID>MagicNumber:BrowserPageHamburger.kt$10</ID>
-    <ID>MagicNumber:BrowserPageHamburger.kt$10.5f</ID>
-    <ID>MagicNumber:BrowserPageHamburger.kt$11.5f</ID>
+    <ID>MagicNumber:BrowserPageHamburger.kt$11f</ID>
     <ID>MagicNumber:BrowserPageHamburger.kt$12</ID>
     <ID>MagicNumber:BrowserPageHamburger.kt$12f</ID>
     <ID>MagicNumber:BrowserPageHamburger.kt$13f</ID>
@@ -1113,24 +1132,22 @@
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$0.001f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$10</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$10.0</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$10.5f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$100</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$100.0</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$1000L</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$1024.0</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$1024f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$104</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$11.5f</ID>
+    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$11f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$12</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$12.5f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$12f</ID>
+    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$13f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$14</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$14f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$16</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$17f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$2.5</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$20</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$20f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$21f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$3</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity$30</ID>
@@ -1163,12 +1180,12 @@
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.CoreBarsView$3</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.CoreBarsView$4f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.CoreBarsView$60f</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.CoreBarsView$8.5f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.CoreBarsView$85f</ID>
+    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.CoreBarsView$9f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$0.1f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$1.2f</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$10.5f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$1000f</ID>
+    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$11f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$13f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$2.5f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$3000f</ID>
@@ -1177,7 +1194,7 @@
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$4</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$4f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$600f</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$8.5f</ID>
+    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView$9f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.NetView.&lt;no name provided&gt;$33L</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView$1.2f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView$1000f</ID>
@@ -1189,7 +1206,7 @@
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView$45f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView$4f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView$600f</ID>
-    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView$8.5f</ID>
+    <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView$9f</ID>
     <ID>MagicNumber:DiagnosticsActivity.kt$DiagnosticsActivity.SparkView.&lt;no name provided&gt;$33L</ID>
     <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$12</ID>
     <ID>MagicNumber:DocPlaceholderActivity.kt$DocPlaceholderActivity$14f</ID>
@@ -1251,6 +1268,20 @@
     <ID>MagicNumber:EmojiFrameAnimator.kt$EmojiFrameAnimator$500L</ID>
     <ID>MagicNumber:EmojiFrameAnimator.kt$EmojiFrameAnimator$99</ID>
     <ID>MagicNumber:EmojiFrameAnimator.kt$EmojiFrameAnimator.Controller$100L</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$0x00FFFFFF</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$10</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$1024</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$1024.0</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$12</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$12f</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$14</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$14f</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$15f</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$16</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$4</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$48</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$6</ID>
+    <ID>MagicNumber:FileAuditActivity.kt$FileAuditActivity$8</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$10</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$1024</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$1024.0</ID>
@@ -1262,12 +1293,14 @@
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$14f</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$15f</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$16</ID>
+    <ID>MagicNumber:FileListActivity.kt$FileListActivity$22</ID>
+    <ID>MagicNumber:FileListActivity.kt$FileListActivity$26</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$3</ID>
-    <ID>MagicNumber:FileListActivity.kt$FileListActivity$35</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$4</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$40</ID>
-    <ID>MagicNumber:FileListActivity.kt$FileListActivity$48</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$5</ID>
+    <ID>MagicNumber:FileListActivity.kt$FileListActivity$56</ID>
+    <ID>MagicNumber:FileListActivity.kt$FileListActivity$6</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$60</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$7</ID>
     <ID>MagicNumber:FileListActivity.kt$FileListActivity$8</ID>
@@ -1277,7 +1310,6 @@
     <ID>MagicNumber:FirstRunSetupActivity.kt$FirstRunSetupActivity$10</ID>
     <ID>MagicNumber:FirstRunSetupActivity.kt$FirstRunSetupActivity$11f</ID>
     <ID>MagicNumber:FirstRunSetupActivity.kt$FirstRunSetupActivity$12</ID>
-    <ID>MagicNumber:FirstRunSetupActivity.kt$FirstRunSetupActivity$12.5f</ID>
     <ID>MagicNumber:FirstRunSetupActivity.kt$FirstRunSetupActivity$12f</ID>
     <ID>MagicNumber:FirstRunSetupActivity.kt$FirstRunSetupActivity$13f</ID>
     <ID>MagicNumber:FirstRunSetupActivity.kt$FirstRunSetupActivity$14</ID>
@@ -1333,6 +1365,49 @@
     <ID>MagicNumber:FormatSniffer.kt$FormatSniffer$7</ID>
     <ID>MagicNumber:FormatSniffer.kt$FormatSniffer$8</ID>
     <ID>MagicNumber:FormatSniffer.kt$FormatSniffer$9</ID>
+    <ID>MagicNumber:GenConfig.kt$GenConfig$100</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$10</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$100</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$10f</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$12</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$12f</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$13f</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$14</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$14f</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$15f</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$16</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$160</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$40</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$6</ID>
+    <ID>MagicNumber:GenConfigActivity.kt$GenConfigActivity$8</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$10</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$12</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$12f</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$140</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$14f</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$15f</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$16</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$4</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$6</ID>
+    <ID>MagicNumber:GenConfigEditActivity.kt$GenConfigEditActivity$8</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$1000L</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$1024</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$120</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$15</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$1500</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$15000</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$200</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$299</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$300</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$30000</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$4</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$40</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$60</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$60000</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$70</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$80</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$8192</ID>
+    <ID>MagicNumber:GenTools.kt$GenTools$90</ID>
     <ID>MagicNumber:GifToMp4.kt$GifToMp4$0x07</ID>
     <ID>MagicNumber:GifToMp4.kt$GifToMp4$0x21</ID>
     <ID>MagicNumber:GifToMp4.kt$GifToMp4$0x2C</ID>
@@ -1377,7 +1452,6 @@
     <ID>MagicNumber:GuideActivity.kt$GuideActivity$11</ID>
     <ID>MagicNumber:GuideActivity.kt$GuideActivity$11f</ID>
     <ID>MagicNumber:GuideActivity.kt$GuideActivity$12</ID>
-    <ID>MagicNumber:GuideActivity.kt$GuideActivity$12.5f</ID>
     <ID>MagicNumber:GuideActivity.kt$GuideActivity$12f</ID>
     <ID>MagicNumber:GuideActivity.kt$GuideActivity$13</ID>
     <ID>MagicNumber:GuideActivity.kt$GuideActivity$13f</ID>
@@ -1502,6 +1576,7 @@
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$4000</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$499</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$5</ID>
+    <ID>MagicNumber:LocalEngine.kt$LocalEngine$50</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$60</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$60000</ID>
     <ID>MagicNumber:LocalEngine.kt$LocalEngine$8000</ID>
@@ -2048,6 +2123,7 @@
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$13f</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$14</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$14f</ID>
+    <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$15</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$15f</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$16</ID>
     <ID>MagicNumber:SettingsActivity.kt$SettingsActivity$20</ID>
@@ -2265,6 +2341,7 @@
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$4</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$4000</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$5</ID>
+    <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$50</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$500</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$6</ID>
     <ID>MagicNumber:ToolExecutor.kt$ToolExecutor$640</ID>
@@ -2410,6 +2487,9 @@
     <ID>MagicNumber:UiKit.kt$ExoGate$8f</ID>
     <ID>MagicNumber:UpdateChecker.kt$UpdateChecker$10</ID>
     <ID>MagicNumber:UpdateChecker.kt$UpdateChecker$200</ID>
+    <ID>MagicNumber:UpdateChecker.kt$UpdateChecker$2000</ID>
+    <ID>MagicNumber:UpdateChecker.kt$UpdateChecker$399</ID>
+    <ID>MagicNumber:UpdateChecker.kt$UpdateChecker$4000</ID>
     <ID>MagicNumber:UpdateChecker.kt$UpdateChecker$404</ID>
     <ID>MagicNumber:UpdateChecker.kt$UpdateChecker$8000</ID>
     <ID>MagicNumber:UserProfileActivity.kt$UserProfileActivity$10</ID>
@@ -2623,6 +2703,7 @@
     <ID>MaxLineLength:EmojiFrameAnimator.kt$EmojiFrameAnimator$frame.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))</ID>
     <ID>MaxLineLength:EmojiFrameAnimator.kt$EmojiFrameAnimator$val bmp = try { mmr.getFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST) } catch (_: Throwable) { null }</ID>
     <ID>MaxLineLength:EmojiFrameAnimator.kt$EmojiFrameAnimator.Controller$pausedElapsed = pausedElapsed % ((intervalMs * TypewriterCenter.slowMul()).toLong().coerceAtLeast(1L) * arr.size)</ID>
+    <ID>MaxLineLength:FileAuditStore.kt$FileAuditStore$sb.append(" (落库名=${e.optString("fileName", "?")}, 大小=${e.optLong("size", 0)}B, mime=${e.optString("mime", "?")}")</ID>
     <ID>MaxLineLength:FileListActivity.kt$FileListActivity$Toast</ID>
     <ID>MaxLineLength:FileListActivity.kt$FileListActivity$addView</ID>
     <ID>MaxLineLength:FileListActivity.kt$FileListActivity$private</ID>
@@ -2631,6 +2712,15 @@
     <ID>MaxLineLength:FileTools.kt$FileTools$val cmd = "echo '$b64' | base64 -d $op ${q(path)} &amp;&amp; echo '[OK] 已${if (append) "追加" else "写入"}: $path (${content.length} 字符)' 2&gt;&amp;1"</ID>
     <ID>MaxLineLength:FirstRunSetupActivity.kt$FirstRunSetupActivity$private</ID>
     <ID>MaxLineLength:FirstRunSetupActivity.kt$FirstRunSetupActivity$startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))</ID>
+    <ID>MaxLineLength:GenConfig.kt$GenConfig$sb.append("· ${e.displayName}$flag: ${e.contract.modelId.ifBlank { "模型未填" }}, $price, 本月 $used/$max 张, $keyState\n")</ID>
+    <ID>MaxLineLength:GenConfig.kt$GenConfig$val model = Regex("""["']?model["']?\s*[:=]\s*["']([A-Za-z0-9._-]+)["']""").find(example)?.groupValues?.get(1) ?: ""</ID>
+    <ID>MaxLineLength:GenConfig.kt$GenConfig.GenContract$val imageUrlPath: String = "data[0].url"</ID>
+    <ID>MaxLineLength:GenConfigActivity.kt$GenConfigActivity$"${e.contract.modelId.ifBlank { "未填模型" }} · ${e.contract.provider.ifBlank { "未知平台" }} · Key ${if (GenConfig.keyOf(this, e).isBlank()) "未填" else "已填"}"</ID>
+    <ID>MaxLineLength:GenTools.kt$GenTools$"生图成功(${bytes.size / 1024}KB, ${entry.displayName}, 本月第 $used/$max 张)。请立即在回复正文中单独一行原样输出 [产物:AI生成图片.png](att://$fn) 向用户展示图片卡片。若用户想要更多图或调整画面, 可直接再次调用。"</ID>
+    <ID>MaxLineLength:GenTools.kt$GenTools$SecurityConfig.audit(context, "gen_image", "provider=${entry.displayName} prompt=${prompt.take(40)} size=$size n=$n", "ai", "bubble")</ID>
+    <ID>MaxLineLength:GenTools.kt$GenTools$if</ID>
+    <ID>MaxLineLength:GenTools.kt$GenTools$private</ID>
+    <ID>MaxLineLength:GenTools.kt$GenTools$val fn = ArtifactStore.saveBytes(context, name.replace(".png", "_q$quality.jpg"), out, GEN_IMAGE_MAX)</ID>
     <ID>MaxLineLength:GifToMp4.kt$GifToMp4$arr[i] = (b[o].toInt() and 0xFF) shl 16 or ((b[o + 1].toInt() and 0xFF) shl 8) or (b[o + 2].toInt() and 0xFF)</ID>
     <ID>MaxLineLength:GifToMp4.kt$GifToMp4$cvs.drawRect(left.toFloat(), top.toFloat(), (left + rw).toFloat(), (top + rh).toFloat(), clear)</ID>
     <ID>MaxLineLength:GifToMp4.kt$GifToMp4$if</ID>
@@ -2722,9 +2812,11 @@
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("device_snapshot", "读取手机设备面板实时快照(只读): CPU 占用与最高核频率、内存、SoC 温度、电池、负载、数据分区余量、近5分钟峰值。用户问手机现在什么状态/为什么卡/烫不烫/还剩多少空间时调用; 动态指标不会自动进上下文, 需要时才取", "JSON: {\"fields\":[\"cpu\",\"mem\",\"temp\"]} (可省略=全部; 可选 profile/cpu/mem/temp/batt/load/disk/series)", CapabilityScope.ZONE_READONLY)</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("file", "远端文件操作(SSH连接): action=list 列目录(conn+path), read 读文件(conn+path+lines), info 查看文件详情(conn+path), write 写/追加文件(conn+path+content+append), upload SFTP上传(conn+local+remote), download SFTP下载(conn+remote+local可选), ls SFTP列目录(conn+path)", "JSON: {\"action\":\"list|read|info|write|upload|download|ls\",\"conn\":\"连接名\",...}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("gen_image", "AI 生图(2026-11-04, 成本门禁, 多厂商契约驱动): 根据画面描述生成图片, 产物自动落盘并作为图片卡片回显。当前可用厂商、模型与额度元信息由本机配置动态注入。用户明确要求\"画一张/生成图片/配图/封面/示意图/插图\"时调用; 每次调用需用户确认, 且受月度限额保护。", "JSON: {\"prompt\":\"画面描述(必填, 尽量详细: 主体/风格/构图/光线)\",\"size\":\"图片尺寸(默认 1024*1024, 长*宽)\",\"n\":\"本次生成张数 1~4(默认 1, 计入月度限额)\",\"provider\":\"可选: 指定厂商显示名(如 通义万相/腾讯混元), 不填走默认\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("image_view", "从已落库附件图片按需注入查看: 参数 {name: 附件文件名或 att:// 引用}。识图模型注意: 当前消息里的图片已直接内联可见, 无需调用本工具; 本工具主要用于查看历史消息中的旧图片(历史仅存 att:// 引用不发字节)。注入后图片仅供识图模型参考。", "JSON: {\"name\":\"att://xxx.jpg\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("js_run", "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 无文件/网络权限, 断网可用不依赖服务器)", "JSON: {\"code\":\"要执行的JS脚本\",\"timeoutMs\":8000}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("pdf_page", "从已落盘附件PDF按需读取指定页(按需翻页): 参数 {name: 附件文件名或 att:// 引用, page: 页码从1开始, mode: \"image\"渲染该页为图片注入对话(默认, 适合支持识图的模型) | \"text\"返回该页文字(适合无识图能力模型, 扫描件无文本层时会明确告知)}。PDF 附件发送时已落私有附件库, 首轮仅预览前几页; 需要看任意页(如用户指定页码)时调用, 按自身识图能力自行选择 mode", "JSON: {\"name\":\"att://xxx.pdf\",\"page\":89,\"mode\":\"text\"}")</ID>
+    <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("read_file_audit", "只读审计: 查看附件删除历史(时间/落库文件名/大小/mime/是否AI产物/删除来源), 供AI排查被删文件; 仅文件管理器私有目录, 用户不可删", "JSON: {\"limit\":50}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("security_set", "安全管理开关(2026-10-30 收紧): 模型侧仅保留 ssh_trust —— 信任待确认的SSH主机密钥。危险门禁三档(danger_mode)与 root 自动补权(root_auto_grant)已从模型侧收回: 调用这些参数会被直接拒绝, 只能由用户在 设置 → 安全中心 手动修改; 用户提出关/改门禁时应引导其自行前往该页面, 不要代为操作", "JSON: {\"ssh_trust\":\"连接名\"}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000}")</ID>
     <ID>MaxLineLength:LocalEngine.kt$LocalEngine$ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web_fetch/web_download 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}")</ID>
@@ -3133,7 +3225,7 @@
     <ID>NestedBlockDepth:AiBubbleHolder.kt$AiBubbleHolder$private fun refreshExpandedTimeline()</ID>
     <ID>NestedBlockDepth:ApiClientTest.kt$MockServer$private fun handle(sock: Socket)</ID>
     <ID>NestedBlockDepth:ApiConfig.kt$ApiConfig$fun providers(): List&lt;Provider&gt;</ID>
-    <ID>NestedBlockDepth:ArtifactStore.kt$ArtifactStore$fun saveBytes(context: Context, name: String, bytes: ByteArray): String</ID>
+    <ID>NestedBlockDepth:ArtifactStore.kt$ArtifactStore$fun saveBytes(context: Context, name: String, bytes: ByteArray, maxBytes: Int = MAX_BYTES): String</ID>
     <ID>NestedBlockDepth:ArtifactStore.kt$ArtifactStore$private fun findExisting(context: Context, artName: String): String?</ID>
     <ID>NestedBlockDepth:ArtifactViewerActivity.kt$ArtifactViewerActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>NestedBlockDepth:AttachmentSender.kt$AttachmentSender$private fun addAttachPreview(att: LocalEngine.Attachment)</ID>
@@ -3160,6 +3252,7 @@
     <ID>NestedBlockDepth:DocTextExtractor.kt$DocTextExtractor$private fun gunzip(data: ByteArray): ByteArray?</ID>
     <ID>NestedBlockDepth:EmojiDrawer.kt$private fun MainActivity.refreshEmojiLib()</ID>
     <ID>NestedBlockDepth:EmojiFrameAnimator.kt$EmojiFrameAnimator$private fun extractFrames(f: File, onFirst: ((Bitmap) -&gt; Unit)? = null): List&lt;Bitmap&gt;?</ID>
+    <ID>NestedBlockDepth:GenTools.kt$GenTools$private fun persistGenImage(context: Context, bytes: ByteArray): String?</ID>
     <ID>NestedBlockDepth:GifToMp4.kt$GifToMp4$fun convert(bytes: ByteArray, outFile: File, maxDurationMs: Long = Long.MAX_VALUE): Int</ID>
     <ID>NestedBlockDepth:GifToMp4.kt$GifToMp4$private fun countFrames(bytes: ByteArray): Int</ID>
     <ID>NestedBlockDepth:GifToMp4.kt$GifToMp4$private fun countFramesInWindow(bytes: ByteArray, maxDurMs: Long): Pair&lt;Int, Long&gt;</ID>
@@ -3239,8 +3332,9 @@
     <ID>ReturnCount:ApiConfig.kt$ApiConfig$fun providers(): List&lt;Provider&gt;</ID>
     <ID>ReturnCount:ApiConfig.kt$ApiConfig$fun thinkingEffortParams(id: String, model: String, effort: String): JSONObject?</ID>
     <ID>ReturnCount:ArtifactStore.kt$ArtifactStore$fun save(context: Context, name: String, content: String): String</ID>
-    <ID>ReturnCount:ArtifactStore.kt$ArtifactStore$fun saveBytes(context: Context, name: String, bytes: ByteArray): String</ID>
+    <ID>ReturnCount:ArtifactStore.kt$ArtifactStore$fun saveBytes(context: Context, name: String, bytes: ByteArray, maxBytes: Int = MAX_BYTES): String</ID>
     <ID>ReturnCount:ArtifactStore.kt$ArtifactStore$private fun findExisting(context: Context, artName: String): String?</ID>
+    <ID>ReturnCount:ArtifactViewerActivity.kt$ArtifactViewerActivity$override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>ReturnCount:AttachmentSender.kt$AttachmentSender$private fun audioOrStore(uri: Uri, name: String, realMime: String, claimedMime: String): List&lt;LocalEngine.Attachment&gt;</ID>
     <ID>ReturnCount:AttachmentSender.kt$AttachmentSender$private fun buildVideoAttachment(uri: Uri, mime: String, name: String, failHintRes: Int): LocalEngine.Attachment?</ID>
     <ID>ReturnCount:AttachmentSender.kt$AttachmentSender$private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List&lt;LocalEngine.Attachment&gt;</ID>
@@ -3302,8 +3396,19 @@
     <ID>ReturnCount:EmojiFrameAnimator.kt$EmojiFrameAnimator$private fun extractFrames(f: File, onFirst: ((Bitmap) -&gt; Unit)? = null): List&lt;Bitmap&gt;?</ID>
     <ID>ReturnCount:EmojiFrameAnimator.kt$EmojiFrameAnimator.Controller$fun frameTick(now: Long): Long</ID>
     <ID>ReturnCount:EmojiFrameAnimator.kt$EmojiFrameAnimator.Controller$fun startDecode()</ID>
+    <ID>ReturnCount:FileAuditStore.kt$FileAuditStore$private fun trim(context: Context)</ID>
     <ID>ReturnCount:FileTools.kt$FileTools$fun write(context: Context, arg: String): String</ID>
     <ID>ReturnCount:FormatSniffer.kt$FormatSniffer$fun sniff(head: ByteArray, lowName: String): String</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$fun extractPath(root: JSONObject, path: String): String</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$fun genImage(context: Context, arg: String): String</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$fun testConnection(context: Context, entry: GenConfig.Entry, key: String): String</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$private fun asyncGenerate(entry: GenConfig.Entry, key: String, prompt: String, size: String, n: Int): String?</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$private fun download(url: String): ByteArray?</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$private fun persistGenImage(context: Context, bytes: ByteArray): String?</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$private fun pollOnce(c: GenConfig.GenContract, key: String, taskId: String): String?</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$private fun pollStatus(c: GenConfig.GenContract, key: String, taskId: String): Pair&lt;String, String&gt;?</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$private fun request(method: String, url: String, c: GenConfig.GenContract, key: String, body: String?): Pair&lt;Int, String&gt;?</ID>
+    <ID>ReturnCount:GenTools.kt$GenTools$private fun submit(c: GenConfig.GenContract, key: String, prompt: String, size: String, n: Int): String?</ID>
     <ID>ReturnCount:GifToMp4.kt$GifToMp4$fun convert(bytes: ByteArray, outFile: File, maxDurationMs: Long = Long.MAX_VALUE): Int</ID>
     <ID>ReturnCount:GifToMp4.kt$GifToMp4$private fun countFrames(bytes: ByteArray): Int</ID>
     <ID>ReturnCount:GifToMp4.kt$GifToMp4$private fun countFramesInWindow(bytes: ByteArray, maxDurMs: Long): Pair&lt;Int, Long&gt;</ID>
@@ -3414,6 +3519,7 @@
     <ID>ReturnCount:UiKit.kt$private fun startThumbJob(job: ThumbJob)</ID>
     <ID>ReturnCount:UiKit.kt$private fun videoFrameMc(f: File, timeMs: Long): Bitmap?</ID>
     <ID>ReturnCount:UpdateChecker.kt$UpdateChecker$private fun fetchLatest(): FetchResult</ID>
+    <ID>ReturnCount:UpdateChecker.kt$UpdateChecker$private fun fetchLatestFrom(url: String): FetchResult</ID>
     <ID>ReturnCount:UserProfileActivity.kt$UserProfileActivity$override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)</ID>
     <ID>ReturnCount:WebTools.kt$WebTools$fun fetch(context: Context, arg: String): String</ID>
     <ID>ReturnCount:WebTools.kt$WebTools$fun save(context: Context, arg: String): String</ID>
@@ -3470,10 +3576,13 @@
     <ID>SwallowedException:DocTextExtractor.kt$DocTextExtractor$e: Exception</ID>
     <ID>SwallowedException:EmojiDrawer.kt$e: Exception</ID>
     <ID>SwallowedException:EmojiFrameAnimator.kt$EmojiFrameAnimator$t: Throwable</ID>
+    <ID>SwallowedException:FileAuditStore.kt$FileAuditStore$e: Exception</ID>
     <ID>SwallowedException:FileListActivity.kt$FileListActivity$e: Exception</ID>
     <ID>SwallowedException:FileTools.kt$FileTools$e: Exception</ID>
     <ID>SwallowedException:FirstRunSetupActivity.kt$FirstRunSetupActivity$e2: Exception</ID>
     <ID>SwallowedException:FirstRunSetupActivity.kt$FirstRunSetupActivity$e: Exception</ID>
+    <ID>SwallowedException:GenConfig.kt$GenConfig$e: Exception</ID>
+    <ID>SwallowedException:GenTools.kt$GenTools$e: Exception</ID>
     <ID>SwallowedException:GifToMp4.kt$GifToMp4$e: Exception</ID>
     <ID>SwallowedException:GuideActivity.kt$GuideActivity$e2: Exception</ID>
     <ID>SwallowedException:GuideActivity.kt$GuideActivity$e: Exception</ID>
@@ -3563,10 +3672,13 @@
     <ID>TooGenericExceptionCaught:EmojiDrawer.kt$e2: Exception</ID>
     <ID>TooGenericExceptionCaught:EmojiDrawer.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:EmojiFrameAnimator.kt$EmojiFrameAnimator$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:FileAuditStore.kt$FileAuditStore$e: Exception</ID>
     <ID>TooGenericExceptionCaught:FileListActivity.kt$FileListActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:FileTools.kt$FileTools$e: Exception</ID>
     <ID>TooGenericExceptionCaught:FirstRunSetupActivity.kt$FirstRunSetupActivity$e2: Exception</ID>
     <ID>TooGenericExceptionCaught:FirstRunSetupActivity.kt$FirstRunSetupActivity$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:GenConfig.kt$GenConfig$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:GenTools.kt$GenTools$e: Exception</ID>
     <ID>TooGenericExceptionCaught:GifToMp4.kt$GifToMp4$e: Exception</ID>
     <ID>TooGenericExceptionCaught:GuideActivity.kt$GuideActivity$e2: Exception</ID>
     <ID>TooGenericExceptionCaught:GuideActivity.kt$GuideActivity$e: Exception</ID>
@@ -3667,6 +3779,9 @@
     <ID>TooManyFunctions:EmojiFrameAnimator.kt$EmojiFrameAnimator</ID>
     <ID>TooManyFunctions:FileListActivity.kt$FileListActivity : Activity</ID>
     <ID>TooManyFunctions:FirstRunSetupActivity.kt$FirstRunSetupActivity : Activity</ID>
+    <ID>TooManyFunctions:GenConfig.kt$GenConfig</ID>
+    <ID>TooManyFunctions:GenConfigActivity.kt$GenConfigActivity : Activity</ID>
+    <ID>TooManyFunctions:GenTools.kt$GenTools</ID>
     <ID>TooManyFunctions:GifToMp4.kt$GifToMp4</ID>
     <ID>TooManyFunctions:GuideActivity.kt$GuideActivity : Activity</ID>
     <ID>TooManyFunctions:KnowledgeBaseActivity.kt$KnowledgeBaseActivity : Activity</ID>
@@ -3697,6 +3812,7 @@
     <ID>TooManyFunctions:Ui.kt$Ui</ID>
     <ID>TooManyFunctions:UiControlService.kt$UiControlService : AccessibilityService</ID>
     <ID>TooManyFunctions:UiKit.kt$io.github.aixtin.nyral.UiKit.kt</ID>
+    <ID>TooManyFunctions:UpdateChecker.kt$UpdateChecker</ID>
     <ID>TooManyFunctions:UserProfileActivity.kt$UserProfileActivity : Activity</ID>
     <ID>TooManyFunctions:WebTools.kt$WebTools</ID>
     <ID>TooManyFunctions:WorkDir.kt$WorkDir</ID>
@@ -3704,6 +3820,7 @@
     <ID>UnusedParameter:DeviceMetrics.kt$DeviceMetrics$c: Context</ID>
     <ID>UnusedParameter:Diagnostics.kt$Diagnostics$c: Context</ID>
     <ID>UnusedParameter:FirstRunSetupActivity.kt$FirstRunSetupActivity$skip: Boolean</ID>
+    <ID>UnusedParameter:GenTools.kt$GenTools$context: Context</ID>
     <ID>UnusedParameter:GuideActivity.kt$GuideActivity$skip: Boolean</ID>
     <ID>UnusedParameter:KnowledgeEntryActivity.kt$KnowledgeEntryActivity$e: KnowledgeBaseDb.Entry</ID>
     <ID>UnusedParameter:LocalEngine.kt$LocalEngine$injectedTools: MutableSet&lt;String&gt;</ID>
