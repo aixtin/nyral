@@ -25,6 +25,7 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -150,14 +151,14 @@ class DiagnosticsActivity : Activity() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dpi(14), dpi(12), dpi(10), dpi(8))
+            setPadding(dpi(4), dpi(8), dpi(12), dpi(8))
         }
-        bar.addView(TextView(this).apply {
-            text = "←"
-            textSize = 20f
-            setTextColor(TXT)
-            setPadding(dpi(6), 0, dpi(10), 0)
+        bar.addView(ImageView(this).apply {
+            setImageResource(R.drawable.lucide_arrow_left)
+            setColorFilter(TXT)
+            setPadding(dpi(12), 0, dpi(14), 0)
             isClickable = true
+            Ui.press(this)
             setOnClickListener { finish() }
         })
         bar.addView(TextView(this).apply {
@@ -169,11 +170,12 @@ class DiagnosticsActivity : Activity() {
         })
         bar.addView(TextView(this).apply {
             text = "复制快照"
-            textSize = 12.5f
+            textSize = 13f
             setTextColor(ACCENT)
             setPadding(dpi(10), dpi(6), dpi(10), dpi(6))
             background = roundBg(ACCENT_BG, 999)
             isClickable = true
+            Ui.press(this)
             setOnClickListener { copySnapshot() }
         })
         root.addView(bar)
@@ -195,7 +197,7 @@ class DiagnosticsActivity : Activity() {
         profileCard.addView(sectionTitle("设备"))
         profileText = TextView(this).apply {
             text = "读取中…"
-            textSize = 12.5f
+            textSize = 13f
             setTextColor(SUB)
             setLineSpacing(dpi(4).toFloat(), 1f)
         }
@@ -218,7 +220,7 @@ class DiagnosticsActivity : Activity() {
             }
             box.addView(TextView(this).apply {
                 text = title
-                textSize = 11.5f
+                textSize = 12f
                 setTextColor(SUB)
             })
             val v = TextView(this).apply {
@@ -231,7 +233,7 @@ class DiagnosticsActivity : Activity() {
             box.addView(v)
             val sub = TextView(this).apply {
                 text = ""
-                textSize = 10.5f
+                textSize = 11f
                 setTextColor(SUB)
                 maxLines = 2
                 setEllipsize(android.text.TextUtils.TruncateAt.END)
@@ -278,7 +280,7 @@ class DiagnosticsActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, dpi(84)).apply { topMargin = dpi(6) })
         coreHint = TextView(this).apply {
             text = ""
-            textSize = 10.5f
+            textSize = 11f
             setTextColor(SUB)
             setPadding(0, dpi(4), 0, 0)
         }
@@ -296,7 +298,7 @@ class DiagnosticsActivity : Activity() {
         })
         netHead.addView(TextView(this).apply {
             text = legend("下行 ", ACCENT, "上行 ", WARN)
-            textSize = 10.5f
+            textSize = 11f
             setTextColor(SUB)
         })
         netCard.addView(netHead)
@@ -310,7 +312,7 @@ class DiagnosticsActivity : Activity() {
         netCard.addView(netVal)
         netSub = TextView(this).apply {
             text = ""
-            textSize = 10.5f
+            textSize = 11f
             setTextColor(SUB)
         }
         netCard.addView(netSub)
@@ -337,7 +339,7 @@ class DiagnosticsActivity : Activity() {
         })
         head.addView(TextView(this).apply {
             text = legend("CPU ", ACCENT, "温度 ", WARN)
-            textSize = 10.5f
+            textSize = 11f
             setTextColor(SUB)
         })
         sparkCard.addView(head)
@@ -346,7 +348,7 @@ class DiagnosticsActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, dpi(104)).apply { topMargin = dpi(8) })
         statusText = TextView(this).apply {
             text = ""
-            textSize = 10.5f
+            textSize = 11f
             setTextColor(SUB)
             setPadding(0, dpi(6), 0, 0)
         }
@@ -358,7 +360,7 @@ class DiagnosticsActivity : Activity() {
         verdictCard.addView(sectionTitle("当前判定"))
         verdictText = TextView(this).apply {
             text = "采样中…"
-            textSize = 12.5f
+            textSize = 13f
             setTextColor(TXT)
             setLineSpacing(dpi(4).toFloat(), 1f)
         }
@@ -370,7 +372,7 @@ class DiagnosticsActivity : Activity() {
         taskCard.addView(sectionTitle("后台任务"))
         taskHint = TextView(this).apply {
             text = "读取中…"
-            textSize = 11.5f
+            textSize = 12f
             setTextColor(SUB)
             setLineSpacing(dpi(3).toFloat(), 1f)
         }
@@ -396,6 +398,7 @@ class DiagnosticsActivity : Activity() {
             background = roundBg(ACCENT, 14)
             setPadding(0, dpi(12), 0, dpi(12))
             isClickable = true
+            Ui.press(this)
             setOnClickListener { DeviceAssist.ask(this@DiagnosticsActivity) }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         actions.addView(TextView(this).apply {
@@ -406,6 +409,7 @@ class DiagnosticsActivity : Activity() {
             background = roundBg(CARD2, 14)
             setPadding(0, dpi(12), 0, dpi(12))
             isClickable = true
+            Ui.press(this)
             setOnClickListener { copySnapshot() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
             marginStart = dpi(8)
@@ -415,7 +419,7 @@ class DiagnosticsActivity : Activity() {
         col.addView(TextView(this).apply {
             text = "只读面板: 不修改任何系统参数; root / Shizuku 仅用于读取受限路径。\n" +
                     "动态读数不进对话上下文 —— AI 需要时按需调 device_snapshot / device_probe 取。"
-            textSize = 10.5f
+            textSize = 11f
             setTextColor(SUB)
             setLineSpacing(dpi(3).toFloat(), 1f)
             setPadding(0, dpi(12), 0, 0)
@@ -435,7 +439,7 @@ class DiagnosticsActivity : Activity() {
 
     private fun sectionTitle(t: String) = TextView(this).apply {
         text = t
-        textSize = 12.5f
+        textSize = 13f
         setTypeface(typeface, Typeface.BOLD)
         setTextColor(TXT)
         setPadding(0, 0, 0, dpi(6))
@@ -529,6 +533,7 @@ class DiagnosticsActivity : Activity() {
                 setPadding(dpi(10), dpi(5), dpi(10), dpi(5))
                 background = roundBg(ACCENT_BG, 999)
                 isClickable = true
+                Ui.press(this)
                 setOnClickListener {
                     ProcGuard.killOne(t.id)
                     Toast.makeText(this@DiagnosticsActivity, "已发送终止: " + t.id, Toast.LENGTH_SHORT).show()
@@ -645,7 +650,7 @@ class DiagnosticsActivity : Activity() {
                         append(fmt(m.optDouble("total_gb"))).append("G · 剩 ")
                         append(fmt(m.optDouble("free_pct"))).append("%")
                     }
-                    textSize = 12.5f
+                    textSize = 13f
                     setTextColor(if (m.optDouble("free_pct", 100.0) < 10.0) RED else TXT)
                     setPadding(0, dpi(4), 0, dpi(2))
                     setLineSpacing(dpi(2).toFloat(), 1f)
@@ -654,7 +659,7 @@ class DiagnosticsActivity : Activity() {
         } else {
             mountList.addView(TextView(this).apply {
                 text = "读不到挂载点"
-                textSize = 12.5f
+                textSize = 13f
                 setTextColor(SUB)
             })
         }
@@ -730,7 +735,7 @@ class DiagnosticsActivity : Activity() {
             color = CARD2
         }
         private val pText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8.5f * resources.displayMetrics.density
+            textSize = 9f * resources.displayMetrics.density
             color = SUB
             textAlign = Paint.Align.CENTER
         }
@@ -740,7 +745,7 @@ class DiagnosticsActivity : Activity() {
             color = GRID
         }
         private val pPct = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8.5f * resources.displayMetrics.density
+            textSize = 9f * resources.displayMetrics.density
             color = SUB
             textAlign = Paint.Align.CENTER
         }
@@ -857,18 +862,18 @@ class DiagnosticsActivity : Activity() {
             color = GRID
         }
         private val pPeak = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 10.5f * resources.displayMetrics.density
+            textSize = 11f * resources.displayMetrics.density
             color = SUB
             textAlign = Paint.Align.RIGHT
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
         private val pTick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8.5f * resources.displayMetrics.density
+            textSize = 9f * resources.displayMetrics.density
             color = SUB
             textAlign = Paint.Align.RIGHT
         }
         private val pAxis = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8.5f * resources.displayMetrics.density
+            textSize = 9f * resources.displayMetrics.density
             color = SUB
             textAlign = Paint.Align.CENTER
         }
@@ -972,7 +977,7 @@ class DiagnosticsActivity : Activity() {
             color = ACCENT_FILL
         }
         private val pAxis = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8.5f * resources.displayMetrics.density
+            textSize = 9f * resources.displayMetrics.density
             color = SUB
             textAlign = Paint.Align.CENTER
         }

@@ -7,8 +7,11 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Bitmap
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.view.View
+import android.view.WindowInsets
 import android.graphics.pdf.PdfRenderer
 import android.widget.ImageView
 import android.view.Gravity
@@ -68,6 +71,15 @@ class ArtifactViewerActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Ui.BG)
+            // targetSdk 36 强制 edge-to-edge: 根布局消费状态栏/导航栏 inset, 顶栏不再压到系统状态栏上
+            if (Build.VERSION.SDK_INT >= 35) {
+                setOnApplyWindowInsetsListener { v, insets ->
+                    val top = insets.getInsets(WindowInsets.Type.statusBars()).top
+                    val bottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                    v.setPadding(0, top, 0, bottom)
+                    insets
+                }
+            }
         }
         root.addView(Ui.titleBar(this, "产物"))
 

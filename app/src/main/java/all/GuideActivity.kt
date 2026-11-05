@@ -1007,7 +1007,7 @@ class GuideActivity : Activity() {
         // 引导语
         c.addView(TextView(this).apply {
             text = getString(R.string.guide_perm_intro)
-            textSize = 12.5f
+            textSize = 13f
             setTextColor(Ui.SUB)
             setLineSpacing(dp(3).toFloat(), 1f)
             setPadding(dp(4), dp(4), dp(4), dp(12))

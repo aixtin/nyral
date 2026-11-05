@@ -87,7 +87,7 @@ internal fun BrowserPage.buildHamburger(): LinearLayout = LinearLayout(act).appl
             gravity = Gravity.CENTER_VERTICAL
             setPadding(act.dp(8), act.dp(4), act.dp(8), act.dp(4))
             addView(TextView(act).apply {
-                text = act.getString(R.string.br_think); textSize = 11.5f; setTextColor(blue)
+                text = act.getString(R.string.br_think); textSize = 12f; setTextColor(blue)
                 gravity = Gravity.CENTER
                 background = tabOutline(true)
                 setOnClickListener { toggleThink() }
@@ -96,7 +96,7 @@ internal fun BrowserPage.buildHamburger(): LinearLayout = LinearLayout(act).appl
                 Ui.press(this)
             }.also { thinkTab = it })
             addView(TextView(act).apply {
-                text = act.getString(R.string.br_login_data); textSize = 11.5f; setTextColor(gray)
+                text = act.getString(R.string.br_login_data); textSize = 12f; setTextColor(gray)
                 gravity = Gravity.CENTER
                 background = tabOutline(false)
                 setOnClickListener { showDataTab() }
@@ -105,7 +105,7 @@ internal fun BrowserPage.buildHamburger(): LinearLayout = LinearLayout(act).appl
                 Ui.press(this)
             }.also { tabData = it })
             addView(TextView(act).apply {
-                text = act.getString(R.string.br_engine_mgr); textSize = 10.5f; setTextColor(gray)
+                text = act.getString(R.string.br_engine_mgr); textSize = 11f; setTextColor(gray)
                 gravity = Gravity.CENTER
                 background = tabOutline(false)
                 setOnClickListener { showEngineTab() }
@@ -117,7 +117,7 @@ internal fun BrowserPage.buildHamburger(): LinearLayout = LinearLayout(act).appl
                 layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
             })
             addView(TextView(act).apply {
-                text = act.getString(R.string.br_add_tab); textSize = 11.5f; setTextColor(blue)
+                text = act.getString(R.string.br_add_tab); textSize = 12f; setTextColor(blue)
                 gravity = Gravity.CENTER
                 background = tabOutline(false)
                 setOnClickListener { showEditEngineDialog(-1) }
