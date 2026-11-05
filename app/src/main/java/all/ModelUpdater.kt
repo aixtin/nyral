@@ -36,6 +36,9 @@ object ModelUpdater {
     private const val PREF = "model_updater"
     private const val K_VERSION = "version"
     private const val K_READY = "ready"
+    private const val K_LAST_FAIL = "last_fail_ts"
+    /** 失败退避窗口: 24h 内不自动重试, 避免每次冷启动重复拉取 24MB 模型 */
+    private const val FAIL_BACKOFF_MS = 24L * 60 * 60 * 1000
 
     @Volatile private var app: Context? = null
     @Volatile var state = ST_NOT_DOWNLOADED
@@ -57,6 +60,18 @@ object ModelUpdater {
         val p = prefs()
         version = p.getInt(K_VERSION, 0)
         state = if (p.getBoolean(K_READY, false)) ST_READY else ST_NOT_DOWNLOADED
+        // 冷启动自愈: 热更模型从未落地 -> 后台自动拉取(用户无需知道该模型存在)
+        // 注意: assets 内置兜底会让 MemoryEmbedder.isReady() 恒为 true, 归档路径永远等不到,
+        // 因此自动下载必须在 Application 初始化时发起, 不能依赖归档流程触发。
+        if (state != ST_READY) {
+            val lastFail = p.getLong(K_LAST_FAIL, 0L)
+            if (System.currentTimeMillis() - lastFail > FAIL_BACKOFF_MS) {
+                LogStore.i(LogStore.MEM, "冷启动检测到热更模型未落地, 触发后台下载")
+                ensureDownloaded()
+            } else {
+                LogStore.i(LogStore.MEM, "热更模型上次下载失败, 处于退避窗口, 跳过自动下载")
+            }
+        }
     }
 
     fun isReady(): Boolean = state == ST_READY
@@ -127,7 +142,7 @@ object ModelUpdater {
             progress = 100
             notifyChanged()
             version = manifest.getInt("version")
-            prefs().edit().putInt(K_VERSION, version).putBoolean(K_READY, true).apply()
+            prefs().edit().putInt(K_VERSION, version).putBoolean(K_READY, true).remove(K_LAST_FAIL).apply()
             state = ST_READY
             currentTask = ""
             Log.i(TAG, "模型就绪 v$version")
@@ -137,6 +152,7 @@ object ModelUpdater {
             Log.e(TAG, "下载失败", e)
             lastError = e.message ?: "未知错误"
             state = ST_FAILED
+            prefs().edit().putLong(K_LAST_FAIL, System.currentTimeMillis()).apply()
         }
         notifyChanged()
     }
@@ -207,13 +223,31 @@ object ModelUpdater {
             onProgress(size)
             return true
         }
-        if (target.exists()) target.delete()
+        // 一律先写 .part 临时文件: 主文件可能被 onnxruntime mmap 持有, 直接覆写/追加会内容错位
+        val part = File(target.parentFile, target.name + ".part")
         for (url in urls) {
             try {
-                if (downloadResume(url, target, md5, size, onProgress)) return true
+                if (downloadResume(url, part, md5, size, onProgress)) {
+                    if (target.exists() && !target.delete()) {
+                        // 删除失败也不能 append, 用覆盖写兜底
+                        part.inputStream().use { input ->
+                            target.outputStream().use { out -> input.copyTo(out) }
+                        }
+                        part.delete()
+                    } else if (!part.renameTo(target)) {
+                        part.inputStream().use { input ->
+                            target.outputStream().use { out -> input.copyTo(out) }
+                        }
+                        part.delete()
+                    }
+                    onProgress(size)
+                    return true
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "下载源失败 $url: $e")
             }
+            if (part.exists()) part.delete()
+            onProgress(0L)
         }
         return false
     }
@@ -225,49 +259,76 @@ object ModelUpdater {
         size: Long,
         onProgress: (Long) -> Unit
     ): Boolean {
-        var existing = if (target.exists()) target.length() else 0L
         var lastErr = ""
         var attempts = 0
-        while (existing < size && attempts < 5) {
+        while (attempts < 6) {
+            var existing = if (target.exists()) target.length() else 0L
+            // 长度越界(历史脏数据/源异常)一律重来, 绝不在超长文件上继续追加
+            if (existing > size) {
+                target.delete()
+                existing = 0L
+            }
+            if (existing == size) break
             attempts++
             try {
                 val conn = URL(urlStr).openConnection() as HttpURLConnection
                 conn.connectTimeout = 15000
                 conn.readTimeout = 30000
+                conn.instanceFollowRedirects = true
                 conn.setRequestProperty("Range", "bytes=$existing-")
                 conn.connect()
                 val code = conn.responseCode
                 if (code != 200 && code != 206) throw RuntimeException("HTTP $code")
-                if (code == 200 && existing > 0) {
-                    // 服务端忽略了 Range, 必须丢弃已下载部分重新写, 否则内容错位
+                if (code == 206) {
+                    // 必须核对 Content-Range 起点: 部分 CDN 会忽略 Range 仍回完整内容,
+                    // 直接 append 会把文件撑成两倍(线上实测 24MB 被写成 44MB)
+                    val cr = conn.getHeaderField("Content-Range") ?: ""
+                    val start = cr.substringAfter("bytes", "").trim().substringBefore("-").trim().toLongOrNull()
+                    if (start != existing) {
+                        target.delete()
+                        onProgress(0L)
+                        throw RuntimeException("Content-Range 起点异常: [$cr] 期望 $existing")
+                    }
+                } else if (existing > 0) {
+                    // 服务端忽略 Range 回 200: 丢弃已下载部分重写
                     target.delete()
                     existing = 0L
                     onProgress(0L)
                 }
+                var written = existing
+                var overflow = false
                 conn.inputStream.use { input ->
                     FileOutputStream(target, true).use { out ->
                         val buf = ByteArray(64 * 1024)
                         var n: Int
-                        var lastCb = existing
+                        var lastCb = written
                         while (input.read(buf).also { n = it } != -1) {
-                            out.write(buf, 0, n)
-                            existing += n
-                            if (existing - lastCb >= 256 * 1024) {
-                                lastCb = existing
-                                onProgress(existing)
+                            val room = size - written
+                            if (room <= 0) { overflow = true; break }
+                            val w = if (n.toLong() > room) room.toInt() else n
+                            out.write(buf, 0, w)
+                            written += w
+                            if (written - lastCb >= 256 * 1024) {
+                                lastCb = written
+                                onProgress(written)
                             }
                         }
-                        onProgress(existing)
+                        onProgress(written)
                     }
                 }
+                if (overflow) {
+                    target.delete()
+                    throw RuntimeException("响应超出 manifest 声明长度")
+                }
+                if (written < size) throw RuntimeException("连接提前结束: $written/$size")
             } catch (e: Exception) {
                 lastErr = e.message ?: "IO 异常"
-                if (attempts >= 5) break
+                if (attempts >= 6) break
                 Thread.sleep(1000L * attempts)
             }
         }
-        if (existing < size) {
-            lastError = lastErr
+        if (!target.exists() || target.length() != size) {
+            lastError = lastErr.ifEmpty { "长度校验失败" }
             return false
         }
         if (md5(target) != md5) {

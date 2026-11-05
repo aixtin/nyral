@@ -30,7 +30,7 @@ AIGC:
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
-![release](https://img.shields.io/badge/release-v2.9.5-brightgreen)
+![release](https://img.shields.io/badge/release-v2.9.6-brightgreen)
 
 [**下载 APK**](../../releases/latest) ｜ [五分钟上手](#五分钟上手) ｜ [能做什么](#它能做什么) ｜ [项目状态](#项目状态)
 
@@ -229,6 +229,7 @@ android-agent-app/
 
 
 ## 版本记录
+- **【最新】v2.9.6（2026-11-05，versionCode 119）**：全新安装或清除数据后，冷启动即自动下载热更语义模型，不再需要先进设置页手动点按钮；下载失败按 24 小时退避重试，成功后自动清除退避标记。同时修复下载器两处健壮性缺陷：断点续传未校验 `Content-Range` 起点（部分 CDN 忽略 `Range` 仍回完整内容，导致完整响应被追加到已有分片后，实测 24MB 文件被写成 44MB）以及写入长度不设上限；现在统一写入 `.part` 临时文件、按 manifest 声明长度严格截断、MD5 校验通过后再原子替换正式文件。
 - **【最新】v2.9.5（2026-11-05，versionCode 118）**：承接 v2.9.4——设置页“记忆辅助模型”入口恢复显示真实状态：`ModelUpdater` 改为应用启动即初始化（设置页自身亦兜底初始化），不再只有进过配置页才准，已下载的模型不会被误报“未就绪”；入口副标题在页面可见期间每秒刷新，在设置列表即可看到下载进度实时推进。
 - **v2.9.4（2026-11-05，versionCode 117）**：语义模型热更下载修复：签名地址改为同级 `manifest.sig`（此前在 `manifest.json` 后追加 `.sig`，双源 404，手动下载必然失败）；下载落盘名对齐嵌入器读取名（`bge_model.onnx` / `bge_vocab.txt`，原先按 manifest 的 `model_quantized.onnx` / `vocab.txt` 落盘，下完也不会被加载）；进度改为按字节实时上报，不再只在整文件完成时跳变；状态卡在页面可见期间每 500ms 轮询，下载中/进度/已就绪无需切页即刷新。另加固续传：服务端忽略 `Range` 返回 200 时重置半截文件，不再追加出错误内容。
 - **v2.9.3（2026-11-05，versionCode 116）**：UI 统一与显示修复批次：诊断页接入全局界面规范（返回图标、标题栏间距、点击反馈、半点字号取整，同步首启引导/指南页/浏览器菜单）；修复产物查看页标题栏与系统状态栏重叠（根布局补系统留白消费，底部操作条同步适配手势条）。新增发布前敏感扫描脚本（scripts/sensitive_scan.sh，合作声明豁免已登记）。

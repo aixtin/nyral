@@ -30,7 +30,7 @@ AIGC:
 
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![platform](https://img.shields.io/badge/Android-10%2B%20%C2%B7%20arm64-3DDC84)
-![release](https://img.shields.io/badge/release-v2.9.5-brightgreen)
+![release](https://img.shields.io/badge/release-v2.9.6-brightgreen)
 
 [**Download APK**](../../releases/latest) ｜ [Quick start](#quick-start) ｜ [What it does](#what-it-does) ｜ [Project status](#project-status)
 
@@ -227,6 +227,7 @@ android-agent-app/
 
 
 ## Changelog
+- **[Latest] v2.9.6 (2026-11-05, versionCode 119)**: On a fresh install (or after clearing data) the hot-updated semantic model is now downloaded automatically at cold start - no need to open Settings first. Failed downloads back off for 24 hours and the marker is cleared on success. The downloader is also hardened: it validates the `Content-Range` start offset (a CDN that ignored `Range` used to make a full response be appended to the existing partial file, inflating a 24MB model to 44MB) and caps writes at the manifest-declared length; downloads go to a `.part` file that is truncated precisely, MD5-verified, then atomically swapped in.
 - **[Latest] v2.9.5 (2026-11-05, versionCode 118)**: Follow-up to v2.9.4 — the semantic-model entry in Settings now reports the real state. `ModelUpdater` is initialised at app start (and defensively by the settings screen) instead of only when the model page is opened, so an already-downloaded model is no longer shown as "not ready"; the entry subtitle also refreshes once per second while the screen is visible, so download progress tracks live from the settings list.
 - **v2.9.4 (2026-11-05, versionCode 117)**: Semantic model hot-update download fixes. The signature URL is now derived as `manifest.sig` (it used to append `.sig` to `manifest.json`, so both sources returned 404 and every manual download failed); downloaded files now land under the names the embedder actually reads (`bge_model.onnx` / `bge_vocab.txt` instead of the manifest's `model_quantized.onnx` / `vocab.txt`, which previously produced a file the app never loaded); progress is byte-based and reported live during transfer instead of only jumping at completion; the status card polls every 500 ms while visible, so downloading / progress / ready states refresh without leaving the page. Resume hardened: when a server ignores `Range` and answers 200, the partial file is reset instead of having corrupt bytes appended.
 - **v2.9.3 (2026-11-05, versionCode 116)**: UI consistency and display fixes: the Diagnostics screen now follows the global UI spec (back icon, title-bar spacing, press feedback, rounded-up half-point font sizes, also applied to first-run setup, guide and browser menu); fixed the artifact viewer's title bar overlapping the system status bar (root layout now consumes system bar insets, bottom action bar adapted for the gesture bar). Added a pre-release sensitive-scan script (scripts/sensitive_scan.sh) with the collaboration-statement exemption on file.
