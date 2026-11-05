@@ -56,6 +56,9 @@ class NyralApp : Application() {
     override fun onCreate() {
         super.onCreate()
         LogStore.init(this)
+        // 语义模型状态全局初始化(2026-11-05): 此前仅配置页 init, 设置页等入口未经配置页时读到 app==null,
+        // statusText() 兜底返回"未就绪", 造成"明明已下载却显示未下载"的误判
+        ModelUpdater.init(this)
         installCrashHandler()
         installAnrWatchdog()
         checkUnexplainedExit()

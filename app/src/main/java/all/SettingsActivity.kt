@@ -10,6 +10,8 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Environment
 import android.provider.Settings
 import android.view.Gravity
@@ -39,6 +41,14 @@ class SettingsActivity : Activity() {
     private lateinit var summarySubtitle: TextView
     private lateinit var mcpSubtitleView: TextView
     private lateinit var memModelSubtitle: TextView
+
+    private val memHandler = Handler(Looper.getMainLooper())
+    private val memTicker = object : Runnable {
+        override fun run() {
+            refreshMemModelSubtitle()
+            memHandler.postDelayed(this, 1000L)
+        }
+    }
     private lateinit var tokenSubtitle: TextView
     private lateinit var debugSubtitle: TextView
     private lateinit var debugBox: LinearLayout
@@ -48,6 +58,7 @@ class SettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ApiConfig.init(this)
+        ModelUpdater.init(this)
         MemoryApiConfig.init(this)
         TitleConfig.init(this)
         UploadConfig.init(this)
@@ -364,6 +375,11 @@ class SettingsActivity : Activity() {
         Toast.makeText(this@SettingsActivity, msg, Toast.LENGTH_LONG).show()
     }
 
+    override fun onPause() {
+        super.onPause()
+        memHandler.removeCallbacks(memTicker)
+    }
+
     override fun onResume() {
         super.onResume()
         // 从子页返回后仅刷新文本；禁止 recreate（会导致窗口无限重建闪屏黑屏）
@@ -371,7 +387,9 @@ class SettingsActivity : Activity() {
             modelSubtitle.text = getString(R.string.settings_model_current, ApiConfig.providerLabel(ApiConfig.providerId()), ApiConfig.model())
         }
         if (::memModelSubtitle.isInitialized) {
-            memModelSubtitle.text = getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText())
+            refreshMemModelSubtitle()
+            memHandler.removeCallbacks(memTicker)
+            memHandler.post(memTicker)
         }
         if (::memorySubtitle.isInitialized) {
             memorySubtitle.text = getString(R.string.settings_memory_count, MemoryDb(this).count())
@@ -866,6 +884,13 @@ class SettingsActivity : Activity() {
         checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager())
         checked(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls())
         return if (missing == 0) getString(R.string.settings_perm_all) else getString(R.string.settings_perm_missing, missing)
+    }
+
+    private fun refreshMemModelSubtitle() {
+        if (!::memModelSubtitle.isInitialized) return
+        // 入口副标题 = 记忆 API 状态 + 语义模型下载状态（2026-11-05：此前 onResume 只拼前者，模型状态被抹掉）
+        memModelSubtitle.text = getString(R.string.settings_mem_model_sub, MemoryApiConfig.statusText()) +
+            " · " + ModelUpdater.statusText()
     }
 
     private fun settingsItem(title: String, subtitle: String, iconRes: Int, seed: Int, onClick: () -> Unit, subRef: ((TextView) -> Unit)? = null): LinearLayout {

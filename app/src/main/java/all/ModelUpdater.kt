@@ -52,6 +52,7 @@ object ModelUpdater {
 
     fun init(context: Context) {
         if (app != null) return
+        LogStore.i(LogStore.MEM, "ModelUpdater.init from ${context.javaClass.simpleName}")
         app = context.applicationContext
         val p = prefs()
         version = p.getInt(K_VERSION, 0)

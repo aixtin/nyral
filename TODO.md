@@ -37,6 +37,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-11-05: v2.9.5 发布（versionCode 118）：设置页模型状态修复（ModelUpdater 启动即初始化 + 入口副标题 1s 轮询、补回被 onResume 抹掉的模型状态），真机实测“未下载→下载中 0-93%→已就绪”全链路通过，双端 Release 附正式签名 APK
 - 2026-11-05: v2.9.4 发布（versionCode 117）：语义模型热更下载修复批次（manifest.sig 签名地址修正、落盘名 bge_ 前缀对齐、字节级进度实时上报、状态卡 500ms 轮询、Range 200 续传纠正），真机 PJX110 装机实测四项修复全通过，GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-11-05: v2.9.3 发布（versionCode 116）：UI 统一批次（诊断页全局规范接入 + 产物查看页状态栏重叠修复）+ 发布前敏感扫描脚本（合作声明豁免登记），GitHub/Gitee 双端 Release 附正式签名 APK
 - 2026-11-01: v2.8.29 发布（versionCode 111）：资料页 + 默认主题 + 汉堡页等用户可见批次与 SSH 直连/三层终止/泄漏拦截增强，GitHub/Gitee 双端 Release 附正式签名 APK
