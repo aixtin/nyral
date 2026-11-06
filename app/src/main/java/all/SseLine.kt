@@ -1,3 +1,6 @@
+// detekt: 包名 io.github.aixtin.nyral 是对外契约(历史文件统一放 all/ 目录), 不随目录名走
+@file:Suppress("InvalidPackageDeclaration")
+
 package io.github.aixtin.nyral
 
 /**

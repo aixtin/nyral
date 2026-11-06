@@ -33,6 +33,11 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class NyralApp : Application() {
 
+    /** 主线程心跳超时阈值: 与系统 ANR 的 5s 对齐, 3s 会把 Markdown 排版这类正常重活误判成 ANR */
+    private companion object {
+        const val ANR_THRESHOLD_MS = 5000L
+    }
+
     /** 崩溃报告匿名上报端点(零鉴权, 只收纯文本崩溃报告) */
     private val UPLOAD_URL = "https://atin.asia/crash"
 
@@ -143,7 +148,8 @@ class NyralApp : Application() {
     /**
      * 主线程 ANR watchdog(2026-10-20)。
      * 系统 ANR 广播普通应用收不到, 采用心跳自监控: 后台线程每 1s 向主线程 post 心跳,
-     * 主线程超过 3s 未响应即判定卡死, 抓主线程+全线程堆栈写 anr_*.txt(与崩溃同链路导出/上传)。
+     * 主线程超过 5s 未响应即判定卡死(与系统 ANR 阈值对齐: 原 3s 把 Markdown 长文排版这类
+     * 3~4s 的正常重活全判成 ANR, VPS 上 17/54 条属此类误报), 抓主线程+全线程堆栈写 anr_*.txt。
      * 只有 正常->卡死 边沿写一次, 卡死恢复后重置, 可记录多次卡死事件。
      */
     private fun installAnrWatchdog() {
@@ -151,7 +157,7 @@ class NyralApp : Application() {
         val mainHandler = Handler(mainLooper)
         val mainThread = mainLooper.thread
         val tickMs = 1000L
-        val thresholdMs = 3000L
+        val thresholdMs = ANR_THRESHOLD_MS
         val lastTick = AtomicLong(SystemClock.uptimeMillis())
         mainHandler.post { lastTick.set(SystemClock.uptimeMillis()) }
         Thread {
@@ -252,6 +258,8 @@ class NyralApp : Application() {
                 // 1) 上传: 成功删源+标记; 失败保留源
                 for (f in files) {
                     if (marked.getBoolean("uploaded_" + f.name, false)) continue
+                    // 上次已被服务端拒(401/429): 不再重试, 只等导出, 避免每次冷启动白跑 4 次重试
+                    if (marked.getBoolean("authfailed_" + f.name, false)) continue
                     if (uploadCrash(f)) {
                         marked.edit().putBoolean("uploaded_" + f.name, true).apply()
                         f.delete()
@@ -308,10 +316,13 @@ class NyralApp : Application() {
                 val body = f.readText()
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 if (conn.responseCode == 200) return true
-                // 服务端拒绝(401 无效 token / 429 超配额): 永久失败, 停止重试并丢弃该日志, 避免本地堆积
+                // 服务端拒绝(401 token 不匹配 / 429 超配额): 原地重试无意义, 停止重试但【保留】本地日志——
+                // 2026-11-06 修正: 原实现遇 401 直接 delete, 一旦包内 token 与服务端不一致(如本地构建占位符),
+                // 用户崩溃证据被永久丢弃且无从排查; 现标记后跳过重试, 由下方导出流程留一份到 Download 供人工取回
                 if (conn.responseCode == 401 || conn.responseCode == 429) {
-                    Log.w("NyralApp", "upload crash rejected " + conn.responseCode + ", dropping file")
-                    f.delete()
+                    LogStore.w("NyralApp", "崩溃上报被拒 HTTP " + conn.responseCode + ", 保留本地副本: " + f.name)
+                    getSharedPreferences("crash_export", MODE_PRIVATE).edit()
+                        .putBoolean("authfailed_" + f.name, true).apply()
                     return false
                 }
                 last = RuntimeException("http " + conn.responseCode)

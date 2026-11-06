@@ -229,6 +229,10 @@ class MainActivity : Activity() {
     // AI 输出阶段/正文跟随模式已抽离至 ChatSessionState
     private var jumpFab: android.widget.TextView? = null
     internal var activeAiHolder: AiBubbleHolder? = null   // 当前流式会话的 AiBubbleHolder: scrollToBottom 打字期滚动分支判据
+    /** 流式草稿在 messages 中的下标(2026-11-06): 切后台/销毁前兜底落库的占位 AI 条; -1=本轮无草稿 */
+    internal var streamDraftIndex = -1
+    /** 内存草稿同步上次时间戳(2026-11-06): 纯内存更新, 500ms 节流, 不写库 */
+    internal var lastDraftSyncMs = 0L
     private var pendingAlign = 0             // scrollToBottom 的 preDraw 对齐待执行计数(防重复注册泄漏)
     private var lastAutoScrollTs = 0L        // 流式追底去抖时间戳
 
@@ -2061,6 +2065,9 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        // 2026-11-06: 流式正文只在 AiBubbleHolder 内存态里, messages 中尚无此条;
+        // 必须先落草稿再走通用兜底, 否则切后台/回前台正文空白(messages 里只有用户消息)
+        flushStreamingDraft(activeAiHolder)
         // 划掉后台/杀进程前兜底保存当前未落库的对话
         maybeSaveCurrent()
     }
@@ -2661,7 +2668,11 @@ class MainActivity : Activity() {
         chatRows.clear()
         var lastTs = 0L
         var msgIdx = 0
+        var mi = -1
         for (m in messages) {
+            mi++
+            // 2026-11-06: 草稿条与屏上 Streaming 行同源, 同时渲染会出现两遍; 有流式行时跳过草稿条
+            if (mi == streamDraftIndex && session.streamingRow != null) { msgIdx++; continue }
             // 阶段4 sanitizeMessages: 丢弃全空消息(防 DB 残留空白行污染界面)
             if (m.content.isBlank() && m.thinking.isBlank() && m.tools.isBlank()) { msgIdx++; continue }
             // 阶段4 时间标签: 首条消息或距上条消息 >=30 分钟时插入分组标签(纯展示层, 不动数据);
@@ -2684,11 +2695,10 @@ class MainActivity : Activity() {
                 })
             msgIdx++
         }
-        // 阶段2 兜底: 仅 AI 输出中触发全量重建(如窗口外回退)时追加流式行到末尾不丢失气泡盒;
-        // 输出完成后(aiBusy=false)不再塞回, 防止已收尾的 Streaming 行变成僵尸行重复渲染
-        if (session.aiBusy) {
-            session.streamingRow?.let { if (it !in chatRows) chatRows.add(it) }
-        }
+        // 阶段2 兜底: 全量重建(窗口外回退/配置变更/返回前台)时追加流式行到末尾不丢失气泡盒;
+        // 2026-11-06: 条件由 aiBusy 放宽为 streamingRow != null —— 重建瞬间 aiBusy 可能已被
+        // 其他路径归还, 旧条件会让流式行整条消失; 收尾时 detachStreaming() 已置 null, 不会产生僵尸行
+        session.streamingRow?.let { if (it !in chatRows) chatRows.add(it) }
         chatAdapter.submit(chatRows.toList()) {
             onCommitted?.invoke()
             // 批量加载窗口: 全量重建提交后置窗口, 首帧布局(bind)期间抑制内嵌播放器创建,
@@ -4481,6 +4491,8 @@ class MainActivity : Activity() {
         if (instance == this) instance = null
         // 安全确认桥持有的 Activity 静态引用必须清理, 否则 Activity 销毁后仍被单例强引用导致泄漏
         SecurityUi.unregister()
+        // 2026-11-06: uiScope.cancel 会连打字机帧回调一起废掉, 正文再也写不回来; 取消前先落草稿
+        flushStreamingDraft(activeAiHolder)
         uiScope.cancel()
         // 优化(2026-09-18 全面扫描): 单线程 executor 是 Activity 成员, 销毁后任务继续跑会持有 Activity 引用; 立即关停
         executor.shutdownNow()

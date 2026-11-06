@@ -163,5 +163,30 @@ internal class MdBlocksView(context: Context) : LinearLayout(context) {
         }
     }
 
+    // ===== 活尾巴(2026-11-06): chunked 流式期间, 容器末尾常驻未定尾部文本行 =====
+    private var liveTail: TextView? = null
+
+    /** text 为空即撤除; 否则置于容器末尾并刷新内容(高度增长由外层同帧锚底统一处理)。
+     *  与 appendBlocks 配合: 新块切出后先 append 再调本方法, 尾巴始终垫底。 */
+    fun updateLiveTail(text: CharSequence?) {
+        if (text.isNullOrEmpty()) {
+            liveTail?.let { removeView(it) }
+            liveTail = null
+            return
+        }
+        val tv = liveTail ?: TextView(context).apply {
+            textSize = 15f
+            setTextColor(textColor)
+            setLineSpacing(dp(3f).toFloat(), 1.45f)
+            includeFontPadding = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            liveTail = this
+        }
+        if (tv.text?.toString() != text.toString()) tv.text = text
+        if (tv.parent === this) removeView(tv)
+        addView(tv)
+    }
+
     private fun dp(v: Float): Int = (v * resources.displayMetrics.density).toInt()
 }

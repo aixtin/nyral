@@ -16,8 +16,8 @@ import java.io.InputStream
  * 全部为无 Activity 依赖的纯函数, 通过 ContentResolver 操作, 便于独立测试与复用。
  */
 object MediaFileUtils {
-    /** 读取 Uri 全部字节; 无法打开抛 IllegalStateException(由调用方决策) */
-    fun readAll(cr: ContentResolver, uri: Uri): ByteArray {
+    /** 读取 Uri 全部字节; 无法打开或超过 maxBytes 抛 IllegalStateException(由调用方决策) */
+    fun readAll(cr: ContentResolver, uri: Uri, maxBytes: Int = Int.MAX_VALUE): ByteArray {
         val ins: InputStream = cr.openInputStream(uri) ?: throw IllegalStateException("无法打开文件")
         return ins.use { i ->
             val buf = ByteArrayOutputStream()
@@ -26,6 +26,8 @@ object MediaFileUtils {
                 val n = i.read(chunk)
                 if (n < 0) break
                 buf.write(chunk, 0, n)
+                // 保底闸门: 防止未知大小的 Uri(如超大视频/动图)整文件进内存把进程打爆
+                check(buf.size() <= maxBytes) { "文件超过上限 $maxBytes 字节" }
             }
             buf.toByteArray()
         }

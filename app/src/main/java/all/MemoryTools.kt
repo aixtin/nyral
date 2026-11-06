@@ -38,6 +38,10 @@ object MemoryTools {
             // 简化求值, 仅支持数字和四则运算
             val cleaned = expr.replace("×", "*").replace("÷", "/").replace("x", "*")
             if (!cleaned.matches(Regex("[0-9+\\-*/().\\s]+"))) return "仅支持数字和四则运算"
+            // 2026-11-07 缺陷3: Rhino IRFactory 对超长表达式递归建树会爆栈(6000 项加法实测把进程打崩),
+            // 按"压缩空白后的有效字符数"设上限: 空白无语义也不增递归深度, 不该占额度
+            val compact = cleaned.replace(Regex("\\s+"), "")
+            if (compact.length > 1500) return "表达式过长(上限 1500 字符)，请拆成多步计算"
             val cx = Context.enter()
             try {
                 // Android 上 Rhino 必须用解释模式(-1), 否则动态字节码生成报"无法加载类文件"

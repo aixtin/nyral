@@ -93,6 +93,8 @@ internal class ChatAdapter(
             row.bubbleBox?.let { box ->
                 (box.parent as? ViewGroup)?.removeView(box)
                 holder.root.addView(box)
+                // 2026-11-06: 流式行空壳自检 —— 重挂后仍无子视图说明气泡内容丢失, 留痕便于抓现场
+                if ((box as? ViewGroup)?.childCount == 0) Log.w("AVFIX", "CTA STREAM-EMPTY pos=" + position)
             }
             return
         }

@@ -150,6 +150,55 @@ import android.widget.Toast
         closeDrawer()
     }
 
+    /**
+     * 流式正文兜底落库(2026-11-06)。根因: 正文只存在于 AiBubbleHolder 的 ContentBlock.text,
+     * 只有 onDone 才写进 messages/DB, 中途切后台(messages 里只有用户消息)再回来就是空壳。
+     * 同一轮多次调用原地覆盖(幂等), 不产生重复 AI 行。
+     */
+    /**
+     * 流式草稿内存同步(2026-11-06, 单一数据源): 把 AiBubbleHolder 里的正文快照写进 messages 占位条,
+     * 保证"任一时刻 messages 都能表达当前屏幕内容"。纯内存更新, 500ms 节流, 不写库。
+     * force=true 供 onStop/onDestroy 强制同步。
+     */
+    internal fun MainActivity.syncStreamingDraft(holder: AiBubbleHolder?, force: Boolean = false) {
+        val h = holder ?: return
+        if (!session.aiBusy) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastDraftSyncMs < 500L) return
+        lastDraftSyncMs = now
+        val body = h.plainContent()
+        val thinking = h.thinkingSnapshot()
+        val tools = h.toolsSnapshot()
+        if (body.isBlank() && thinking.isBlank() && tools.isBlank()) return
+        val timeline = h.timelineSnapshot()
+        val idx = streamDraftIndex
+        if (idx in messages.indices && messages[idx].role == "assistant") {
+            messages[idx] = MemoryDb.SessionMsg("assistant", body, thinking, tools, timeline, messages[idx].ts)
+        } else {
+            streamDraftIndex = messages.size
+            messages.add(MemoryDb.SessionMsg("assistant", body, thinking, tools, timeline, now))
+        }
+        currentSaved = false
+    }
+
+    /** 流式草稿落库: 先同步内存再写库(onStop/onDestroy 用), 避免切后台/重建后正文空白 */
+    internal fun MainActivity.flushStreamingDraft(holder: AiBubbleHolder?) {
+        syncStreamingDraft(holder, force = true)
+        if (streamDraftIndex !in messages.indices) return
+        maybeSaveCurrent()
+        LogStore.i(LogStore.MAIN, "流式草稿落库 len=" + messages[streamDraftIndex].content.length + " idx=" + streamDraftIndex)
+    }
+
+    /** 收尾/出错前丢弃流式草稿: 正常路径会重新写完整回复, 不丢则出现重复 AI 行 */
+    internal fun MainActivity.discardStreamingDraft() {
+        val idx = streamDraftIndex
+        if (idx in messages.indices && messages[idx].role == "assistant") {
+            messages.removeAt(idx)
+            LogStore.i(LogStore.MAIN, "丢弃流式草稿 idx=" + idx)
+        }
+        streamDraftIndex = -1
+    }
+
     internal fun MainActivity.maybeSaveCurrent(mode: Int = ModeConfig.modeValue()) {
         if (!currentSaved && messages.isNotEmpty()) {
             val sid0 = currentSessionId

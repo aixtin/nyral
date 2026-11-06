@@ -1,3 +1,6 @@
+// detekt: fuzz 用例内联断言失败信息需完整回显(拆函数反而丢失上下文), 断言数量多属预期
+@file:Suppress("ThrowsCount", "MaxLineLength")
+
 package io.github.aixtin.nyral
 
 import org.junit.Test

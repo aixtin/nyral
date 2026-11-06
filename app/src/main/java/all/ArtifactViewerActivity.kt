@@ -35,9 +35,30 @@ import java.io.File
  * - 其余文本类(代码/Markdown/JSON): 等宽文本查看
  * - 底部操作: 保存(图片进相册 Pictures/Nyral, 其余进 Download/Nyral) / 分享 / 复制
  */
+/** 单次喂给 TextView 的最大字符数: 再大静态布局会吃掉几百 MB 直接 OOM, 超出部分截断, 完整内容走分享 */
+private const val MAX_VIEW_CHARS = 200_000
+
+/** 渲染页位图常驻内存的单像素字节数(ARGB_8888) */
+private const val PDF_BYTES_PER_PX = 4L
+
 class ArtifactViewerActivity : Activity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /** 按屏宽采样解码图片: 原 decodeFile 整幅进内存, 大图/长图直接 OOM, 这里 inSampleSize 降到屏宽 2 倍内 */
+    private fun decodeSampled(f: File): Bitmap? {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(f.absolutePath, bounds)
+        val maxW = (resources.displayMetrics.widthPixels.coerceAtLeast(1) * 2)
+        val maxH = (resources.displayMetrics.heightPixels.coerceAtLeast(1) * 8)
+        var sample = 1
+        while (bounds.outWidth / sample > maxW || bounds.outHeight / sample > maxH) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        return android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts)
+    }
 
     private lateinit var fileName: String
     private var fileText: String = ""
@@ -66,7 +87,15 @@ class ArtifactViewerActivity : Activity() {
         fileText = if (f.length() > 8 * 1024 * 1024) {
             Toast.makeText(this, "文件过大(${f.length() / 1024 / 1024}MB)，请用分享按钮查看", Toast.LENGTH_LONG).show()
             ""
-        } else try { f.readText(Charsets.UTF_8) } catch (e: Exception) { "" }
+        } else try {
+            f.readText(Charsets.UTF_8)
+        } catch (e: Exception) {
+            ""
+        } catch (e: OutOfMemoryError) {
+            // 8MB 纯文本解码也要几百 MB 峰值: 读不进来就当空内容, 交给分享按钮, 绝不带崩 Activity
+            LogStore.w("ArtifactViewer", "读取文本 OOM, 降级为分享查看: ${e.message}")
+            ""
+        }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -117,7 +146,14 @@ class ArtifactViewerActivity : Activity() {
         } else if (mime.startsWith("image/")) {
             // 图片产物: 直接解码位图显示, 不再显示乱码文本
             val sv = ScrollView(this).apply { setBackgroundColor(Color.WHITE) }
-            val bmp = try { android.graphics.BitmapFactory.decodeFile(f.absolutePath) } catch (e: Exception) { null }
+            val bmp = try {
+                decodeSampled(f)
+            } catch (e: Exception) {
+                null
+            } catch (e: OutOfMemoryError) {
+                LogStore.w("ArtifactViewer", "图片解码 OOM, 降级为分享查看: ${e.message}")
+                null
+            }
             if (bmp == null) {
                 sv.addView(TextView(this).apply {
                     text = "图片解码失败(${f.length()} 字节), 请用分享按钮调起外部应用查看"
@@ -151,13 +187,22 @@ class ArtifactViewerActivity : Activity() {
                 val renderer = PdfRenderer(fd)
                 var pi = 0
                 val targetW = resources.displayMetrics.widthPixels - dp(24)
-                while (pi < renderer.pageCount) {
+                val totalPages = renderer.pageCount
+                // 页位图全部驻留内存(ARGB_8888 = 4B/px): 按可用堆 1/4 做预算, 超预算只预览前若干页,
+                // 避免整本渲染把堆打爆(2.8.30 小米 22081212C 268MB 单次分配 OOM 即此类)
+                val budget = Runtime.getRuntime().maxMemory() / 4
+                var used = 0L
+                while (pi < totalPages) {
                     val page = renderer.openPage(pi)
                     try {
                         val bw = page.width.coerceAtLeast(1)
                         val bh = page.height.coerceAtLeast(1)
                         val scale = targetW.toFloat() / bw
-                        val bmp = Bitmap.createBitmap(targetW, (bh * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+                        val pageH = (bh * scale).toInt().coerceAtLeast(1)
+                        val pageBytes = targetW.toLong() * pageH.toLong() * PDF_BYTES_PER_PX
+                        if (used + pageBytes > budget) break
+                        used += pageBytes
+                        val bmp = Bitmap.createBitmap(targetW, pageH, Bitmap.Config.ARGB_8888)
                         bmp.eraseColor(Color.WHITE)
                         page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         pages.addView(ImageView(this).apply {
@@ -172,6 +217,22 @@ class ArtifactViewerActivity : Activity() {
                     pi++
                 }
                 renderer.close()
+                if (pi < totalPages) {
+                    pages.addView(TextView(this).apply {
+                        text = "仅预览前 $pi / $totalPages 页(内存限制), 完整内容请用分享按钮查看"
+                        textSize = 13f
+                        setTextColor(Color.parseColor("#666666"))
+                        setPadding(dp(14), dp(8), dp(14), dp(12))
+                    })
+                }
+            } catch (e: OutOfMemoryError) {
+                LogStore.w("ArtifactViewer", "PDF 渲染 OOM: ${e.message}")
+                pages.addView(TextView(this).apply {
+                    text = "PDF 过大, 渲染内存不足, 请用分享按钮查看\n文件大小: ${f.length()} 字节"
+                    textSize = 13f
+                    setTextColor(Color.parseColor("#222222"))
+                    setPadding(dp(14), dp(12), dp(14), dp(16))
+                })
             } catch (e: Exception) {
                 pages.addView(TextView(this).apply {
                     text = "PDF 渲染失败: ${e.message}\n文件大小: ${f.length()} 字节"
@@ -185,7 +246,10 @@ class ArtifactViewerActivity : Activity() {
         } else {
             val sv = ScrollView(this).apply { setBackgroundColor(Color.WHITE) }
             sv.addView(TextView(this).apply {
-                text = fileText.ifBlank { "(二进制或空内容, 请用分享按钮调起外部应用查看)" }
+                text = if (fileText.length > MAX_VIEW_CHARS) {
+                    fileText.substring(0, MAX_VIEW_CHARS) +
+                        "\n\n…已截断, 共 ${fileText.length} 字符, 完整内容请用分享按钮查看"
+                } else fileText.ifBlank { "(二进制或空内容, 请用分享按钮调起外部应用查看)" }
                 textSize = 13f
                 typeface = Typeface.MONOSPACE
                 setTextColor(Color.parseColor("#222222"))

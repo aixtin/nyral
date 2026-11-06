@@ -11,6 +11,13 @@ package io.github.aixtin.nyral
  * 流式回调进入主线程后先校验 isCurrent(epoch), 天然拦截迟到回调。
  */
 internal class ChatSessionState {
+    /** AI 输出阶段语义值: 0=idle 1=thinking 2=tool 3=content */
+    internal companion object {
+        const val AI_STAGE_THINKING = 1
+        const val AI_STAGE_TOOL = 2
+        const val AI_STAGE_CONTENT = 3
+    }
+
     /** 请求代际: 发起新请求/取消请求自增; 迟到回调以 isCurrent(epoch) 拦截 */
     private var requestEpoch = 0L
 

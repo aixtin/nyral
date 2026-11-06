@@ -309,6 +309,9 @@ object DebugServer {
                     method == "POST" && path == "/v1/key" -> key(c, out, body)
                     method == "POST" && path == "/v1/input" -> inputText(c, out, body)
                     method == "GET" && path == "/v1/ping" -> writeJson(out, 200, JSONObject().put("pong", true).put("time", System.currentTimeMillis()), reuse)
+                    // 2026-11-07 P2 真机回归: 只读观测口 + provider 切换开关
+                    method == "GET" && path == "/v1/chatstate" -> writeJson(out, 200, chatStateJson(c), reuse)
+                    method == "POST" && path == "/v1/provider/mock" -> { mockProvider(c, out, body); keepAlive = false }
                     // 手机端 MCP Server(只读): 桌面 MCP 客户端反向调用手机能力
                     method == "POST" && path == McpServer.PATH -> {
                         val resp = McpServer.handle(c, body)
@@ -521,6 +524,82 @@ object DebugServer {
             o.put("permissions", perms)
         } catch (e: Exception) { o.put("permissions_error", e.message) }
         return o
+    }
+
+    /**
+     * /v1/chatstate: P2 真机回归观测口(只读)。
+     * 主线程活性探针自带 700ms 超时且由 HTTP 线程独立应答, 主线程卡死时本接口仍能返回
+     * main_stuck=true —— 这是区分"UI 卡死"与"进程崩溃"的可靠信号(自绘气泡文本 uiautomator 抓不到)。
+     */
+    private fun chatStateJson(c: Context): JSONObject {
+        val o = JSONObject()
+        o.put("ts", System.currentTimeMillis())
+        o.put("pid", android.os.Process.myPid())
+        val latched = java.util.concurrent.CountDownLatch(1)
+        val t0 = System.nanoTime()
+        try {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { latched.countDown() }
+        } catch (e: Exception) {
+            o.put("probe_post_error", e.message)
+        }
+        val alive = try {
+            latched.await(700, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (e: Exception) { false }
+        o.put("main_alive", alive)
+        o.put("main_post_ms", (System.nanoTime() - t0) / 1_000_000)
+        o.put("main_stuck", !alive)
+        try { o.put("probe", ChatProbe.snapshot()) } catch (e: Exception) { o.put("probe_error", e.message) }
+        try {
+            val act = main
+            if (act == null) {
+                o.put("activity", JSONObject.NULL)
+            } else {
+                var lastText = ""
+                val list = act.messages
+                for (i in list.indices.reversed()) {
+                    if (list[i].role == "assistant") { lastText = list[i].content; break }
+                }
+                o.put("activity", JSONObject()
+                    .put("ai_busy", act.aiBusy)
+                    .put("session_id", act.currentSessionId)
+                    .put("message_count", list.size)
+                    .put("last_assistant_text", lastText))
+            }
+        } catch (e: Exception) { o.put("activity_error", e.message) }
+        try {
+            val files = java.io.File(c.filesDir, "crash").listFiles() ?: emptyArray()
+            o.put("crash_files", files.count { it.name.startsWith("crash_") })
+            o.put("anr_files", files.count { it.name.startsWith("anr_") })
+        } catch (e: Exception) { o.put("crash_error", e.message) }
+        return o
+    }
+
+    /**
+     * /v1/provider/mock: 回归专用。on=true 新增(或复用) mock provider 并切过去, on=false 切回原 provider。
+     * 全程不修改用户既有 provider 的任何字段, 测完不留痕。
+     */
+    private fun mockProvider(c: Context, out: OutputStream, body: String) {
+        val req = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+        val on = req.optBoolean("on", true)
+        val base = req.optString("base", "").ifBlank { "http://127.0.0.1:18080/v1" }
+        val prefs = c.getSharedPreferences("debug_server", Context.MODE_PRIVATE)
+        try {
+            if (on) {
+                val prev = ApiConfig.providerId()
+                prefs.edit().putString("mock_prev_provider", prev).apply()
+                val exist = ApiConfig.providers().find { it.id == "custom_mock" }
+                    ?: ApiConfig.providers().find { it.label == "mock-local" }
+                val id = exist?.id ?: ApiConfig.addCustomProvider("mock-local", base, "sk-mock", "mock-model")
+                ApiConfig.setCurrent(id)
+                writeJson(out, 200, JSONObject().put("ok", true).put("provider", id).put("base", base).put("prev", prev))
+            } else {
+                val prev = prefs.getString("mock_prev_provider", "") ?: ""
+                if (prev.isNotBlank()) ApiConfig.setCurrent(prev)
+                writeJson(out, 200, JSONObject().put("ok", true).put("provider", ApiConfig.providerId()).put("prev", prev))
+            }
+        } catch (e: Exception) {
+            writeJson(out, 500, JSONObject().put("error", e.message ?: e.javaClass.simpleName))
+        }
     }
 
     /** /v1/logs: 支持 query 参数 tag(来源tag)、level(I/W/E)、tail(条数, 默认300, 上限1000) */
@@ -1102,6 +1181,9 @@ object DebugServer {
             "Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
         out.write(head.toByteArray())
         out.flush()
+
+        // P2 回归: 每轮注入前重置观测状态, 保证断言只读本轮数据(否则 cancelled/finish_note 会串轮)
+        ChatProbe.onRoundStart()
 
         // 事件队列: MainActivity 回调(工作线程) -> SSE writer(本线程)
         val queue = LinkedBlockingQueue<Pair<String, String>>()  // (event, data)

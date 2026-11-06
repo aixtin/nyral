@@ -633,6 +633,7 @@
     <ID>LoopWithTooManyJumpStatements:MdSpannable.kt$MdSpannable$for</ID>
     <ID>LoopWithTooManyJumpStatements:ModelUpdater.kt$ModelUpdater$for</ID>
     <ID>LoopWithTooManyJumpStatements:ModelUpdater.kt$ModelUpdater$while</ID>
+    <ID>LoopWithTooManyJumpStatements:NyralApp.kt$NyralApp$for</ID>
     <ID>LoopWithTooManyJumpStatements:NyralApp.kt$NyralApp$while</ID>
     <ID>LoopWithTooManyJumpStatements:PatternStore.kt$PatternStore$for</ID>
     <ID>LoopWithTooManyJumpStatements:PdfTextExtractor.kt$PdfTextExtractor$for</ID>
@@ -2039,7 +2040,6 @@
     <ID>MagicNumber:NyralApp.kt$NyralApp$200</ID>
     <ID>MagicNumber:NyralApp.kt$NyralApp$2000L</ID>
     <ID>MagicNumber:NyralApp.kt$NyralApp$28</ID>
-    <ID>MagicNumber:NyralApp.kt$NyralApp$3000L</ID>
     <ID>MagicNumber:NyralApp.kt$NyralApp$401</ID>
     <ID>MagicNumber:NyralApp.kt$NyralApp$429</ID>
     <ID>MagicNumber:NyralApp.kt$NyralApp$600L</ID>
@@ -2221,7 +2221,6 @@
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$10000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$15000</ID>
     <ID>MagicNumber:SshTools.kt$SshTools.JschProxyJump$20</ID>
-    <ID>MagicNumber:StreamUiBridge.kt$StreamUiBridge.&lt;no name provided&gt;$3</ID>
     <ID>MagicNumber:TaskService.kt$TaskService$200</ID>
     <ID>MagicNumber:TaskService.kt$TaskService$80</ID>
     <ID>MagicNumber:TaskService.kt$TaskService.&lt;no name provided&gt;$120</ID>
@@ -2593,7 +2592,6 @@
     <ID>MaxLineLength:ArtifactViewerActivity.kt$ArtifactViewerActivity$root.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))</ID>
     <ID>MaxLineLength:ArtifactViewerActivity.kt$ArtifactViewerActivity$sv.addView(col, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))</ID>
     <ID>MaxLineLength:ArtifactViewerActivity.kt$ArtifactViewerActivity$sv.addView(pages, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))</ID>
-    <ID>MaxLineLength:ArtifactViewerActivity.kt$ArtifactViewerActivity$val bmp = Bitmap.createBitmap(targetW, (bh * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$AttachmentStore.fileOf(host, key)?.let { MediaFileUtils.readAll(host.contentResolver, Uri.fromFile(it)) }</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()</ID>
     <ID>MaxLineLength:AttachmentSender.kt$AttachmentSender$f.inputStream().use { ins -&gt; AttachmentStore.saveStream(host, mp4Name, "video/mp4", ins, meta?.toString()) }</ID>
@@ -3242,7 +3240,6 @@
     <ID>MaxLineLength:WorkDir.kt$WorkDir$resolver.update(newUri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)</ID>
     <ID>MayBeConst:WebTools.kt$WebTools$// Bing 搜索用桌面 UA: 移动 UA 下 cn.bing.com 返回非标准结构, 无法解析 private val SEARCH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"</ID>
     <ID>MayBeConst:WebTools.kt$WebTools$private val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36"</ID>
-    <ID>NestedBlockDepth:AiBubbleHolder.kt$AiBubbleHolder$fun appendThinking(text: String)</ID>
     <ID>NestedBlockDepth:AiBubbleHolder.kt$AiBubbleHolder$private fun emitChunks(b: ContentBlock, final: Boolean, idle: Boolean = false)</ID>
     <ID>NestedBlockDepth:AiBubbleHolder.kt$AiBubbleHolder$private fun refreshExpandedTimeline()</ID>
     <ID>NestedBlockDepth:ApiClientTest.kt$MockServer$private fun handle(sock: Socket)</ID>

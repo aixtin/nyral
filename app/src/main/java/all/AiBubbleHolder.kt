@@ -53,6 +53,11 @@ internal const val CHUNK_IDLE_MS = 800L
 /** 活段逐字刷新节流间隔(ms): raw 文本增量上屏节奏, 弱机 setText 重排成本封顶 */
 internal const val LIVE_TICK_MS = 200L
 
+/** 思考摘要节流(2026-11-06): 句末即时切, 其余按此间隔节流, 胶囊文字不再逐字闪 */
+internal const val THINK_TITLE_THROTTLE_NS = 600_000_000L
+/** 思考就地展开全文刷新节流 */
+internal const val THINK_INLINE_THROTTLE_NS = 300_000_000L
+
 // ==== 单行状态行(09-24 重构) ====
 /** 片段轮播停留时长(ms): 展示→停约1s→切下一片段(快速刷新形态) */
 internal const val STATUS_CAROUSEL_MS = 1000L
@@ -124,6 +129,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private var instHead = 0
     private var instFill = 0
     private var charBudget = 0.0         // 浮点字符预算累积器(严格按速率推进, 消除"每帧+1"的强制快打)
+    private var lastTitleNs = 0L         // 思考摘要上次刷新时间(句末即时切, 其余 600ms 节流)
+    private var lastInlineNs = 0L        // 就地展开全文上次刷新时间(300ms 节流)
 
     // 帧级节流: 高频 delta 合并到 16ms 一帧刷新一次, 避免全量 setText + 滚动积压导致卡顿/拖影
     private val uiHandler = Handler(Looper.getMainLooper())
@@ -164,6 +171,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     /** 一段思考: 全文进脉络时间线, 字数供计数与收尾摘要 */
     private inner class ThinkingBlock {
         val text = StringBuilder()
+        var tailStart = 0   // 尾段起点(最后一个"\n\n"之后): 增量维护, 替代每 delta 全文倒扫
         var collapsed = false   // 该段思考是否已封段
         var tlView: TextView? = null   // 脉络时间线里的全文块(展开状态下流式实时刷新)
         var titleView: TextView? = null   // 行动轨道: 标题行(尾部摘要, 实时刷新)
@@ -204,20 +212,10 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         refreshExpandedTimeline()
     }
 
-    /** 思考块内多段只显示最后一段, 避免 "思考中: 思考一思考二..." 眼花 */
+    /** 思考块内只显示最后一段: 尾段起点增量维护(appendThinking/showThinking), 不再每 delta 全文倒扫 */
     private fun tailThinking(b: ThinkingBlock): String {
-        // 跳过尾部空段: 思考文本常以 "\n\n" 分隔/结尾, 直接取末段会拿到空串
-        // → snippet 走 ifBlank 兜底成 "…", 状态行永远三个点
-        val full = b.text.toString()
-        var s = full
-        while (true) {
-            val idx = s.lastIndexOf("\n\n")
-            if (idx < 0) break
-            val tail = s.substring(idx + 2).trim()
-            if (tail.isNotEmpty()) { s = tail; break }
-            s = s.substring(0, idx)
-        }
-        return s.trim().ifEmpty { full.trim() }
+        val tail = if (b.tailStart in 1..b.text.length) b.text.substring(b.tailStart) else b.text.toString()
+        return tail.trim().ifEmpty { b.text.toString().trim() }
     }
 
     fun createStreamingBox(): LinearLayout {
@@ -262,13 +260,46 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return if (s < 60L) "$s 秒" else "${s / 60L} 分 ${(s % 60L).toString().padStart(2, '0')} 秒"
     }
 
+    /** P2-1(2026-11-07): 工具参数流式生成提示文案; 非空时覆盖三点旁计时文案。
+     *  场景: 模型把长文塞进 artifact_save 等写操作参数, 期间既无思考也无正文增量,
+     *  用户看到的是"点了没反应"。此处把"正在生成 xxx · N KB"挂在同一行, 不新增视图。 */
+    private var pendingToolLabel: String? = null
+
+    /** 三点旁文案: 有生成进度时以进度为主, 计时附后; 否则只显示计时 */
+    private fun dotsText(): String {
+        val ms = SystemClock.uptimeMillis() - (if (dotsStartMs == 0L) SystemClock.uptimeMillis() else dotsStartMs)
+        val stage = pendingToolLabel ?: return elapsedText(ms)
+        return stage + " · " + elapsedText(ms)
+    }
+
+    /** 工具参数流式进度(主线程调用): 参数每增长若干字节刷新一次, 正文已在流式输出时不打扰 */
+    fun showToolPending(name: String, bytes: Int) {
+        // 正文正在流式输出: 用户已看到东西在动, 不再插队提示
+        if (contentBlocks.any { !it.done }) return
+        val kb = bytes / 1024
+        val label = name.ifBlank { "工具参数" }
+        pendingToolLabel = if (kb >= 1) "正在生成 $label · $kb KB" else "正在生成 $label"
+        if (dotsTimer == null) showLoading()
+        val tv = dotsTimer ?: return
+        tv.text = dotsText()
+        uiHandler.removeCallbacks(dotsTicker)
+        if (tv.isAttachedToWindow) uiHandler.postDelayed(dotsTicker, 1000L) else tv.postDelayed(dotsTicker, 1000L)
+    }
+
+    /** 清除生成进度提示(正文开始/工具真正开始/收尾时调用) */
+    fun clearToolPending() {
+        if (pendingToolLabel == null) return
+        pendingToolLabel = null
+        dotsTimer?.text = dotsText()
+    }
+
     /** 每秒刷新三点旁计时; 视图已脱离窗口则自动停表, 防脱离后空转 */
     private val dotsTicker = object : Runnable {
         override fun run() {
             val tv = dotsTimer ?: return
             if (!tv.isAttachedToWindow) { dotsTimer = null; return }
             if (dotsStartMs == 0L) dotsStartMs = SystemClock.uptimeMillis()
-            tv.text = elapsedText(SystemClock.uptimeMillis() - dotsStartMs)
+            tv.text = dotsText()
             uiHandler.removeCallbacks(this)
             uiHandler.postDelayed(this, 1000L)
         }
@@ -280,7 +311,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (dotsStartMs == 0L) dotsStartMs = SystemClock.uptimeMillis()
         uiHandler.removeCallbacks(dotsTicker)
         val tv = dotsTimer ?: return
-        tv.text = elapsedText(SystemClock.uptimeMillis() - dotsStartMs)
+        tv.text = dotsText()
         tv.removeCallbacks(dotsTicker)
         if (tv.isAttachedToWindow) uiHandler.postDelayed(dotsTicker, 1000L)
         else tv.postDelayed(dotsTicker, 1000L)
@@ -374,19 +405,29 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         override fun run() {
             val b = activeContent
             if (done || b == null || b.done || b.isTable) { liveTicking = false; return }
-            val tv = b.view
-            // 触摸冻结(同旧打字机): 用户拖动列表时不改布局, 松手后下一 tick 自动追平
-            if (tv != null && b.blocksView == null && !userTakeover) {
-                val raw = suppressCards(ModeConfig.stripChatProtocolPrefix(b.text.toString()))
-                if (tv.text?.toString() != raw) {
-                    tv.text = raw
-                    keepBubbleWidth(b, tv)
-                    host.onTypeGrownFrame(false)   // 内容增长同帧锚底(用户上翻时自动让位)
+            if (b.chunked) {
+                // 活尾巴(2026-11-06): chunked 模式下块容器末尾的未定尾部 raw 文本持续上屏,
+                // 消除"最后一块切出后到下一切块/闲置兜底之间的僵住感"
+                if (!userTakeover) b.blocksView?.updateLiveTail(liveTailText(b))
+            } else {
+                val tv = b.view
+                // 触摸冻结(同旧打字机): 用户拖动列表时不改布局, 松手后下一 tick 自动追平
+                if (tv != null && b.blocksView == null && !userTakeover) {
+                    val raw = suppressCards(ModeConfig.stripChatProtocolPrefix(b.text.toString()))
+                    if (tv.text?.toString() != raw) {
+                        tv.text = raw
+                        keepBubbleWidth(b, tv)
+                        host.onTypeGrownFrame(false)   // 内容增长同帧锚底(用户上翻时自动让位)
+                    }
                 }
             }
             uiHandler.postDelayed(this, LIVE_TICK_MS)
         }
     }
+
+    /** 活尾巴文本: 已切块游标之后的未定尾部(raw, 轻掩码); 无剩余返回空串 */
+    private fun liveTailText(b: ContentBlock): String =
+        if (b.chunkStart >= b.text.length) "" else suppressCards(b.text.substring(b.chunkStart))
 
     private fun startLiveTick() {
         if (liveTicking) return
@@ -537,6 +578,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             } else {
                 // 同段内续写: 追加分隔
                 b.text.append("\n\n")
+                b.tailStart = b.text.length
             }
             if (b.capsule == null) {
                 val blk = b   // 捕获前固定引用: var b 在 lambda 内不可智能转换
@@ -578,26 +620,66 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     }
 
     fun appendThinking(text: String) {
-        activeThinking?.let { it.text.append(text) }
-        if (agentFold()) {
-            // 折叠流: 胶囊尾部摘要实时滚动(思考全文在抽屉/就地展开块)
-            activeThinking?.let { b ->
-                val s = snippet(tailThinking(b).replace("\n", " ").trim())
-                b.capTitle?.let { if (it.text.toString() != s) it.text = s }
-                b.inlineView?.let { it.text = b.text.toString() }   // 短思考就地展开态: 全文实时刷新
+        activeThinking?.let { b ->
+            b.text.append(text)
+            // 增量维护尾段起点: 段落分隔只可能出现在新增文本内(跨界 \n\n 单独处理)
+            val prevLen = b.text.length - text.length
+            val nl2 = text.lastIndexOf("\n\n")
+            if (nl2 >= 0) {
+                b.tailStart = prevLen + nl2 + 2
+            } else if (prevLen > 0 && straddleNewline(b, prevLen, text)) {
+                b.tailStart = prevLen + 1
             }
-            return
-        }
-        if (ModeConfig.actionTrack()) {
-            // 行动轨道: 标题行实时滚动尾部摘要(保留轮播感), 展开态全文同步
-            activeThinking?.titleView?.let { tv ->
-                val s = snippet(tailThinking(activeThinking!!).replace("\n", " ").trim())
-                if (tv.text.toString() != s) tv.text = s
-            }
-            activeThinking?.tlView?.let { it.text = activeThinking!!.text.toString() }
+            updateThinkingViews(b)
         }
         scheduleRefresh()
         host.onStatusGrown()   // 思考内容增长: 通知主层锚底跟随(09-24)
+    }
+
+    /** 跨 delta 换行对: 旧文以 \n 结尾且新文以 \n 开头, 合成一次段落分隔 */
+    private fun straddleNewline(b: ThinkingBlock, prevLen: Int, text: String): Boolean =
+        text.isNotEmpty() && text[0] == '\n' && b.text[prevLen - 1] == '\n'
+
+    /** 思考视图刷新分流(2026-11-06): 单轨折叠流/行动轨道各自独立小函数, 控制复杂度 */
+    private fun updateThinkingViews(b: ThinkingBlock) {
+        if (agentFold()) {
+            updateFoldThinkingViews(b)
+            return
+        }
+        if (ModeConfig.actionTrack()) updateTrackThinkingViews(b)
+    }
+
+    /** 单轨折叠流: 胶囊摘要句末即时切/其余节流, 就地展开全文按 300ms 节流 */
+    private fun updateFoldThinkingViews(b: ThinkingBlock) {
+        val nowNs = System.nanoTime()
+        updateThinkingTitle(b, nowNs) { title ->
+            b.capTitle?.let { if (it.text.toString() != title) it.text = title }
+        }
+        b.inlineView?.let { iv ->
+            if (nowNs - lastInlineNs > THINK_INLINE_THROTTLE_NS) {
+                lastInlineNs = nowNs
+                if (iv.text.toString() != b.text.toString()) iv.text = b.text.toString()
+            }
+        }
+    }
+
+    /** 行动轨道: 标题行摘要同节奏刷新, 时间线详情块仅在可见时刷新(收起态零开销) */
+    private fun updateTrackThinkingViews(b: ThinkingBlock) {
+        updateThinkingTitle(b, System.nanoTime()) { title ->
+            b.titleView?.let { tv -> if (tv.text.toString() != title) tv.text = title }
+        }
+        b.tlView?.let { tlv ->
+            if (tlv.visibility == View.VISIBLE && tlv.text.length != b.text.length) tlv.text = b.text.toString()
+        }
+    }
+
+    /** 思考摘要更新策略: 句末即时切, 其余 600ms 节流——胶囊文字不再逐字闪 */
+    private fun updateThinkingTitle(b: ThinkingBlock, nowNs: Long, apply: (String) -> Unit) {
+        val tail = tailThinking(b).replace("\n", " ").trim()
+        val last = tail.lastOrNull() ?: return
+        if (last !in "。！？；!?;" && nowNs - lastTitleNs <= THINK_TITLE_THROTTLE_NS) return
+        lastTitleNs = nowNs
+        apply(snippet(tail))
     }
 
     /** 思考段结束: 封段等待下一事件(正文/工具/新思考), 状态行保持轮播 */
@@ -1042,6 +1124,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     /** 工具调用开始: 状态行切 🔧 态(轮播工具名+参数), 工具块进脉络时间线 */
     fun showTool(name: String, arg: String) {
+        clearToolPending()   // 参数生成完毕, 进入真实工具阶段
         sealCurrentContent()   // 工具调用同样先冻结当前正文段, 与恢复时间线一致
         if (agentFold()) {
             // 单轨折叠流: 工具折叠成胶囊行直接上屏, 点击弹抽屉看参数/结果
@@ -1229,6 +1312,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     }
 
     fun appendContent(text: String) {
+        clearToolPending()   // 正文开始输出: 参数生成提示让位
         waitStage = ""   // 正文开始输出: 等待计时结束
         removeStatus()
         // 静默分层(阶段4): 正文输出期不停止三点占位——内容静默累积后台排版,
@@ -1298,6 +1382,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         if (!b.isTable && !b.done && !ModeConfig.chatPlainText()) {
             emitChunks(b, final = false)
             scheduleChunkIdle(b)
+            startLiveTick()   // 活尾巴(2026-11-06): chunked 后的未定尾部 200ms 持续上屏
         } else if (!b.done && !b.isTable && b.view == null && b.text.isNotBlank()) {
             // 纯文本模式: 活段 raw 文本视图逐字上屏(旧路径)
             attachContentView(b)?.let { tv ->
@@ -1525,6 +1610,8 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                     bv.appendBlocks(blocks, if (gapBlank) host.dp(6) else 0)
                     b.chunked = true
                     keepBubbleWidth(b, bv)
+                    // 活尾巴: 新块切出后重挂到末尾(终切为空 = 撤除)
+                    bv.updateLiveTail(if (final) null else liveTailText(b))
                     if (first) removeBodyDots()     // 首个真块上屏, 三点占位退役
                     host.onTypeGrownFrame(false)    // 高度增长: 注册同帧锚底
                 }
@@ -2302,6 +2389,14 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         lastSnippet = null
         lastThinkChars = 0
     }
+
+    /**
+     * 当前已收到的正文全文(含打字机尚未显示的部分)。
+     * 2026-11-06: 正文原本只活在 ContentBlock.text 内存态, onDone 前不落库,
+     * 切后台/Activity 重建后 messages 里没有它 → 回来正文空白。此方法供兜底落库与幂等重建使用。
+     */
+    fun plainContent(): String =
+        contentBlocks.joinToString("\n\n") { it.text.toString().trimEnd() }.trim()
 
     /** 取全部思考块全文(供持久化到会话历史, 切回会话时恢复思考区) */
     fun thinkingSnapshot(): String =

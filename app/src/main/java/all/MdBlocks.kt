@@ -1,3 +1,6 @@
+// detekt: LinkedHashMap 初始容量(64)/装载因子(0.75f) 与 FNV-1a 质数是哈希实现固有常量, 提常量反而掩盖语义
+@file:Suppress("MagicNumber")
+
 package io.github.aixtin.nyral
 
 /**

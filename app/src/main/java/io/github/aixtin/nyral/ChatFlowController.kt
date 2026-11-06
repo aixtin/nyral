@@ -174,6 +174,7 @@ internal class ChatFlowController(
         executor.execute {
             val holder = AiBubbleHolder(activity)
             activity.activeAiHolder = holder
+            activity.streamDraftIndex = -1   // 2026-11-06: 新一轮请求清掉上一轮草稿下标
             val streamUi = StreamUiBridge(activity, session, uiScope)
             uiScope.launch { streamUi.prepareStreamingRow(holder) }
             LocalEngine.chat(activity, history, streamUi.createCallback(epoch, holder), attachments)
@@ -207,6 +208,7 @@ internal class ChatFlowController(
         executor.execute {
             val holder = AiBubbleHolder(activity)
             activity.activeAiHolder = holder
+            activity.streamDraftIndex = -1   // 2026-11-06: 新一轮请求清掉上一轮草稿下标
             val streamUi = StreamUiBridge(activity, session, uiScope)
             uiScope.launch { streamUi.prepareStreamingRow(holder) }
             LocalEngine.chat(activity, history, streamUi.createCallback(epoch, holder), emptyList())

@@ -9,9 +9,13 @@ import kotlinx.coroutines.launch
  * 2026-10-03 行为等价搬迁, 不改任何逻辑。
  * 职责:
  *  - prepareStreamingRow: 创建 Streaming 占位行并挂载 AiBubbleHolder 气泡盒(须在 UI 协程中调用)
- *  - createCallback: 构造 LocalEngine.Callback(思考/工具/正文增量/收尾/错误全分支), epoch 用于代际校验
+ *  - createCallback: 构造 LocalEngine.Callback(思考/工具/正文增量/收尾/错误全分支), epoch 用于代际校验;
+ *    思考/正文增量走 16ms 合帧(2026-11-06), 收拢类事件(思考结束/工具/收尾/出错)先排空缓冲再继续
  * 回调内仍通过 activity. 访问宿主成员完成 UI 副作用与落库收尾。
  */
+/** 合帧窗口(ms): 与屏幕刷新帧对齐, 高频 delta 的 UI 侧工作量按帧封顶 */
+private const val FLUSH_FRAME_MS = 16L
+
 internal class StreamUiBridge(
     private val activity: MainActivity,
     private val session: ChatSessionState,
@@ -19,6 +23,63 @@ internal class StreamUiBridge(
 ) {
     /** 本轮工具调用轨迹(name to argJSON), 供知识库沉淀解析 PDF 引用页快照; 每轮 new 实例天然清零 */
     private val toolTrace = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+
+    // ===== delta 合帧(2026-11-06): 思考/正文增量按 16ms 窗口合并后单次分发 =====
+    // 高频流式下每 token 一次协程启动 + 重复 UI 副作用是弱机卡顿源; 引擎只写缓冲,
+    // 主线程消费者每帧至多处理一次, token 率再高 UI 侧工作量也封顶(每秒至多 60 帧)。
+    private val pendingThinking = StringBuilder()
+    private val pendingContent = StringBuilder()
+    private val bufLock = Any()
+    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var flushScheduled = false
+
+    /** 取走并清空缓冲(思考, 正文) */
+    private fun takeBuffers(): Pair<String?, String?> = synchronized(bufLock) {
+        takeBuf(pendingThinking) to takeBuf(pendingContent)
+    }
+
+    private fun takeBuf(sb: StringBuilder): String? =
+        if (sb.isEmpty()) null else sb.toString().also { sb.setLength(0) }
+
+    /** 一批增量交给 holder: 正文掩码/阶段推进与旧逐 token 路径语义等价, 仅合并执行 */
+    private fun dispatch(holder: AiBubbleHolder, think: String?, content: String?) {
+        think?.let { holder.appendThinking(it) }
+        if (content != null && !LocalEngine.cancelRequested) {
+            val masked = activity.maskAiEmojiMarks(content)
+            // 正文块开始(首个 token): 阶段推进, 正文默认停滚(视口停留, 一键到底按钮接管)
+            if (session.aiStage != ChatSessionState.AI_STAGE_CONTENT) {
+                session.setAiStage(ChatSessionState.AI_STAGE_CONTENT)
+                session.setContentFollow(false)
+                activity.updateJumpFab()
+            }
+            holder.appendContent(masked)
+            // 正文阶段停滚: FAB 显隐随内容增长刷新(无滚动帧, onScrolled 兜底覆盖不到)
+            if (session.aiStage == ChatSessionState.AI_STAGE_CONTENT && !session.contentFollow) {
+                activity.updateJumpFab()
+            }
+        }
+        // 2026-11-06: 思考/正文任一增量后把 holder 快照同步进 messages 草稿条(纯内存, 500ms 节流)
+        activity.syncStreamingDraft(holder)
+    }
+
+    private fun scheduleFlush(epoch: Long, holder: AiBubbleHolder) {
+        if (flushScheduled) return
+        flushScheduled = true
+        uiHandler.postDelayed({
+            flushScheduled = false
+            if (!session.isCurrent(epoch)) return@postDelayed   // 迟到帧: 缓冲随 take 原地丢弃
+            val (t, c) = takeBuffers()
+            dispatch(holder, t, c)
+        }, FLUSH_FRAME_MS)
+    }
+
+    /** 收拢类事件(思考结束/工具/收尾/出错)先于 16ms 帧到达时, 主线程内先排空缓冲再继续,
+     *  思考尾巴字数/正文增量不丢不迟到 */
+    private fun drain(holder: AiBubbleHolder, epoch: Long) {
+        val (t, c) = takeBuffers()
+        if (!session.isCurrent(epoch)) return
+        dispatch(holder, t, c)
+    }
     /** 创建流式占位行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器 */
     fun prepareStreamingRow(holder: AiBubbleHolder) {
         // 流式行: 新增 Streaming 占位行(回收传送带末位), AiBubbleHolder 气泡盒挂到该行 item 容器
@@ -47,12 +108,26 @@ internal class StreamUiBridge(
             }
             override fun onThinkingDelta(text: String) {
                 activity.debugSseSink?.invoke("thinking", text)
-                uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.appendThinking(text) }
+                synchronized(bufLock) { pendingThinking.append(text) }
+                scheduleFlush(epoch, holder)
             }
             override fun onThinkingEnd() {
                 AITerminal.push("thinking", "思考结束，进入作答")
                 activity.debugSseSink?.invoke("thinking_end", "")
-                uiScope.launch { if (!session.isCurrent(epoch)) return@launch; holder.collapseThinking() }
+                uiScope.launch {
+                    if (!session.isCurrent(epoch)) return@launch
+                    drain(holder, epoch)   // 先排空排队中的思考增量, 尾巴字数不丢
+                    holder.collapseThinking()
+                }
+            }
+            override fun onToolPending(name: String, bytes: Int) {
+                // P2-1: 参数生成期进度, 只更新等待行文案, 不动时间线
+                ChatProbe.onPending(name, bytes)
+                activity.debugSseSink?.invoke("tool_pending", "$name|$bytes")
+                uiScope.launch {
+                    if (!session.isCurrent(epoch)) return@launch
+                    holder.showToolPending(name, bytes)
+                }
             }
             override fun onTool(name: String, arg: String) {
                 toolTrace.add(name to arg)
@@ -60,6 +135,7 @@ internal class StreamUiBridge(
                 activity.debugSseSink?.invoke("tool", "$name|$arg")
                 uiScope.launch {
                     if (!session.isCurrent(epoch)) return@launch
+                    drain(holder, epoch)   // 工具收拢前先上屏排队中的思考/正文增量
                     session.setAiStage(2)
                     activity.updateJumpFab()
                     TaskService.updateStage(activity, activity.getString(R.string.ts_stage_tool))
@@ -81,27 +157,12 @@ internal class StreamUiBridge(
                 android.util.Log.i("Nyral", "onDelta len=${text.length} (M6 脱敏)")
                 AITerminal.push("delta", text)
                 activity.debugSseSink?.invoke("delta", text)
-                // AI 表情标记流式掩码: 完整/半截 [表情:名] 均不直接暴露(显示〔表情〕占位),
-                // onDone 收尾拆分落库重建为独立表情气泡
-                val masked = activity.maskAiEmojiMarks(text)
-                uiScope.launch {
-                    if (!session.isCurrent(epoch)) return@launch
-                    // 正文块开始(首个 token): 阶段推进, 正文默认停滚(视口停留, 一键到底按钮接管)
-                    if (session.aiStage != 3) {
-                        session.setAiStage(3)
-                        session.setContentFollow(false)
-                        activity.updateJumpFab()
-                    }
-                    holder.appendContent(masked)
-                    // 正文阶段停滚: 视口停留不跟随, 新内容在屏外增长;
-                    // FAB 显隐随内容增长刷新(无滚动帧, onScrolled 兜底覆盖不到)
-                    if (session.aiStage == 3 && !session.contentFollow) {
-                        activity.updateJumpFab()
-                    }
-                }
+                synchronized(bufLock) { pendingContent.append(text) }
+                scheduleFlush(epoch, holder)
             }
             override fun onDone(reply: String) {
                 android.util.Log.i("Nyral", "onDone len=${reply.length}")
+                ChatProbe.onFinish("", LocalEngine.cancelRequested, reply)
                 if (LocalEngine.cancelRequested) {
                     LogStore.w(LogStore.MAIN, "用户停止输出")
                     AITerminal.push("stop", "已停止")
@@ -112,6 +173,9 @@ internal class StreamUiBridge(
                 uiScope.launch {
                     // 代际校验(阶段2): 切会话/新请求已接管, 迟到回调直接丢弃, 不碰 holder/不写库/不动状态
                     if (!session.isCurrent(epoch)) return@launch
+                    drain(holder, epoch)   // 收尾前排空合帧缓冲: 排队中的思考/正文增量先上屏
+                    // 2026-11-06: onStop/onDestroy 可能已落过草稿条, 先摘掉再由下面的正常路径写完整回复
+                    activity.discardStreamingDraft()
                     session.setAiStage(0)
                     session.setContentFollow(false)
                     activity.updateJumpFab()
@@ -127,6 +191,7 @@ internal class StreamUiBridge(
                         val keep = reply.trim()
                         if (keep.isNotEmpty()) {
                             holder.appendContent("\n\n〔已中断〕")
+                            ChatProbe.noteFinish("〔已中断〕")
                             if (activity.replySessionId == activity.currentSessionId) {
                                 val body = keep + "\n\n〔已中断〕"
                                 contentIdx = activity.messages.size
@@ -140,7 +205,11 @@ internal class StreamUiBridge(
                                 activity.maybeSaveCurrent()
                             }
                         } else {
-                            holder.appendContent("\n(已停止)")
+                            // P2-2(2026-11-07): 中断时若已补偿执行产物写入, 明确告知用户产物已保存,
+                            // 不让"(已停止)"把用户等了几十秒的成果盖掉
+                            val salvaged = holder.toolsSnapshot().contains("产物已登记")
+                            holder.appendContent(if (salvaged) "\n(已停止；中断前生成的产物已保存)" else "\n(已停止)")
+                            ChatProbe.noteFinish(if (salvaged) "(已停止；中断前生成的产物已保存)" else "(已停止)")
                         }
                         LocalEngine.cancelRequested = false
                     } else {
@@ -216,9 +285,12 @@ internal class StreamUiBridge(
             }
             override fun onError(msg: String) {
                 LogStore.e(LogStore.MAIN, "错误: $msg")
+                ChatProbe.onError(msg)   // 缺陷2(2026-11-07): 错误文案进观测口, 回归可断言错误确实上屏
                 AITerminal.push("error", msg)
                 uiScope.launch {
                     if (!session.isCurrent(epoch)) return@launch
+                    drain(holder, epoch)   // 出错前排空缓冲, 已收到的增量不悬空
+                    activity.discardStreamingDraft()   // 2026-11-06: 出错不保留草稿, 避免半截 AI 行
                     holder.showError()
                     // 错误行收尾: 移除流式行, 温和错误卡(简述+详情+重试)取代原红字系统行
                     // (卡片为独立临时行, 避免重建时流式行僵尸重复渲染)
