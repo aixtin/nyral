@@ -2,6 +2,8 @@
 
 - [x] v2.9.8 发版（2026-11-07，versionCode 121）：流式断流半截工具参数不再被执行；工具降级按 provider|model 冷却重探；工具参数阶段进度与中断补偿；Markdown 块缓存 LRU；真机 UI 回归套件入库
 
+- [x] CI 门禁收尾（2026-11-07，未发版）：Detekt 30 → 0（StreamPipeline/MemoryTools/DebugServer/LocalEngine 实修 + streamOnce 结构性规则显式声明，129 单测与真机 7 场景回归通过）；Nightly 模拟器段搬入 .github/scripts/nightly_emu.sh，修复多行块被逐行拆成 sh -c 执行导致的持续红
+
 - [x] 流式工具参数阶段反馈 + 中断补偿（2026-11-07，v2.9.8）：P2-1 工具参数流式生成期间在等待行显示"正在生成 xxx · N KB"（512 字节/800ms 节流，正文流式中不打扰）；P2-2 用户停止/取消时，对"参数已完整 + 语义幂等"的产物写入调用（artifact_save / artifact_save_bin / workdir write）补偿执行，取消态提示改为"已停止；中断前生成的产物已保存"；真机 always_finish_activities 关回 0
 
 - [x] v2.9.2 发版（2026-11-05，versionCode 115）：生图通道扩展（智谱 GLM-Image/CogView、火山方舟 Seedream，方舟不下发 size）；生图产物上限 512KB→4MB + JPEG 降质兜底；Key 纯手填（移除 sk- 自动提取）；测试按钮 1024；双端 Release 附正式签名 APK
