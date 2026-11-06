@@ -70,3 +70,10 @@ apply_*.py
 
 # 模型分片(本地切分产物, 只用于上传 release 附件)
 models/bge/v1/parts/
+
+# 真机回归运行产物（含设备/会话痕迹，不入库）
+scripts/ui-regression/results-*/
+scripts/ui-regression/requests.jsonl
+scripts/ui-regression/mock_timeline.jsonl
+scripts/ui-regression/mock.pid
+scripts/ui-regression/mock.out
