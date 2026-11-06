@@ -38,7 +38,10 @@ jobs:
 
       # 常规 CI 只跑 2 万轮(秒级), nightly 深扫 20 万轮; 纯 JVM 不依赖模拟器/真机
       - name: Run randomized fuzz (200k iterations)
-        run: ./gradlew :app:testDebugUnitTest --tests "io.github.aixtin.nyral.FuzzInvariantsTest" -Dnyral.fuzz.iters=200000
+        run: |
+          ./gradlew :app:testDebugUnitTest -Dnyral.fuzz.iters=200000 \
+            --tests "io.github.aixtin.nyral.FuzzInvariantsTest" \
+            --tests "io.github.aixtin.nyral.StreamPipelineFuzzTest"
 
       - name: Upload fuzz reports
         if: always()

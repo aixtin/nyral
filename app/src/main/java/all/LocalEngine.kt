@@ -283,6 +283,8 @@ object LocalEngine {
         fun onThinkingStart()          // 思考段开始
         fun onThinkingDelta(text: String)  // 思考内容增量(打字机)
         fun onThinkingEnd()            // 思考段结束 -> UI 收缩
+        /** P2-1(2026-11-07): 工具参数仍在流式生成(尚无正文/思考增量), 用于显示"正在生成 xxx · N KB" */
+        fun onToolPending(name: String, bytes: Int) {}
         fun onTool(name: String, arg: String)  // 正在执行工具
         fun onToolResult(name: String, result: String) {}  // 工具执行完成(结果回填, 默认空实现)
         fun onDelta(text: String)      // 正文增量(流式)
@@ -317,22 +319,63 @@ object LocalEngine {
 
     // ================= 工具 Schema 注册(原生 function calling) =================
 
-    /** 是否已探测到当前 provider 不支持 tools(进程级缓存): 命中后走文本协议纯文本模式 */
+    /**
+     * tools 能力降级(2026-11-07 加固): 旧实现是进程级 boolean, 任一偶发 4xx 命中
+     * looksLikeToolsUnsupported 就会静默废掉整个会话的工具能力(所有工具退化为文本协议,
+     * 用户侧表现为"AI 突然不会用工具"), 且只有切换 provider 才恢复。
+     * 现改为按 providerId|model 组合记录 + 冷却期重探:
+     *   - 组合不同(换供应商/换模型) 立即视为可用, 互不污染;
+     *   - 降级后经 TOOLS_BACKOFF_MIN_MS 冷却, 到期自动放行一次重探, 失败则退避三倍递增,
+     *     上限 TOOLS_BACKOFF_MAX_MS, 避免长期 4xx 时反复撞墙;
+     *   - 任一次带 tools 的请求成功即清零降级状态与退避档位。
+     */
     @Volatile
-    private var toolsUnsupported = false
+    private var toolsUnsupportedCombo: String? = null
 
-    /** 上次探测 tools 能力的 providerId: 切换供应商时才重新探测, 避免本轮内重复 4xx 探测 */
+    /** 降级置位时刻(currentTimeMillis), 与 toolsBackoffMs 共同决定冷却是否到期 */
     @Volatile
-    private var toolsProbeProvider: String? = null
+    private var toolsUnsupportedAt = 0L
 
-    /** provider 切换时重置 tools 能力探测(同一 provider 保持上次结果, 防止重复降级死循环) */
-    private fun maybeResetToolsCapability() {
-        val pid = ApiConfig.providerId()
-        if (toolsProbeProvider != pid) {
-            toolsProbeProvider = pid
-            toolsUnsupported = false
+    /** 当前退避档位: 0 表示从未降级; 每次重新置位乘以 3, 上限 TOOLS_BACKOFF_MAX_MS */
+    @Volatile
+    private var toolsBackoffMs = 0L
+
+    /** 当前 provider|model 组合是否仍处于"不支持 tools"降级窗口内 */
+    private fun toolsDegradedNow(): Boolean {
+        val combo = ApiConfig.providerId() + "|" + ApiConfig.model()
+        if (toolsUnsupportedCombo != combo) return false
+        if (System.currentTimeMillis() - toolsUnsupportedAt >= toolsBackoffMs) {
+            // 冷却到期: 放行一次重探; 若仍不支持, markToolsUnsupported() 会重新置位并加倍退避
+            toolsUnsupportedCombo = null
+            android.util.Log.i("Nyral", "tools 降级冷却到期, 重探组合: " + combo)
+            return false
         }
+        return true
     }
+
+    /** 记录当前组合不支持 tools, 并推进退避档位 */
+    private fun markToolsUnsupported() {
+        toolsBackoffMs = if (toolsBackoffMs == 0L) TOOLS_BACKOFF_MIN_MS
+                        else (toolsBackoffMs * 3).coerceAtMost(TOOLS_BACKOFF_MAX_MS)
+        toolsUnsupportedCombo = ApiConfig.providerId() + "|" + ApiConfig.model()
+        toolsUnsupportedAt = System.currentTimeMillis()
+        android.util.Log.w("Nyral", "tools 降级置位, 退避 " + (toolsBackoffMs / 1000) + "s: " + toolsUnsupportedCombo)
+    }
+
+    /** 带 tools 的请求成功: 清零降级状态与退避档位 */
+    private fun clearToolsUnsupported() {
+        if (toolsUnsupportedCombo != null || toolsBackoffMs != 0L) {
+            android.util.Log.i("Nyral", "tools 能力恢复正常, 清零降级状态")
+        }
+        toolsUnsupportedCombo = null
+        toolsBackoffMs = 0L
+    }
+
+    /** tools 降级后的首次冷却时长 */
+    private const val TOOLS_BACKOFF_MIN_MS = 10 * 60_000L
+
+    /** 退避上限: 有效 provider 因长期 4xx 被标记, 最长 2 小时重探一次 */
+    private const val TOOLS_BACKOFF_MAX_MS = 2 * 60 * 60_000L
 
     /**
      * 工具自热度排序(2026-09-14): 按(调用次数 desc, 最近使用 desc)排序,
@@ -613,8 +656,6 @@ object LocalEngine {
             val injectedTools = mutableSetOf<String>()
             // Top N 动态装载(2026-09-16): 经 tool_detail 激活的冷门工具, 本轮内额外注入回调列表
             val hotLoaded = mutableSetOf<String>()
-            // provider 切换时重置 tools 能力探测(同一 provider 保持上次结果, 防止重复降级死循环)
-            maybeResetToolsCapability()
 
             while (true) {
                 if (cancelRequested) {
@@ -663,10 +704,17 @@ object LocalEngine {
                     val execCalls = ToolCallPairer.allowedSubset(toolCalls, toolCount, MAX_TOOL_CALLS)
                     toolCount += execCalls.size
                     val schemaBlocks = StringBuilder()
-                    for ((name, arg) in execCalls) {
+                    for ((callIdx, call) in execCalls.withIndex()) {
+                        val name = call.first
+                        val arg = call.second
                         // 2026-10-31: 停止在工具循环内同样生效——已取消则剪枝剩余调用, 不再执行
                         // 方案B: 携带本轮已产出正文(工具轮通常为空, 但引导语要保留)
-                        if (cancelRequested) throw CancelWithPartial(res.accumulated)
+                        if (cancelRequested) {
+                            // P2-2(2026-11-07): 中断补偿——本批里参数已完整收到的幂等写产物调用先执行,
+                            // 避免模型花几十秒生成的长文产物因一次停止/断线全部作废(实测故障场景)。
+                            salvageOnCancel(context, execCalls.drop(callIdx), cb, hotLoaded, silentMode, allowTools)
+                            throw CancelWithPartial(res.accumulated)
+                        }
                         cb.onTool(name, arg)
                         val result = ToolExecutor.execute(context, name, arg, hotLoaded, silentMode, allowTools)
                         // 工具执行返回后立刻判定: 长耗时工具(sh_run/ssh_run)期间按了停止, 不再回填+继续下一个
@@ -675,7 +723,7 @@ object LocalEngine {
                         execResults.add(name to result)
                         toolSeqUsed.add(name)
                         // 上下文瘦身仅文本协议模式用; 原生模式的 schema 在 tools 字段, 此处仅兜底补全
-                        val schemaHint = if (!toolsUnsupported && injectedTools.add(name)) "" else {
+                        val schemaHint = if (!toolsDegradedNow() && injectedTools.add(name)) "" else {
                             toolRegistry.find { it.name == name }?.let { spec ->
                                 "[参数说明:$name] ${spec.desc}\n参数格式: ${spec.params}"
                             } ?: McpClientManager.spec(name)?.let { (n, d, p) ->
@@ -838,6 +886,29 @@ object LocalEngine {
         }
     }
 
+    /**
+     * 取消/断线补偿执行(P2-2, 2026-11-07)。
+     * 仅抢救"参数已完整 + 语义幂等"的产物写入类调用(artifact_save / artifact_save_bin / workdir write):
+     * 这类调用重放无副作用, 结果就是文件落盘, 用户等待几十秒的产物不该被一次取消抹掉。
+     * 其余工具(联网、改设备状态、App 操作等)一律不补偿——中断时的部分语义可能不安全。
+     */
+    private fun salvageOnCancel(context: Context, remaining: List<Pair<String, String>>, cb: Callback,
+                                hotLoaded: MutableSet<String>, silentMode: Boolean, allowTools: Set<String>) {
+        if (silentMode || remaining.isEmpty()) return
+        for ((name, arg) in remaining) {
+            if (!CancelSalvagePolicy.isEligible(name, arg)) continue
+            try {
+                android.util.Log.i("Nyral", "SalvageOnCancel: $name len=${arg.length}")
+                cb.onTool(name, arg)
+                val r = ToolExecutor.execute(context, name, arg, hotLoaded, silentMode, allowTools)
+                cb.onToolResult(name, r)
+                LogStore.w(LogStore.MAIN, "已中断，补偿保存产物: $name")
+            } catch (t: Throwable) {
+                android.util.Log.w("Nyral", "SalvageOnCancel fail: $name", t)
+            }
+        }
+    }
+
     /** 组装 assistant 的 tool_calls 消息(标准 OpenAPI 多轮回填必需) */
     private fun buildAssistantToolMessage(res: StreamResult, toolCalls: List<Pair<String, String>>): JSONObject {
         val tcArr = JSONArray()
@@ -880,7 +951,7 @@ object LocalEngine {
         body.put("temperature", 0.3)
         body.put("stream", true)
         // 原生 function calling: 请求携带 tools(模型支持时); probe 失败过则降级纯文本
-        val useTools = !toolsUnsupported && !forceNoTools
+        val useTools = !toolsDegradedNow() && !forceNoTools
         if (useTools) body.put("tools", buildToolsArray(context, hotLoaded))
         // 默认厂商支持流式返回真实 usage(最后一块); 其余厂商未知, 不加避免报错, 靠本地估算
         if (ApiConfig.providerId() == "deepseek") {
@@ -934,7 +1005,7 @@ object LocalEngine {
             conn.disconnect()
             // 4xx 中疑似"不支持 tools/function calling"的报错 -> 降级纯文本模式重试一次
             if (code in 400..499 && useTools && looksLikeToolsUnsupported(err)) {
-                toolsUnsupported = true
+                markToolsUnsupported()
                 android.util.Log.w("Nyral", "provider 不支持 tools, 降级文本协议: ${err.take(200)}")
                 throw NoToolsException("PROVIDER_NO_TOOLS")
             }
@@ -953,6 +1024,8 @@ object LocalEngine {
             }
             throw RuntimeException("API $code: $err")
         }
+        // 带 tools 的请求拿到 2xx: 能力已恢复, 清零降级状态
+        if (useTools) clearToolsUnsupported()
         reader = BufferedReader(InputStreamReader(conn.inputStream))
         val lineBuf = StringBuilder()
         // XML 工具调用累积缓冲: 部分模型输出 <tool_call><tool_name>x</tool_name><param>...</param></tool_call> 跨行格式
@@ -967,8 +1040,13 @@ object LocalEngine {
         var aborted = false
         var seenDone = false   // 收到 [DONE] 才算服务端正常结束
         var eofAborted = false // readLine null(连接被服务端/网关关闭)视为异常中断
-        // 原生 function calling 增量累积: index -> (id, name, arguments)
-        val nativeCalls = HashMap<Int, NativeCallAcc>()
+        // 缺陷1(2026-11-07): 厂商声明的终态标志(含 stop/tool_calls/length), 与 [DONE] 共同构成"流完整结束"判定
+        var sawFinishReason = false
+        // 原生 function calling 增量累积(index -> id/name/arguments): 逻辑抽取到 ToolCallAccumulator,
+        // 与 JVM fuzz(StreamPipelineFuzzTest) 共用同一份实现, 保证测的就是线上代码
+        val nativeAcc = ToolCallAccumulator()
+        // P2-1(2026-11-07) 参数生成进度上报节流: 512 字节或 800ms 触发一次, 防高频 delta 刷 UI
+        val pendingGate = PendingProgressGate(byteStep = 512, timeStepMs = 800L)
         var finishedByToolCalls = false
 
         try {
@@ -990,7 +1068,12 @@ object LocalEngine {
             }
             if (choices != null && choices.length() > 0) {
                 val choice = choices.getJSONObject(0)
-                val fr = choice.optString("finish_reason")
+                // 缺陷1 补丁(2026-11-07): Android 的 optString 会把 JSON null 转成字符串 "null",
+                // 而 OpenAI 兼容流的中间帧普遍携带 "finish_reason": null。原写法会让 sawFinishReason 每帧置真,
+                // "流是否完整" 判定恒成立 → 断流截断参数仍被当完整参数 drain 执行。必须先区分 null 与真值。
+                val frRaw = choice.opt("finish_reason")
+                val fr = if (frRaw == null || frRaw == JSONObject.NULL) "" else frRaw.toString()
+                if (fr.isNotBlank()) sawFinishReason = true
                 if (fr == "tool_calls") finishedByToolCalls = true
                 val delta = choice.optJSONObject("delta")
                 // 原生 function calling: delta.tool_calls 增量(分片 arguments)
@@ -999,16 +1082,22 @@ object LocalEngine {
                     for (i in 0 until calls.length()) {
                         val c = calls.getJSONObject(i)
                         val idx = c.optInt("index", i)
-                        val acc = nativeCalls.getOrPut(idx) { NativeCallAcc() }
-                        if (!c.isNull("id")) acc.id = c.optString("id")
                         val fn = c.optJSONObject("function")
-                        if (fn != null) {
-                            if (!fn.isNull("name") && fn.optString("name").isNotBlank()) acc.name = fn.optString("name")
-                            if (!fn.isNull("arguments")) acc.arguments.append(fn.optString("arguments"))
-                        }
+                        nativeAcc.onDelta(
+                            idx,
+                            if (c.isNull("id")) null else c.optString("id"),
+                            if (fn == null || fn.isNull("name")) null else fn.optString("name"),
+                            if (fn == null || fn.isNull("arguments")) null else fn.optString("arguments"),
+                        )
                     }
                     // 命中 tool_calls 增量即说明思考终结
                     if (mode == MODE_THINKING) { mode = MODE_NONE; cb.onThinkingEnd() }
+                    // P2-1(2026-11-07): 模型可能把长文整段塞进写操作参数(如 artifact_save 的 content),
+                    // 该阶段既无思考也无正文增量, 用户侧等同"点了没反应"。此处按字节/时间节流上报进度。
+                    val totalPending = nativeAcc.totalArgBytes()
+                    if (pendingGate.shouldReport(totalPending, System.currentTimeMillis())) {
+                        cb.onToolPending(nativeAcc.firstNonBlankName(), totalPending)
+                    }
                     continue
                 }
                 // 推理模型(如小米MiMo): 思考内容在 reasoning_content, 正文在 content
@@ -1155,7 +1244,7 @@ object LocalEngine {
                 if (toolCalls.isNotEmpty()) break
             }
             if (!useTools && (toolCalls.isNotEmpty() || restartOut.isNotEmpty())) break
-            if (useTools && finishedByToolCalls && nativeCalls.isNotEmpty()) break
+            if (useTools && finishedByToolCalls && nativeAcc.isNotEmpty()) break
         }
         } catch (e: SocketException) {
             aborted = true
@@ -1172,17 +1261,17 @@ object LocalEngine {
         // 连接中断收尾
         if (aborted) {
             if (mode == MODE_THINKING) cb.onThinkingEnd()
-            if (toolCalls.isEmpty() && nativeCalls.isEmpty() && accumulated.isBlank()) {
+            if (toolCalls.isEmpty() && nativeAcc.isEmpty() && accumulated.isBlank()) {
                 throw RetryableException("模型连接中断(网络波动)")
             }
-            if (toolCalls.isEmpty() && nativeCalls.isEmpty() && accumulated.isNotBlank()) {
+            if (toolCalls.isEmpty() && nativeAcc.isEmpty() && accumulated.isNotBlank()) {
                 // 有输出断线: 不在此追加提示, 主循环按 interrupted 续跑重连(统一提示, 不静默不丢内容)
                 interruptedOut = true
             }
         }
-        android.util.Log.i("Nyral", "EOF lineBuf=[$lineBuf] mode=$mode nativeCalls=${nativeCalls.size} toolCalls=${toolCalls.size} aborted=$aborted")
+        android.util.Log.i("Nyral", "EOF lineBuf=[$lineBuf] mode=$mode nativeAcc=${nativeAcc.size()} toolCalls=${toolCalls.size} aborted=$aborted")
         // 末尾残余(无换行的最后一段)
-        if (toolCalls.isEmpty() && nativeCalls.isEmpty() && lineBuf.isNotBlank()) {
+        if (toolCalls.isEmpty() && nativeAcc.isEmpty() && lineBuf.isNotBlank()) {
             if (DSML_MARK_RE.containsMatchIn(lineBuf)) {
                 // 残余含 DSML 半截(流被服务端提前切断的现场场景): 并入缓冲交由下方 EOF 尽力解析, 不显示乱码
                 dsmlBuf = (dsmlBuf ?: StringBuilder()).append(lineBuf.toString().trimEnd()).append('\n')
@@ -1211,7 +1300,7 @@ object LocalEngine {
             }
         }
         // EOF 时 DSML 缓冲残留(未闭合半截/流被切断): 尽力解析, 解析出至少一个 invoke 即采纳为工具调用
-        if (toolCalls.isEmpty() && nativeCalls.isEmpty() && dsmlBuf != null) {
+        if (toolCalls.isEmpty() && nativeAcc.isEmpty() && dsmlBuf != null) {
             val parsed = parseDsmlToolCalls(dsmlBuf.toString())
             if (parsed.isNotEmpty()) {
                 if (mode == MODE_THINKING) cb.onThinkingEnd()
@@ -1227,7 +1316,7 @@ object LocalEngine {
             dsmlBuf = null
         }
         // EOF 时 XML 泄漏整块留在 lineBuf(全程无换行): 直接尽力解析, 解析出即采纳
-        if (useTools && toolCalls.isEmpty() && nativeCalls.isEmpty() && xmlLeakBuf == null && isXmlLeakRow(lineBuf.toString())) {
+        if (useTools && toolCalls.isEmpty() && nativeAcc.isEmpty() && xmlLeakBuf == null && isXmlLeakRow(lineBuf.toString())) {
             val t = parseXmlToolCall(lineBuf.toString())
             if (t != null) {
                 if (mode == MODE_THINKING) cb.onThinkingEnd()
@@ -1238,7 +1327,7 @@ object LocalEngine {
             }
         }
         // EOF 时 XML 泄漏缓冲残留(原生模式半截/流被切断): 追加 lineBuf 残余后尽力解析, 解析出即采纳为工具调用
-        if (useTools && toolCalls.isEmpty() && nativeCalls.isEmpty() && xmlLeakBuf != null) {
+        if (useTools && toolCalls.isEmpty() && nativeAcc.isEmpty() && xmlLeakBuf != null) {
             xmlLeakBuf.append(lineBuf)
             val t = parseXmlToolCall(xmlLeakBuf.toString())
             if (t != null) {
@@ -1254,23 +1343,25 @@ object LocalEngine {
         }
         // 泄漏重试(2026-11-01): 原生模式整轮只吐工具泄漏文本、且没解析出任何调用或正文
         // → 模型输出格式抽风(deepseek-flash 偶发), 抛重试让上层自动重连碰原生 tool_calls
-        if (useTools && toolCalls.isEmpty() && nativeCalls.isEmpty() && accumulated.isBlank()
+        if (useTools && toolCalls.isEmpty() && nativeAcc.isEmpty() && accumulated.isBlank()
             && (isXmlLeakRow(lineBuf.toString()) || xmlLeakBuf != null || dsmlBuf != null)) {
             android.util.Log.w("Nyral", "模型输出工具调用格式异常(<tool_call>泄漏未解析), 触发自动重试")
             throw RetryableException("模型输出工具调用格式异常，自动重试")
         }
         // 原生 tool_calls: 流结束把累积结果转出(即使 finish_reason 未明确 tool_calls)
-        if (useTools && nativeCalls.isNotEmpty()) {
-            val idxs = nativeCalls.keys.sorted()
-            for (idx in idxs) {
-                val acc = nativeCalls[idx] ?: continue
-                val name = acc.name.trim()
-                if (name.isEmpty()) continue
-                val args = acc.arguments.toString().trim()
-                toolCalls.add(name to (if (args.isEmpty()) "{}" else args))
-                toolCallIds.add(acc.id.ifEmpty { "call_${name}_$idx" })
+        // 缺陷1(2026-11-07): 必须区分"正常收尾"与"断连截断"。只有收到 finish_reason 或 [DONE] 才算完整;
+        // 否则(readLine 返回 null 的 EOF / 网关掐断) arguments 可能停在半句, 整轮丢弃,
+        // 绝不把截断参数当完整参数执行(此前 {"expr": "1 这类残片会被真的算一遍并落盘)。
+        if (useTools && nativeAcc.isNotEmpty()) {
+            if (!seenDone && !sawFinishReason) {
+                android.util.Log.w("Nyral", "流未完整结束(DONE/finish_reason 均缺, eofAborted=$eofAborted)，丢弃原生工具调用 ${nativeAcc.size()} 个 name=${nativeAcc.firstNonBlankName()} argsLen=${nativeAcc.totalArgBytes()}")
+                nativeAcc.clear()
+            } else {
+                for (call in nativeAcc.drain()) {
+                    toolCalls.add(call.name to call.args)
+                    toolCallIds.add(call.id)
+                }
             }
-            nativeCalls.clear()
         }
         android.util.Log.v("Nyral", "streamOnce done accLen=${accumulated.length} toolCalls=$toolCalls")
         // 思考段自然结束
@@ -1306,11 +1397,6 @@ object LocalEngine {
     }
 
     /** 原生 tool_call 增量累积器 */
-    private class NativeCallAcc {
-        var id: String = ""
-        var name: String = ""
-        val arguments = StringBuilder()
-    }
 
     /** 处理一行输出(v2 文本协议兜底), 返回 null 继续, 返回 Pair 表示命中工具行需打断 */
     @Suppress("SameParameterValue")
