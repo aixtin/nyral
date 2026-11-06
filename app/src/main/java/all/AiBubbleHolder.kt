@@ -273,6 +273,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     }
 
     /** 工具参数流式进度(主线程调用): 参数每增长若干字节刷新一次, 正文已在流式输出时不打扰 */
+    @Suppress("MagicNumber") // 字节→KB 的换算是展示层固定比例
     fun showToolPending(name: String, bytes: Int) {
         // 正文正在流式输出: 用户已看到东西在动, 不再插队提示
         if (contentBlocks.any { !it.done }) return

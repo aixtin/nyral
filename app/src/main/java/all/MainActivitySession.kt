@@ -160,11 +160,12 @@ import android.widget.Toast
      * 保证"任一时刻 messages 都能表达当前屏幕内容"。纯内存更新, 500ms 节流, 不写库。
      * force=true 供 onStop/onDestroy 强制同步。
      */
+    @Suppress("ReturnCount") // 早退即表示本帧无需同步，展开成嵌套反而更难读
     internal fun MainActivity.syncStreamingDraft(holder: AiBubbleHolder?, force: Boolean = false) {
         val h = holder ?: return
         if (!session.aiBusy) return
         val now = System.currentTimeMillis()
-        if (!force && now - lastDraftSyncMs < 500L) return
+        if (!force && now - lastDraftSyncMs < DRAFT_SYNC_INTERVAL_MS) return
         lastDraftSyncMs = now
         val body = h.plainContent()
         val thinking = h.thinkingSnapshot()
@@ -186,7 +187,8 @@ import android.widget.Toast
         syncStreamingDraft(holder, force = true)
         if (streamDraftIndex !in messages.indices) return
         maybeSaveCurrent()
-        LogStore.i(LogStore.MAIN, "流式草稿落库 len=" + messages[streamDraftIndex].content.length + " idx=" + streamDraftIndex)
+        val len = messages[streamDraftIndex].content.length
+        LogStore.i(LogStore.MAIN, "流式草稿落库 len=$len idx=$streamDraftIndex")
     }
 
     /** 收尾/出错前丢弃流式草稿: 正常路径会重新写完整回复, 不丢则出现重复 AI 行 */
@@ -354,3 +356,6 @@ import android.widget.Toast
         }
         list.forEach { addSessionRow(children, it) }
     }
+
+/** 流式草稿内存同步的最小间隔（500ms 节流） */
+private const val DRAFT_SYNC_INTERVAL_MS = 500L

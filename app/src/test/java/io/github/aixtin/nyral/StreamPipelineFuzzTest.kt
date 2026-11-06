@@ -212,6 +212,7 @@ class StreamPipelineFuzzTest {
     }
 
     /** 生成一段可能为空的 JSON 参数（随机键值、随机类型、随机嵌套转义） */
+    @Suppress("ReturnCount") // 随机样本分支即返回，保持构造器平坦
     private fun randomJson(rnd: Random): String {
         if (rnd.nextInt(14) == 0) return ""                       // 空参数：应归一为 {}
         if (rnd.nextInt(14) == 0) return "   "                    // 纯空白同理
@@ -248,6 +249,7 @@ class StreamPipelineFuzzTest {
     }
 
     /** 构造一个语义合法（可补偿）的白名单参数；content/data 必须非空，否则策略本就该拒绝 */
+    @Suppress("MaxLineLength") // 单行 JSON 模板更贴近被测字符串形态
     private fun fullArgsOf(name: String, rnd: Random): String {
         val body = randomText(rnd).ifBlank { "x" }
         return when (name) {
@@ -257,5 +259,6 @@ class StreamPipelineFuzzTest {
         }
     }
 
+    @Suppress("MaxLineLength") // 转义链单行便于逐项核对
     private fun escape(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\t", "\\t")
 }

@@ -1,5 +1,6 @@
 package io.github.aixtin.nyral
 
+
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
@@ -30,6 +31,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+
+private const val HTTP_OK = 200
+private const val HTTP_500 = 500
+private const val PROBE_TIMEOUT_MS = 700L
+private const val NANOS_PER_MS = 1_000_000L
 
 /**
  * 开发者调试服务: 本机内置轻量 HTTP 服务器(ServerSocket 手写, 无第三方依赖)。
@@ -543,10 +549,10 @@ object DebugServer {
             o.put("probe_post_error", e.message)
         }
         val alive = try {
-            latched.await(700, java.util.concurrent.TimeUnit.MILLISECONDS)
+            latched.await(PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
         } catch (e: Exception) { false }
         o.put("main_alive", alive)
-        o.put("main_post_ms", (System.nanoTime() - t0) / 1_000_000)
+        o.put("main_post_ms", (System.nanoTime() - t0) / NANOS_PER_MS)
         o.put("main_stuck", !alive)
         try { o.put("probe", ChatProbe.snapshot()) } catch (e: Exception) { o.put("probe_error", e.message) }
         try {
@@ -554,11 +560,8 @@ object DebugServer {
             if (act == null) {
                 o.put("activity", JSONObject.NULL)
             } else {
-                var lastText = ""
+                val lastText = lastAssistantText(act)
                 val list = act.messages
-                for (i in list.indices.reversed()) {
-                    if (list[i].role == "assistant") { lastText = list[i].content; break }
-                }
                 o.put("activity", JSONObject()
                     .put("ai_busy", act.aiBusy)
                     .put("session_id", act.currentSessionId)
@@ -572,6 +575,15 @@ object DebugServer {
             o.put("anr_files", files.count { it.name.startsWith("anr_") })
         } catch (e: Exception) { o.put("crash_error", e.message) }
         return o
+    }
+
+    /** 最后一条 assistant 正文（观测口用；抽函数削掉多层嵌套） */
+    private fun lastAssistantText(act: io.github.aixtin.nyral.MainActivity): String {
+        val list = act.messages
+        for (i in list.indices.reversed()) {
+            if (list[i].role == "assistant") return list[i].content
+        }
+        return ""
     }
 
     /**
@@ -589,16 +601,19 @@ object DebugServer {
                 prefs.edit().putString("mock_prev_provider", prev).apply()
                 val exist = ApiConfig.providers().find { it.id == "custom_mock" }
                     ?: ApiConfig.providers().find { it.label == "mock-local" }
-                val id = exist?.id ?: ApiConfig.addCustomProvider("mock-local", base, "sk-mock", "mock-model")
+                val id = exist?.id
+                    ?: ApiConfig.addCustomProvider("mock-local", base, "sk-mock", "mock-model")
                 ApiConfig.setCurrent(id)
-                writeJson(out, 200, JSONObject().put("ok", true).put("provider", id).put("base", base).put("prev", prev))
+                writeJson(out, HTTP_OK, JSONObject().put("ok", true).put("provider", id)
+                    .put("base", base).put("prev", prev))
             } else {
                 val prev = prefs.getString("mock_prev_provider", "") ?: ""
                 if (prev.isNotBlank()) ApiConfig.setCurrent(prev)
-                writeJson(out, 200, JSONObject().put("ok", true).put("provider", ApiConfig.providerId()).put("prev", prev))
+                writeJson(out, HTTP_OK, JSONObject().put("ok", true)
+                    .put("provider", ApiConfig.providerId()).put("prev", prev))
             }
         } catch (e: Exception) {
-            writeJson(out, 500, JSONObject().put("error", e.message ?: e.javaClass.simpleName))
+            writeJson(out, HTTP_500, JSONObject().put("error", e.message ?: e.javaClass.simpleName))
         }
     }
 

@@ -33,27 +33,34 @@ object MemoryTools {
         return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(Date())
     }
 
+    private val NUMERIC_ONLY = Regex("[0-9+\\-*/().\\s]+")
+    private val WHITESPACE = Regex("\\s+")
+    private const val MAX_EXPR_CHARS = 1500
     fun calc(expr: String): String {
-        return try {
-            // 简化求值, 仅支持数字和四则运算
-            val cleaned = expr.replace("×", "*").replace("÷", "/").replace("x", "*")
-            if (!cleaned.matches(Regex("[0-9+\\-*/().\\s]+"))) return "仅支持数字和四则运算"
-            // 2026-11-07 缺陷3: Rhino IRFactory 对超长表达式递归建树会爆栈(6000 项加法实测把进程打崩),
-            // 按"压缩空白后的有效字符数"设上限: 空白无语义也不增递归深度, 不该占额度
-            val compact = cleaned.replace(Regex("\\s+"), "")
-            if (compact.length > 1500) return "表达式过长(上限 1500 字符)，请拆成多步计算"
-            val cx = Context.enter()
-            try {
-                // Android 上 Rhino 必须用解释模式(-1), 否则动态字节码生成报"无法加载类文件"
-                cx.optimizationLevel = -1
-                val scope = ScriptEngine.secureScope(cx)
-                cx.evaluateString(scope, cleaned, "calc", 1, null).toString()
-            } finally {
-                Context.exit()
-            }
-        } catch (e: Exception) {
-            "计算失败: ${e.message}"
+        // 简化求值, 仅支持数字和四则运算
+        val cleaned = expr.replace("×", "*").replace("÷", "/").replace("x", "*")
+        // 2026-11-07 缺陷3: Rhino IRFactory 对超长表达式递归建树会爆栈(6000 项加法实测把进程打崩),
+        // 按"压缩空白后的有效字符数"设上限: 空白无语义也不增递归深度, 不该占额度
+        val compact = cleaned.replace(WHITESPACE, "")
+        return when {
+            !cleaned.matches(NUMERIC_ONLY) -> "仅支持数字和四则运算"
+            compact.length > MAX_EXPR_CHARS -> "表达式过长(上限 $MAX_EXPR_CHARS 字符)，请拆成多步计算"
+            else -> evaluate(cleaned)
         }
+    }
+
+    private fun evaluate(cleaned: String): String = try {
+        val cx = Context.enter()
+        try {
+            // Android 上 Rhino 必须用解释模式(-1), 否则动态字节码生成报"无法加载类文件"
+            cx.optimizationLevel = -1
+            val scope = ScriptEngine.secureScope(cx)
+            cx.evaluateString(scope, cleaned, "calc", 1, null).toString()
+        } finally {
+            Context.exit()
+        }
+    } catch (e: Exception) {
+        "计算失败: ${e.message}"
     }
 
     /**

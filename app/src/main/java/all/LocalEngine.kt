@@ -1,5 +1,6 @@
 package io.github.aixtin.nyral
 
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
@@ -13,6 +14,8 @@ import java.net.HttpURLConnection
 import java.net.SocketException
 import java.net.URL
 import java.util.concurrent.CancellationException
+
+private const val MS_PER_SEC = 1000L
 
 /**
  * LocalEngine: 本地两步式路由 + 流式输出 + 工具调用循环 (v3.0)
@@ -341,6 +344,7 @@ object LocalEngine {
     private var toolsBackoffMs = 0L
 
     /** 当前 provider|model 组合是否仍处于"不支持 tools"降级窗口内 */
+    @Suppress("ReturnCount") // 三层早退（无降级/未到点/组合不符）比嵌套 if 更直白
     private fun toolsDegradedNow(): Boolean {
         val combo = ApiConfig.providerId() + "|" + ApiConfig.model()
         if (toolsUnsupportedCombo != combo) return false
@@ -359,8 +363,12 @@ object LocalEngine {
                         else (toolsBackoffMs * 3).coerceAtMost(TOOLS_BACKOFF_MAX_MS)
         toolsUnsupportedCombo = ApiConfig.providerId() + "|" + ApiConfig.model()
         toolsUnsupportedAt = System.currentTimeMillis()
-        android.util.Log.w("Nyral", "tools 降级置位, 退避 " + (toolsBackoffMs / 1000) + "s: " + toolsUnsupportedCombo)
+        android.util.Log.w("Nyral", "tools 降级置位, 退避 " + (toolsBackoffMs / MS_PER_SEC) + "s: " + toolsUnsupportedCombo)
     }
+
+    /** 本轮尚未产出任何工具调用（断流/泄漏判定里反复出现的组合条件） */
+    private fun noCalls(toolCalls: Collection<*>, nativeAcc: ToolCallAccumulator): Boolean =
+        toolCalls.isEmpty() && nativeAcc.isEmpty()
 
     /** 带 tools 的请求成功: 清零降级状态与退避档位 */
     private fun clearToolsUnsupported() {
@@ -892,20 +900,20 @@ object LocalEngine {
      * 这类调用重放无副作用, 结果就是文件落盘, 用户等待几十秒的产物不该被一次取消抹掉。
      * 其余工具(联网、改设备状态、App 操作等)一律不补偿——中断时的部分语义可能不安全。
      */
+    @Suppress("LongParameterList") // 补偿执行需同时持有回调/上下文/热加载集合，拆对象反而更绕
     private fun salvageOnCancel(context: Context, remaining: List<Pair<String, String>>, cb: Callback,
                                 hotLoaded: MutableSet<String>, silentMode: Boolean, allowTools: Set<String>) {
         if (silentMode || remaining.isEmpty()) return
         for ((name, arg) in remaining) {
             if (!CancelSalvagePolicy.isEligible(name, arg)) continue
-            try {
-                android.util.Log.i("Nyral", "SalvageOnCancel: $name len=${arg.length}")
-                cb.onTool(name, arg)
-                val r = ToolExecutor.execute(context, name, arg, hotLoaded, silentMode, allowTools)
-                cb.onToolResult(name, r)
-                LogStore.w(LogStore.MAIN, "已中断，补偿保存产物: $name")
-            } catch (t: Throwable) {
-                android.util.Log.w("Nyral", "SalvageOnCancel fail: $name", t)
-            }
+            android.util.Log.i("Nyral", "SalvageOnCancel: $name len=${arg.length}")
+            cb.onTool(name, arg)
+            runCatching { ToolExecutor.execute(context, name, arg, hotLoaded, silentMode, allowTools) }
+                .onSuccess {
+                    cb.onToolResult(name, it)
+                    LogStore.w(LogStore.MAIN, "已中断，补偿保存产物: $name")
+                }
+                .onFailure { android.util.Log.w("Nyral", "SalvageOnCancel fail: $name", it) }
         }
     }
 
@@ -935,6 +943,13 @@ object LocalEngine {
      * 原生 function calling: 解析 delta.tool_calls 增量累积(支持并行多个 call)。
      * 文本协议兜底: 无 tools 时解析 TOOL:/思考:/答案: 前缀与 XML <tool_call>。
      */
+    @Suppress(
+        "MaxLineLength", // EOF/断流日志刻意单行，便于 grep 现场
+        "LongMethod", // 369 行解析状态机，拆分待 P2-4（真机回归兜底充分后再动）
+        "CyclomaticComplexMethod", // 同上：分片/泄漏/断流三态交织，天然分支多
+        "NestedBlockDepth", // 同上
+        "ThrowsCount", // 断流/泄漏重试需抛可重试异常，属既定控制流语义
+    )
     private fun streamOnce(
         context: Context,
         messages: JSONArray,
@@ -1316,7 +1331,8 @@ object LocalEngine {
             dsmlBuf = null
         }
         // EOF 时 XML 泄漏整块留在 lineBuf(全程无换行): 直接尽力解析, 解析出即采纳
-        if (useTools && toolCalls.isEmpty() && nativeAcc.isEmpty() && xmlLeakBuf == null && isXmlLeakRow(lineBuf.toString())) {
+        val noToolOutput = useTools && noCalls(toolCalls, nativeAcc)
+        if (noToolOutput && xmlLeakBuf == null && isXmlLeakRow(lineBuf.toString())) {
             val t = parseXmlToolCall(lineBuf.toString())
             if (t != null) {
                 if (mode == MODE_THINKING) cb.onThinkingEnd()
@@ -1327,7 +1343,7 @@ object LocalEngine {
             }
         }
         // EOF 时 XML 泄漏缓冲残留(原生模式半截/流被切断): 追加 lineBuf 残余后尽力解析, 解析出即采纳为工具调用
-        if (useTools && toolCalls.isEmpty() && nativeAcc.isEmpty() && xmlLeakBuf != null) {
+        if (useTools && noCalls(toolCalls, nativeAcc) && xmlLeakBuf != null) {
             xmlLeakBuf.append(lineBuf)
             val t = parseXmlToolCall(xmlLeakBuf.toString())
             if (t != null) {
@@ -1343,8 +1359,8 @@ object LocalEngine {
         }
         // 泄漏重试(2026-11-01): 原生模式整轮只吐工具泄漏文本、且没解析出任何调用或正文
         // → 模型输出格式抽风(deepseek-flash 偶发), 抛重试让上层自动重连碰原生 tool_calls
-        if (useTools && toolCalls.isEmpty() && nativeAcc.isEmpty() && accumulated.isBlank()
-            && (isXmlLeakRow(lineBuf.toString()) || xmlLeakBuf != null || dsmlBuf != null)) {
+        val leakPending = isXmlLeakRow(lineBuf.toString()) || xmlLeakBuf != null || dsmlBuf != null
+        if (noToolOutput && accumulated.isBlank() && leakPending) {
             android.util.Log.w("Nyral", "模型输出工具调用格式异常(<tool_call>泄漏未解析), 触发自动重试")
             throw RetryableException("模型输出工具调用格式异常，自动重试")
         }

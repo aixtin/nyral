@@ -1,3 +1,5 @@
+@file:Suppress("InvalidPackageDeclaration") // all/ 目录沿用 io.github.aixtin.nyral 包名，与同目录既有文件一致
+
 package io.github.aixtin.nyral
 
 import org.json.JSONObject
@@ -76,14 +78,14 @@ class ToolCallAccumulator {
 
     /** 流结束转出全部调用并清空状态（空参归一 {}，id 缺省补造，按 index 升序） */
     fun drain(): List<Call> {
-        val idxs = map.keys.sorted()
-        val out = ArrayList<Call>(idxs.size)
-        for (idx in idxs) {
-            val acc = map[idx] ?: continue
-            val name = acc.name.trim()
-            if (name.isEmpty()) continue
-            val args = acc.args.toString().trim()
-            out.add(Call(idx, acc.id.ifEmpty { "call_${name}_$idx" }, name, if (args.isEmpty()) "{}" else args))
+        val out = ArrayList<Call>(map.size)
+        for (idx in map.keys.sorted()) {
+            val acc = map[idx]
+            val name = acc?.name?.trim().orEmpty()
+            if (acc != null && name.isNotEmpty()) {
+                val args = acc.args.toString().trim()
+                out.add(Call(idx, acc.id.ifEmpty { "call_${name}_$idx" }, name, if (args.isEmpty()) "{}" else args))
+            }
         }
         map.clear()
         return out
@@ -106,19 +108,16 @@ class PendingProgressGate(
     /** 是否应当上报；返回 true 时内部状态推进 */
     fun shouldReport(totalBytes: Int, nowMs: Long): Boolean {
         if (totalBytes <= 0) return false
-        if (!everReported) {                                          // 首报必须立即：不依赖机器时钟绝对值
+        val first = !everReported                                    // 首报必须立即：不依赖机器时钟绝对值
+        val grew = totalBytes > lastBytes                            // 参数不会回退：无新增长不上报
+        val due = totalBytes - lastBytes >= byteStep || nowMs - lastAt >= timeStepMs
+        val report = first || (grew && due)
+        if (report) {
             everReported = true
             lastBytes = totalBytes
             lastAt = nowMs
-            return true
         }
-        if (totalBytes <= lastBytes) return false                    // 参数不会回退：无新增长不上报
-        val byteHit = totalBytes - lastBytes >= byteStep
-        val timeHit = nowMs - lastAt >= timeStepMs
-        if (!byteHit && !timeHit) return false
-        lastBytes = totalBytes
-        lastAt = nowMs
-        return true
+        return report
     }
 
     /** 本轮结束复位（同一 LocalEngine 实例跨轮复用时不串味） */
@@ -144,13 +143,9 @@ object CancelSalvagePolicy {
      * 任何被截断的 JSON 都解析失败，因此"半截参数"天然进不来。
      */
     fun isEligible(name: String, arg: String): Boolean {
-        if (name !in WHITELIST) return false
-        val jo = try {
-            JSONObject(arg.trim())
-        } catch (e: Throwable) {
-            return false
-        }
-        return when (name) {
+        // 截断的 JSON 必然解析失败，runCatching 把"解析异常"收敛为 null，无需吞异常分支
+        val jo = if (name in WHITELIST) runCatching { JSONObject(arg.trim()) }.getOrNull() else null
+        return jo != null && when (name) {
             "artifact_save" -> jo.optString("name").isNotBlank() && jo.optString("content").isNotBlank()
             "artifact_save_bin" -> jo.optString("name").isNotBlank() && jo.optString("data").isNotBlank()
             else -> jo.optString("action") == "write" &&
