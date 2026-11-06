@@ -35,8 +35,8 @@ android {
         applicationId = "io.github.aixtin.nyral"
         minSdk = 29
         targetSdk = 36
-        versionCode = 120
-        versionName = "2.9.7"
+        versionCode = 121
+        versionName = "2.9.8"
         // 崩溃上报 token 构建时注入(local.properties 不入库); 空串时禁用上报鉴权将 401
         val crashProps = rootProject.file("local.properties")
         val crashToken = Properties().apply {
@@ -44,6 +44,9 @@ android {
         }.getProperty("crashToken", "")
         if (crashToken.isEmpty()) {
             logger.warn("crashToken missing in local.properties — crash reporting disabled (empty token)")
+        } else if (crashToken == "local-dev-placeholder") {
+            // 2026-11-06: 占位符会让服务端一律 401(本次"2 天零上报/2.9.x 全无上报"的直接原因), 构建时显式喊出来
+            logger.warn("crashToken 仍是占位符 local-dev-placeholder — 本包崩溃上报会全部 401 被拒")
         }
         buildConfigField("String", "CRASH_TOKEN", "\"" + crashToken + "\"")
         // F-Droid 渠道标志: -Pfdroid 构建注入 true, 商店版不弹内置更新/提示走 F-Droid
