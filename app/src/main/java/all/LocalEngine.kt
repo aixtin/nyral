@@ -1276,7 +1276,8 @@ object LocalEngine {
         // 连接中断收尾
         if (aborted) {
             // 断流瞬间的末尾残余(整行无换行)先并入, 否则已有内容也会被误判成零输出而丢弃
-            if (toolCalls.isEmpty() && nativeAcc.isEmpty() && lineBuf.isNotBlank() && !DSML_MARK_RE.containsMatchIn(lineBuf)) {
+            val tailResidue = lineBuf.isNotBlank() && !DSML_MARK_RE.containsMatchIn(lineBuf)
+            if (toolCalls.isEmpty() && nativeAcc.isEmpty() && tailResidue) {
                 val tail = lineBuf.toString().trimEnd()
                 lineBuf.setLength(0)
                 if (tail.isNotEmpty()) {

@@ -2524,6 +2524,16 @@ class MainActivity : Activity() {
                 topMargin = dp(Ui.SP1); bottomMargin = dp(Ui.SP1)
             }
         }
+        box.addView(errorCardHead())
+        // 两层文案(2026-11-08): 主文案说人话(怎么办), 原始报文收进折叠区按需查看
+        if (row.msg.isNotBlank()) box.addView(errorCardMessage(row.msg))
+        if (row.detail.isNotBlank()) addErrorDetailBlock(box, row.detail)
+        box.addView(errorCardActions(row))
+        return box
+    }
+
+    /** 错误卡标题行: 警示图标 + 固定标题 */
+    private fun errorCardHead(): View {
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -2539,43 +2549,48 @@ class MainActivity : Activity() {
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Ui.TEXT)
         })
-        box.addView(head)
-        // 两层文案(2026-11-08): 主文案说人话(怎么办), 原始报文收进折叠区按需查看, 不再把 technical 报文糊脸上
-        if (row.msg.isNotBlank()) {
-            box.addView(TextView(this).apply {
-                text = row.msg
-                textSize = 13f
-                setTextColor(Ui.TEXT)
-                maxWidth = chatMaxW() - dp(24)
-                setPadding(0, dp(Ui.SP1), 0, 0)
-            })
+        return head
+    }
+
+    /** 错误卡主文案(人话原因) */
+    private fun errorCardMessage(msg: String): View = TextView(this).apply {
+        text = msg
+        textSize = 13f
+        setTextColor(Ui.TEXT)
+        maxWidth = chatMaxW() - dp(24)
+        setPadding(0, dp(Ui.SP1), 0, 0)
+    }
+
+    /** 错误卡折叠区: 「查看详情」开关 + 等宽原始报文 */
+    private fun addErrorDetailBlock(box: LinearLayout, detail: String) {
+        val detailTv = TextView(this).apply {
+            text = detail
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(0xFF777777.toInt())
+            maxWidth = chatMaxW() - dp(24)
+            setTextIsSelectable(true)
+            setPadding(0, dp(Ui.SP1), 0, 0)
+            visibility = View.GONE
         }
-        if (row.detail.isNotBlank()) {
-            val detailTv = TextView(this).apply {
-                text = row.detail
-                textSize = 11f
-                typeface = Typeface.MONOSPACE
-                setTextColor(0xFF777777.toInt())
-                maxWidth = chatMaxW() - dp(24)
-                setTextIsSelectable(true)
-                setPadding(0, dp(Ui.SP1), 0, 0)
-                visibility = View.GONE
+        val toggle = TextView(this).apply {
+            text = getString(R.string.ma_error_detail_show)
+            textSize = 12f
+            setTextColor(Ui.PRIMARY)
+            setPadding(0, dp(Ui.SP1), 0, 0)
+            Ui.press(this)
+            setOnClickListener {
+                val show = detailTv.visibility != View.VISIBLE
+                detailTv.visibility = if (show) View.VISIBLE else View.GONE
+                text = getString(if (show) R.string.ma_error_detail_hide else R.string.ma_error_detail_show)
             }
-            val toggle = TextView(this).apply {
-                text = getString(R.string.ma_error_detail_show)
-                textSize = 12f
-                setTextColor(Ui.PRIMARY)
-                setPadding(0, dp(Ui.SP1), 0, 0)
-                Ui.press(this)
-                setOnClickListener {
-                    val show = detailTv.visibility != View.VISIBLE
-                    detailTv.visibility = if (show) View.VISIBLE else View.GONE
-                    text = getString(if (show) R.string.ma_error_detail_hide else R.string.ma_error_detail_show)
-                }
-            }
-            box.addView(toggle)
-            box.addView(detailTv)
         }
+        box.addView(toggle)
+        box.addView(detailTv)
+    }
+
+    /** 错误卡操作区(重试) */
+    private fun errorCardActions(row: ChatRow.Error): View {
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
@@ -2595,8 +2610,7 @@ class MainActivity : Activity() {
                 if (chatFlow.retryLast()) chatAdapter.remove(row)
             }
         })
-        box.addView(btnRow)
-        return box
+        return btnRow
     }
 
     /** AI 侧无头像行包装(聊天模式): 与普通 AI 气泡左缘对齐(头像40dp+间距8dp占位), Agent 模式直出 */

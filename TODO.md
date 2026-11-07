@@ -1,5 +1,7 @@
 # Nyral 待办
 
+- [x] v2.9.10 发版（2026-11-08，versionCode 123）：detekt 7 项清零后重发（错误卡构建拆分、错误文案规则表化）；v2.9.9 置为 pre-release，latest 指向本版
+
 - [x] v2.9.9 发版（2026-11-08，versionCode 122）：断流无换行残余不再被丢（半截回复保留、零输出才留错误卡）；错误文案两层化（人话原因 + 原始报文折叠）；放弃 F-Droid 渠道，移除 IS_FDROID 标志与商店跳过分支
 
 - [x] 渠道决策（2026-11-08）：放弃 F-Droid 分发（平台未接受本项目），仅保留 GitHub / Gitee 双端 Release；已移除 DebugServer 无关的 IS_FDROID 构建标志与 UpdateChecker 商店渠道跳过分支，历史 CHANGELOG 条目保留

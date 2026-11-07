@@ -8,51 +8,71 @@ package io.github.aixtin.nyral
  */
 object ErrorText {
 
+    /** 短文案阈值: 不超过该长度的纯文本错误原样展示 */
+    private const val SHORT_TEXT_LIMIT = 40
+
+    /** 详情阈值: 超过该长度才值得折叠展示原始报文 */
+    private const val DETAIL_TEXT_LIMIT = 24
+
+    private const val EMPTY_HINT = "回复没有完成，请重试一次"
+    private const val GENERIC_HINT = "这轮回复没能完成，稍后重试；若反复出现可展开详情"
+
+    /** 关键词 -> 人话。顺序即优先级, 先命中先返回 */
+    private val RULES: List<Pair<List<String>, String>> = listOf(
+        listOf("api key", "unauthorized", "401") to
+            "模型密钥无效或已过期，请到「设置 → 模型配置」检查 API Key",
+        listOf("403", "forbidden") to
+            "服务端拒绝了这次请求（403），可能是密钥权限不足或额度受限",
+        listOf("404", "not found") to
+            "接口地址或模型名不存在（404），请核对模型配置里的地址与模型名",
+        listOf("429", "rate limit", "quota", "insufficient") to
+            "请求过于频繁或额度已用尽（429），稍后再试或检查账户额度",
+        listOf("context length", "maximum context", "too many tokens", "context_length_exceeded") to
+            "这轮内容超出模型上下文上限，建议新建会话或精简引用内容后再发",
+        listOf("超时", "timeout", "timed out") to
+            "服务端响应超时，网络或上游过慢，可稍后重试",
+        listOf("unable to resolve host", "unknownhost", "connection refused",
+            "failed to connect", "connect timed out") to
+            "连不上模型服务器，请检查网络或代理设置",
+        listOf("broken pipe", "connection reset", "unexpected end",
+            "stream was closed", "网络连接中断") to
+            "网络连接中断，回复没有传完",
+        listOf("502", "503", "504") to
+            "模型服务暂时不可用（5xx），稍后重试",
+        listOf("500") to
+            "模型服务内部报错（500），稍后重试",
+        listOf("400") to
+            "请求被服务端拒绝（400），多为参数或容量问题，详情见下方",
+    )
+
+    /** 已是面向用户的引导文案, 原样保留 */
+    private val PASS_THROUGH = listOf("未配置", "请先")
+
     /** 中断标记: 追加在半截正文末尾(与〔已中断〕同形, 但写明原因) */
     fun mark(reason: String) = "\n\n〔已中断：" + reason + "〕"
 
     /** 原始异常 -> 人话(能看懂 + 知道下一步做什么) */
     fun humanize(raw: String): String {
         val m = raw.trim()
-        if (m.isEmpty()) return "回复没有完成，请重试一次"
         val l = m.lowercase()
+        val hit = RULES.firstOrNull { (keys, _) -> keys.any { l.contains(it) || m.contains(it) } }
         return when {
-            l.contains("api key") || l.contains("unauthorized") || m.contains("401") ->
-                "模型密钥无效或已过期，请到「设置 → 模型配置」检查 API Key"
-            m.contains("403") || l.contains("forbidden") ->
-                "服务端拒绝了这次请求（403），可能是密钥权限不足或额度受限"
-            m.contains("404") || l.contains("not found") ->
-                "接口地址或模型名不存在（404），请核对模型配置里的地址与模型名"
-            m.contains("429") || l.contains("rate limit") || l.contains("quota") || l.contains("insufficient") ->
-                "请求过于频繁或额度已用尽（429），稍后再试或检查账户额度"
-            l.contains("context length") || l.contains("maximum context") || l.contains("too many tokens") ||
-                l.contains("context_length_exceeded") ->
-                "这轮内容超出模型上下文上限，建议新建会话或精简引用内容后再发"
-            m.contains("超时") || l.contains("timeout") || l.contains("timed out") ->
-                "服务端响应超时，网络或上游过慢，可稍后重试"
-            l.contains("unable to resolve host") || l.contains("unknownhost") || l.contains("connection refused") ||
-                l.contains("failed to connect") || l.contains("connect timed out") ->
-                "连不上模型服务器，请检查网络或代理设置"
-            l.contains("broken pipe") || l.contains("connection reset") || l.contains("unexpected end") ||
-                l.contains("stream was closed") || l.contains("网络连接中断") ->
-                "网络连接中断，回复没有传完"
-            m.contains("502") || m.contains("503") || m.contains("504") ->
-                "模型服务暂时不可用（5xx），稍后重试"
-            m.contains("500") ->
-                "模型服务内部报错（500），稍后重试"
-            m.contains("400") ->
-                "请求被服务端拒绝（400），多为参数或容量问题，详情见下方"
-            m.contains("未配置") || m.contains("请先") ->
-                m   // 已是面向用户的引导文案, 原样保留
-            // 兜底: 短中文错误原样展示(无技术噪音), 否则给通用话术
-            m.length <= 40 && !m.contains("{") && !m.contains("http") -> m
-            else -> "这轮回复没能完成，稍后重试；若反复出现可展开详情"
+            m.isEmpty() -> EMPTY_HINT
+            hit != null -> hit.second
+            PASS_THROUGH.any { m.contains(it) } -> m
+            isPlainShort(m) -> m
+            else -> GENERIC_HINT
         }
     }
 
     /** 是否值得折叠展示原始报文(纯通用文案时不重复展示) */
     fun hasDetail(raw: String, human: String): Boolean {
         val m = raw.trim()
-        return m.isNotEmpty() && m != human && (m.length > 24 || m.contains("http") || m.contains("{") || m.contains("error"))
+        if (m.isEmpty() || m == human) return false
+        return m.length > DETAIL_TEXT_LIMIT ||
+            m.contains("http") || m.contains("{") || m.contains("error")
     }
+
+    private fun isPlainShort(m: String): Boolean =
+        m.length <= SHORT_TEXT_LIMIT && !m.contains("{") && !m.contains("http")
 }
