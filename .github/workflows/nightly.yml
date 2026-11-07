@@ -102,7 +102,7 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          target: aosp_atd
+          target: default  # aosp_atd 精简镜像下 WebView 不可用(T0 data URL 扫不到元素), 换完整 aosp 镜像
           disable-animations: true
           emulator-options: -no-snapshot -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -memory 3072 -cores 2
           script: bash .github/scripts/nightly_emu.sh
