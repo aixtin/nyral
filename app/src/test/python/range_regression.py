@@ -114,6 +114,9 @@ def diag(device, tag):
     st, js = http("POST", "/v1/browser/text", None, token=None, timeout=6)
     body = str(js)[:400] if st else "text 接口不可用"
     print("[DIAG] %s /v1/browser/text st=%s -> %s" % (tag, st, body))
+    run(f"mkdir -p build")
+    run(f"{ADB} -s {device} exec-out screencap -p > build/diag_{tag}.png")
+    run(f"{ADB} -s {device} shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -4")
     rc, out, _ = run(f"{ADB} -s {device} logcat -d -t 800 | grep -iE 'chrom|webview|net::|ERR_|ssl' | tail -20")
     print("[DIAG] %s webview-log:\n%s" % (tag, out or "(无相关日志)"))
 

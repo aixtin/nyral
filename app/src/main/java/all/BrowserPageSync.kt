@@ -673,7 +673,8 @@ internal fun BrowserPage.cookieStringFor(domain: String?): String {
 /** 非 http(s) 开头的文本视为搜索词, 拼百度搜索; 已是网址原样用 */
 internal fun BrowserPage.toLoadableUrl(u: String): String {
     val t = u.trim()
-    if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("about:") || t.startsWith("file:")) return t
+    val passthrough = listOf("http://", "https://", "about:", "file:", "data:", "javascript:")
+    if (passthrough.any { t.startsWith(it) }) return t
     if (t.isEmpty()) return engines.getOrNull(engineIdx)?.home ?: "https://www.baidu.com"
     lastKeyword = t
     val e = engines.getOrNull(engineIdx) ?: engines.firstOrNull()

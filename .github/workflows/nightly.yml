@@ -115,6 +115,7 @@ jobs:
           path: |
             build/nightly-perf.json
             build/range_logcat.txt
+            build/diag_*.png
             app/build/test-results/
           retention-days: 7
           if-no-files-found: warn
