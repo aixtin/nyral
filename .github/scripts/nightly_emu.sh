@@ -8,7 +8,19 @@
 # App 自身进程是否 FATAL/崩溃。渲染级回归由真机 scripts/ui-regression/run_all.sh 承担。
 set -e
 echo "== 1. 安装 APK =="
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+# 软模拟下 system_server 偶发无响应, adb install 会报 Broken pipe(32), 需重试
+INSTALL_OK=0
+for i in 1 2 3; do
+  if adb install -r app/build/outputs/apk/debug/app-debug.apk; then INSTALL_OK=1; break; fi
+  echo "::warning::第 $i 次安装失败(system_server 断连), 等待后重试"
+  adb wait-for-device || true
+  sleep 25
+done
+if [ "$INSTALL_OK" != "1" ]; then
+  echo "::error::APK 安装 3 次均失败(模拟器环境性无响应)"
+  adb shell getprop sys.boot_completed || true
+  exit 1
+fi
 
 echo "== 2. 注入 DebugServer 开关与 token (CI 新装默认关闭) =="
 printf '%s' '<?xml version="1.0" encoding="utf-8" standalone="yes" ?><map><boolean name="enabled" value="true" /><string name="token">droid-nightly-'"$GITHUB_RUN_ID"'</string></map>' > /tmp/debug_server.xml
