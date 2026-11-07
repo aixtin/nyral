@@ -111,7 +111,7 @@ def http(method, path, body=None, token=None, timeout=30):
 
 def diag(device, tag):
     """采集为 0 时诊断: 页面可见文本 + webview 错误日志, 区分白页/加载失败与元素采集失效"""
-    st, js = http("POST", "/v1/browser/text", None, token=None, timeout=30)
+    st, js = http("POST", "/v1/browser/text", None, token=None, timeout=6)
     body = str(js)[:400] if st else "text 接口不可用"
     print("[DIAG] %s /v1/browser/text st=%s -> %s" % (tag, st, body))
     rc, out, _ = run(f"{ADB} -s {device} logcat -d -t 800 | grep -iE 'chrom|webview|net::|ERR_|ssl' | tail -20")
@@ -159,6 +159,13 @@ def main():
     if device is None:
         device = pick_device()
     token = setup(device)
+
+    print("\n=== T0 基线: data URL 本地页 (隔离网络与 WebView 渲染) ===")
+    st, js = open_url(token, "data:text/html,<html><body><div style='height:80px'>T0BASELINE</div>"
+                             "<button>T0BTN</button></body></html>")
+    c_base = js.get("count", -1) if st == 200 else -1
+    check("T0 data URL 本地页扫描基线(>0 说明 WebView 与扫描器可用)",
+          st == 200 and c_base > 0, f"count={c_base} loaded={js.get('loaded')}")
 
     print("\n=== T1 scan 空数组: empty 档空页 ===")
     st, js = open_url(token, RANGE + "?level=empty")
