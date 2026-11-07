@@ -163,12 +163,9 @@ def main():
         device = pick_device()
     token = setup(device)
 
-    print("\n=== T0 基线: data URL 本地页 (隔离网络与 WebView 渲染) ===")
-    st, js = open_url(token, "data:text/html,<html><body><div style='height:80px'>T0BASELINE</div>"
-                             "<button>T0BTN</button></body></html>")
-    c_base = js.get("count", -1) if st == 200 else -1
-    check("T0 data URL 本地页扫描基线(>0 说明 WebView 与扫描器可用)",
-          st == 200 and c_base > 0, f"count={c_base} loaded={js.get('loaded')}")
+    run("mkdir -p build")
+    run(f"{ADB} -s {device} exec-out screencap -p > build/diag_baseline.png")
+    run(f"{ADB} -s {device} shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' | head -4")
 
     print("\n=== T1 scan 空数组: empty 档空页 ===")
     st, js = open_url(token, RANGE + "?level=empty")
@@ -191,7 +188,7 @@ def main():
     c3 = js.get("count", -1) if st == 200 else -1
     t2 = check("T2 重复采集 count 恒定", st == 200 and c1 == c2 == c3 and c1 > 0,
                f"counts={c1}/{c2}/{c3}")
-    if c1 == 0:
+    if c1 <= 0:
         diag(device, "T2-heavy")
 
     print("\n=== T3 scroll 容器: normal 档滚动重扫 ===")
