@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.LinearLayout
 import android.widget.Toast
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -29,10 +30,12 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object UpdateChecker {
 
-    // 双源最新版接口：GitHub 优先，失败自动回退 Gitee
+    // 双源最新版接口：GitHub 优先，失败自动回退 Gitee。
+    // Gitee 的 /releases/latest 按 tag 字符串排序（"v2.9.9" > "v2.9.10"），不可靠，
+    // 故 Gitee 侧改取 Release 列表，由 pickMaxTag 按版本号数值比较取最大。
     private val UPDATE_URLS = listOf(
         "https://api.github.com/repos/aixtin/nyral/releases/latest",
-        "https://gitee.com/api/v5/repos/aixtin/Nyral/releases/latest"
+        "https://gitee.com/api/v5/repos/aixtin/Nyral/releases?per_page=20&direction=desc"
     )
     // 双通道 APK 下载地址模板（%s 为 tag，如 v2.9.0）
     private val DOWNLOAD_URLS = listOf(
@@ -101,14 +104,29 @@ object UpdateChecker {
             val code = conn.responseCode
             if (code == 404) return FetchResult.NoRelease
             if (code != 200) return FetchResult.Error
-            val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-            val tag = json.optString("tag_name", "").trim()
+            val raw = conn.inputStream.bufferedReader().use { it.readText() }
+            val tag = if (raw.trimStart().startsWith("[")) {
+                pickMaxTag(raw)
+            } else {
+                JSONObject(raw).optString("tag_name", "").trim()
+            }
             return if (tag.isEmpty()) FetchResult.Error else FetchResult.Ok(tag)
         } catch (e: Exception) {
             return FetchResult.Error
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** 从 Release 列表 JSON 中按版本号取最大 tag，跳过 draft 与 pre-release。 */
+    private fun pickMaxTag(raw: String): String {
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return ""
+        return (0 until arr.length())
+            .mapNotNull { arr.optJSONObject(it) }
+            .filter { !it.optBoolean("draft", false) && !it.optBoolean("prerelease", false) }
+            .map { it.optString("tag_name", "").trim() }
+            .filter { it.isNotEmpty() }
+            .fold("") { best, tag -> if (best.isEmpty() || compareVersion(tag, best) > 0) tag else best }
     }
 
     /** 版本号比较：a>b 返回 1，相等 0，a<b 返回 -1。支持 v1.2 / 1.2.0 等常见 tag 形式。 */
