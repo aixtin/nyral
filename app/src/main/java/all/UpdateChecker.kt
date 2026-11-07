@@ -49,11 +49,6 @@ object UpdateChecker {
 
     /** manual=true 来自关于页手动点击；false 为启动自动检查。 */
     fun check(ctx: Context, manual: Boolean) {
-        // F-Droid 版由商店渠道更新(签名与官网包不同, 内置更新会安装失败), 直接跳过内置更新
-        if (BuildConfig.IS_FDROID) {
-            if (manual) toast(ctx, "F-Droid 版本请前往 F-Droid 客户端更新")
-            return
-        }
         Thread {
             when (val result = fetchLatest()) {
                 is FetchResult.NoRelease -> {

@@ -1,5 +1,7 @@
 # Nyral 待办
 
+- [x] 渠道决策（2026-11-08）：放弃 F-Droid 分发（平台未接受本项目），仅保留 GitHub / Gitee 双端 Release；已移除 DebugServer 无关的 IS_FDROID 构建标志与 UpdateChecker 商店渠道跳过分支，历史 CHANGELOG 条目保留
+
 - [x] v2.9.8 发版（2026-11-07，versionCode 121）：流式断流半截工具参数不再被执行；工具降级按 provider|model 冷却重探；工具参数阶段进度与中断补偿；Markdown 块缓存 LRU；真机 UI 回归套件入库
 
 - [x] CI 门禁收尾（2026-11-07，未发版）：Detekt 30 → 0（StreamPipeline/MemoryTools/DebugServer/LocalEngine 实修 + streamOnce 结构性规则显式声明，129 单测与真机 7 场景回归通过）；Nightly 模拟器段搬入 .github/scripts/nightly_emu.sh，修复多行块被逐行拆成 sh -c 执行导致的持续红

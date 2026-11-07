@@ -49,8 +49,6 @@ android {
             logger.warn("crashToken 仍是占位符 local-dev-placeholder — 本包崩溃上报会全部 401 被拒")
         }
         buildConfigField("String", "CRASH_TOKEN", "\"" + crashToken + "\"")
-        // F-Droid 渠道标志: -Pfdroid 构建注入 true, 商店版不弹内置更新/提示走 F-Droid
-        buildConfigField("boolean", "IS_FDROID", if (project.hasProperty("fdroid")) "true" else "false")
         ndk {
             abiFilters += listOf(project.findProperty("nyralAbi") as String? ?: "arm64-v8a")
         }
