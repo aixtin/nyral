@@ -2357,8 +2357,8 @@ class MainActivity : Activity() {
     }
 
     /** 温和错误卡(带重试): 流式出错入行, 取代原红字 Sys 行(2026-10-29) */
-    internal fun appendError(msg: String) {
-        chatAdapter.add(ChatRow.Error(nextTempRowId(), msg)) { scrollToBottom(true) }
+    internal fun appendError(msg: String, detail: String = "") {
+        chatAdapter.add(ChatRow.Error(nextTempRowId(), msg, detail)) { scrollToBottom(true) }
     }
 
     /** 新会话开场介绍卡片：首启/新建会话时展示（文案集中在 strings.xml 便于迭代，预留可进化接口） */
@@ -2540,17 +2540,41 @@ class MainActivity : Activity() {
             setTextColor(Ui.TEXT)
         })
         box.addView(head)
+        // 两层文案(2026-11-08): 主文案说人话(怎么办), 原始报文收进折叠区按需查看, 不再把 technical 报文糊脸上
         if (row.msg.isNotBlank()) {
             box.addView(TextView(this).apply {
-                // 原始错误详情: 小号灰字两行截断, 不喧宾夺主
-                text = if (row.msg.length > 200) row.msg.take(200) + "…" else row.msg
-                textSize = 12f
-                setTextColor(0xFF666666.toInt())
-                maxLines = 2
-                ellipsize = TextUtils.TruncateAt.END
+                text = row.msg
+                textSize = 13f
+                setTextColor(Ui.TEXT)
                 maxWidth = chatMaxW() - dp(24)
                 setPadding(0, dp(Ui.SP1), 0, 0)
             })
+        }
+        if (row.detail.isNotBlank()) {
+            val detailTv = TextView(this).apply {
+                text = row.detail
+                textSize = 11f
+                typeface = Typeface.MONOSPACE
+                setTextColor(0xFF777777.toInt())
+                maxWidth = chatMaxW() - dp(24)
+                setTextIsSelectable(true)
+                setPadding(0, dp(Ui.SP1), 0, 0)
+                visibility = View.GONE
+            }
+            val toggle = TextView(this).apply {
+                text = getString(R.string.ma_error_detail_show)
+                textSize = 12f
+                setTextColor(Ui.PRIMARY)
+                setPadding(0, dp(Ui.SP1), 0, 0)
+                Ui.press(this)
+                setOnClickListener {
+                    val show = detailTv.visibility != View.VISIBLE
+                    detailTv.visibility = if (show) View.VISIBLE else View.GONE
+                    text = getString(if (show) R.string.ma_error_detail_hide else R.string.ma_error_detail_show)
+                }
+            }
+            box.addView(toggle)
+            box.addView(detailTv)
         }
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL

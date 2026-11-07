@@ -1275,6 +1275,26 @@ object LocalEngine {
         }
         // 连接中断收尾
         if (aborted) {
+            // 断流瞬间的末尾残余(整行无换行)先并入, 否则已有内容也会被误判成零输出而丢弃
+            if (toolCalls.isEmpty() && nativeAcc.isEmpty() && lineBuf.isNotBlank() && !DSML_MARK_RE.containsMatchIn(lineBuf)) {
+                val tail = lineBuf.toString().trimEnd()
+                lineBuf.setLength(0)
+                if (tail.isNotEmpty()) {
+                    if (mode != MODE_CONTENT) {
+                        if (mode == MODE_THINKING) cb.onThinkingEnd()
+                        mode = MODE_CONTENT
+                    }
+                    if (useTools) {
+                        cb.onDelta(tail); accumulated.append(tail)
+                    } else {
+                        val stop = processRow(tail, mode, accumulated, cb, { m -> mode = m }, answerGate, restartOut)
+                        if (stop != null) {
+                            toolCalls.add(stop)
+                            toolCallIds.add("txt_${toolCalls.size}")
+                        }
+                    }
+                }
+            }
             if (mode == MODE_THINKING) cb.onThinkingEnd()
             if (toolCalls.isEmpty() && nativeAcc.isEmpty() && accumulated.isBlank()) {
                 throw RetryableException("模型连接中断(网络波动)")

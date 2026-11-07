@@ -287,16 +287,35 @@ internal class StreamUiBridge(
                 LogStore.e(LogStore.MAIN, "错误: $msg")
                 ChatProbe.onError(msg)   // 缺陷2(2026-11-07): 错误文案进观测口, 回归可断言错误确实上屏
                 AITerminal.push("error", msg)
+                val human = ErrorText.humanize(msg)
                 uiScope.launch {
                     if (!session.isCurrent(epoch)) return@launch
                     drain(holder, epoch)   // 出错前排空缓冲, 已收到的增量不悬空
                     activity.discardStreamingDraft()   // 2026-11-06: 出错不保留草稿, 避免半截 AI 行
+                    // 2026-11-08 缺陷修复: 断流/超时/5xx 时引擎已产出半截正文, 旧实现 showError 后直接移除
+                    // 流式行 —— 半截内容随行蒸发, 用户白等一场且无从续跑。改为与"停止保留现场"同一路径:
+                    // 有正文则落库+打〔已中断：原因〕标记, 错误卡只做补充说明; 真正零输出才只留错误卡。
+                    val keep = holder.contentSnapshot().trim()
                     holder.showError()
                     // 错误行收尾: 移除流式行, 温和错误卡(简述+详情+重试)取代原红字系统行
                     // (卡片为独立临时行, 避免重建时流式行僵尸重复渲染)
                     val errRow = session.detachStreaming()
                     if (errRow != null) activity.chatAdapter.remove(errRow)
-                    activity.appendError(msg)
+                    if (keep.isNotEmpty()) {
+                        val mark = ErrorText.mark(human)
+                        ChatProbe.noteFinish(mark.trim())
+                        if (activity.replySessionId == activity.currentSessionId) {
+                            val body = keep + mark
+                            activity.messages.add(MemoryDb.SessionMsg("assistant", body,
+                                holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot(),
+                                System.currentTimeMillis()))
+                            MemoryKeeper.push("assistant", body, activity.replySessionId, activity.messages.size - 1)
+                            activity.currentSaved = false
+                            activity.maybeSaveCurrent()   // 立即落库: 半截现场要能被切会话/杀进程后复看
+                            activity.buildRowsFromMessages { }
+                        }
+                    }
+                    activity.appendError(human, msg)
                     LocalEngine.cancelRequested = false
                     session.endRequest()
                     TaskService.stop(activity)
