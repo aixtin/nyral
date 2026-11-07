@@ -53,7 +53,7 @@ jobs:
           if-no-files-found: warn
 
   nightly-emulator:
-    name: Nightly Emulator (Range Regression + Perf)
+    name: Nightly Emulator (Smoke + Perf)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
