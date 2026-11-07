@@ -99,12 +99,15 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           PKG: io.github.aixtin.nyral
+          # 模拟器软渲染下 system_server ANR/WebView renderer 崩溃, range 断言仅观测;
+          # 严格 range 门禁在真机 scripts/ui-regression/run_all.sh
+          NYRAL_RANGE_MODE: observe
         with:
           api-level: 34
           arch: x86_64
           target: default  # aosp_atd 精简镜像下 WebView 不可用(T0 data URL 扫不到元素), 换完整 aosp 镜像
           disable-animations: true
-          emulator-options: -no-snapshot -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -memory 3072 -cores 2
+          emulator-options: -no-snapshot -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect -memory 4096 -cores 4
           script: bash .github/scripts/nightly_emu.sh
 
       - name: Upload nightly results

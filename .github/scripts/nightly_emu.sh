@@ -38,7 +38,14 @@ sleep 10
 
 echo "== 4. 靶场回归 T1-T6 (决策③) =="
 mkdir -p build
-python3 app/src/test/python/range_regression.py --emulator || { adb logcat -d -v time > build/range_logcat.txt 2>&1; tail -500 build/range_logcat.txt; exit 1; }
+python3 app/src/test/python/range_regression.py --emulator || {
+  adb logcat -d -v time > build/range_logcat.txt 2>&1; tail -500 build/range_logcat.txt
+  if [ "${NYRAL_RANGE_MODE:-strict}" = "observe" ]; then
+    echo "::warning::range 回归在观测模式下失败, 不阻断夜间构建"
+  else
+    exit 1
+  fi
+}
 
 echo "== 5. 性能采样 冷启动/内存/DebugServer延迟 (决策②) =="
 mkdir -p build
