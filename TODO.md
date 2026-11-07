@@ -61,6 +61,7 @@
 - 2026-10-07: v2.5.1 发布（versionCode 44）：黑屏浏览器 scan 挂死修复（waitStable rAF→setTimeout）+ DebugServer /v1/browser/text 端点补挂 + WAKE_LOCK 保活权限，GitHub Release v2.5.1 附正式签名 APK
 - 2026-10-06: v2.4.0 发布（versionCode 42，minSdk 24→29）：浏览器自动化闭环修复（交互元素 16px 阈值、无文字图标/菜单兜底、contenteditable 富文本输入、视口外元素处置）+ token 遮罩死锁修复
 
+- 2026-11-07: Nightly 模拟器段定位收敛——GitHub Hosted Runner 无 KVM（`-accel off` 全软件模拟）导致 system_server ANR + WebView renderer 崩溃，range T1-T6 不可归因；改为「装/起/DebugServer 就绪/无 FATAL」冒烟门禁 + 性能观测，渲染级回归改由真机 scripts/ui-regression/run_all.sh 承担（见该目录 README「CI 与真机的分工」）
 - 2026-10-02: v2.1.1 发布（versionCode 34，GitHub Release v2.1.1 附正式签名 APK）：表格单元格垂直居中修复（聊天/Agent 双模式一致）+ 慢放迁移调试弹窗 + 浏览器面板按钮 + 聊天模式气泡宽度恢复对称
 - 2026-10-02: v2.1 表格渲染方案 C 落地（versionCode 33）：MdTableView 重写为气泡内独立 TableView 块化、WRAP_CONTENT 自适应、修复含行内代码单元格整格空白、清理旧表格类（ADR-014）
 - 2026-09-29: 引用块竖线/分割线渲染（QuoteBarSpan/HrSpan，commit 4b175bd 阶段6）+ 表格首列整格空白修复（collectCellText 递归，669dea9）+ 表格横滑 v3 公共版（TableScrollWrap）+ 整表统一列宽（colMaxChars v7）

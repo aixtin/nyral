@@ -52,3 +52,21 @@ export NYRAL_DEVICE=<adb 序列号>      # 必填
 - 端口、包名、输出目录全部有默认值且可覆盖
 
 请勿把 `results-*`、`requests.jsonl`、`mock_timeline.jsonl` 提交进仓库（`.gitignore` 已忽略）。
+
+## CI 与真机的分工（重要）
+
+夜间构建跑在 GitHub Hosted Runner 上，**不提供嵌套虚拟化**，模拟器实际以 `-accel off`
+全软件模拟运行，system_server ANR（`Process system isn't responding`）与 WebView
+chromium renderer 崩溃是常态。后果是 `browser_scan` 恒 0、`/v1/browser/text` 超时、
+冷启动采样为空——这些是**环境性**结果，不能归因到产品代码。
+
+因此：
+
+| 环节 | 覆盖范围 | 是否阻断 |
+|------|----------|----------|
+| Nightly 模拟器段 | 装得上、起得来、DebugServer 就绪、**无 App 进程 FATAL/ANR**、启动耗时观测 | 崩溃阻断，性能仅观测 |
+| 本目录 `run_all.sh`（真机） | 流式分片、断流丢弃、工具调用闭环、错误透传、跨轮降级等 7 场景 | 任一 FAIL 阻断发布 |
+
+**发布前必须在真机跑一遍 `run_all.sh`**，模拟器绿灯不代表渲染级行为正确。
+排查模拟器侧问题时，可把 `NYRAL_RANGE_MODE` 设为 `observe` 让 range 断言试跑（仅告警不阻断），
+并把 `build/diag_*.png`、`build/range_logcat.txt` 作为 artifact 回看。
