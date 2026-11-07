@@ -109,6 +109,15 @@ def http(method, path, body=None, token=None, timeout=30):
         return 0, {"error": str(e)}
 
 
+def diag(device, tag):
+    """采集为 0 时诊断: 页面可见文本 + webview 错误日志, 区分白页/加载失败与元素采集失效"""
+    st, js = http("POST", "/v1/browser/text", None, token=None, timeout=30)
+    body = str(js)[:400] if st else "text 接口不可用"
+    print("[DIAG] %s /v1/browser/text st=%s -> %s" % (tag, st, body))
+    rc, out, _ = run(f"{ADB} -s {device} logcat -d -t 800 | grep -iE 'chrom|webview|net::|ERR_|ssl' | tail -20")
+    print("[DIAG] %s webview-log:\n%s" % (tag, out or "(无相关日志)"))
+
+
 def check(name, cond, detail):
     tag = "PASS" if cond else "FAIL"
     RESULTS.append((name, tag, detail))
@@ -170,8 +179,10 @@ def main():
     time.sleep(1)
     st, js = scan(token)
     c3 = js.get("count", -1) if st == 200 else -1
-    t2 = check("T2 重复采集 count 恒定", st == 200 and c1 == c2 == c3 >= 0,
+    t2 = check("T2 重复采集 count 恒定", st == 200 and c1 == c2 == c3 and c1 > 0,
                f"counts={c1}/{c2}/{c3}")
+    if c1 == 0:
+        diag(device, "T2-heavy")
 
     print("\n=== T3 scroll 容器: normal 档滚动重扫 ===")
     st, js = open_url(token, RANGE + "?level=normal")
