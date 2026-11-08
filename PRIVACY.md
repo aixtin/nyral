@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Last updated: 2026-10-21
+Last updated: 2026-11-08
 
 Nyral ("the App") is developed by aixtin. This document describes what data the App stores, what it sends over the network, and how you can control your data.
 
@@ -57,11 +57,16 @@ Permissions are only used for the features described above.
 
 ## 4. Analytics, Advertising and Diagnostics
 
-The App does **not** include third-party analytics, advertising, or behavioral-tracking SDKs, and has no account system. No usage statistics are collected. The only outbound diagnostic is the anonymous crash reporting described below.
+The App does **not** include third-party analytics, advertising, or behavioral-tracking SDKs, and has no account system. No usage statistics are collected. The only outbound diagnostics are the anonymous crash reporting and the Liveness Pulse described below.
 
 ### Crash Reporting (on by default, user can disable)
 
 To help locate and fix crashes, the App writes a local log when a crash / ANR / unexplained exit occurs, and anonymously uploads it over HTTPS on the next cold start to the developer's own server (atin.asia/crash). The payload contains only device model, Android version, crash stack, and the latest 30 runtime log lines — never chat content, account info, or any personally identifiable data. This is the only data the App sends beyond what you explicitly configure (model endpoint, MCP servers, browser). It is **enabled by default and can be turned off anytime**: Appearance Settings → Quick Switches → Crash Reporting. Reports are stored on the developer's server for up to 30 days and are automatically purged afterwards; the server also enforces per-day and total storage quotas to prevent abuse. Crash data is never sold, shared, or used for profiling.
+
+### Liveness Pulse and Suggestions (same switch)
+
+After an app upgrade the App may show a one-time 「检测活人」 card. Tapping the confirm button sends a single anonymous pulse to the same atin.asia/crash endpoint: `type: PULSE`, app version name/code, Android version, timestamp, and the per-install random ID that is also sent in the `X-Install-Id` header. Tapping Cancel sends nothing, and the card is not shown again for that version. Confirming then opens an optional suggestion box: only the text you type is uploaded, only when you tap Submit (`type: FEEDBACK`, at most 500 characters). Fresh installs and same-version launches never show the card, and both features are disabled together with Crash Reporting.
+
 
 ## 5. Data Control and Deletion
 
