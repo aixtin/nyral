@@ -118,15 +118,19 @@ class AppearanceActivity : Activity() {
                 }) { showThemePicker() },
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(6) })
             })
-            // 行2：显示 MD / 知识库 / 输入澄清
+            // 行2：视频直发 / 知识库 / 输入澄清（视频直发 2026-11-08 从设置页迁入，替换原「显示 MD」格）
             addView(LinearLayout(this@AppearanceActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = dp(8) }
-                addView(gridSwitch(R.drawable.ic_appr_md, 16, getString(R.string.appr_26), {
-                    if (ModeConfig.chatMarkdown()) getString(R.string.appr_33) else getString(R.string.appr_34)
-                }) { ModeConfig.setChatMarkdown(!ModeConfig.chatMarkdown()) },
+                addView(gridSwitch(R.drawable.ic_appr_video, 16, getString(R.string.settings_video_direct), {
+                    if (UploadConfig.videoDirectAlways()) getString(R.string.appr_33) else getString(R.string.appr_34)
+                }) {
+                    val on = !UploadConfig.videoDirectAlways()
+                    UploadConfig.setVideoDirectAlways(on)
+                    Toast.makeText(this@AppearanceActivity, getString(if (on) R.string.settings_video_direct_on else R.string.settings_video_direct_off), Toast.LENGTH_SHORT).show()
+                },
                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(3) })
                 addView(gridSwitch(R.drawable.ic_appr_kb, 31, getString(R.string.appr_kb), {
                     if (KnowledgeBaseConfig.isEnabled(this@AppearanceActivity)) getString(R.string.appr_33) else getString(R.string.appr_34)

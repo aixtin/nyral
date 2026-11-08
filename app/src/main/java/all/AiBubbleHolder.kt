@@ -2208,7 +2208,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
                 return
             }
             if (ModeConfig.chatPlainText()) {
-                tv.text = stripMarkdownForChat(b.text.toString()).trimEnd()
+                tv.setChatPlainText(b.text.toString())
             } else if (stripped.contains("att://")) {
                 // 含附件(att://): 卡片挂载依赖视图, 静默期未排版, 收尾走 markwon 渲染真实卡片
                 b.streamRenderer.clearCache()

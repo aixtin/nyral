@@ -5,14 +5,13 @@ import android.content.SharedPreferences
 
 /**
  * 界面模式配置：聊天模式 / Agent 模式
- * - 聊天模式(chatMode=true)：带头像(用户/AI 并排)；正文默认不渲染 Markdown(chatMarkdown=false，走纯文本)，可在外观设置手动开启
+ * - 聊天模式(chatMode=true)：带头像(用户/AI 并排)；正文恒渲染 Markdown(2026-11-08 起 MD 开关下线，开关位改为视频直发)
  * - Agent 模式(chatMode=false)：维持原样(不展示头像，始终保留 Markdown 渲染)
  * 会话按模式隔离(listSessions 只列当前模式会话)，长期记忆库两模式互通。
  */
 object ModeConfig {
     private const val PREFS = "mode_config"
     private const val KEY_CHAT_MODE = "chat_mode"
-    private const val KEY_CHAT_MD = "chat_md"
     private const val KEY_ACTION_TRACK = "action_track"
     private lateinit var prefs: SharedPreferences
 
@@ -28,13 +27,12 @@ object ModeConfig {
         prefs.edit().putBoolean(KEY_CHAT_MODE, on).apply()
     }
 
-    /** 聊天模式是否渲染 Markdown(默认关，纯文本)；打开则正文走 Markdown 渲染。Agent 模式不读此键，恒走 Markdown */
-    fun chatMarkdown(): Boolean = prefs.getBoolean(KEY_CHAT_MD, false)
-
-    /** 开关聊天模式的 Markdown 渲染 */
-    fun setChatMarkdown(on: Boolean) {
-        prefs.edit().putBoolean(KEY_CHAT_MD, on).apply()
-    }
+    /**
+     * 聊天模式是否渲染 Markdown：2026-11-08 起恒为 true（原默认关、可在外观设置切换）。
+     * 自本版起「显示 Markdown」开关下线，其格位替换为「视频直发」，聊天模式正文固定走 Markdown 渲染。
+     * 历史键 KEY_CHAT_MD 不再读取（老用户存量值一并失效）。
+     */
+    fun chatMarkdown(): Boolean = true
 
     /** 渲染层统一判断：是否应按纯文本处理正文（聊天模式且关闭 MD 时才剥；Agent 模式/开 MD 均按 Markdown 渲染） */
     fun chatPlainText(): Boolean = chatMode() && !chatMarkdown()
@@ -85,8 +83,20 @@ object ModeConfig {
         return name.substring(0, headEnd) + "…" + name.substring(tailStart)
     }
 
-    /** 产物卡标签: "📦 产物 · 展示名"(展示名已按预算中间省略) */
-    fun artifactCardLabel(name: String): String = "📦 产物 · " + artifactDisplayName(name)
+    /** 产物名预算(2026-11-08): 按当前模式气泡的"实际可用宽"换算成 artNameW 单位(半角=1)。
+     *  Agent 模式气泡=屏宽, 聊天模式(有头像)气泡=屏宽-120dp; 原来固定 28 单位只在 Agent 宽度下放得下,
+     *  聊天模式窄气泡里超长产物名(连续英文/数字 token 不可断行)会顶出气泡右侧。
+     *  换算: 15sp 下 1 单位≈7.5dp; 前缀"📦 产物 · "≈62dp; 气泡左右 padding 24dp; 描边+缩进余量 16dp。 */
+    fun artifactNameBudget(): Int {
+        val dm = android.content.res.Resources.getSystem().displayMetrics
+        val d = if (dm.density > 0f) dm.density else 3f
+        val bubbleDp = dm.widthPixels / d - if (chatMode()) 120f else 0f
+        val nameDp = bubbleDp - 24f - 16f - 62f
+        return (nameDp / 7.5f).toInt().coerceIn(10, 28)
+    }
+
+    /** 产物卡标签: "📦 产物 · 展示名"(展示名已按当前模式气泡宽度的预算中间省略) */
+    fun artifactCardLabel(name: String): String = "📦 产物 · " + artifactDisplayName(name, artifactNameBudget())
 
     private val ART_LINK = Regex("\\[📦 产物 · [^\\]]*\\]\\(att://[^)]*\\)")
 

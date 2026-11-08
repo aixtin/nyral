@@ -24,6 +24,7 @@ import android.text.style.ClickableSpan
 import android.text.style.URLSpan
 import android.text.TextPaint
 import android.view.View
+import android.widget.TextView
 import android.graphics.drawable.BitmapDrawable
 import io.noties.markwon.ext.tables.TableTheme
 import org.json.JSONArray
@@ -224,5 +225,60 @@ class LevelBulletSpan(
         paint.color = color
         canvas.drawCircle(cx, cy, bulletRadius.toFloat(), paint)
         paint.color = saved
+    }
+}
+
+/* ================= 聊天模式纯文本渲染(2026-11-08 产物可点击修复) ================= */
+
+/**
+ * 聊天模式关 MD 时的正文渲染: 纯文本剥离 + 产物/附件链接保持可点击。
+ *
+ * 根因: 纯文本路径直接 stripMarkdownForChat, att:// 链接被当作普通 Markdown 链接
+ *      剥成裸文本, 且 TextView 未挂 LinkMovementMethod —— 卡片看得见、点不动;
+ *      Agent 模式 / 聊天模式开 MD 走 markwon(SpanFactory 把 att:// 转 AttLinkSpan)正常。
+ *
+ * 做法: 先用哨兵占位保住 att 链接 -> 整段过纯文本剥离(不破坏原始换行/段落)
+ *      -> 哨兵换回 label 并挂 AttLinkSpan(产物卡补描边), 与 markdown 路径视觉/行为一致。
+ * 幂等: 内部先走 stripChatProtocolPrefix, 产物卡标签(📦 产物 · x)与一排一个同源。
+ */
+internal fun chatPlainSpanned(raw: String): CharSequence {
+    if (raw.isEmpty()) return raw
+    val src = ModeConfig.stripChatProtocolPrefix(raw)
+    if (!src.contains("att://")) return ModeConfig.stripMarkdownForChat(src)
+    val attRe = Regex("""\[([^\]\n]+)\]\((att://[^)\n]+)\)""")
+    val labels = ArrayList<String>()
+    val paths = ArrayList<String>()
+    val shielded = attRe.replace(src) { m ->
+        labels.add(m.groupValues[1])
+        paths.add(m.groupValues[2].removePrefix("att://"))
+        "\u0001" + (labels.size - 1) + "\u0001"
+    }
+    val plain = ModeConfig.stripMarkdownForChat(shielded)
+    val out = SpannableStringBuilder(plain)
+    val tokens = Regex("\u0001(\\d+)\u0001").findAll(plain).toList()
+    // 逆序替换: 前面位置替换时 SpannableStringBuilder 会自动平移已挂 span, 正序会错位
+    for (m in tokens.asReversed()) {
+        val i = m.groupValues[1].toIntOrNull() ?: continue
+        val label = labels.getOrNull(i) ?: continue
+        val st = m.range.first
+        out.replace(st, m.range.last + 1, label)
+        out.setSpan(AttLinkSpan(paths[i]), st, st + label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+    if (out.contains("\uD83D\uDCE6 产物")) attachArtifactCardBorders(out)
+    return out
+}
+
+/** 纯文本正文上屏(聊天模式关 MD): 仅在确有附件/产物链接时挂 LinkMovementMethod, 其余纯文本行为不变 */
+internal fun TextView.setChatPlainText(raw: String) {
+    val sp = chatPlainSpanned(raw)
+    text = sp
+    val hasLink = sp is Spanned && sp.getSpans(0, sp.length, AttLinkSpan::class.java).isNotEmpty()
+    if (hasLink) {
+        if (movementMethod !is android.text.method.LinkMovementMethod) {
+            movementMethod = android.text.method.LinkMovementMethod.getInstance()
+        }
+    } else if (movementMethod is android.text.method.LinkMovementMethod) {
+        // 池化复用残留: 整段无链接时清掉, 避免点击被 LinkMovementMethod 吞掉
+        movementMethod = null
     }
 }

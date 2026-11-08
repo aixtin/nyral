@@ -2416,7 +2416,7 @@ class MainActivity : Activity() {
             is ChatRow.Ai -> {
                 val b = v.findViewWithTag<View>(POOLED_BUBBLE_TAG)
                 if (b is TextView) {
-                    if (ModeConfig.chatPlainText()) b.text = ModeConfig.stripMarkdownForChat(row.content.trim())
+                    if (ModeConfig.chatPlainText()) b.setChatPlainText(row.content.trim())
                     else setMarkdownCached(b, ModeConfig.stripChatProtocolPrefix(row.content.trim()), row.rendered, writeback = { spanned -> writeBackRendered(row.id, spanned) })
                 }
             }
@@ -2968,7 +2968,7 @@ class MainActivity : Activity() {
                         try { text = renderUserContent(content) } catch (_: Throwable) {}
                     }
                 }
-            } else if (ModeConfig.chatPlainText()) text = ModeConfig.stripMarkdownForChat(content.trim())
+            } else if (ModeConfig.chatPlainText()) setChatPlainText(content.trim())
             else setMarkdownCached(this, ModeConfig.stripChatProtocolPrefix(content.trim()), rendered, writeback)
             textSize = 15f
             val edgeImage = pureImage || pureVideo
@@ -3972,7 +3972,7 @@ class MainActivity : Activity() {
             if (renderContent.isBlank()) return null   // 空气泡兜底(09-25): 纯协议前缀段不建视图
             if (ModeConfig.chatPlainText()) {
                 val tv = obtainSegTv()
-                tv.text = ModeConfig.stripMarkdownForChat(renderContent).trimEnd()
+                tv.setChatPlainText(renderContent)
                 makeCopyable(tv) { seg }
                 return tv
             }
