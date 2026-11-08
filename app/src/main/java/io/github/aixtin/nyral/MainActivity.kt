@@ -543,6 +543,8 @@ class MainActivity : Activity() {
         }
         // 启动自动检查更新（同一天仅一次，静默；真实更新源开源后替换 UPDATE_URL 即可）
         UpdateChecker.check(this, false)
+        // 存活回执(2026-11-08): 版本更新后首次进入弹「检测活人」, 确认后再问一句建议
+        window.decorView.postDelayed({ AliveCheck.maybePrompt(this) }, AliveCheck.START_DELAY_MS)
         // 键盘模式: 全局 adjustNothing, 窗口永不被键盘压缩;
         // 通过 WindowInsets.ime()(API30+) 精确取键盘高度, 手动驱动 bodyWrap 平移上移(同微信),
         // 标题栏与背景(挂 root.background)不动。adjustResize 下窗口被系统压缩, ime insets 会被吸收为0无法检测
