@@ -163,6 +163,8 @@ object AliveCheck {
             .format(java.util.Date())).append('\n')
         append("app: ").append(BuildConfig.VERSION_NAME)
         append(" (vc ").append(BuildConfig.VERSION_CODE).append(")\n")
+        // fix(2026-11-08): 崩溃报文一直带 device, PULSE/FEEDBACK 漏了, 无法按机型归因
+        append("device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n')
         append("android: ").append(Build.VERSION.RELEASE)
         append(" / SDK ").append(Build.VERSION.SDK_INT).append('\n')
     }

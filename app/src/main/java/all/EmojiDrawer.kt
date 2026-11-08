@@ -137,7 +137,7 @@ internal fun MainActivity.showEmojiDrawer() {
     // 键盘是否真的在显示: 实时读 insets ime 高(>80dp 视为弹出)。imm.isActive 仅表示 IME 会话活跃,
     // 键盘收起后仍为 true, 误判会导致走"收起键盘+350ms 兜底"分支 -> 直开表情停顿(用户 bug 现场)
     val kbOpen = try {
-        (window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0) > dp(80)
+        all.InsetsX.imeBottom(window.decorView.rootWindowInsets) > dp(80)
     } catch (e: Exception) { false }
     android.util.Log.i("NyralIme", "showDrawer kbOpen=$kbOpen isActive=${imm?.isActive} imeShown=$imeShown imeHeightField=$imeHeightField")
     emojiDrawer?.let { d ->
@@ -148,7 +148,7 @@ internal fun MainActivity.showEmojiDrawer() {
         // 键盘收回后由表情区顶替原键盘空间, 输入框(大抽屉顶)零位移
         emojiDrawerKbH = imeHeightField
         val sbNav = try {
-            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.bottom ?: 0
+            all.InsetsX.systemBarsBottom(window.decorView.rootWindowInsets)
         } catch (e: Exception) { 0 }
         emojiDrawerTargetH = if (imeHeightField > dp(80)) (imeHeightField - sbNav).coerceAtLeast(dp(160))
                              else emojiDrawerFixedH.coerceAtLeast(dp(160))

@@ -44,8 +44,14 @@ class TaskService : Service() {
         const val ACTION_TIMER_TASK = "io.github.aixtin.nyral.action.TIMER_TASK"
         const val EXTRA_TASK_ID = "task_id"
 
+        /** 服务实例是否已完成前台化(createChannel + startForeground 成功) */
+        @Volatile private var fgStarted = false
+        /** 前台化完成前收到的停止请求: 交给 onStartCommand 补完前台化后自停 */
+        @Volatile private var pendingStop = false
+
         /** 启动前台服务(Android 8+ 需 startForegroundService, 兼容旧版走 startService) */
         fun start(context: Context) {
+            pendingStop = false
             val intent = Intent(context, TaskService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -56,7 +62,16 @@ class TaskService : Service() {
 
         /** 停止前台服务 */
         fun stop(context: Context) {
-            context.stopService(Intent(context, TaskService::class.java))
+            // fix(2026-11-08): start() 后立刻失败(如未配置 Key 的即时 onError)会紧跟 stop(),
+            // 此时服务实例可能还没创建: 直接 stopService 等于取消这次启动, 系统仍判定
+            // “startForegroundService 后未 startForeground”, 约 10s 后主线程抛
+            // ForegroundServiceDidNotStartInTimeException 闪退(线上 vc121 崩溃主因)。
+            // 未前台化前只登记待停, 由 onStartCommand 补完前台化后立即自停。
+            if (!fgStarted) {
+                pendingStop = true
+            } else {
+                context.stopService(Intent(context, TaskService::class.java))
+            }
             // ColorOS/Android16 Live Updates: 通知被提升(promoted)后 stopForeground 不移除,
             // 必须显式 cancel 兜底, 否则任务已停但"任务执行中"通知残留, 用户误以为取消没生效
             try {
@@ -146,20 +161,30 @@ class TaskService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // fix(2026-11-08): 前台化必须最先做, 其余 init 全部后移。
+        // 原实现先跑 ApiConfig/MemoryApiConfig/ModeConfig.init(SharedPreferences + Keystore 解密,
+        // 冷启动首读是 Binder 重活)再 startForeground, 叠加主线程其他重活即超系统 FGS 时限,
+        // 抛 ForegroundServiceDidNotStartInTimeException 闪退(线上 6 次, 跨 4 品牌)。
+        createChannel()
+        startForegroundCompat()
+        fgStarted = true
         ApiConfig.init(this)
         MemoryApiConfig.init(this)
         ModeConfig.init(this)
-        createChannel()
-        // 尽早完成前台化: startForegroundService 后系统限时(约5s)内必须 startForeground,
-        // 否则抛 ForegroundServiceDidNotStartInTimeException 闪退。onCreate 先于 onStartCommand 执行,
-        // 在这里立即 startForeground 能最大化满足时限(Android 15/16 + ColorOS 校验更严格)。
-        startForegroundCompat()
         ServiceNotifGroup.register(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // 幂等: onCreate 已启动前台, 重复调用 startForeground 无副作用
         startForegroundCompat()
+        // fix(2026-11-08): stop() 在实例创建前到达时只登记 pendingStop; 这里补完前台化后立即自停,
+        // 保证“started 且已 startForeground”, 不留 FGS 超时判定
+        if (pendingStop) {
+            pendingStop = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         ServiceNotifGroup.publishSummary(this)
         if (intent?.action == ACTION_TIMER_TASK) {
             val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
@@ -308,6 +333,7 @@ class TaskService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        fgStarted = false
         // 任务结束由外部显式 stopService, 这里只需移除前台标记
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)

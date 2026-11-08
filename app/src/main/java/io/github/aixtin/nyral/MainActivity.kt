@@ -2225,10 +2225,10 @@ class MainActivity : Activity() {
         val top = tLoc[1] + titleBar.height + gap
         // 固定按"键盘未弹出"的完整高度计算: 键盘/输入框/抽屉浮在浏览器之上自然盖住窗口底部,
         // 不跟随 inputBar 当前位置, 否则键盘弹起瞬间窗口被顶起变矮、收回时又残留半屏
-        val sb = try {
-            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())
-                ?: android.graphics.Insets.NONE
-        } catch (e: Exception) { android.graphics.Insets.NONE }
+        // fix(2026-11-08): 原实现 try/catch(Exception) 拦不住 API<30 的 NoSuchMethodError(Error),
+        // vivo V2002A / Android 10 在首帧布局(本函数由 onGlobalLayout 触发)即闪退。
+        // 统一走 InsetsX(内部按 SDK 分支, API<30 用 systemWindowInsets)。
+        val sb = all.InsetsX.systemBars(window.decorView.rootWindowInsets)
         val fullH = (root.height - top - sb.bottom).coerceAtLeast(dp(120))
         val h = (fullH - inputBar.height - gap).coerceAtLeast(dp(120))
         browserPage.setWindowRect(top, h)

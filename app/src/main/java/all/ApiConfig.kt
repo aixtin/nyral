@@ -149,6 +149,10 @@ object ApiConfig {
     @Volatile private var app: Context? = null
     @Volatile private var cachedProviders: List<Provider>? = null
 
+    /** 上次 providers() 是否因解密/解析失败回退预设(区分“没配”与“读不出来”, 2026-11-08) */
+    @Volatile var loadFailed: Boolean = false
+        private set
+
     /** 由每个 Activity.onCreate 调用一次注入 context（重复调用无害） */
     fun init(context: Context) {
         app = context.applicationContext
@@ -215,7 +219,12 @@ object ApiConfig {
                     cachedProviders = out
                     return out
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                // 2026-11-08: 原实现静默吞掉解密/解析失败(Keystore 失效、备份恢复、配置损坏),
+                // 随后兜底回预设(全空 Key) -> 用户明明配过 Key 却被报“未配置 API Key”并伴随 401。
+                loadFailed = true
+                LogStore.e("SEC", "providers 读取失败, 回退预设: " + e.javaClass.simpleName + ": " + (e.message ?: ""))
+            }
         }
         // 兼容旧版单配置字段：旧版保存过 deepseek 配置则合并进预设
         val old = prefs()

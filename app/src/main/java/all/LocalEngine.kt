@@ -636,7 +636,13 @@ object LocalEngine {
         try {
             McpClientManager.ensureLoaded(context)
             if (ApiConfig.apiKey().isBlank() && !ApiConfig.isCurrentLocal()) {
-                cb.onError("未配置 API Key, 请先到「设置 → 模型配置」填写")
+                // 2026-11-08: 区分“真没配”与“配置读不出来”(Keystore 解密失败会静默回退预设)
+                val msg = if (ApiConfig.loadFailed) {
+                    "模型配置读取失败(密钥库异常), 请到「设置 → 模型配置」重新填写 API Key"
+                } else {
+                    "未配置 API Key, 请先到「设置 → 模型配置」填写"
+                }
+                cb.onError(msg)
                 return
             }
             if (ApiConfig.isCurrentLocal()) {
