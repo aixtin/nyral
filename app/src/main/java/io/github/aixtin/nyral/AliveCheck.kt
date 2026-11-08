@@ -35,13 +35,15 @@ object AliveCheck {
     private const val TIMEOUT_MS = 8000
     private const val MAX_SUGGEST_LEN = 500
     private const val MAX_RETRY = 3
-    private const val RETRY_DELAY_MS = 2500L
-    private const val UPGRADE_GAP_MS = 60_000L
+    private const val RETRY_DELAY_MS = 1500L
+    private const val UPGRADE_GAP_MS = 1_000L
 
     /** 调用方(MainActivity)首屏稳定后再问, 避免与首帧渲染/更新检查抢焦点。 */
     const val START_DELAY_MS = 3000L
     private const val GAP_DP = 12
     private const val GAP_TIGHT_DP = 10
+    /** 弱化取消按钮的上间距: 视觉上更贴近主按钮, 减少存在感 */
+    private const val GHOST_GAP_DP = 2
     private const val SUGGEST_MIN_LINES = 3
     private const val SUGGEST_MAX_LINES = 6
 
@@ -53,8 +55,13 @@ object AliveCheck {
         val last = prefs.getString(K_LAST_VERSION, null)
         val answered = prefs.getString(K_ANSWERED, null) == cur
         // last_version 自 v2.9.11 才引入, 老用户升级上来时必然为 null;
-        // 因此 null 不等同于首装, 需用安装时间与更新时间的差值判断本次是否为升级安装。
-        val firstInstall = last == null && !wasUpgraded(act)
+        // 因此 null 不等同于首装: "安装/更新时间有差"(真实升级) 或 "本机早已跑过旧版"
+        // 任一成立即视为升级, 只有"两个时间戳完全相同 且 从未运行过本 App"才算首装。
+        val upgraded = wasUpgraded(act)
+        val veteran = hasRunBefore(act)
+        val firstInstall = last == null && !upgraded && !veteran
+        Log.i(TAG, "alive_check: cur=" + cur + " last=" + last + " answered=" + answered +
+                " upgraded=" + upgraded + " veteran=" + veteran + " focus=" + act.hasWindowFocus())
         when {
             // 首次安装(或本版已装过): 只记账, 不打扰
             firstInstall || last == cur ->
@@ -63,10 +70,10 @@ object AliveCheck {
             answered || !CrashReportConfig.enabled(act) ->
                 prefs.edit().putString(K_LAST_VERSION, cur).apply()
             // 已有其它弹窗(如更新提示)在前台时让位, 稍后重试
-            !act.hasWindowFocus() -> retryLater(act, attempt)
+            !act.hasWindowFocus() && attempt < MAX_RETRY -> retryLater(act, attempt)
             else -> {
-                prefs.edit().putString(K_LAST_VERSION, cur).apply()
                 showAlive(act, prefs, cur)
+                prefs.edit().putString(K_LAST_VERSION, cur).apply()
             }
         }
     }
@@ -75,6 +82,13 @@ object AliveCheck {
     private fun wasUpgraded(act: Activity): Boolean = try {
         val pi = act.packageManager.getPackageInfo(act.packageName, 0)
         pi.lastUpdateTime - pi.firstInstallTime > UPGRADE_GAP_MS
+    } catch (e: Exception) {
+        false
+    }
+
+    /** 本机是否早就跑过本 App(旧版本没有 alive_check, 但崩溃上报的 install_id 早已生成)。 */
+    private fun hasRunBefore(act: Activity): Boolean = try {
+        act.getSharedPreferences(INSTALL_PREFS, Context.MODE_PRIVATE).contains(K_INSTALL_ID)
     } catch (e: Exception) {
         false
     }
@@ -89,17 +103,28 @@ object AliveCheck {
         val (d, box) = Ui.dialog(act, "检测活人")
         box.addView(Ui.dialogText(act, "还在用 Nyral 吗？点一下我就知道。\n" +
                 "只回传一行匿名回执（版本号、系统版本、安装随机 ID），不含任何聊天内容。"))
-        box.addView(Ui.primaryBtn(act, "是的，还在用") {
+        // 确认/取消/点弹窗外都算一次活人证据: 都回执, 用 answer 区分态度, 不再把取消静默丢掉
+        var sent = false
+        fun report(answer: String) {
+            if (sent) return
+            sent = true
             markAnswered(prefs, cur)
-            upload(act, meta("PULSE"))
+            upload(act, meta("PULSE") + "answer: " + answer + "\n")
+        }
+        box.addView(Ui.primaryBtn(act, "是的，还在用") {
+            report("yes")
             d.dismiss()
             showSuggest(act)
         }, gapParams(act, GAP_DP))
-        box.addView(Ui.dialogCancelBtn(act, "取消") {
-            // 取消即彻底静默: 既不上报, 本版也不再追问
-            markAnswered(prefs, cur)
+        // 取消走弱化文字按钮: 无底色无边框、小字灰字, 让第一眼只落在确认按钮上
+        box.addView(Ui.ghostBtn(act, "取消") {
+            report("cancel")
             d.dismiss()
-        }, gapParams(act, GAP_TIGHT_DP))
+        }, wrapGapParams(act, GHOST_GAP_DP))
+        // 点弹窗外关闭同样按取消记账(上报 + 本版不再追问); Activity 正在销毁时不记, 留给下次冷启动
+        d.setOnDismissListener {
+            if (!sent && !act.isFinishing && !act.isDestroyed) report("cancel")
+        }
         d.show()
     }
 
@@ -124,7 +149,7 @@ object AliveCheck {
                 Toast.makeText(act, "收到了，谢谢", Toast.LENGTH_SHORT).show()
             }
         }, gapParams(act, GAP_DP))
-        box.addView(Ui.dialogCancelBtn(act, "取消") { d.dismiss() }, gapParams(act, GAP_TIGHT_DP))
+        box.addView(Ui.ghostBtn(act, "取消") { d.dismiss() }, wrapGapParams(act, GHOST_GAP_DP))
         d.show()
     }
 
@@ -179,6 +204,15 @@ object AliveCheck {
             p.edit().putString(K_INSTALL_ID, it).apply()
         }
     }
+
+    /** 宽度自适应并水平居中的上间距布局参数(给弱化按钮用) */
+    private fun wrapGapParams(act: Activity, topDp: Int): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = Ui.dp(act, topDp)
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
 
     private fun gapParams(act: Activity, topDp: Int): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(

@@ -715,6 +715,18 @@ object Ui {
             setOnClickListener { onClick() }
         }
 
+    /** 弹窗弱化文字按钮: 无底色无边框, 字号小且灰, 只做兜底操作入口(不抢视觉焦点) */
+    fun ghostBtn(a: Activity, text: String, onClick: () -> Unit): TextView =
+        TextView(a).apply {
+            this.text = text
+            textSize = 12f
+            isClickable = true
+            setTextColor(SUB)
+            gravity = Gravity.CENTER
+            setPadding(dp(a, 10), dp(a, 4), dp(a, 10), dp(a, 4))
+            setOnClickListener { onClick() }
+        }
+
     /** 自绘勾选圆点：选中=绿底白●，未选中=浅灰圆底 */
     fun check(a: Activity, checked: Boolean): TextView = TextView(a).apply {
         gravity = Gravity.CENTER
