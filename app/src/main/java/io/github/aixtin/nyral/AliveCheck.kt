@@ -36,6 +36,7 @@ object AliveCheck {
     private const val MAX_SUGGEST_LEN = 500
     private const val MAX_RETRY = 3
     private const val RETRY_DELAY_MS = 2500L
+    private const val UPGRADE_GAP_MS = 60_000L
 
     /** 调用方(MainActivity)首屏稳定后再问, 避免与首帧渲染/更新检查抢焦点。 */
     const val START_DELAY_MS = 3000L
@@ -51,11 +52,16 @@ object AliveCheck {
         val cur = BuildConfig.VERSION_NAME
         val last = prefs.getString(K_LAST_VERSION, null)
         val answered = prefs.getString(K_ANSWERED, null) == cur
+        // last_version 自 v2.9.11 才引入, 老用户升级上来时必然为 null;
+        // 因此 null 不等同于首装, 需用安装时间与更新时间的差值判断本次是否为升级安装。
+        val firstInstall = last == null && !wasUpgraded(act)
         when {
-            // 首次安装: 只记账, 不打扰
-            last == null -> prefs.edit().putString(K_LAST_VERSION, cur).apply()
-            // 同版本重进 / 本版已问过 / 用户关了上报: 一律不弹
-            last == cur || answered || !CrashReportConfig.enabled(act) -> Unit
+            // 首次安装(或本版已装过): 只记账, 不打扰
+            firstInstall || last == cur ->
+                prefs.edit().putString(K_LAST_VERSION, cur).apply()
+            // 本版已问过 / 用户关了上报: 不弹
+            answered || !CrashReportConfig.enabled(act) ->
+                prefs.edit().putString(K_LAST_VERSION, cur).apply()
             // 已有其它弹窗(如更新提示)在前台时让位, 稍后重试
             !act.hasWindowFocus() -> retryLater(act, attempt)
             else -> {
@@ -63,6 +69,14 @@ object AliveCheck {
                 showAlive(act, prefs, cur)
             }
         }
+    }
+
+    /** 是否为升级安装: 首装时 firstInstallTime 与 lastUpdateTime 相同。清除数据不改变这两个值, 不会误判。 */
+    private fun wasUpgraded(act: Activity): Boolean = try {
+        val pi = act.packageManager.getPackageInfo(act.packageName, 0)
+        pi.lastUpdateTime - pi.firstInstallTime > UPGRADE_GAP_MS
+    } catch (e: Exception) {
+        false
     }
 
     /** 重试次数用尽后本次放弃, 且不写已答标记(下次冷启动还有机会问)。 */
