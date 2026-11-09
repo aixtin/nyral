@@ -89,6 +89,18 @@ class AboutActivity : Activity() {
             Ui.press(this)
         })
         linkCard.addView(Ui.divider(this))
+        linkCard.addView(infoRow("GitHub", "aixtin/nyral").apply {
+            isClickable = true
+            setOnClickListener { openUrl("https://github.com/aixtin/nyral") }
+            Ui.press(this)
+        })
+        linkCard.addView(Ui.divider(this))
+        linkCard.addView(infoRow("Gitee", "aixtin/Nyral").apply {
+            isClickable = true
+            setOnClickListener { openUrl("https://gitee.com/aixtin/Nyral") }
+            Ui.press(this)
+        })
+        linkCard.addView(Ui.divider(this))
         linkCard.addView(infoRow(getString(R.string.about_28), getString(R.string.about_29)).apply {
             isClickable = true
             setOnClickListener { Feedback.showSuggest(this@AboutActivity) }
