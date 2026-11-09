@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import java.util.Calendar
 
 /**
@@ -22,6 +23,28 @@ object TimerScheduler {
 
     /** showIntent 固定 requestCode, 与 taskId 广播 requestCode 区分开 */
     private const val SHOW_REQUEST_CODE = 0x2001
+
+    /** 期望触发时刻锚点(2026-11-10): PendingIntent 记录在 force-stop 后仍会残留, 单靠 FLAG_NO_CREATE 会误判"闹钟齐全" */
+    private const val ANCHOR_PREFS = "timer_alarm_anchor"
+
+    /** 锚点宽限: 到点被消费后若执行链没及时续期, 超过该时长即视为丢失, 允许自愈重排 */
+    private const val ANCHOR_GRACE_MS = 10 * 60 * 1000L
+
+    private fun anchorKey(taskId: Long) = "t:$taskId"
+
+    private fun writeAnchor(context: Context, taskId: Long, at: Long) {
+        context.getSharedPreferences(ANCHOR_PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(anchorKey(taskId), at).apply()
+    }
+
+    private fun clearAnchor(context: Context, taskId: Long) {
+        context.getSharedPreferences(ANCHOR_PREFS, Context.MODE_PRIVATE).edit()
+            .remove(anchorKey(taskId)).apply()
+    }
+
+    private fun readAnchor(context: Context, taskId: Long): Long =
+        context.getSharedPreferences(ANCHOR_PREFS, Context.MODE_PRIVATE)
+            .getLong(anchorKey(taskId), 0L)
 
     /** 解析 "每天 HH:mm" -> Calendar 目标时刻; 失败返回 null */
     fun parseCron(cronDesc: String): Calendar? {
@@ -41,7 +64,7 @@ object TimerScheduler {
         }
     }
 
-    /** 注册/刷新任务闹钟 */
+    /** 注册/刷新任务闹钟; 成功即写入期望触发时刻锚点(2026-11-10) */
     fun schedule(context: Context, taskId: Long, cronDesc: String) {
         val cal = parseCron(cronDesc) ?: return
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -63,6 +86,7 @@ object TimerScheduler {
             } else {
                 am.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
             }
+            writeAnchor(context, taskId, cal.timeInMillis)
         } catch (e: Exception) {
             // 兜底降级(2026-11-10 改): 有精确闹钟权限走 setExactAndAllowWhileIdle, 没有才退 inexact 窗口,
             // 抄 MacroDroid Lnq;.d(J,Z,PendingIntent) 的现场探测思路, 不对权限做任何假定
@@ -73,8 +97,10 @@ object TimerScheduler {
                 } else {
                     am.setWindow(AlarmManager.RTC_WAKEUP, cal.timeInMillis, 10 * 60 * 1000L, pi)
                 }
+                writeAnchor(context, taskId, cal.timeInMillis)
             } catch (e2: Exception) {
-                android.util.Log.e("TimerScheduler", "schedule 失败: ${e2.message}")
+                Log.e("TimerScheduler", "schedule 失败: ${e2.message}")
+                clearAnchor(context, taskId)
             }
         }
     }
@@ -83,6 +109,7 @@ object TimerScheduler {
     fun cancel(context: Context, taskId: Long) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         am.cancel(pendingIntent(context, taskId))
+        clearAnchor(context, taskId)
     }
 
     /**
@@ -95,7 +122,7 @@ object TimerScheduler {
         val intent = Intent(context, TimerWakeReceiver::class.java)
             .setAction(ACTION_WAKE)
             .putExtra("task_id", taskId)
-        return try {
+        val exists = try {
             PendingIntent.getBroadcast(
                 context,
                 (taskId and 0x7FFFFFFF).toInt(),
@@ -105,6 +132,13 @@ object TimerScheduler {
         } catch (e: Exception) {
             false
         }
+        if (!exists) return false
+        // 2026-11-10 修复: force-stop / 厂商清理只移除 AlarmManager 里的闹钟, PendingIntentRecord 仍残留,
+        // 只看 FLAG_NO_CREATE 会误判"齐全"导致永不重排(红米实测 force-stop 后 dumpsys alarm=0 却报齐全)。
+        // 故叠加期望触发时刻锚点: 锚点缺失(旧版遗留)或已过期超宽限 => 判定丢失, 交给上层重排。
+        val anchor = readAnchor(context, taskId)
+        if (anchor <= 0L) return false
+        return System.currentTimeMillis() <= anchor + ANCHOR_GRACE_MS
     }
 
     private fun pendingIntent(context: Context, taskId: Long): PendingIntent {

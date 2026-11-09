@@ -76,7 +76,7 @@ class NyralApp : Application() {
         // 一次性 setAlarmClock 随重启消失且无人续期 => 任务永久静默死亡。这里任何进程启动都做一次幂等校验
         // (判据: boot_count 变化 / 启用任务的闹钟 PendingIntent 已不存在), 无变化时零副作用。
         TimerBootJobService.ensureScheduled(this)
-        TimerRecovery.ensureAsync(this, "app_start")
+        TimerRecovery.ensureAsync(this, "app_start", force = true)
     }
 
     private fun installCrashHandler() {

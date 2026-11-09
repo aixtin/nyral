@@ -38,8 +38,12 @@ class TimerBootReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             Log.e("TimerBoot", "ensureScheduled 失败 ${e.message}")
         }
-        // 是否真的需要重新排由 TimerRecovery 内部判据决定(boot_count / 闹钟是否缺失), 重复投递不会重复执行
-        TimerRecovery.ensureAsync(context, "bcast:$action")
+        // 时间/时区被改: 闹钟 PendingIntent 还在, 但"每天 HH:mm"算出来的绝对时刻已经变了,
+        // 判据探不到这种脱节, 必须无条件重排(2026-11-10 补测发现)。
+        val timeShifted = action == Intent.ACTION_TIME_CHANGED ||
+            action == Intent.ACTION_TIMEZONE_CHANGED
+        // 其余场景交给 TimerRecovery 内部判据(boot_count / 闹钟是否缺失 / 锚点过期), 重复投递不会重复执行
+        TimerRecovery.ensureAsync(context, "bcast:$action", force = timeShifted)
     }
 
     private companion object {

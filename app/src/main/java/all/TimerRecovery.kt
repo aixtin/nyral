@@ -29,7 +29,7 @@ object TimerRecovery {
      * @return true 表示本次确实执行了重排
      */
     @Synchronized
-    fun ensure(context: Context, reason: String): Boolean {
+    fun ensure(context: Context, reason: String, force: Boolean = false): Boolean {
         val ctx = context.applicationContext
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val bootCount = readBootCount(ctx)
@@ -56,7 +56,10 @@ object TimerRecovery {
             try { !TimerScheduler.hasAlarm(ctx, it.id) } catch (e: Exception) { true }
         }
 
-        if (!rebooted && missing.isEmpty()) {
+        // force=true: 冷启动通道(L2)无条件重排。force-stop / 厂商清理后 AlarmManager 里的闹钟已被移除,
+        // 但 PendingIntentRecord 与锚点都还在, 任何"是否齐全"的探测都会误判(红米实测),
+        // 所以这一步不探测, 直接幂等 cancel+schedule —— 与 MacroDroid 开机无条件重排同思路。
+        if (!force && !rebooted && missing.isEmpty()) {
             Log.i(TAG, "$reason: 无需重排(启用 ${enabled.size} 个, 闹钟齐全)")
             return false
         }
@@ -92,11 +95,11 @@ object TimerRecovery {
     }
 
     /** 异步版本: 供 onCreate / 广播 onReceive 使用, 避免主线程碰 SQLite 与 AlarmManager binder */
-    fun ensureAsync(context: Context, reason: String) {
+    fun ensureAsync(context: Context, reason: String, force: Boolean = false) {
         val app = context.applicationContext
         Thread {
             try {
-                ensure(app, reason)
+                ensure(app, reason, force)
             } catch (e: Exception) {
                 Log.e(TAG, "$reason: 重排异常 ${e.message}")
             }
