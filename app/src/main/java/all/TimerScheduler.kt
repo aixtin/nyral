@@ -64,9 +64,15 @@ object TimerScheduler {
                 am.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
             }
         } catch (e: Exception) {
-            // 兜底降级, 保证链路能跑
+            // 兜底降级(2026-11-10 改): 有精确闹钟权限走 setExactAndAllowWhileIdle, 没有才退 inexact 窗口,
+            // 抄 MacroDroid Lnq;.d(J,Z,PendingIntent) 的现场探测思路, 不对权限做任何假定
             try {
-                am.setWindow(AlarmManager.RTC_WAKEUP, cal.timeInMillis, 10 * 60 * 1000L, pi)
+                val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms()
+                if (canExact) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                } else {
+                    am.setWindow(AlarmManager.RTC_WAKEUP, cal.timeInMillis, 10 * 60 * 1000L, pi)
+                }
             } catch (e2: Exception) {
                 android.util.Log.e("TimerScheduler", "schedule 失败: ${e2.message}")
             }
@@ -77,6 +83,28 @@ object TimerScheduler {
     fun cancel(context: Context, taskId: Long) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         am.cancel(pendingIntent(context, taskId))
+    }
+
+    /**
+     * 闹钟是否仍在册(2026-11-10): 用 FLAG_NO_CREATE 探测 PendingIntent 是否还存在。
+     * 语义刻意做窄: 返回 false => 一定没排(重启/进程被杀/被系统清理后 PendingIntent 记录消失);
+     * 返回 true 只代表"排过", 不代表闹钟没被消费 —— 但足以区分"重启后全丢"这个主场景,
+     * 且避免周期任务每次 tick 都无条件重置闹钟。
+     */
+    fun hasAlarm(context: Context, taskId: Long): Boolean {
+        val intent = Intent(context, TimerWakeReceiver::class.java)
+            .setAction(ACTION_WAKE)
+            .putExtra("task_id", taskId)
+        return try {
+            PendingIntent.getBroadcast(
+                context,
+                (taskId and 0x7FFFFFFF).toInt(),
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            ) != null
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun pendingIntent(context: Context, taskId: Long): PendingIntent {

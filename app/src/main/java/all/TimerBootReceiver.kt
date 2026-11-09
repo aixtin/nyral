@@ -3,38 +3,47 @@ package io.github.aixtin.nyral
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 
 /**
- * 开机/应用更新后重排定时岗位(2026-10-11):
- * 设备重启后 AlarmManager 全部清空, 应用更新(MY_PACKAGE_REPLACED)也可能丢闹钟,
- * 收到广播后遍历启用任务重新注册, 并尝试拉起保活前台服务;
- * FGS 启动失败(个别 ROM 限制)不影响 alarm 重排, 下次进页面 ensure 会兜底拉起。
+ * 定时岗位重排广播入口(2026-10-11, 2026-11-10 扩至多触发源):
+ * 设备重启 / 应用更新 / 时间被改 / 时区变更 都会让 AlarmManager 与实际时刻脱节,
+ * 收到广播后统一交给 TimerRecovery 幂等重排。
+ *
+ * 2026-11-10 扩展依据(反编译竞品):
+ * - MacroDroid: BOOT priority=INT_MAX, 另有 crashguard SchedulerReceiver 监听 TIME_SET+TIMEZONE_CHANGED
+ * - Tasker: BOOT priority=999, 只靠 priority 而不做 Direct Boot
+ * - 两家都监听 QUICKBOOT_POWERON(部分厂商重启只发这个, 不发 BOOT_COMPLETED)
+ * - Tasker 还监听 PACKAGE_ADDED/REMOVED: 重启后用户只要装/卸任意 App 就多一次重排机会(该 action 在 O+ 隐式广播豁免清单内)
+ * 顺序抄 MacroDroid StartupReceiver: 广播里先做"立进程"的动作, 再进入可失败的业务逻辑。
  */
 class TimerBootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
-        if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        val tasks = try {
-            TimerTaskDb(context).all()
+        val supported = action == Intent.ACTION_BOOT_COMPLETED ||
+            action == ACTION_QUICKBOOT ||
+            action == ACTION_QUICKBOOT_HTC ||
+            action == Intent.ACTION_TIME_CHANGED ||
+            action == Intent.ACTION_TIMEZONE_CHANGED ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+            action == Intent.ACTION_PACKAGE_ADDED ||
+            action == Intent.ACTION_PACKAGE_REMOVED
+        if (!supported) return
+
+        Log.i("TimerBoot", "收到广播: $action")
+        // 去重前先确保兜底 job 在册(即便后续重排抛异常, 15min 内还能自愈)
+        try {
+            TimerBootJobService.ensureScheduled(context)
         } catch (e: Exception) {
-            android.util.Log.e("TimerBoot", "读取任务失败: ${e.message}")
-            return
+            Log.e("TimerBoot", "ensureScheduled 失败 ${e.message}")
         }
-        // 2026-10-13 fix: 先全量取消旧闹钟(含已禁用任务), 再排启用任务, 防禁用后 *walarm* 残留到点仍触发
-        for (t in tasks) {
-            TimerScheduler.cancel(context, t.id)
-        }
-        var enabledCount = 0
-        for (t in tasks) {
-            if (t.enabled) {
-                TimerScheduler.schedule(context, t.id, t.cronDesc)
-                enabledCount++
-            }
-        }
-        android.util.Log.i("TimerBoot", "$action: 重排 $enabledCount 个启用任务")
-        if (enabledCount > 0) {
-            TimerKeepAliveService.start(context)
-        }
+        // 是否真的需要重新排由 TimerRecovery 内部判据决定(boot_count / 闹钟是否缺失), 重复投递不会重复执行
+        TimerRecovery.ensureAsync(context, "bcast:$action")
+    }
+
+    private companion object {
+        const val ACTION_QUICKBOOT = "android.intent.action.QUICKBOOT_POWERON"
+        const val ACTION_QUICKBOOT_HTC = "com.htc.intent.action.QUICKBOOT_POWERON"
     }
 }

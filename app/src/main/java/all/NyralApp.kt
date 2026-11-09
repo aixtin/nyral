@@ -71,6 +71,12 @@ class NyralApp : Application() {
         exportPendingCrashes()
         // 2026-10-31: 回收上次运行遗留的本机脚本进程组(崩溃/被杀/断电后仍占 CPU 的场景)
         ProcGuard.sweepAsync(this)
+        // 2026-11-10: 定时岗位三层重排的 L2(冷启动)+L3(兜底 job 注册)。
+        // 一加重启后 BOOT_COMPLETED 被 ColorOS BootPressureHolder 压进延迟队列, 广播入口(L1)失效,
+        // 一次性 setAlarmClock 随重启消失且无人续期 => 任务永久静默死亡。这里任何进程启动都做一次幂等校验
+        // (判据: boot_count 变化 / 启用任务的闹钟 PendingIntent 已不存在), 无变化时零副作用。
+        TimerBootJobService.ensureScheduled(this)
+        TimerRecovery.ensureAsync(this, "app_start")
     }
 
     private fun installCrashHandler() {
