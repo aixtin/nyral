@@ -488,10 +488,19 @@ object ToolExecutor {
                 if (code.isBlank()) "请指定 code(要执行的 JS 脚本)" else ScriptEngine.runJs(code, timeout)
             }
             "sh_run" -> run {
-                val scriptRaw = try { JSONObject(arg.trim()).optString("script", "") } catch (e: Exception) { arg.trim() }
-                if (scriptRaw.isBlank()) return@run "错误: sh_run 缺少 script 参数(需提供要执行的脚本), 空调用无效, 请带 script 字段重试"
+                // 2026-11-09 全工具压测: 模型高频误写 {"command":"..."}(ssh_run 的参数名),
+                // 导致 7 轮次 13 次空调用。这里统一取 script, 并兼容 command/cmd 别名后规范化再执行。
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val scriptRaw = jo?.optString("script", "").orEmpty().ifBlank { jo?.optString("command", "").orEmpty() }
+                    .ifBlank { jo?.optString("cmd", "").orEmpty() }
+                val script = scriptRaw.ifBlank {
+                    // 非 JSON 的裸脚本仍按原行为整段当脚本(老路径兼容)
+                    if (jo == null) arg.trim() else ""
+                }
+                if (script.isBlank()) return@run "错误: sh_run 缺少 script 参数(需提供要执行的脚本), 空调用无效, 请带 script 字段重试"
+                val normArg = JSONObject().put("script", script).put("timeout_ms", jo?.optLong("timeout_ms", 15000L) ?: 15000L).toString()
                 // 上方 key0="sh_run" 已走完同参数确认(strict 档曾要点两次), 这里跳过内层重复确认
-                ScriptEngine.runShConfirmed(context, arg, skipConfirm = true)
+                ScriptEngine.runShConfirmed(context, normArg, skipConfirm = true)
             }
             "security_set" -> SecurityConfig.set(context, arg)
             "gen_image" -> GenTools.genImage(context, arg)

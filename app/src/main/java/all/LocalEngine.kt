@@ -218,11 +218,11 @@ object LocalEngine {
         ToolSpec("device_snapshot", "读取手机设备面板实时快照(只读): CPU 占用与最高核频率、内存、SoC 温度、电池、负载、数据分区余量、近5分钟峰值。用户问手机现在什么状态/为什么卡/烫不烫/还剩多少空间时调用; 动态指标不会自动进上下文, 需要时才取", "JSON: {\"fields\":[\"cpu\",\"mem\",\"temp\"]} (可省略=全部; 可选 profile/cpu/mem/temp/batt/load/disk/series)", CapabilityScope.ZONE_READONLY),
         ToolSpec("device_probe", "只读探针追单个对象: 传包名或进程名, 返回安装/版本/pid/常驻内存 RSS/线程数/进程状态/是否有同名内核模块; 权限通道不足的字段会如实说明缺哪个通道", "JSON: {\"target\":\"com.tencent.mm\"} (或 system_server 这类进程名)", CapabilityScope.ZONE_READONLY),
         ToolSpec("memory_search", "语义检索本地记忆", "JSON: {\"query\":\"查询内容\"}"),
-        ToolSpec("ssh_run", "通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数", "JSON: {\"command\":\"连接名:命令\"} 如 {\"command\":\"vps:ls /\"}"),
+        ToolSpec("ssh_run", "通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 本工具是远端执行, 参数名 command, 与本机 sh_run(参数名 script)不同, 不要互相混用; 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数", "JSON: {\"command\":\"连接名:命令\"} 如 {\"command\":\"vps:ls /\"}"),
         ToolSpec("ssh_config_add", "新增/更新SSH连接配置(直接写入SSH配置库, 写后即可用 ssh_run 连接): 必填 name/host/user, 端口默认22, 同名 name 时覆盖旧配置(编辑语义)。可选 password(密码)/privateKey(私钥内容)/passphrase(私钥口令), 密码与私钥至少给其一(都没有时仅保存连接, 连接会因缺凭据失败); 跳板机可选 proxyHost/proxyPort(默认22)/proxyUser/proxyPassword/proxyPrivateKey/proxyPassphrase, 非空时先连跳板再经隧道连目标", "JSON: {\"name\":\"vps\",\"host\":\"<VPS_PUBLIC_IP>\",\"port\":22,\"user\":\"root\",\"password\":\"可选\",\"privateKey\":\"可选\",\"proxyHost\":\"可选跳板\"}"),
         ToolSpec("web_download", "下载网页/文件并保存到手机工作目录 下载/ 子目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}"),
         ToolSpec("js_run", "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 无文件/网络权限, 断网可用不依赖服务器)", "JSON: {\"code\":\"要执行的JS脚本\",\"timeoutMs\":8000}"),
-        ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000}"),
+        ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000} 参数名是 script(传 command/cmd 也会被自动兼容)。本工具在手机本机就地执行, 不需要任何 SSH 连接, 与远端 ssh_run 完全不同"),
         ToolSpec("ask_user", "当用户指令模糊/多义/缺关键信息、无法可靠推断时, 向用户当面澄清: 在手机弹原生选择框, 列出候选选项让用户点选(可选自定义输入)。用户的选择会作为本工具结果返回, 据此继续。仅在确实拿不准时才调用, 不要滥用", "JSON: {\"question\":\"要确认的问题\",\"options\":[\"选项1\",\"选项2\"],\"allow_custom\":true}"),
         ToolSpec("tool_detail", "查询未在回调列表中列出的工具的完整规格(描述+参数格式)并临时激活; 激活后该工具会加入本轮回调列表, 可直接 function calling 调用。当你想用 system 索引里看到但不在回调列表中的工具时, 先调本工具获取规格。", "JSON: {\"name\":\"工具名\"}"),
         ToolSpec("attach_read", "分块读取对话中收到的落库附件的文本内容(2026-10-26 扩展): 支持 *.txt 等纯文本, 也支持 Word(docx)/Excel(xlsx)/PPT(pptx)/压缩包(zip/7z/rar/gz) 自动提取文本; PDF 请用 pdf_page。参数 {name: 附件文件名或 att:// 引用, offset: 起始字符偏移(默认0), limit: 本次最多返回字符数(默认4000, 最大50000)}。超大附件按需分段读, 禁止一次读全文; 读完后如需继续传 offset=上次offset+已读长度。", "JSON: {\"name\":\"附件文件名\",\"offset\":0,\"limit\":4000}"),
@@ -526,7 +526,7 @@ object LocalEngine {
                 "code" to str("要执行的 JS 脚本(应用内就地, 纯计算/逻辑/数据操作)"),
                 "timeoutMs" to int("超时毫秒, 默认 8000, 防死循环", 8000))
             "sh_run" -> obj(listOf("script"),
-                "script" to str("要执行的 Shell 脚本内容(多行用 \\n)"),
+                "script" to str("要执行的 Shell 脚本内容(多行用 \\n)。参数名必须是 script 而不是 command(sh_run 与 ssh_run 参数名不同)"),
                 "timeout_ms" to int("超时毫秒(默认15000)", 15000))
 
             "web_search" -> obj(listOf("q"),
@@ -674,7 +674,7 @@ object LocalEngine {
             while (true) {
                 if (cancelRequested) {
                     // 方案B: 轮间停止也带回已累计正文(旧实现 onDone("") 丢弃)
-                    cb.onDone(full.toString())
+                    cb.onDone(scrubXmlLeak(full.toString()))
                     return
                 }
                 val res = streamOnce(context, messages, cb, answerGate, injectedTools, hotLoaded, taskId = taskId)
@@ -709,7 +709,7 @@ object LocalEngine {
                             cb.onDelta("\n\n[工具预算已耗尽, 未能生成最终总结; 以上为已完成的执行结果]")
                         }
                         PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = true)
-                        cb.onDone(full.toString())
+                        cb.onDone(scrubXmlLeak(full.toString()))
                         return
                     }
                     // 正则化执行本轮全部工具(可能并行多 call), 结果逐条回填 role=tool
@@ -846,7 +846,7 @@ object LocalEngine {
                 }
                 full.append(capOut(res.accumulated))
                 PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = true)
-                cb.onDone(full.toString())
+                cb.onDone(scrubXmlLeak(full.toString()))
                 return
             }
         } catch (e: NoToolsException) {
@@ -862,7 +862,7 @@ object LocalEngine {
             // 取消优先于自动重试: 取消引发的断线若被吞成重试, 会先污染 UI("[网络波动]")再空 onDone 丢整轮内容
             if (cancelRequested) {
                 android.util.Log.i("Nyral", "chat cancelled during net-retry (skip retry)")
-                cb.onDone(full.toString())
+                cb.onDone(scrubXmlLeak(full.toString()))
                 return
             }
             // 请求级断线: 自动重连一次, 全程无输出, 无需用户手动"继续"
@@ -881,7 +881,8 @@ object LocalEngine {
         } catch (e: CancelWithPartial) {
             // 方案B(2026-10-31): 停止保留现场 —— 跨轮累计 + 本轮已流式产出的正文一并交回 UI,
             // 由 StreamUiBridge 落库并追加〔已中断〕标记(空内容时仍按"不落库"处理)
-            val body = CancelWithPartial.merge(full.toString(), e.partial)
+            val body = scrubXmlLeak(CancelWithPartial.merge(full.toString(), e.partial))
+            android.util.Log.i("Nyral", "cancel body hasLeak=" + body.contains("</tool_call>") + " partialHasLeak=" + e.partial.contains("</tool_call>"))
             android.util.Log.i("Nyral", "chat cancelled by user, keep partial len=${body.length}")
             cb.onDone(body)
             return
@@ -889,7 +890,7 @@ object LocalEngine {
             if (cancelRequested) {
                 // 用户主动停止: 不视为错误; 方案B 带上已累计正文, 不再空 onDone 丢弃现场
                 android.util.Log.i("Nyral", "chat cancelled by user, keep len=${full.length}")
-                cb.onDone(full.toString())
+                cb.onDone(scrubXmlLeak(full.toString()))
                 return
             }
             android.util.Log.e("Nyral", "chat error", e)
@@ -1057,6 +1058,10 @@ object LocalEngine {
         // XML 泄漏拦截缓冲(2026-11-01): deepseek-flash 把工具调用以 <tool_call>名<arg_key>..</arg_key><arg_value>..</arg_value></tool_call>
         // 平铺格式泄漏到 content 通道(而非 delta.tool_calls), 原生 tools 模式命中后进缓冲, 块闭合后解析回工具调用
         var xmlLeakBuf: StringBuilder? = null
+        // 2026-11-09: 本轮曾因泄漏块解析不出有效调用而被丢弃(整轮被吞光时需要触发重试, 不能给用户空气泡)
+        var xmlLeakDropped = false
+        // 2026-11-09: 代码围栏跟踪——围栏内不判泄漏, 防止让 AI 贴 XML/工具标签示例时被当成泄漏吞掉
+        var inFence = false
         var mode = MODE_NONE
         var aborted = false
         var seenDone = false   // 收到 [DONE] 才算服务端正常结束
@@ -1130,7 +1135,8 @@ object LocalEngine {
                         cb.onThinkingStart()
                     }
                     cb.onThinkingDelta(rText)
-                    continue
+                    // 2026-11-09 修复: 同帧 reasoning_content 与 content 并存时, 原实现 continue 直接跳过正文分支
+                    // (NVIDIA nemotron 等模型首帧常同时给思考尾巴+正文开头), 导致每次回答首字被吞
                 }
                 val text = if (delta != null && !delta.isNull("content")) delta.optString("content") else ""
                 if (text.isEmpty()) continue
@@ -1170,11 +1176,16 @@ object LocalEngine {
                     // 文本协议兜底(仅无 tools 模式启用): 不再解析 XML/TOOL: 作为主要路径,
                     // 但保留兼容——若模型仍按旧协议输出可识别
                     if (!useTools) {
-                        if (xmlBuf != null || row.trimStart().startsWith("<tool_call") || row.trimStart().startsWith("<tool_name>")) {
+                        // 2026-11-09: 文本协议路径同步白名单制(此前只认 <tool_call/<tool_name 前缀,
+                        // 漏判 </tool_call> 孤立闭合、<function_call name=..>、<tool_detail>裸名 -> 落库污染上下文)
+                        val fRow = row.trimStart()
+                        if (fRow.startsWith("```") && Regex("```").findAll(fRow).count() == 1) inFence = !inFence
+                        if (xmlBuf != null || (!inFence && isXmlLeakRow(row))) {
                             val xbuf = (xmlBuf ?: StringBuilder()).append(row).append('\n')
                             xmlBuf = xbuf
-                            if (xbuf.contains("</tool_call>")) {
-                                val xml = xbuf.toString()
+                            val bufStr = xbuf.toString()
+                            if (bufStr.contains("</tool_call>") || xmlTagsClosed(bufStr)) {
+                                val xml = bufStr
                                 xmlBuf = null
                                 val t = parseXmlToolCall(xml)
                                 if (t != null) {
@@ -1184,7 +1195,9 @@ object LocalEngine {
                                     toolCallIds.add("xml_${toolCalls.size}")
                                     break
                                 }
-                                if (mode == MODE_CONTENT) { cb.onDelta(xml); accumulated.append(xml) }
+                                // 无有效调用的元标签块: 静默丢弃, 不回填正文(泄漏文本会落库污染下一轮上下文)
+                                android.util.Log.w("Nyral", "XML 泄漏块无有效工具调用已丢弃(text): " + bufStr.take(120))
+                                xmlLeakDropped = true
                             }
                             continue
                         }
@@ -1206,7 +1219,10 @@ object LocalEngine {
                         // 实测形态: <tool_call>名<arg_key>..</arg_key><arg_value>..</arg_value></tool_call>
                         // 以及 <工具名>{"arg":"val"}</工具名>(如 <memory_search>{"query":".."}</memory_search>),
                         // 命中后进缓冲不显示, 块闭合后解析回工具调用
-                        if (xmlLeakBuf != null || isXmlLeakRow(row)) {
+                        // 2026-11-09: 围栏行只翻转状态; 围栏内的 <...> 一律当正文(不判泄漏)
+                        val fenceRow = row.trimStart()
+                        if (fenceRow.startsWith("```") && Regex("```").findAll(fenceRow).count() == 1) inFence = !inFence
+                        if (xmlLeakBuf != null || (!inFence && isXmlLeakRow(row))) {
                             val xbuf = (xmlLeakBuf ?: StringBuilder()).append(row).append('\n')
                             xmlLeakBuf = xbuf
                             val bufStr = xbuf.toString()
@@ -1222,8 +1238,9 @@ object LocalEngine {
                                     android.util.Log.w("Nyral", "XML 泄漏已拦截解析: ${t.first} argsLen=${t.second.length}")
                                     break
                                 }
-                                // 全为元标签(tool_detail 等)或解析失败: 静默丢弃, 不污染 UI
+                                // 全为元标签(tool_detail 等)或解析失败: 静默丢弃, 不污染 UI, 并记下本轮曾丢弃以便收尾重试
                                 android.util.Log.w("Nyral", "XML 泄漏块无有效工具调用已丢弃: ${bufStr.take(120)}")
+                                xmlLeakDropped = true
                             }
                             continue
                         }
@@ -1386,7 +1403,7 @@ object LocalEngine {
         }
         // 泄漏重试(2026-11-01): 原生模式整轮只吐工具泄漏文本、且没解析出任何调用或正文
         // → 模型输出格式抽风(deepseek-flash 偶发), 抛重试让上层自动重连碰原生 tool_calls
-        val leakPending = isXmlLeakRow(lineBuf.toString()) || xmlLeakBuf != null || dsmlBuf != null
+        val leakPending = isXmlLeakRow(lineBuf.toString()) || xmlLeakBuf != null || dsmlBuf != null || xmlLeakDropped
         if (noToolOutput && accumulated.isBlank() && leakPending) {
             android.util.Log.w("Nyral", "模型输出工具调用格式异常(<tool_call>泄漏未解析), 触发自动重试")
             throw RetryableException("模型输出工具调用格式异常，自动重试")
@@ -1576,6 +1593,30 @@ object LocalEngine {
             val parsed = parseArgKeyArgs(xml)
             return nm to (parsed ?: "")
         }
+        // 变体 E: <function_call name="工具名">参数或裸名</function_call>(OpenAI/Anthropic 风格壳, 2026-11-09)
+        Regex("<(?:function_call|tool_use|invoke)\\s+name=\"([^\"]+)\"\\s*>([\\s\\S]*?)</(?:function_call|tool_use|invoke)>")
+            .find(xml)?.let { m ->
+                val nm = normalizeToolName(m.groupValues[1])
+                val body = m.groupValues[2].trim()
+                if (nm.isNotEmpty()) {
+                    val arg = when {
+                        body.isEmpty() -> ""
+                        body.startsWith("{") -> body
+                        else -> JSONObject().put("name", body).toString()
+                    }
+                    return nm to arg
+                }
+            }
+        // 变体 F: 元标签内是裸工具名或 JSON(<tool_detail>timer_task_create</tool_detail>)
+        // 2026-11-09: 不再静默丢弃——归一化为真实的 tool_detail 调用, 让它真拿到规格并激活,
+        // 否则模型会一直重复写这个空壳(实测三轮逐级退化)
+        Regex("<tool_detail>\\s*([^<]+?)\\s*</tool_detail>").find(xml)?.let { m ->
+            val body = m.groupValues[1].trim()
+            if (body.isNotEmpty()) {
+                val arg = if (body.startsWith("{")) body else JSONObject().put("name", body).toString()
+                return TOOL_DETAIL to arg
+            }
+        }
         // 变体 D: <工具名>{"arg":"val"}</工具名> 逐标签扫描, 跳过元标签, 取第一个有效工具
         val metaTags = setOf("tool_call", "tool_name", "tool_detail", "tool_param", "param", "arg_key", "arg_value", "calls")
         val jsonTags = Regex("<([a-z][a-z0-9_]*)>\\s*(\\{[\\s\\S]*?\\})\\s*</\\1>").findAll(xml).toList()
@@ -1589,16 +1630,64 @@ object LocalEngine {
         return null
     }
 
-    /** 行是否疑似 XML 泄漏(工具调用以泄漏文本进入 content 通道): 元标签或 工具名标签+JSON 开头 */
-    private fun isXmlLeakRow(row: String): Boolean {
-        val r = row.trimStart()
-        if (r.startsWith("<tool_call") || r.startsWith("<tool_name")) return true
-        return Regex("^<[a-z][a-z0-9_]*>\\s*\\{").containsMatchIn(r)
+    /** 正文里合法出现的标签白名单(Markdown 渲染用), 不在此列表的标签一律视为泄漏嫌疑 */
+    private val xmlBodyTags = setOf(
+        "br", "b", "i", "u", "s", "em", "strong", "code", "pre", "a", "img",
+        "p", "ul", "ol", "li", "hr", "blockquote", "span", "div", "del", "sup", "sub",
+        "small", "font", "details", "summary", "table", "thead", "tbody", "tr", "td", "th",
+        "h1", "h2", "h3", "h4", "h5", "h6"
+    )
+
+    /**
+     * 出口兜底净化(2026-11-09): 入口拦截按模式有多条路径, 实测仍有单行漏网
+     * (如孤立 </tool_call> 绕过缓冲直接进 accumulated, 落库后污染下一轮上下文,
+     * 导致模型自我模仿逐级退化)。落库前对最终正文按同一白名单逐行剔除, 幂等无害。
+     */
+    private fun scrubXmlLeak(s: String): String {
+        if (s.isEmpty() || !s.contains('<')) return s
+        val sb = StringBuilder()
+        var inFence = false
+        for (line in s.split("\n")) {
+            val f = line.trimStart()
+            if (f.startsWith("```") && Regex("```").findAll(f).count() == 1) inFence = !inFence
+            if (!inFence && isXmlLeakRow(line)) {
+                android.util.Log.w("Nyral", "落库前剔除泄漏行: " + line.trim().take(80))
+                continue
+            }
+            sb.append(line).append('\n')
+        }
+        return sb.toString().trimEnd('\n')
     }
 
-    /** 缓冲中所有开标签均有对应闭合标签(用于判定泄漏块完整) */
+    /**
+     * 行是否疑似 XML 泄漏(工具调用以泄漏文本进入 content 通道)。
+     * 2026-11-09: 由「黑名单枚举」改为「白名单制」——deepseek-flash 的泄漏形态每轮都在换
+     * (实测新增 </tool_call> 孤立闭合、<function_call name=..> 带属性壳、<tool_detail>裸工具名),
+     * 枚举式判定注定持续漏判, 故只放行已知正文标签, 其余一律进泄漏缓冲。
+     */
+    private fun isXmlLeakRow(row: String): Boolean {
+        val r = row.trimStart()
+        if (!r.startsWith("<")) return false
+        // Markdown 自动链接(如 <https://x.com>)不是标签, 直接放行
+        if (Regex("^</?(?:https?|ftp|mailto):").containsMatchIn(r)) return false
+        // 1) 已知调用壳前缀(含 OpenAI/Anthropic 风格变体与孤立闭合标签)
+        val shells = arrayOf(
+            "<tool_call", "<tool_name", "<tool_calls", "<tool_use", "<tool_result",
+            "<function_call", "<function_calls", "<invoke", "<antml",
+            "</tool_call", "</tool_name", "</tool_use", "</function_call", "</invoke",
+            "<tool_detail", "</tool_detail", "<memory_search"
+        )
+        for (p in shells) if (r.startsWith(p)) return true
+        // 2) 取首个标签名(支持属性/自闭合), 不在正文白名单即视为泄漏嫌疑
+        val tag = Regex("^</?([a-z][a-z0-9_]*)(?:\\s+[a-z_]+=\"[^\"]*\")*\\s*/?>").find(r)
+            ?.groupValues?.get(1) ?: return false
+        return tag !in xmlBodyTags
+    }
+
+    /** 缓冲中所有开标签均有对应闭合标签(用于判定泄漏块完整); 支持带属性标签 */
     private fun xmlTagsClosed(s: String): Boolean {
-        val open = Regex("<([a-z][a-z0-9_]*)>").findAll(s).map { it.groupValues[1] }.toList()
+        val open = Regex("<([a-z][a-z0-9_]*)(?:\\s+[a-z_]+=\"[^\"]*\")*\\s*/?>").findAll(s)
+            .map { it.groupValues[1] }.filter { it !in setOf("br", "hr", "img") }.toList()
         if (open.isEmpty()) return false
         return open.all { tag -> Regex("</$tag>").containsMatchIn(s) }
     }

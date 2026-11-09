@@ -36,6 +36,32 @@ object ScriptEngine {
         for (p in listOf("Packages", "java", "javax", "org", "com", "JavaImporter", "JavaAdapter", "getClass")) {
             runCatching { ScriptableObject.deleteProperty(scope, p) }
         }
+        // 2026-11-09 全工具压测: 模型默认写 console.log 输出, Rhino 沙箱无 console 会直接
+        // ReferenceError 浪费一次调用。这里注入纯 JS 的 console 桩(不暴露任何 Java 能力),
+        // 输出进 __consoleBuf, 脚本无返回值时回吐缓冲内容。
+        runCatching {
+            cx.evaluateString(scope, """
+                var __consoleBuf = [];
+                function __nyFmt(x) {
+                    try {
+                        if (x === null) return "null";
+                        if (typeof x === "object") return JSON.stringify(x);
+                        return String(x);
+                    } catch (e) { return String(x); }
+                }
+                function __nyPush(a) {
+                    var parts = [];
+                    for (var i = 0; i < a.length; i++) parts.push(__nyFmt(a[i]));
+                    __consoleBuf.push(parts.join(" "));
+                }
+                var console = {
+                    log: function () { __nyPush(arguments); },
+                    info: function () { __nyPush(arguments); },
+                    warn: function () { __nyPush(arguments); },
+                    error: function () { __nyPush(arguments); }
+                };
+            """.trimIndent(), "console_init", 1, null)
+        }
         return scope
     }
 
@@ -55,7 +81,12 @@ object ScriptEngine {
                 val res = cx.evaluateString(scope, code, "js_run", 1, null)
                 // 结果 JSON 序列化: 利用 Rhino 内置 JSON.stringify(版本无关, 支持对象/数组/字符串/数字)
                 if (res == null || res is Undefined) {
-                    "undefined"
+                    // console-only 脚本: 回吐 console 输出而不是干瘪的 undefined
+                    val buf = runCatching {
+                        cx.evaluateString(scope, "__consoleBuf.join('\\n')", "console_out", 1, null)
+                    }.getOrNull()
+                    val bufStr = buf?.toString().orEmpty()
+                    if (bufStr.isNotBlank() && bufStr != "undefined") bufStr else "undefined"
                 } else {
                     ScriptableObject.putProperty(scope, "__res", res)
                     val s = cx.evaluateString(scope, "JSON.stringify(__res)", "js_run", 1, null)

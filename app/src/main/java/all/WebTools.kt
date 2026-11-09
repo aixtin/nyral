@@ -41,12 +41,27 @@ object WebTools {
      * 返回: 多引擎网页搜索结果(标题+链接+摘要), 最多 max_results 条。
      * 引擎优先级: 搜狗移动端 -> 必应RSS -> 必应网页 -> 百度, 单个引擎空结果/被反爬时自动切换下一个。
      */
+    // 2026-11-09 全工具压测: 查不到答案时模型会在单轮内连续检索 10 次(单轮 50-68s)空转。
+    // 这里按 180s 滑动窗累计连续检索次数, 达阈值时在返回体末尾追加显式收敛指令。
+    @Volatile private var lastSearchAt = 0L
+    @Volatile private var searchStreak = 0
+
+    private fun streakHint(): String {
+        if (searchStreak < 4) return ""
+        return "\n【检索收敛提示】本轮已连续检索 $searchStreak 次。若以上结果仍不含目标信息, " +
+            "请立即停止继续检索, 基于已有信息作答或如实说明未找到; 不要再换关键词重复搜索。"
+    }
+
     fun search(arg: String): String {
         val json = try { JSONObject(arg) } catch (e: Exception) { null }
         val query = json?.optString("q")?.takeIf { it.isNotBlank() } ?: arg.trim()
         val maxResults = (json?.optInt("max_results", 5) ?: 5).coerceIn(1, 10)
         if (query.isBlank()) return "错误: 搜索关键词为空"
         if (query.length > 200) return "错误: 关键词过长"
+
+        val nowMs = System.currentTimeMillis()
+        searchStreak = if (nowMs - lastSearchAt in 1..180000L) searchStreak + 1 else 1
+        lastSearchAt = nowMs
 
         val attempts = listOf(
             "搜狗移动端" to { sogouSearch(query) },
@@ -59,12 +74,12 @@ object WebTools {
             val hits = try { fn() } catch (e: Exception) { emptyList<SearchHit>() }
             val effective = hits.take(maxResults)
             if (effective.isNotEmpty()) {
-                return formatSearchResults("搜索结果来源:【$name】", effective)
+                return formatSearchResults("搜索结果来源:【$name】", effective) + streakHint()
             }
             failures += name
         }
         return "未找到搜索结果(已依次尝试: ${failures.joinToString("→")}, 均为空或被拦截)。" +
-                "\n建议换更精确的关键词重试, 或直接 web_fetch 访问百度百科/豆瓣/猫眼等已知站点。"
+                "\n建议换更精确的关键词重试, 或直接 web_fetch 访问百度百科/豆瓣/猫眼等已知站点。" + streakHint()
     }
 
     private data class SearchHit(val title: String, val link: String, val snippet: String)
