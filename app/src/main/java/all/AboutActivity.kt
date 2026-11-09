@@ -81,7 +81,8 @@ class AboutActivity : Activity() {
         })
         content.addView(card)
 
-        // ---- 链接卡片（博客 / 仓库 / 免责声明 / 隐私政策）----
+        // ---- 官方链接（博客 / 代码仓库）----
+        content.addView(Ui.groupLabel(this, getString(R.string.about_group_links)))
         val linkCard = Ui.card(this)
         linkCard.addView(infoRow(getString(R.string.about_13), "atin.asia").apply {
             isClickable = true
@@ -100,37 +101,45 @@ class AboutActivity : Activity() {
             setOnClickListener { openUrl("https://gitee.com/aixtin/Nyral") }
             Ui.press(this)
         })
-        linkCard.addView(Ui.divider(this))
-        linkCard.addView(infoRow(getString(R.string.about_28), getString(R.string.about_29)).apply {
-            isClickable = true
-            setOnClickListener { Feedback.showSuggest(this@AboutActivity) }
-            Ui.press(this)
-        })
-        linkCard.addView(Ui.divider(this))
-        linkCard.addView(infoRow(getString(R.string.about_22), getString(R.string.about_23)).apply {
-            isClickable = true
-            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_22), Agreements.disclaimerText(this@AboutActivity)) }
-            Ui.press(this)
-        })
-        linkCard.addView(Ui.divider(this))
-        linkCard.addView(infoRow(getString(R.string.about_24), getString(R.string.about_23)).apply {
-            isClickable = true
-            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_24), Agreements.privacyText(this@AboutActivity)) }
-            Ui.press(this)
-        })
-        linkCard.addView(Ui.divider(this))
-        linkCard.addView(infoRow("腾讯频道", "点击加入").apply {
+        content.addView(linkCard)
+
+        // ---- 社区与反馈（腾讯频道 / QQ群 / 意见反馈）----
+        content.addView(Ui.groupLabel(this, getString(R.string.about_group_community)))
+        val communityCard = Ui.card(this)
+        communityCard.addView(infoRow("腾讯频道", "点击加入").apply {
             isClickable = true
             setOnClickListener { openUrl("https://pd.qq.com/s/qlu7z4xm?b=9") }
             Ui.press(this)
         })
-        linkCard.addView(Ui.divider(this))
-        linkCard.addView(infoRow(getString(R.string.about_25), getString(R.string.about_26)).apply {
+        communityCard.addView(Ui.divider(this))
+        communityCard.addView(infoRow(getString(R.string.about_25), getString(R.string.about_26)).apply {
             isClickable = true
             setOnClickListener { openUrl(getString(R.string.about_27)) }
             Ui.press(this)
         })
-        content.addView(linkCard)
+        communityCard.addView(Ui.divider(this))
+        communityCard.addView(infoRow(getString(R.string.about_28), getString(R.string.about_29)).apply {
+            isClickable = true
+            setOnClickListener { Feedback.showSuggest(this@AboutActivity) }
+            Ui.press(this)
+        })
+        content.addView(communityCard)
+
+        // ---- 协议（免责声明 / 隐私政策）----
+        content.addView(Ui.groupLabel(this, getString(R.string.about_group_legal)))
+        val legalCard = Ui.card(this)
+        legalCard.addView(infoRow(getString(R.string.about_22), getString(R.string.about_23)).apply {
+            isClickable = true
+            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_22), Agreements.disclaimerText(this@AboutActivity)) }
+            Ui.press(this)
+        })
+        legalCard.addView(Ui.divider(this))
+        legalCard.addView(infoRow(getString(R.string.about_24), getString(R.string.about_23)).apply {
+            isClickable = true
+            setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_24), Agreements.privacyText(this@AboutActivity)) }
+            Ui.press(this)
+        })
+        content.addView(legalCard)
 
         // ---- 底部说明 ----
         content.addView(TextView(this).apply {
