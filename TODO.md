@@ -1,5 +1,6 @@
 # Nyral 待办
 
+- [x] v2.9.22 发版（2026-11-09，versionCode 135）：定时唤醒 P0（pendingStop 跨实例残留吞掉真实闹钟，新增 startTimerTask 专用入口 + 5s 补停时限）；流式首字吞字 P0（reasoning_content 与 content 同帧时 continue 丢正文）；工具调用 XML 泄漏三路径拦截 + 历史污染清理；关于页链接三段重排 + GitHub/Gitee/腾讯频道；移除升级后活人弹窗、反馈入口迁至关于页；sh_run 别名 / 描述互指 / js_console / web_streak 四项修复
 - [x] 移除升级后「检测活人」弹窗（2026-11-09）：MainActivity 不再调用 AliveCheck.maybePrompt，`AliveCheck.kt` → `Feedback.kt` 只保留建议提交；「意见反馈」入口加入设置-关于页（中英双语 about_28/29），复用 /crash 通道 `type: FEEDBACK`；PRIVACY / README / 本待办同步更新
 - [x] v2.9.21 发版（2026-11-08，versionCode 134）：聊天模式产物卡恢复可点（纯文本路径保活 att:// 链接、仅在有链接时挂 LinkMovementMethod）；产物名预算改为按当前模式气泡实际宽度换算（聊天模式扣除 120dp 头像列）；聊天模式「显示 Markdown」开关下线、正文恒渲染 Markdown，格位替换为「视频直发」开关并移除设置页临时行；含前台服务超时闪退与 Android 10 inset 崩溃修复、反馈回执 device 字段
 - [x] v2.9.20 发版（2026-11-08，versionCode 133）：活人弹窗可靠性修复（焦点重试耗尽强制弹、检测间隔 60s→1s、last_version 缺失不再误判首装、标记改为展示后写入）；取消与点卡片外部均上报 `answer: cancel`（确认仍为 `answer: yes`），取消入口改为无底色无边框 12sp 灰字按钮；合并发布 v2.9.11 起未单独发布的活人弹窗功能
