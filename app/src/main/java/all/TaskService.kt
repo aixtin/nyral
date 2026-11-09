@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.SystemClock
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 
@@ -48,11 +49,31 @@ class TaskService : Service() {
         @Volatile private var fgStarted = false
         /** 前台化完成前收到的停止请求: 交给 onStartCommand 补完前台化后自停 */
         @Volatile private var pendingStop = false
+        /** fix(2026-11-09): 补停标记登记时刻, 超过 5s 视为失效, 避免跨对话残留吞掉真实闹钟唤醒 */
+        @Volatile private var pendingStopAt = 0L
 
         /** 启动前台服务(Android 8+ 需 startForegroundService, 兼容旧版走 startService) */
         fun start(context: Context) {
             pendingStop = false
             val intent = Intent(context, TaskService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        /**
+         * fix(2026-11-09): 定时岗位唤醒专用启动。
+         * TimerWakeReceiver 原先直接 startForegroundService, 绕过了 start() 里的 pendingStop=false,
+         * 导致上一轮对话在服务未前台化时登记的补停标记残留, 下一次真实闹钟被 onStartCommand 直接自停吞掉
+         * (任务不执行、last_run 不变、且因不进 onDone 而不续期, 任务从此静默死亡)。
+         */
+        fun startTimerTask(context: Context, taskId: Long) {
+            pendingStop = false
+            val intent = Intent(context, TaskService::class.java)
+                .setAction(ACTION_TIMER_TASK)
+                .putExtra(EXTRA_TASK_ID, taskId)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -69,6 +90,7 @@ class TaskService : Service() {
             // 未前台化前只登记待停, 由 onStartCommand 补完前台化后立即自停。
             if (!fgStarted) {
                 pendingStop = true
+                pendingStopAt = SystemClock.elapsedRealtime()
             } else {
                 context.stopService(Intent(context, TaskService::class.java))
             }
@@ -177,19 +199,29 @@ class TaskService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // 幂等: onCreate 已启动前台, 重复调用 startForeground 无副作用
         startForegroundCompat()
+        // fix(2026-11-09): 定时唤醒必须优先于 pendingStop 补停处理。
+        // 旧实现先消费 pendingStop 再判断 ACTION_TIMER_TASK, 只要用户做过一次普通对话
+        // (对话结束 stop() 时服务已销毁 → fgStarted=false → 登记 pendingStop),
+        // 下一次真实闹钟 100% 被自停吞掉: 任务不执行、不续期, UI 仍显示"启用中"。
+        if (intent?.action == ACTION_TIMER_TASK) {
+            pendingStop = false
+            ServiceNotifGroup.publishSummary(this)
+            val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
+            if (taskId > 0) runTimerTask(taskId) else TaskService.stop(this)
+            return START_NOT_STICKY
+        }
         // fix(2026-11-08): stop() 在实例创建前到达时只登记 pendingStop; 这里补完前台化后立即自停,
         // 保证“started 且已 startForeground”, 不留 FGS 超时判定
-        if (pendingStop) {
+        // fix(2026-11-09): 补停只对 5s 内的登记有效, 过期残留一律忽略, 不再静默吞启动
+        if (pendingStop && SystemClock.elapsedRealtime() - pendingStopAt < 5000L) {
             pendingStop = false
+            android.util.Log.w("TaskService", "pendingStop 补停(启动即停, 距登记 ${SystemClock.elapsedRealtime() - pendingStopAt}ms)")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
+        pendingStop = false
         ServiceNotifGroup.publishSummary(this)
-        if (intent?.action == ACTION_TIMER_TASK) {
-            val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
-            if (taskId > 0) runTimerTask(taskId)
-        }
         return START_NOT_STICKY
     }
 

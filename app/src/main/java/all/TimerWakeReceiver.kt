@@ -33,13 +33,8 @@ class TimerWakeReceiver : BroadcastReceiver() {
         Log.i("TimerWakeReceiver", "定时岗位唤醒: ${task.name} (id=$taskId)")
 
         // 拉起前台服务承载静默执行(通知仅提示"任务执行中", 不弹 UI)
-        val svc = Intent(context, TaskService::class.java)
-            .setAction(TaskService.ACTION_TIMER_TASK)
-            .putExtra("task_id", taskId)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            context.startForegroundService(svc)
-        } else {
-            context.startService(svc)
-        }
+        // fix(2026-11-09): 统一走 TaskService.startTimerTask, 启动前清残留 pendingStop,
+        // 否则上一轮对话遗留的补停标记会把真实闹钟唤醒整体吞掉
+        TaskService.startTimerTask(context, taskId)
     }
 }
