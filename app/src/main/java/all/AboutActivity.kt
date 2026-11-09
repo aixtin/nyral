@@ -119,6 +119,12 @@ class AboutActivity : Activity() {
             Ui.press(this)
         })
         linkCard.addView(Ui.divider(this))
+        linkCard.addView(infoRow("腾讯频道", "点击加入").apply {
+            isClickable = true
+            setOnClickListener { openUrl("https://pd.qq.com/s/qlu7z4xm?b=9") }
+            Ui.press(this)
+        })
+        linkCard.addView(Ui.divider(this))
         linkCard.addView(infoRow(getString(R.string.about_25), getString(R.string.about_26)).apply {
             isClickable = true
             setOnClickListener { openUrl(getString(R.string.about_27)) }
