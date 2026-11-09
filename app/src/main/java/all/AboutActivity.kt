@@ -89,6 +89,12 @@ class AboutActivity : Activity() {
             Ui.press(this)
         })
         linkCard.addView(Ui.divider(this))
+        linkCard.addView(infoRow(getString(R.string.about_28), getString(R.string.about_29)).apply {
+            isClickable = true
+            setOnClickListener { Feedback.showSuggest(this@AboutActivity) }
+            Ui.press(this)
+        })
+        linkCard.addView(Ui.divider(this))
         linkCard.addView(infoRow(getString(R.string.about_22), getString(R.string.about_23)).apply {
             isClickable = true
             setOnClickListener { Agreements.showReadonly(this@AboutActivity, getString(R.string.about_22), Agreements.disclaimerText(this@AboutActivity)) }
