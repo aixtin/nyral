@@ -1,5 +1,6 @@
 # Nyral 待办
 
+- [x] v2.9.24 发版（2026-11-10，versionCode 137）：大附件 OOM 根因修复（读取按声明长度先分配后校验→改为先校验再分配、闸门前移到扩容前、内联上限按堆 1/12 动态、表情抽屉/工作目录缓存封顶）；异常退出判定改 ApplicationExitInfo 裁决（压掉 22 份误报）+ recentLogs 读文件历史；状态带模型名瘦身为「厂商 · 尾部规格」且上下文用量独立成段恒可见；浏览器模式面板/接管合并分段胶囊、贴右缘与底色等高同圆角、接管文案改「交还」
 - [x] v2.9.23 发版（2026-11-10，versionCode 136）：开机自启三层重排真机补测（红米 MIUI 14 四条通道全通 + 幂等去重）；修强停后 hasAlarm() 误判齐全导致漏重排（启动改走 force 无条件重排 + 期望触发时刻锚点 10min 宽限）；修改时间/改时区因判据探不到绝对时刻变化而漏重排（两广播强制重排）；ColorOS 仍被 OplusAppStartupManager 拦开机广播与兜底 Job
 - [x] v2.9.22 发版（2026-11-09，versionCode 135）：定时唤醒 P0（pendingStop 跨实例残留吞掉真实闹钟，新增 startTimerTask 专用入口 + 5s 补停时限）；流式首字吞字 P0（reasoning_content 与 content 同帧时 continue 丢正文）；工具调用 XML 泄漏三路径拦截 + 历史污染清理；关于页链接三段重排 + GitHub/Gitee/腾讯频道；移除升级后活人弹窗、反馈入口迁至关于页；sh_run 别名 / 描述互指 / js_console / web_streak 四项修复
 - [x] 移除升级后「检测活人」弹窗（2026-11-09）：MainActivity 不再调用 AliveCheck.maybePrompt，`AliveCheck.kt` → `Feedback.kt` 只保留建议提交；「意见反馈」入口加入设置-关于页（中英双语 about_28/29），复用 /crash 通道 `type: FEEDBACK`；PRIVACY / README / 本待办同步更新
@@ -56,6 +57,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-11-10: v2.9.24 发布（versionCode 137）：附件发送 OOM 根因修复（先分配后校验）+ 异常退出误报收敛 + 状态带模型名瘦身/上下文恒显 + 浏览器入口胶囊化
 - 2026-11-10: v2.9.23 发布（versionCode 136）：自启恢复四通道补测收口 + 强停漏重排、时区漏重排两处判据修复
 - 2026-11-05: v2.9.7 发布（versionCode 120）：移除内置语义模型（assets 24MB onnx+voca，APK 58MB→41MB），filesDir 热更单源；下载器弱网韧性改造（分级退避 60s/5min/30min/2h/24h、离线不惩罚、网络恢复自动续传、切源保留断点、读超时 60s、ACCESS_NETWORK_STATE 权限）；新增 4MB 分片下载通道（Gitee 附件 CDN 忽略 Range，分片独立落盘可跨强杀续跑，拼接+MD5+原子替换）；真机清数据冷启动自动落地 24010842B / MD5 acdcad4b，下载中强杀进程重启后从第 4 片续跑成功，双端 Release 附正式签名 APK
 - 2026-11-05: v2.9.6 发布（versionCode 119）：冷启动自动下载热更语义模型（失败 24h 退避 + 成功清标记），修复断点续传未校验 Content-Range 起点导致文件膨胀（24MB→44MB）与写入长度无上限，改为 .part 临时文件 + 严格截断 + MD5 通过后原子替换；真机清数据冷启动实测自动落地 24010842B / MD5 acdcad4b，二次启动不重复下载
