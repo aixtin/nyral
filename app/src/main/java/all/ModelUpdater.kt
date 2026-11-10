@@ -75,13 +75,17 @@ object ModelUpdater {
         // 因此自动下载必须在 Application 初始化时发起, 不能依赖归档流程触发。
         registerNetworkCallback()
         if (state != ST_READY) {
-            val waited = System.currentTimeMillis() - p.getLong(K_LAST_FAIL, 0L)
+            // 2026-11-10: 从未失败过时 K_LAST_FAIL=0, 直接 epoch 相减会算出 1794247362441ms(56年) 的假值;
+            // 用 MAX 表示"无失败记录/等待无限久", 与原来"不受退避限制"的语义一致
+            val lastFail = p.getLong(K_LAST_FAIL, 0L)
+            val waited = if (lastFail <= 0L) Long.MAX_VALUE else System.currentTimeMillis() - lastFail
             val backoff = backoffMs(p.getInt(K_FAIL_COUNT, 0))
             val part = partFile()
             val hasPart = part.exists() && part.length() > 0
             // 存在断点分片说明上次被中途打断(关 App / 断流), 不套长退避, 直接续传
             if (hasPart || waited >= backoff) {
-                LogStore.i(LogStore.MEM, "冷启动触发模型下载(断点=${hasPart}, 退避=${backoff}ms, 已等=${waited}ms)")
+                val waitedText = if (waited == Long.MAX_VALUE) "无失败记录" else "${waited}ms"
+                LogStore.i(LogStore.MEM, "冷启动触发模型下载(断点=${hasPart}, 退避=${backoff}ms, 已等=${waitedText})")
                 ensureDownloaded()
             } else {
                 LogStore.i(LogStore.MEM, "模型下载退避中, 还需 ${(backoff - waited) / 1000}s, 联网或手动重试可提前")
@@ -113,7 +117,10 @@ object ModelUpdater {
                 override fun onAvailable(network: android.net.Network) {
                     if (state == ST_READY || running.get()) return
                     val p = prefs()
-                    val waited = System.currentTimeMillis() - p.getLong(K_LAST_FAIL, 0L)
+                    // 2026-11-10: 从未失败过时 K_LAST_FAIL=0, 直接 epoch 相减会算出 1794247362441ms(56年) 的假值;
+                    // 用 MAX 表示"无失败记录/等待无限久", 与原来"不受退避限制"的语义一致
+                    val lastFail = p.getLong(K_LAST_FAIL, 0L)
+                    val waited = if (lastFail <= 0L) Long.MAX_VALUE else System.currentTimeMillis() - lastFail
                     if (waited < backoffMs(p.getInt(K_FAIL_COUNT, 0))) return
                     LogStore.i(LogStore.MEM, "网络已恢复, 触发模型续传")
                     ensureDownloaded()

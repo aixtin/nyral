@@ -117,15 +117,37 @@ class NyralApp : Application() {
             val dir = File(filesDir, "crash")
             val hasLog = dir.listFiles()?.any { it.isFile && (it.name.startsWith("crash_") || it.name.startsWith("anr_")) } ?: false
             if (hasLog) return
+            // 2026-11-10: 系统权威裁决, 消灭"用户划掉/后台清理"被当成异常退出的误报(线上 22 份里绝大多数是这类)
+            var exitDetail = ""
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val info = lastExitInfo()
+                if (info == null) {
+                    LogStore.w("NYRAL", "无 ApplicationExitInfo 记录, 跳过异常退出判定")
+                    return
+                }
+                // 只采信与上次运行同窗口的记录(时钟漂移容忍 5 分钟)
+                if (info.timestamp < fg - 5 * 60_000L) return
+                if (!isAbnormalExit(info.reason)) {
+                    LogStore.i("NYRAL", "上次退出属正常原因(" + exitReasonName(info.reason) + "), 不上报")
+                    return
+                }
+                exitDetail = "exit_reason: " + info.reason + " (" + exitReasonName(info.reason) + ")\n" +
+                        "exit_timestamp_epoch_ms: " + info.timestamp + "\n" +
+                        "exit_importance: " + info.importance + "\n" +
+                        "exit_rss_kb: " + info.rss + "\n" +
+                        "exit_pss_kb: " + info.pss + "\n" +
+                        "exit_description: " + (info.description ?: "-") + "\n"
+            }
             val sb = StringBuilder()
             sb.append("type: UNEXPLAINED_EXIT\n")
             sb.append("time: ").append(now()).append('\n')
             sb.append("app: ").append(versionName()).append(" (vc ").append(versionCode()).append(")\n")
             sb.append("device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n')
             sb.append("android: ").append(Build.VERSION.RELEASE).append(" / SDK ").append(Build.VERSION.SDK_INT).append('\n')
-            sb.append("last_foreground_ms: ").append(fg).append('\n')
-            sb.append("last_background_ms: ").append(bg).append('\n')
-            sb.append("note: 上次到前台后未经历后台过渡即进程消失, 且无 crash/anr 日志\n")
+            sb.append("last_foreground_epoch_ms: ").append(fg).append('\n')
+            sb.append("last_background_epoch_ms: ").append(bg).append('\n')
+            sb.append(exitDetail)
+            sb.append("note: 上次到前台后未经历后台过渡即进程消失, 且无 crash/anr 日志(已由系统退出原因确认属异常)\n")
             sb.append("recent log:\n").append(recentLogs())
             dir.mkdirs()
             val f = File(dir, "crash_unexplained_" + System.currentTimeMillis() + ".txt")
@@ -135,17 +157,63 @@ class NyralApp : Application() {
         }
     }
 
+    /**
+     * 上次进程退出的系统记录(API 30+)。
+     * 2026-11-10: 此前仅凭"到过前台且没经历后台过渡"就判定异常退出, 把用户主动划掉任务、
+     * 厂商后台清理都算成异常(线上 22/31 条属误报)。ApplicationExitInfo 是系统级权威记录,
+     * 查询自身进程无需权限, 用它做最终裁决。
+     */
+    private fun lastExitInfo(): android.app.ApplicationExitInfo? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return null
+            am.getHistoricalProcessExitReasons(packageName, 0, 10).maxByOrNull { it.timestamp }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 只有这些退出原因才算"需要上报的异常消失" */
+    private fun isAbnormalExit(reason: Int): Boolean = when (reason) {
+        android.app.ApplicationExitInfo.REASON_CRASH,
+        android.app.ApplicationExitInfo.REASON_CRASH_NATIVE,
+        android.app.ApplicationExitInfo.REASON_ANR,
+        android.app.ApplicationExitInfo.REASON_LOW_MEMORY,
+        android.app.ApplicationExitInfo.REASON_SIGNALED,
+        android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE,
+        android.app.ApplicationExitInfo.REASON_OTHER -> true
+        else -> false
+    }
+
+    private fun exitReasonName(reason: Int): String = when (reason) {
+        android.app.ApplicationExitInfo.REASON_EXIT_SELF -> "EXIT_SELF"
+        android.app.ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED"
+        android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+        android.app.ApplicationExitInfo.REASON_CRASH -> "CRASH"
+        android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE"
+        android.app.ApplicationExitInfo.REASON_ANR -> "ANR"
+        android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "INIT_FAILURE"
+        android.app.ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "PERMISSION_CHANGE"
+        android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE"
+        android.app.ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+        android.app.ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED"
+        android.app.ApplicationExitInfo.REASON_PACKAGE_UPDATED -> "PACKAGE_UPDATED"
+        else -> "UNKNOWN"
+    }
+
     private fun installLifecycleMarkers() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 lifecyclePrefs.edit().putLong("last_foreground", System.currentTimeMillis()).apply()
             }
-            override fun onActivityPaused(activity: Activity) {
+            // 2026-11-10: 后台标记改挂在 onActivityStopped。paused 在弹窗/透明页/Activity 切换时也会触发,
+            // 会把"还在前台"误记成已退后台, 进而影响异常退出判定; stopped 才等于"对用户不可见"
+            override fun onActivityStopped(activity: Activity) {
                 lifecyclePrefs.edit().putLong("last_background", System.currentTimeMillis()).apply()
             }
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
             override fun onActivityStarted(activity: Activity) {}
-            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: Activity) {}
         })
@@ -283,9 +351,16 @@ class NyralApp : Application() {
         }.apply { name = "crash-export-upload"; isDaemon = true }.start()
     }
 
-    private fun recentLogs(max: Int = 30): String {
+    /**
+     * 崩溃现场前 N 条日志。
+     * 2026-11-10: 原先取 LogStore.snapshot()(纯内存环形缓冲), 进程一死缓存全丢, 线上报告里
+     * recent log 只剩本次冷启动的一行 ModelUpdater.init, 完全无法定位。
+     * 改取 history()(以落盘文件为权威历史 + 内存合并), 才能看到上次运行最后做了什么。
+     */
+    private fun recentLogs(max: Int = 40): String {
         return try {
-            LogStore.snapshot(null).takeLast(max).joinToString("\n") { sanitizeLogLine(it.line()) }
+            val list = try { LogStore.history(null) } catch (e: Exception) { LogStore.snapshot(null) }
+            list.takeLast(max).joinToString("\n") { sanitizeLogLine(it.line()) }
         } catch (e: Exception) { "log unavailable" }
     }
 

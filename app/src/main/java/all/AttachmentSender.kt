@@ -125,7 +125,7 @@ internal class AttachmentSender(private val host: MainActivity) {
         if (canVideo && (UploadConfig.videoDirectAlways() || (sizeOk && durOk))) {
             // 读落库后的附件(而不是原 uri): 保证直发字节与附件库一致, 且已被阈值保护
             val bytes = try {
-                AttachmentStore.fileOf(host, key)?.let { MediaFileUtils.readAll(host.contentResolver, Uri.fromFile(it)) }
+                AttachmentStore.fileOf(host, key)?.let { MediaFileUtils.readAll(host.contentResolver, Uri.fromFile(it), SMALL_VIDEO_BYTES) }
             } catch (e: Exception) { null }
             if (bytes != null && bytes.size in 1..SMALL_VIDEO_BYTES) {
                 // stored=false + name=附件 key: 走 LocalEngine video_url 直发; 400 时可降级回 att:// 抽帧
@@ -156,7 +156,7 @@ internal class AttachmentSender(private val host: MainActivity) {
         }
         if (real == FormatSniffer.IMAGE_GIF) {
             val mp4Att: List<LocalEngine.Attachment>? = try {
-                val gifBytes = MediaFileUtils.readAll(host.contentResolver, uri)
+                val gifBytes = MediaFileUtils.readAll(host.contentResolver, uri, GIF_ANIM_MAX_BYTES)
                 if (gifBytes.size in 6..GIF_ANIM_MAX_BYTES && GifToMp4.isAnimated(gifBytes)) {
                     val f = File(host.cacheDir, "anim_${System.currentTimeMillis()}.mp4")
                     try {
@@ -236,6 +236,17 @@ internal class AttachmentSender(private val host: MainActivity) {
     }
 
 
+    /**
+     * 可安全内联进内存的字节上限(2026-11-10 修 OOM)。
+     * 用户配置的"上传上限"(默认 20MB, 最高 500MB)只代表允许落库的最大文件, 不能直接当作可整读进内存的上限:
+     * base64 编码后还要 ×1.33, 且请求体/序列化各留一份副本, 而设备堆上限只有 256MB。
+     * 这里取堆上限的 1/12(256MB 堆约 21MB)与用户配置的较小者; 超出部分一律走流式落库, 由 AI 按需读取。
+     */
+    private fun inlineCap(): Int {
+        val heapCap = (Runtime.getRuntime().maxMemory() / 12L).coerceAtMost(64L * 1024 * 1024).toInt()
+        return minOf(host.maxFileBytes, heapCap)
+    }
+
     private fun fileOrStore(uri: Uri, name: String, claimedMime: String, real: String, isPdf: Boolean): List<LocalEngine.Attachment> {
         val size = try {
             host.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
@@ -282,11 +293,21 @@ internal class AttachmentSender(private val host: MainActivity) {
             return atts
         }
         // 预算内小文件(非PDF): 尝试提取文本直发(模型可直接读)
-        if (size in 1..host.maxFileBytes) {
-            val raw = MediaFileUtils.readAll(host.contentResolver, uri)
-            val txt = DocTextExtractor.extract(name, raw)
-            if (!txt.isNullOrBlank()) {
-                return listOf(LocalEngine.Attachment(claimedMime, Base64.encodeToString(raw, Base64.NO_WRAP), name, text = txt))
+        val cap = inlineCap()
+        // 2026-11-10 OOM 长尾: 声明长度未知(-1)时也要尝试有界整读, 否则第三方 Provider 送来的普通 txt
+        // 会被一律当成大文件落库, AI 反而读不到文本。readAll 已按 cap 封顶且在写入前校验, 超限抛异常
+        // 而不是撑爆堆; 这里必须兜住, 失败退回流式落库。
+        if (size <= 0L || size <= cap.toLong()) {
+            val raw = try {
+                MediaFileUtils.readAll(host.contentResolver, uri, cap)
+            } catch (e: Exception) {
+                null
+            }
+            if (raw != null && raw.isNotEmpty()) {
+                val txt = DocTextExtractor.extract(name, raw)
+                if (!txt.isNullOrBlank()) {
+                    return listOf(LocalEngine.Attachment(claimedMime, Base64.encodeToString(raw, Base64.NO_WRAP), name, text = txt))
+                }
             }
         }
         // 大文件或无法解析: 流式落库 + meta(真实类型/大小), 由 AI 按需读取/导出处理

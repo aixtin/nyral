@@ -21,6 +21,9 @@ import java.util.concurrent.TimeUnit
  * 实现: Android 10+ 用 MediaStore 写公共 Download 子目录(无需存储权限);
  *       Android 9- 不支持(返回明确错误), 实际部署设备为 Android 16 满足要求。
  */
+/** 工作目录文件整读上限(2026-11-10): 超限按读取失败处理, 避免 OOM */
+private const val WORKDIR_MAX_BYTES = 64L * 1024 * 1024
+
 object WorkDir {
 
     /** MediaStore 相对路径(不带尾斜杠, 查询时用 LIKE 前缀匹配兼容带斜杠存储) */
@@ -307,7 +310,12 @@ object WorkDir {
         }
         if (uri != null) {
             return try {
-                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                // 2026-11-10: 整读加封顶, 超限按读取失败处理, 不赌堆大小(长度未知时保持原行为)
+                val declared = try {
+                    context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                } catch (e: Exception) { -1L }
+                if (declared > WORKDIR_MAX_BYTES) null
+                else context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             } catch (e: Exception) {
                 null
             }
@@ -315,7 +323,8 @@ object WorkDir {
         // 作用域存储 owner 过滤兜底: 用 File API 直读(需 MANAGE_EXTERNAL_STORAGE)
         if (fileReadable()) {
             return try {
-                java.io.File(displayPath, n).takeIf { it.isFile }?.readBytes()
+                java.io.File(displayPath, n)
+                    .takeIf { it.isFile && it.length() <= WORKDIR_MAX_BYTES }?.readBytes()
             } catch (e: Exception) {
                 null
             }

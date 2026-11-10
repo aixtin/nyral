@@ -809,6 +809,9 @@ internal fun MainActivity.pickEmojiLibImage() {
 }
 
 /** 系统选择器回调分流: 图片压缩落库到 filesDir/emoji_lib/, 随后逐个命名 */
+/** 表情库单文件入库上限(2026-11-10): 与 GifToMp4 37MB 成片上限对齐, 留余量 */
+private const val EMOJI_LIB_MAX_BYTES = 40 * 1024 * 1024
+
 internal fun MainActivity.handleEmojiLibPick(uris: List<Uri>) {
     executor.execute {
         val dir = File(filesDir, "emoji_lib").apply { mkdirs() }
@@ -818,7 +821,8 @@ internal fun MainActivity.handleEmojiLibPick(uris: List<Uri>) {
                 var f: File? = null
                 // 动图(GIF 动画)转无声循环 MP4 落库: 复用普通发送链路 GifToMp4(零依赖硬编), 对齐微信大动图策略;
                 // 转换失败/静态图回退 compressImage 存 JPEG, 绝不阻断入库
-                val raw = MediaFileUtils.readAll(contentResolver, uri)
+                // 2026-11-10: 入库整读封顶 40MB, 避免超大图/异常 Uri 直接把堆打满
+                val raw = MediaFileUtils.readAll(contentResolver, uri, EMOJI_LIB_MAX_BYTES)
                 if (GifToMp4.isAnimated(raw)) {
                     val tmp = File(cacheDir, "emoji_anim_${System.currentTimeMillis()}_$i.mp4")
                     try {

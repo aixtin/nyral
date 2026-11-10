@@ -16,20 +16,46 @@ import java.io.InputStream
  * 全部为无 Activity 依赖的纯函数, 通过 ContentResolver 操作, 便于独立测试与复用。
  */
 object MediaFileUtils {
-    /** 读取 Uri 全部字节; 无法打开或超过 maxBytes 抛 IllegalStateException(由调用方决策) */
+    /**
+     * 读取 Uri 全部字节; 超过 maxBytes 抛 IllegalStateException(由调用方决策)。
+     * 2026-11-10 修 OOM:
+     *  ① 先取声明长度(file:// 用 File.length, content:// 用 openAssetFileDescriptor), 超限直接抛, 不读一个字节;
+     *     长度已知时一次性精确分配并读满, 避开 ByteArrayOutputStream 的"翻倍扩容 + 整段拷贝"峰值。
+     *  ② 长度未知时, 每块写入【之前】校验剩余额度 —— 原实现写在 write 之后, 而扩容在 write 内部先发生,
+     *     等于闸门形同虚设(线上 128MB 满时直接尝试分配 256MB 而 OOM)。
+     * 注意: 返回值仍是完整 ByteArray, 调用方必须把 maxBytes 控制在"堆可承受"的量级(见 AttachmentSender.inlineCap)。
+     */
     fun readAll(cr: ContentResolver, uri: Uri, maxBytes: Int = Int.MAX_VALUE): ByteArray {
+        val limit = if (maxBytes <= 0) Int.MAX_VALUE else maxBytes
+        val declared: Long = try {
+            if (uri.scheme == "file") uri.path?.let { java.io.File(it).length() } ?: -1L
+            else cr.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        } catch (e: Exception) {
+            -1L
+        }
+        if (declared > limit) throw IllegalStateException("文件 $declared 字节超过上限 $limit 字节")
         val ins: InputStream = cr.openInputStream(uri) ?: throw IllegalStateException("无法打开文件")
         return ins.use { i ->
-            val buf = ByteArrayOutputStream()
-            val chunk = ByteArray(8192)
-            while (true) {
-                val n = i.read(chunk)
-                if (n < 0) break
-                buf.write(chunk, 0, n)
-                // 保底闸门: 防止未知大小的 Uri(如超大视频/动图)整文件进内存把进程打爆
-                check(buf.size() <= maxBytes) { "文件超过上限 $maxBytes 字节" }
+            if (declared in 1..limit.toLong()) {
+                val out = ByteArray(declared.toInt())
+                var off = 0
+                while (off < out.size) {
+                    val n = i.read(out, off, out.size - off)
+                    if (n < 0) break
+                    off += n
+                }
+                if (off == out.size) out else out.copyOf(off)
+            } else {
+                val buf = ByteArrayOutputStream(64 * 1024)
+                val chunk = ByteArray(8192)
+                while (true) {
+                    val n = i.read(chunk)
+                    if (n < 0) break
+                    if (buf.size().toLong() + n > limit) throw IllegalStateException("文件超过上限 $limit 字节")
+                    buf.write(chunk, 0, n)
+                }
+                buf.toByteArray()
             }
-            buf.toByteArray()
         }
     }
 
