@@ -288,6 +288,7 @@ class MainActivity : Activity() {
     private lateinit var securityDim: View
     private lateinit var inputBar: LinearLayout
     // 浏览器入口(2026-10-30): 面板/接管两个胶囊挂在输入框上方状态带右侧, 常态隐藏, 浏览器打开才露出
+    private lateinit var browserBarSeg: LinearLayout
     private lateinit var browserBarTakeover: TextView
     private lateinit var browserBarPanel: TextView
     internal lateinit var input: EditText
@@ -393,7 +394,8 @@ class MainActivity : Activity() {
     internal lateinit var tokenMask: View
     internal lateinit var titleBar: LinearLayout
     // 状态带(10-30 主页改造): 标题栏下常显"模型 · 上下文", 免开 ∑ 面板才知当前用量
-    internal lateinit var statusStrip: TextView
+    internal lateinit var statusModel: TextView
+    internal lateinit var statusCtx: TextView
     internal lateinit var statusDot: View
     /** 状态带容器: 2026-10-30 从标题栏下移到输入栏上方(浮动胶囊), 需跨函数引用故提为字段 */
     internal lateinit var statusWrap: LinearLayout
@@ -777,7 +779,8 @@ class MainActivity : Activity() {
         statusWrap = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(Ui.SP3), 0, dp(Ui.SP3), 0)
+            // 2026-11-10: 右侧不留内边距, 右侧"面板/接管"胶囊右缘与状态带底色右缘齐平
+            setPadding(dp(Ui.SP3), 0, 0, 0)
             // 浮动胶囊: 与输入卡片同色, 圆角独立, 不再贴顶做满宽色条
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
@@ -792,18 +795,35 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(dp(Ui.SP1), dp(Ui.SP1)).apply { rightMargin = dp(Ui.SP2) }
         }
         statusWrap.addView(statusDot)
-        statusStrip = TextView(this).apply {
+        // 模型名: 唯一可压缩的一段, weight=1; 超长走中间省略, 保住尾部版本号
+        statusModel = TextView(this).apply {
             textSize = 10.5f
             setTextColor(Ui.SUB)
             isSingleLine = true
-            ellipsize = TextUtils.TruncateAt.END
+            ellipsize = TextUtils.TruncateAt.MIDDLE
             letterSpacing = 0.02f
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            // 2026-11-10: 不再 weight=1 撑到右端; 模型名瘦身后让「上下文」紧跟其后
+            maxWidth = dp(200)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             // 点状态带 = 展开 token 明细面板(与右上角 ∑ 同入口)
             setOnClickListener { toggleTokenPanel() }
             Ui.press(this)
         }
-        statusWrap.addView(statusStrip)
+        statusWrap.addView(statusModel)
+        // 上下文用量: wrap_content 不参与压缩, 模型名再长也挤不掉它(2026-11-10 修: 曾整条单 TextView, 长模型名把用量省略掉)
+        statusCtx = TextView(this).apply {
+            textSize = 10.5f
+            setTextColor(Ui.SUB)
+            isSingleLine = true
+            letterSpacing = 0.02f
+            setPadding(dp(Ui.SP2), 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setOnClickListener { toggleTokenPanel() }
+            Ui.press(this)
+        }
+        statusWrap.addView(statusCtx)
         statusStripReady = true
     }
     private fun setupChatList() {
@@ -1291,44 +1311,64 @@ class MainActivity : Activity() {
     private fun setupBrowserBar() {
         // 2026-10-30 改版: 取消输入框上方的 ⌃ 折叠手柄与悬浮控制条(展开面板/遮罩那套全废),
         // 只留"面板""接管"两个入口, 挂在状态带右侧; 常态 GONE, 浏览器打开时才显示
+        // 2026-11-10: 两个入口合并为一枚分段胶囊(左"面板"/右"接管"), 圆角由外层 clipToOutline 统一裁出,
+        // 两段紧密贴合无间隙; 接管态文案固定两字"交还"(不再带 AI), 宽度不跳动
+        browserBarSeg = LinearLayout(this).apply {
+            // 2026-11-10: 高度撑满状态带底色(22dp), 圆角取底色半径 11dp, 与状态带轮廓完全重合
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            // 外层底色提供完整胶囊轮廓: 主色 20% 叠在状态带上呈淡蓝, 左段透出它, 右段实色压上,
+            // 两段色差即分界线, 无需额外间隙(圆角取半高, 子段不带圆角, 由 clipToOutline 统一裁出)
+            background = GradientDrawable().apply {
+                setColor((Ui.PRIMARY and 0x00FFFFFF) or (0x33 shl 24))
+                cornerRadius = dp(11).toFloat()
+            }
+            clipToOutline = true
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        // 左段: 面板(浅底主色字)
         browserBarPanel = TextView(this).apply {
             text = "面板"
             textSize = 11f
             setTextColor(Ui.PRIMARY)
             gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
-            background = GradientDrawable().apply {
-                setColor(Ui.INPUT_BG)
-                cornerRadius = dp(20).toFloat()
-            }
-            setPadding(dp(Ui.SP3), dp(2), dp(Ui.SP3), dp(2))
-            visibility = View.GONE
+            includeFontPadding = false
+            setPadding(dp(Ui.SP3), 0, dp(Ui.SP3), 0)
+            minWidth = dp(40)
             setOnClickListener { toggleBrowserPanel() }
             Ui.press(this)
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { leftMargin = dp(Ui.SP2) }
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
         }
+        // 右段: 接管/交还(主色底白字), 两态均两字且 minWidth 一致, 切换不畸变
         browserBarTakeover = TextView(this).apply {
             text = "接管"
             textSize = 11f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
-            background = GradientDrawable().apply {
-                setColor(Ui.PRIMARY)
-                cornerRadius = dp(20).toFloat()
-            }
-            setPadding(dp(Ui.SP3), dp(2), dp(Ui.SP3), dp(2))
-            visibility = View.GONE
+            includeFontPadding = false
+            background = GradientDrawable().apply { setColor(Ui.PRIMARY) }
+            setPadding(dp(Ui.SP3), 0, dp(Ui.SP3), 0)
+            minWidth = dp(40)
             setOnClickListener { browserPage.toggleTakeover() }
             Ui.press(this)
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { leftMargin = dp(Ui.SP2) }
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT
+            )
         }
-        statusWrap.addView(browserBarPanel)
-        statusWrap.addView(browserBarTakeover)
+        browserBarSeg.addView(browserBarPanel)
+        browserBarSeg.addView(browserBarTakeover)
+        // 2026-11-10: 右侧对齐——弹性占位吃掉模型名与胶囊之间的空隙, 胶囊始终贴状态带右端
+        statusWrap.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+        })
+        statusWrap.addView(browserBarSeg)
     }
 
     private fun setupEmojiDrawerAndSideDrawer() {
@@ -1396,8 +1436,7 @@ class MainActivity : Activity() {
             main.layoutParams = lp
             // 面板/接管入口只在浏览器打开时出现在状态带右侧, 浏览器关闭即隐藏
             val v = if (float) View.VISIBLE else View.GONE
-            browserBarPanel.visibility = v
-            browserBarTakeover.visibility = v
+            browserBarSeg.visibility = v
         }
         // 动画开始前先收缩浏览器窗口到中间区域(标题栏下~输入框上), 消除"先全屏再跳变"闪一下
         browserPage.onPreOpen = {
@@ -1409,10 +1448,9 @@ class MainActivity : Activity() {
             if (open) {
                 setChatFloatMode(true)
                 browserPage.setBottomTakeoverVisible(false)  // 悬浮模式: 底部按钮让位于控制条
-                // 兜底: 任何路径重开浏览器都按 taken 现状同步接管按钮文字, 防残留"交还 AI"
-                browserBarTakeover.text = if (browserPage.taken) "交还 AI" else "接管"
-                browserBarPanel.visibility = View.VISIBLE
-                browserBarTakeover.visibility = View.VISIBLE
+                // 兜底: 任何路径重开浏览器都按 taken 现状同步接管按钮文字, 防残留"交还"
+                browserBarTakeover.text = if (browserPage.taken) "交还" else "接管"
+                browserBarSeg.visibility = View.VISIBLE
                 adjustBrowserWindow()
                 // 抽屉展开中打开浏览器: 窗口按当前 sink 缩放/下沉, 与 main 保持一致, 防整屏错位
                 if (mainSinkP > 0f) {
@@ -1432,7 +1470,7 @@ class MainActivity : Activity() {
         browserPage.onTakeoverChange = { taken ->
             // 窗口化交互: 接管仅隐藏消息区, 标题栏/输入框/控制条保留, 浏览器窗口尺寸不变
             chatRec.visibility = if (taken) View.INVISIBLE else View.VISIBLE
-            browserBarTakeover.text = if (taken) "交还 AI" else "接管"
+            browserBarTakeover.text = if (taken) "交还" else "接管"
             browserPage.setBottomTakeoverVisible(false)
         }
         browserPage.onHamburgerChange = { open ->
@@ -2235,8 +2273,7 @@ class MainActivity : Activity() {
     internal fun setBrowserBarVisible(v: Boolean) {
         // 2026-10-30: 控制条与手柄已废弃, 只切状态带右侧"面板/接管"两个入口
         val vis = if (v) View.VISIBLE else View.GONE
-        if (::browserBarPanel.isInitialized) browserBarPanel.visibility = vis
-        if (::browserBarTakeover.isInitialized) browserBarTakeover.visibility = vis
+        if (::browserBarSeg.isInitialized) browserBarSeg.visibility = vis
     }
 
     /** 会话流控制器(2026-10-03 自 MainActivity 抽出): 发送/流式回调/收尾编排见 ChatFlowController */

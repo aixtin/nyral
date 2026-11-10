@@ -700,17 +700,120 @@ import android.widget.Toast
             .start()
     }
 
-    /** 主页状态带: "供应商 · 模型 · 上下文 tok", 圆点随输出状态变色(输出中主色/空闲灰) */
+    /** 主页状态带: 左"供应商 · 模型"(可压缩) / 右"上下文 tok"(永不压缩), 圆点随输出状态变色 */
     internal fun MainActivity.refreshStatusStrip() {
         if (!statusStripReady) return
         val pid = ApiConfig.providerId()
         val p = ApiConfig.providerById(pid)
-        val model = ApiConfig.currentModelOf(pid).ifBlank { "默认" }
-        val sb = StringBuilder(p?.label ?: pid).append(" · ").append(model)
+        val model = shortModelLabel(ApiConfig.currentModelOf(pid).ifBlank { "默认" }, pid)
+        statusModel.text = (p?.label ?: pid) + " · " + model
         val ctx = TokenStore.lastPrompt(this)
-        if (ctx > 0) sb.append(" · 上下文 ").append(formatTokens(ctx))
-        statusStrip.text = sb.toString()
+        statusCtx.text = if (ctx > 0) "上下文 " + formatTokens(ctx) else ""
+        statusCtx.visibility = if (ctx > 0) View.VISIBLE else View.GONE
         statusDot.setBackgroundColor(if (session.aiBusy) Ui.PRIMARY else Ui.SUB)
+    }
+
+    /** 与左侧「供应商」重复的厂商名 */
+    private val MODEL_VENDOR_NOISE = setOf(
+        "deepseek", "deepseek-ai", "qwen", "qwenlm", "tongyi", "anthropic", "openai",
+        "google", "meta", "meta-llama", "mistralai", "moonshot", "moonshotai",
+        "zhipu", "zhipuai", "thudm", "baidu", "xai", "nvidia", "minimax",
+        "bytedance", "tencent", "stepfun", "01-ai", "01ai", "internlm",
+        "baichuan", "microsoft", "cohere", "perplexity", "alibaba", "amazon"
+    )
+
+    /** 家族/系列名: 左侧供应商已能覆盖这层语义 */
+    private val MODEL_FAMILY_NOISE = setOf(
+        "claude", "llama", "mistral", "mixtral", "kimi", "glm", "chatglm",
+        "ernie", "grok", "gemini", "gemma", "phi", "nemotron", "hunyuan",
+        "doubao", "sonar", "yi", "command"
+    )
+
+    /** 泛后缀: 单看没分辨力, 只在必要时跟随 */
+    private val MODEL_SUFFIX_NOISE = setOf(
+        "instruct", "chat", "preview", "thinking", "reasoning", "fast", "turbo",
+        "exp", "experimental", "alpha", "beta", "vl", "vision", "omni",
+        "coder", "expert", "it", "base", "hf"
+    )
+
+    /** 档位词: 有信息量 */
+    private val MODEL_TIER_WORDS = setOf(
+        "pro", "max", "mini", "ultra", "flash", "lite", "plus",
+        "large", "small", "nano", "air"
+    )
+
+    /** 2=版本/参数(最高信息量) 1=档位词 0=泛后缀 -1=普通词(遇到即剪断) */
+    private fun modelTokenScore(t: String): Int {
+        val l = t.lowercase()
+        if (t.any { it.isDigit() }) return 2
+        if (l in MODEL_TIER_WORDS) return 1
+        if (l in MODEL_SUFFIX_NOISE) return 0
+        return -1
+    }
+
+    /**
+     * 模型名瘦身(v4, 2026-11-10): 左侧已单独显示供应商, 模型名只留辨识用的部分。
+     * 不靠穷举已知模型, 走通用规则: 剥 vendor/ -> 剥重复厂商/家族首段 -> 超长时从尾部
+     * 收集含数字/档位的关键 token(最多 3 段), 低价值泛后缀在有多段时优先丢弃。
+     * deepseek-ai/DeepSeek-V4-Pro -> V4-Pro
+     * nvidia/nemotron-3.5-super-vl-120b-a12b -> 120b-a12b
+     * 陌生模型 MyCoolModel-Ultra-Long-70B-Instruct-v2 -> 70B-Instruct-v2
+     */
+    private fun shortModelLabel(model: String, pid: String = "", max: Int = 16): String {
+        var s = model.trim()
+        // 1) 去 vendor/ 前缀
+        val slash = s.lastIndexOf('/')
+        if (slash in 1 until s.length - 1) s = s.substring(slash + 1)
+        // 2) 去无信息量的日期/构建号后缀(20250929 之类)
+        s = s.replace(Regex("[-_.]?(?:20\\d{6}|\\d{8})$"), "").ifBlank { s }
+        val all = s.split(Regex("[-_\\s]+")).filter { it.isNotBlank() }
+        if (all.isEmpty()) return model.trim()
+        // 3) 连续剥掉与供应商/家族重复的首段(同时用当前 providerId 动态匹配, 覆盖陌生厂商)
+        val pidNorm = pid.lowercase().replace(Regex("[^a-z0-9]"), "")
+        var k = 0
+        while (k < all.size - 1) {
+            val t = all[k].lowercase()
+            val tn = t.replace(Regex("[^a-z0-9]"), "")
+            val hit = t in MODEL_VENDOR_NOISE || t in MODEL_FAMILY_NOISE ||
+                (pidNorm.isNotEmpty() && tn.isNotEmpty() && (tn == pidNorm || pidNorm in tn))
+            if (!hit) break
+            k++
+        }
+        var parts = all.drop(k)
+        var out = parts.joinToString("-")
+        // 剥狠了(如 glm-4.6 只剩 4.6)就退回不剥, 保住系列名
+        if (out.length < 4) {
+            parts = all
+            out = parts.joinToString("-")
+        }
+        if (out.length <= max) return out
+        // 4) 仍超长: 从尾部收集关键 token(遇到普通词剪断), 最多 3 段
+        val tail = ArrayList<String>()
+        for (i in parts.indices.reversed()) {
+            if (modelTokenScore(parts[i]) < 0) break
+            tail.add(0, parts[i])
+            if (tail.size >= 3) break
+        }
+        if (tail.isEmpty()) {
+            tail.clear()
+            tail.addAll(parts.takeLast(2))
+        } else if (tail.size >= 3 && modelTokenScore(tail[0]) == 0 &&
+            tail.drop(1).joinToString("-").length >= 8
+        ) {
+            // 3 段且首段只是泛后缀时丢掉它, 优先保住参数/版本
+            tail.removeAt(0)
+        }
+        out = tail.joinToString("-")
+        while (out.length > max && tail.size > 1) {
+            tail.removeAt(0)
+            out = tail.joinToString("-")
+        }
+        if (out.length > max) out = out.takeLast(max)
+        if (out.length < 4) {
+            val o = parts.joinToString("-")
+            out = if (o.length > max) o.takeLast(max) else o
+        }
+        return out
     }
 
     internal fun MainActivity.refreshTokenPanel() {
