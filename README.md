@@ -354,3 +354,8 @@ MPL-2.0 (rhino) and UnRAR license (junrar) notices are preserved inside the ship
 - Latest: v2.8.30 (2026-11-03, versionCode 112)
 - Built solo from 2026-08-24; core complete in 54 days (see [END.md](./END.md))
 - Maintained as a personal project, not commercially; issues are welcome, schedules are not promised.
+
+## Author
+
+Built and maintained by **atin** ([@aixtin](https://github.com/aixtin)), an independent Android developer.
+`atin` and `aixtin` are the same person across GitHub, Gitee and [atin.asia](https://atin.asia/about/).
