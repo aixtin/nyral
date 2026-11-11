@@ -50,12 +50,19 @@ object ToolExecutor {
         "file_write" to ("file" to "write"),
         "ssh_upload" to ("file" to "upload"),
         "ssh_download" to ("file" to "download"),
-        "ssh_ls" to ("file" to "ls")
+        "ssh_ls" to ("file" to "ls"),
+        // 2026-11-11 工具精简: 旧名映射到合并后的工具(web / artifact / ssh_run:add_config)
+        "web_search" to ("web" to "search"),
+        "web_fetch" to ("web" to "fetch"),
+        "web_download" to ("web" to "download"),
+        "artifact_save" to ("artifact" to "save"),
+        "artifact_save_bin" to ("artifact" to "save_bin"),
+        "ssh_config_add" to ("ssh_run" to "add_config")
     )
 
     /** H3(2026-10-03): 危险工具确认名单: 工具名 或 工具:action; 命中即需用户确认 */
     private val DANGER_CONFIRM_TOOLS = setOf(
-        "ssh_run", "ssh_config_add", "sh_run", "js_run", "web_download",
+        "ssh_run", "ssh_run:add_config", "sh_run", "js_run", "web:download",
         "file:write", "file:upload", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
         "app:click", "app:text", "app:tap", "app:launch",
@@ -97,9 +104,15 @@ object ToolExecutor {
                 jo.put("action", legacy.second)
                 jo.toString()
             } catch (e: Exception) {
-                // 裸字符串参数(文本协议): open 按 URL 处理, 其余仅带 action
-                if (legacy.second == "open" && arg0.isNotBlank()) "{\"action\":\"open\",\"url\":\"${arg0.trim()}\"}"
-                else "{\"action\":\"${legacy.second}\"}"
+                // 裸字符串参数(文本协议): 按目标工具语义兜底, 不让参数丢失
+                val raw = arg0.trim()
+                when {
+                    raw.isEmpty() -> "{\"action\":\"${legacy.second}\"}"
+                    legacy.first == "web" && legacy.second == "search" -> "{\"action\":\"search\",\"q\":${JSONObject.quote(raw)}}"
+                    legacy.first == "web" -> "{\"action\":\"${legacy.second}\",\"url\":${JSONObject.quote(raw)}}"
+                    legacy.second == "open" -> "{\"action\":\"open\",\"url\":${JSONObject.quote(raw)}}"
+                    else -> "{\"action\":\"${legacy.second}\"}"
+                }
             }
         } else arg0
         // P0 安全封口(2026-10-30): 模型调用 security_set 修改门禁档位/root 补权一律硬拒,
@@ -143,7 +156,7 @@ object ToolExecutor {
         val fp = SshTools.pendingFingerprint()
         if (fp != null) "$arg\n\n待信任主机密钥指纹: $fp\n请与 SSH 安全告警中的指纹核对一致后再批准。" else arg
     }
-    n == "ssh_config_add" -> {
+    n == "ssh_run" && act0 == "add_config" -> {
         val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
         if (jo != null) {
             val lines = listOf("name","host","port","user","password","privateKey","passphrase","proxyHost","proxyPort","proxyUser","proxyPassword","proxyPrivateKey","proxyPassphrase")
@@ -199,8 +212,29 @@ object ToolExecutor {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
                 FileAuditStore.readAsText(context, jo?.optInt("limit", 50) ?: 50)
             }
-            "ssh_run" -> SshTools.run(context, arg)
-            "ssh_config_add" -> SshTools.addConfig(context, arg)
+            "ssh_run" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val sact = jo?.optString("action", "").orEmpty().ifBlank { "exec" }
+                when (sact) {
+                    "add_config" -> SshTools.addConfig(context, arg)
+                    "exec" -> {
+                        val cmd = jo?.optString("command", "").orEmpty().trim()
+                        val conn = jo?.optString("conn", "").orEmpty().trim()
+                        val full = when {
+                            cmd.isEmpty() -> ""
+                            conn.isEmpty() || cmd.startsWith("$conn:") -> cmd
+                            else -> "$conn:$cmd"
+                        }
+                        val bare = arg.trim().let { if (it.startsWith("{")) "" else it }
+                        when {
+                            full.isNotEmpty() -> SshTools.run(context, full)
+                            bare.isNotEmpty() -> SshTools.run(context, bare)
+                            else -> "错误: ssh_run(action=exec) 需要 command, 如 {\"action\":\"exec\",\"command\":\"vps:ls /\"}"
+                        }
+                    }
+                    else -> "错误: ssh_run 的 action 只支持 exec / add_config"
+                }
+            }
             "file" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
                 when (jo?.optString("action")) {
@@ -214,7 +248,7 @@ object ToolExecutor {
                     else -> "file 需指定 action: list/read/info/write/upload/download/ls"
                 }
             }
-            "web_download" -> WebTools.save(context, arg)
+            // 2026-11-11: web_download 已并入 web(action=download)
             "attach_read" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
                 val raw = jo?.optString("name") ?: ""
@@ -412,44 +446,59 @@ object ToolExecutor {
                     else -> "browser 需指定 action: open/scan/text/scroll/click/type/upload/clear_cache/save_cookies"
                 }
             }
-            "artifact_save" -> {
+            "artifact" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val kindTag = jo?.optString("kind", "").orEmpty().ifBlank { jo?.optString("action", "").orEmpty() }
+                val isBin = kindTag == "binary" || kindTag == "save_bin"
                 val name = jo?.optString("name", "")?.trim().orEmpty()
-                val content = jo?.optString("content", "").orEmpty()
-                if (name.isEmpty() || content.isEmpty()) "错误: 缺少 name 或 content, 如 {\"name\":\"demo.html\",\"content\":\"<html>...\"}"
-                else {
-                    val fn = ArtifactStore.save(context, name, content)
-                    if (fn.startsWith("错误:")) fn
+                if (name.isEmpty()) "错误: 缺少 name(产物文件名, 带扩展名), 如 {\"name\":\"demo.html\",\"kind\":\"text\",\"content\":\"...\"}"
+                else if (isBin) {
+                    val dataB64 = jo?.optString("data", "").orEmpty()
+                    if (dataB64.isEmpty()) "错误: kind=binary 缺少 data(完整文件的 Base64), 如 {\"name\":\"icon.png\",\"kind\":\"binary\",\"data\":\"<base64>\"}"
                     else {
-                        val meta = ArtifactStore.metaOf(context, fn)
-                        val v = meta?.optInt("artifact_version", 1) ?: 1
-                        SecurityConfig.audit(context, "artifact_save", "name=$name v=$v len=${content.length}", "ai", "bubble")
-                        "产物已登记: $name (第 $v 版, ${content.length} 字符)。请立即在回复正文中单独一行原样输出 [产物:$name](att://$fn) 向用户展示产物卡片; 不要再重复贴出产物全文。"
+                        val bytes = try { android.util.Base64.decode(dataB64, android.util.Base64.DEFAULT) } catch (e: Exception) { ByteArray(0) }
+                        if (bytes.isEmpty()) "错误: data 不是合法 Base64, 请给完整文件的 Base64 编码"
+                        else {
+                            val fn = ArtifactStore.saveBytes(context, name, bytes)
+                            if (fn.startsWith("错误:")) fn
+                            else {
+                                val meta = ArtifactStore.metaOf(context, fn)
+                                val v = meta?.optInt("artifact_version", 1) ?: 1
+                                SecurityConfig.audit(context, "artifact", "name=$name kind=binary v=$v bytes=${bytes.size}", "ai", "bubble")
+                                "产物已登记: $name (第 $v 版, ${bytes.size} 字节)。请立即在回复正文中单独一行原样输出 [产物:$name](att://$fn) 向用户展示产物卡片; 不要再重复贴出产物内容。"
+                            }
+                        }
                     }
-                }
-            }
-            "artifact_save_bin" -> {
-                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
-                val name = jo?.optString("name", "")?.trim().orEmpty()
-                val dataB64 = jo?.optString("data", "").orEmpty()
-                if (name.isEmpty() || dataB64.isEmpty()) "错误: 缺少 name 或 data, 如 {\"name\":\"icon.png\",\"data\":\"<base64>\"}"
-                else {
-                    val bytes = try { android.util.Base64.decode(dataB64, android.util.Base64.DEFAULT) } catch (e: Exception) { ByteArray(0) }
-                    if (bytes.isEmpty()) "错误: data 不是合法 Base64, 请给完整文件的 Base64 编码"
+                } else {
+                    val content = jo?.optString("content", "").orEmpty()
+                    if (content.isEmpty()) "错误: kind=text 缺少 content(产物正文), 如 {\"name\":\"demo.html\",\"kind\":\"text\",\"content\":\"<html>...\"}"
                     else {
-                        val fn = ArtifactStore.saveBytes(context, name, bytes)
+                        val fn = ArtifactStore.save(context, name, content)
                         if (fn.startsWith("错误:")) fn
                         else {
                             val meta = ArtifactStore.metaOf(context, fn)
                             val v = meta?.optInt("artifact_version", 1) ?: 1
-                            SecurityConfig.audit(context, "artifact_save_bin", "name=$name v=$v bytes=${bytes.size}", "ai", "bubble")
-                            "产物已登记: $name (第 $v 版, ${bytes.size} 字节)。请立即在回复正文中单独一行原样输出 [产物:$name](att://$fn) 向用户展示产物卡片; 不要再重复贴出产物内容。"
+                            SecurityConfig.audit(context, "artifact", "name=$name kind=text v=$v len=${content.length}", "ai", "bubble")
+                            "产物已登记: $name (第 $v 版, ${content.length} 字符)。请立即在回复正文中单独一行原样输出 [产物:$name](att://$fn) 向用户展示产物卡片; 不要再重复贴出产物全文。"
                         }
                     }
                 }
             }
-            "web_search" -> WebTools.search(arg)
-            "web_fetch" -> WebTools.fetch(context, arg)
+            "web" -> run {
+                val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
+                val wact = jo?.optString("action", "").orEmpty()
+                val hasQ = !jo?.optString("q").isNullOrBlank()
+                val hasUrl = !jo?.optString("url").isNullOrBlank()
+                when {
+                    wact == "search" && !hasQ -> "错误: action=search 需要 q(搜索关键词)"
+                    wact == "search" -> WebTools.search(arg)
+                    wact == "fetch" && !hasUrl -> "错误: action=fetch 需要 url"
+                    wact == "fetch" -> WebTools.fetch(context, arg)
+                    wact == "download" && !hasUrl -> "错误: action=download 需要 url"
+                    wact == "download" -> WebTools.save(context, arg)
+                    else -> "错误: web 需指定 action: search / fetch / download"
+                }
+            }
             "site_auth" -> WebTools.siteAuth(context, arg)
             "app" -> run {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
@@ -588,7 +637,7 @@ object ToolExecutor {
     /** browser_click 工具: 点击第 index 个元素 */
     private fun browserClick(argRaw: String): String {
         val idx = try { JSONObject(argRaw.trim()).optInt("index", -1) } catch (e: Exception) { -1 }
-        if (idx < 0) return "请指定 index(来自 browser_scan 结果)"
+        if (idx < 0) return "请指定 index(来自 browser(action=scan) 结果)"
         val cb = LocalEngine.onBrowserClick ?: return "浏览器桥接未初始化"
         return cb(idx)
     }
@@ -598,7 +647,7 @@ object ToolExecutor {
         val j = try { JSONObject(argRaw.trim()) } catch (e: Exception) { return "参数格式错误" }
         val idx = j.optInt("index", -1); val text = j.optString("text", "")
         val cb = LocalEngine.onBrowserType ?: return "浏览器桥接未初始化"
-        if (idx < 0) return "请指定 index(来自 browser_scan 结果)"
+        if (idx < 0) return "请指定 index(来自 browser(action=scan) 结果)"
         if (text.isBlank()) return "请指定要输入的 text"
         return cb(idx, text)
     }
@@ -704,7 +753,7 @@ object ToolExecutor {
         val arr = j.optJSONArray("allow_tools")
         if (arr != null) for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val k = o.optString("key", "").trim()
+            val k = SecurityConfig.normalizeAllowKey(o.optString("key", "").trim())
             val r = o.optString("reason", "").trim()
             if (k.isEmpty()) return "参数错误: allow_tools 第 ${i + 1} 项缺少 key"
             if (k !in SecurityConfig.ALLOW_CATALOG) {
@@ -773,6 +822,9 @@ object ToolExecutor {
             "calc" -> json.optString("expr").takeIf { it.isNotBlank() } ?: t
             "memory_search" -> json.optString("query").takeIf { it.isNotBlank() } ?: t
             "ssh_run" -> {
+                // 2026-11-11: add_config 等结构化动作不做裸串抽取(否则 name/host 会被当成命令)
+                val actTag = json.optString("action", "").trim()
+                if (actTag.isNotEmpty() && actTag != "exec") return t
                 val cmd = json.optString("command").takeIf { it.isNotBlank() }
                 if (cmd != null) cmd else {
                     // 兼容传 conn+cmd 拆分写法

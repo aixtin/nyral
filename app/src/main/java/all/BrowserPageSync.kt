@@ -133,7 +133,7 @@ internal fun BrowserPage.elementsSnapshot(): List<Map<String, Any>> =
 
 /** AI 可读元素清单: "共N个: [i]「label」(x,y wxh)", 供 browser_scan 工具返回 */
 internal fun BrowserPage.snapshotText(): String {
-    if (elements.isEmpty()) return "页面暂无识别到可操作元素(可能动态加载中)。建议: 1)稍等1秒再调 browser_scan 重扫; 2)用 browser_text 读取整页文字; 3)用 browser_scroll 滚动页面后再 browser_scan; 仍无则页面可能纯展示, 可考虑 web_search 补充"
+    if (elements.isEmpty()) return "页面暂无识别到可操作元素(可能动态加载中)。建议: 1)稍等1秒再调 browser(action=scan) 重扫; 2)用 browser(action=text) 读取整页文字; 3)用 browser(action=scroll) 滚动页面后再 browser(action=scan); 仍无则页面可能纯展示, 可考虑 web(action=search) 补充"
     val sb = StringBuilder("页面共识别 ${elements.size} 个可操作元素(视口坐标, 滚动页面后坐标会变, 应重新 scan):\n")
     for ((i, e) in elements.withIndex()) {
         sb.append("[$i]「${e.label}」 坐标(${e.x},${e.y}) 尺寸${e.w}x${e.h}\n")

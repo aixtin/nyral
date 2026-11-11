@@ -59,4 +59,25 @@ class SecurityGateRiskTest {
         check(SecurityConfig.riskOf("security_set") == critical) { "security_set 应为 CRITICAL" }
         check(SecurityConfig.riskOf("mcp:anything") == high) { "mcp: 前缀工具应判 HIGH" }
     }
+
+    @Test
+    fun allowCatalogKeysResolveToRegisteredTools() {
+        // 授权目录 key 的前缀(冒号前)必须是真实注册的工具名, 否则定时任务预授权永远无法命中(静默失效)
+        @Suppress("UNCHECKED_CAST")
+        val specs = LocalEngine::class.java.getDeclaredField("toolRegistry")
+            .apply { isAccessible = true }.get(LocalEngine) as List<LocalEngine.ToolSpec>
+        val names = specs.map { it.name }.toSet()
+        for (key in SecurityConfig.ALLOW_CATALOG.keys) {
+            val tool = key.substringBefore(':')
+            check(tool in names) { "授权目录 key=$key 指向未注册工具 $tool" }
+        }
+        // 工具精简后的旧 key 必须归一命中目录且维持高危, 否则旧任务放行 + 旧名绕过门禁
+        for (legacy in listOf("web_download", "ssh_config_add")) {
+            val n = SecurityConfig.normalizeAllowKey(legacy)
+            check(n in SecurityConfig.ALLOW_CATALOG) { "旧 key $legacy 归一为 $n 后未命中授权目录" }
+            check(SecurityConfig.riskOf(legacy) == SecurityConfig.RiskLevel.HIGH) {
+                "旧 key $legacy 应维持 HIGH, 实际 ${SecurityConfig.riskOf(legacy)}"
+            }
+        }
+    }
 }

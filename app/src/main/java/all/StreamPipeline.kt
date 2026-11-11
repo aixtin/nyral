@@ -134,7 +134,7 @@ class PendingProgressGate(
  */
 object CancelSalvagePolicy {
     /** 纯产物写入类：同名覆盖/版本递增，重放无外部副作用 */
-    private val WHITELIST = setOf("artifact_save", "artifact_save_bin", "workdir")
+    private val WHITELIST = setOf("artifact", "artifact_save", "artifact_save_bin", "workdir")
 
     fun isWhitelisted(name: String): Boolean = name in WHITELIST
 
@@ -146,6 +146,12 @@ object CancelSalvagePolicy {
         // 截断的 JSON 必然解析失败，runCatching 把"解析异常"收敛为 null，无需吞异常分支
         val jo = if (name in WHITELIST) runCatching { JSONObject(arg.trim()) }.getOrNull() else null
         return jo != null && when (name) {
+            "artifact" -> {
+                val kindTag = jo.optString("kind", "").ifBlank { jo.optString("action", "") }
+                val hasBody = if (kindTag == "binary" || kindTag == "save_bin") jo.optString("data").isNotBlank()
+                              else jo.optString("content").isNotBlank()
+                jo.optString("name").isNotBlank() && hasBody
+            }
             "artifact_save" -> jo.optString("name").isNotBlank() && jo.optString("content").isNotBlank()
             "artifact_save_bin" -> jo.optString("name").isNotBlank() && jo.optString("data").isNotBlank()
             else -> jo.optString("action") == "write" &&

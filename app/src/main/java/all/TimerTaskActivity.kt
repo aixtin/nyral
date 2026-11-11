@@ -181,7 +181,7 @@ class TimerTaskActivity : Activity() {
         }
         row("能力授权") {
             dlg.dismiss()
-            val cur = t.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val cur = t.allowTools.split(',').map { SecurityConfig.normalizeAllowKey(it) }.filter { it.isNotEmpty() }.toSet()
             showAllowToolsDialog("能力授权(${t.name})", cur) { s ->
                 db.updateAllowTools(t.id, s)
                 SecurityConfig.audit(this, "timer_task_allow", "${t.name}(id=${t.id}) -> $s", "ui_user", "timer_task")
@@ -205,7 +205,7 @@ class TimerTaskActivity : Activity() {
     }
 
     private fun disable(t: TimerTaskDb.Task) {
-        val auth = t.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val auth = t.allowTools.split(',').map { SecurityConfig.normalizeAllowKey(it) }.filter { it.isNotEmpty() }
         val msg = buildString {
             append("停用「${t.name}」后不再触发, 预授权能力暂停使用(重新启用后恢复)。")
             if (auth.isNotEmpty()) {
@@ -242,7 +242,7 @@ class TimerTaskActivity : Activity() {
     }
 
     private fun delete(t: TimerTaskDb.Task) {
-        val auth = t.allowTools.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val auth = t.allowTools.split(',').map { SecurityConfig.normalizeAllowKey(it) }.filter { it.isNotEmpty() }
         val msg = buildString {
             append("删除「${t.name}」后不再触发, 确定?\n")
             if (auth.isNotEmpty()) {
@@ -353,7 +353,7 @@ class TimerTaskActivity : Activity() {
 
     /** 能力授权摘要文案(2026-10-13) */
     private fun allowLabel(keys: String): String {
-        val set = keys.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        val set = keys.split(',').map { SecurityConfig.normalizeAllowKey(it) }.filter { it.isNotEmpty() }.toSet()
         if (set.isEmpty()) return "未授权任何危险工具"
         val names = SecurityConfig.ALLOW_CATALOG.filterKeys { it in set }.values
         return if (names.size == set.size) "已授权 ${set.size} 项: " + names.joinToString("、")

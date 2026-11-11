@@ -79,7 +79,7 @@ object WebTools {
             failures += name
         }
         return "未找到搜索结果(已依次尝试: ${failures.joinToString("→")}, 均为空或被拦截)。" +
-                "\n建议换更精确的关键词重试, 或直接 web_fetch 访问百度百科/豆瓣/猫眼等已知站点。" + streakHint()
+                "\n建议换更精确的关键词重试, 或直接 web(action=fetch) 访问百度百科/豆瓣/猫眼等已知站点。" + streakHint()
     }
 
     private data class SearchHit(val title: String, val link: String, val snippet: String)

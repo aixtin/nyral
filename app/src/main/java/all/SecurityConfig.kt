@@ -45,7 +45,7 @@ object SecurityConfig {
     // ===== 风险分级(自动档内两级, 预留多级扩展) =====
     private val CRITICAL_TOOLS = setOf("security_set")
     private val HIGH_TOOLS = setOf(
-        "ssh_run", "ssh_config_add", "sh_run", "js_run", "browser_eval", "web_download",
+        "ssh_run", "ssh_run:add_config", "sh_run", "js_run", "browser_eval", "web:download",
         "file:write", "file:upload", "workdir:write",
         "browser:click", "browser:type", "browser:upload", "browser:clear_cache", "browser:save_cookies",
         "app:click", "app:text", "app:tap", "app:launch",
@@ -56,10 +56,10 @@ object SecurityConfig {
     /** 危险工具 key -> 展示名; 与 ToolExecutor 危险工具名单一致, 任务静默执行命中即放行 */
     val ALLOW_CATALOG: Map<String, String> = linkedMapOf(
         "ssh_run" to "SSH 远程执行命令",
-        "ssh_config_add" to "写入 SSH 配置",
+        "ssh_run:add_config" to "写入 SSH 配置",
         "sh_run" to "本地 Shell 执行",
         "js_run" to "JS 代码执行",
-        "web_download" to "下载网页文件",
+        "web:download" to "下载网页文件",
         "file:write" to "写入本地文件",
         "file:upload" to "上传文件到远程",
         "workdir:write" to "写入工作目录",
@@ -76,11 +76,22 @@ object SecurityConfig {
         "gen_image" to "AI 生图(按张计费)"
     )
 
-    fun riskOf(name: String): RiskLevel = when {
-        name in CRITICAL_TOOLS -> RiskLevel.CRITICAL
-        name.startsWith("mcp:") -> RiskLevel.HIGH
-        name in HIGH_TOOLS -> RiskLevel.HIGH
-        else -> RiskLevel.MEDIUM
+    /** 旧授权 key 归一(2026-11-11 工具精简): 逻辑工具改复合 key 后, 旧任务库/旧调用沿用旧名 */
+    fun normalizeAllowKey(k: String): String = when (val t = k.trim()) {
+        "web_download" -> "web:download"
+        "ssh_config_add" -> "ssh_run:add_config"
+        else -> t
+    }
+
+    /**
+     * 风险分级: 先做旧名归一(2026-11-11), 保证模型/旧记忆沿用旧工具名(web_download、
+     * ssh_config_add)时仍判 HIGH, 不能靠改名绕过确认门禁。裸工具名(browser/app/file/workdir)
+     * 归一后仍是裸名 → MEDIUM, auto 档只读动作不弹确认的既有设计不受影响。
+     */
+    fun riskOf(name: String): RiskLevel = when (val n = normalizeAllowKey(name)) {
+        in CRITICAL_TOOLS -> RiskLevel.CRITICAL
+        in HIGH_TOOLS -> RiskLevel.HIGH
+        else -> if (n.startsWith("mcp:")) RiskLevel.HIGH else RiskLevel.MEDIUM
     }
 
     /** 门禁决策: 是否需要用户确认(off→不; strict→总是; auto→无票则高危确认, 低危自动放行) */

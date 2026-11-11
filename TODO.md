@@ -1,5 +1,6 @@
 # Nyral 待办
 
+- [x] 工具精简第一批落地（2026-11-11，未发版）：registry 32→27（web_search/web_fetch/web_download→web(action=search|fetch|download)、artifact_save/artifact_save_bin→artifact(kind=text|binary)、ssh_config_add→ssh_run(action=add_config)），六处同步点落地、白名单 25→12 生效（BUILTIN_TOP_N 16 全量常驻 + 其余靠 tool_detail 按需激活）；删 hotOrder 死代码（893B，零调用，排序/压缩已由 buildToolsArray 内联）；SecurityConfig 增 normalizeAllowKey 且 riskOf 改为先归一后分级（堵死模型沿用旧工具名把 HIGH 降为 MEDIUM 绕过确认门禁）；定时任务 allow_tools 读取/回显/创建入参三处归一，旧 key 任务不再静默失效（真机 8 条任务现网 allow_tools 全空，无遗留风险）；工具返回文本与描述中的旧工具名统一改复合调用形式，避免诱导模型调用已合并工具；130 单测全绿、assembleRelease(R8) 通过、真机覆盖安装启动无崩溃
 - [x] v2.9.24 发版（2026-11-10，versionCode 137）：大附件 OOM 根因修复（读取按声明长度先分配后校验→改为先校验再分配、闸门前移到扩容前、内联上限按堆 1/12 动态、表情抽屉/工作目录缓存封顶）；异常退出判定改 ApplicationExitInfo 裁决（压掉 22 份误报）+ recentLogs 读文件历史；状态带模型名瘦身为「厂商 · 尾部规格」且上下文用量独立成段恒可见；浏览器模式面板/接管合并分段胶囊、贴右缘与底色等高同圆角、接管文案改「交还」
 - [x] v2.9.23 发版（2026-11-10，versionCode 136）：开机自启三层重排真机补测（红米 MIUI 14 四条通道全通 + 幂等去重）；修强停后 hasAlarm() 误判齐全导致漏重排（启动改走 force 无条件重排 + 期望触发时刻锚点 10min 宽限）；修改时间/改时区因判据探不到绝对时刻变化而漏重排（两广播强制重排）；ColorOS 仍被 OplusAppStartupManager 拦开机广播与兜底 Job
 - [x] v2.9.22 发版（2026-11-09，versionCode 135）：定时唤醒 P0（pendingStop 跨实例残留吞掉真实闹钟，新增 startTimerTask 专用入口 + 5s 补停时限）；流式首字吞字 P0（reasoning_content 与 content 同帧时 continue 丢正文）；工具调用 XML 泄漏三路径拦截 + 历史污染清理；关于页链接三段重排 + GitHub/Gitee/腾讯频道；移除升级后活人弹窗、反馈入口迁至关于页；sh_run 别名 / 描述互指 / js_console / web_streak 四项修复
@@ -37,6 +38,7 @@
 - [x] v2.8.1 发版（2026-10-20，versionCode 64）：记忆库 v12 迁移 + onOpen 幂等补列（src_session_id/src_msg_no）修复老库必崩；全 App 主题化 Theme.Nyral；返回按钮 Lucide 化；全局弹窗动画统一 fadeScaleShow；页面切换动画；双端 Release 发布
 - [x] v2.8.0 发版（2026-10-20，versionCode 63）：知识库自动沉淀（默认关闭）；video_frame 未传 timeMs 默认多帧采样 + 单帧超限报错回传真实时长；LocalEngine 多帧强制逐帧描述；空参熔断；思考面板宽度解耦；ANR Watchdog；文档占位幻觉警示；双端 Release 发布
 ## 待办
+- [ ] 工具精简第二批（待观察）：device_snapshot/device_probe → device(action=snapshot|probe)；gen_image 插件化出内置表；先让第一批跑满一周（重点看 tool_detail 激活成功率与模型误用旧名次数）再动
 - [x] 文件/图片/视频发送功能（多模态）：选附件 → 本地压缩 → 复制 cacheDir → Base64 内联发送 → AI 生成描述占位进历史/记忆
       - 处理路径分类定案(2026-08-28)：文本/PDF 本地处理不走模型；图片/视频/音频 必须走模型（多模态）
       - PDF 本地解析提取文本(接解析库)：发 PDF 不用喂视觉模型，省 token

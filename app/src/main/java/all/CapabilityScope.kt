@@ -19,7 +19,7 @@ object CapabilityScope {
 
     /** 只读工具白名单: 纯查询, 无副作用。未列出的工具一律按 WRITE 处理(保守默认) */
     private val READONLY_TOOLS = setOf(
-        "web_search", "web_fetch", "get_time", "calc", "memory_search",
+        "web", "get_time", "calc", "memory_search",
         "image_view", "video_frame", "audio_read", "attach_read", "pdf_page",
         "tool_detail", "ask_user"
     )

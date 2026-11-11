@@ -205,22 +205,19 @@ object LocalEngine {
     }
 
     internal val toolRegistry = listOf(
-        ToolSpec("web_search", "后台静默联网搜索(Bing), 结果仅供AI参考阅读, 用户看不到页面; 若用户想看搜索结果页/网页请改用 browser(action=open)", "JSON: {\"q\":\"搜索关键词\",\"max_results\":5}"),
+        ToolSpec("web", "联网三合一(2026-11-11 合并 web_search/web_fetch/web_download): action=search 后台静默联网搜索(Bing), 结果仅供AI参考阅读, 用户看不到页面(用户想看搜索结果页/网页请改用 browser(action=open)); action=fetch 抓取网页并提取正文文本, site_auth.json 已配置该域名 Cookie 会自动注入; action=download 下载网页/文件并保存到手机工作目录 下载/ 子目录, 返回\"下载成功\"即表示已落盘, 直接向用户报告结果, 不要再调 workdir 重复验证", "JSON: {\"action\":\"search|fetch|download\",\"q\":\"搜索关键词(action=search)\",\"url\":\"https://...(action=fetch|download)\",\"max_results\":5,\"max_chars\":3000,\"name\":\"可选文件名(action=download)\"}"),
         ToolSpec("browser", "全屏浏览器控制(在用户手机上打开可见浏览器页): action=open 打开URL/搜索词(用户要求搜索/查资料/看网页时优先用), scan 读可操作元素清单(带索引), text 读整页文字, scroll 滚动(delta 像素正下负上), click 点击第N元素(index), type 向输入框输入文本(index+text), upload 上传工作目录文件到文件选择框(index+local), clear_cache 清缓存刷新(full=true 连登录Cookie一起清), save_cookies 把当前登录Cookie存入site_auth(site 可选域名)。页面遇验证码/登录墙时提示用户点\"接管\"手动完成。", "JSON: {\"action\":\"open|scan|text|scroll|click|type|upload|clear_cache|save_cookies\",...}"),
         ToolSpec("app", "第三方App控制(需先授权无障碍): action=scan 扫描当前屏幕可操作元素清单(带索引, 空树返回EMPTY_TREE标记), click 点击第N元素(index), text 向输入框输入文本(index+text), tap 坐标注入点击(x+y, 视觉兜底用), screenshot 截当前屏保存工作目录返回路径(视觉兜底用), back 模拟返回键, home 回桌面, launch 按包名启动App(pkg), installed 列出已安装第三方应用", "JSON: {\"action\":\"scan|click|text|tap|screenshot|back|home|launch|installed\",...}"),
         ToolSpec("workdir", "手机工作目录(Download/Nyral_work)文件操作: action=list 列文件, read 读文本文件(name), write 写文件(name+content, 同名覆盖), grep 全文搜索(kw, 可选ext扩展名过滤/case大小写), head 读前N行或N字符(name+lines或chars), stats 统计概览", "JSON: {\"action\":\"list|read|write|grep|head|stats\",...}"),
         ToolSpec("file", "远端文件操作(SSH连接): action=list 列目录(conn+path), read 读文件(conn+path+lines), info 查看文件详情(conn+path), write 写/追加文件(conn+path+content+append), upload SFTP上传(conn+local+remote), download SFTP下载(conn+remote+local可选), ls SFTP列目录(conn+path)", "JSON: {\"action\":\"list|read|info|write|upload|download|ls\",\"conn\":\"连接名\",...}"),
-        ToolSpec("web_fetch", "抓取网页并提取正文文本; 若 site_auth.json 已配置该域名 Cookie 会自动注入, 无需重复传", "JSON: {\"url\":\"https://...\",\"max_chars\":3000}"),
-        ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web_fetch/web_download 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}"),
+        ToolSpec("site_auth", "管理站点登录凭据(存 site_auth.json, 供 web(action=fetch/download) 自动注入 Cookie)", "JSON: {\"action\":\"list\"} 或 {\"action\":\"set\",\"site\":\"域名\",\"cookie\":\"完整Cookie字符串\"} 或 {\"action\":\"del\",\"site\":\"域名\"}"),
         ToolSpec("get_time", "获取当前日期时间", "无参数"),
         ToolSpec("calc", "数学计算", "JSON: {\"expr\":\"表达式\"} 如 {\"expr\":\"17*23\"}"),
         ToolSpec("read_file_audit", "只读审计: 查看附件删除历史(时间/落库文件名/大小/mime/是否AI产物/删除来源), 供AI排查被删文件; 仅文件管理器私有目录, 用户不可删", "JSON: {\"limit\":50}"),
         ToolSpec("device_snapshot", "读取手机设备面板实时快照(只读): CPU 占用与最高核频率、内存、SoC 温度、电池、负载、数据分区余量、近5分钟峰值。用户问手机现在什么状态/为什么卡/烫不烫/还剩多少空间时调用; 动态指标不会自动进上下文, 需要时才取", "JSON: {\"fields\":[\"cpu\",\"mem\",\"temp\"]} (可省略=全部; 可选 profile/cpu/mem/temp/batt/load/disk/series)", CapabilityScope.ZONE_READONLY),
         ToolSpec("device_probe", "只读探针追单个对象: 传包名或进程名, 返回安装/版本/pid/常驻内存 RSS/线程数/进程状态/是否有同名内核模块; 权限通道不足的字段会如实说明缺哪个通道", "JSON: {\"target\":\"com.tencent.mm\"} (或 system_server 这类进程名)", CapabilityScope.ZONE_READONLY),
         ToolSpec("memory_search", "语义检索本地记忆", "JSON: {\"query\":\"查询内容\"}"),
-        ToolSpec("ssh_run", "通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 本工具是远端执行, 参数名 command, 与本机 sh_run(参数名 script)不同, 不要互相混用; 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数", "JSON: {\"command\":\"连接名:命令\"} 如 {\"command\":\"vps:ls /\"}"),
-        ToolSpec("ssh_config_add", "新增/更新SSH连接配置(直接写入SSH配置库, 写后即可用 ssh_run 连接): 必填 name/host/user, 端口默认22, 同名 name 时覆盖旧配置(编辑语义)。可选 password(密码)/privateKey(私钥内容)/passphrase(私钥口令), 密码与私钥至少给其一(都没有时仅保存连接, 连接会因缺凭据失败); 跳板机可选 proxyHost/proxyPort(默认22)/proxyUser/proxyPassword/proxyPrivateKey/proxyPassphrase, 非空时先连跳板再经隧道连目标", "JSON: {\"name\":\"vps\",\"host\":\"<VPS_PUBLIC_IP>\",\"port\":22,\"user\":\"root\",\"password\":\"可选\",\"privateKey\":\"可选\",\"proxyHost\":\"可选跳板\"}"),
-        ToolSpec("web_download", "下载网页/文件并保存到手机工作目录 下载/ 子目录; 返回\"下载成功\"即表示文件已落盘, 直接向用户报告结果, 不要再调用 workdir 等工具重复验证; site_auth.json 已配置的域名 Cookie 会自动注入", "JSON: {\"url\":\"https://...\",\"name\":\"可选文件名\"}"),
+        ToolSpec("ssh_run", "SSH 动作工具(2026-11-11 吸收 ssh_config_add): action=exec 通过SSH在远程主机执行命令, 格式: 连接名:命令(连接名见下方可用SSH连接); 参数名 command, 与本机 sh_run(参数名 script)不同, 不要互相混用; 经跳板机(标注\"经跳板\")的连接只需指定连接名, 跳板自动处理, 不要自行添加跳板参数。action=add_config 新增/更新SSH连接配置(直接写入配置库, 写后即可用 exec 连接): 必填 name/host/user, 端口默认22, 同名 name 覆盖旧配置; 可选 password/privateKey/passphrase, 密码与私钥至少给其一(都没有时仅保存连接, 连接会因缺凭据失败); 跳板机可选 proxyHost/proxyPort(默认22)/proxyUser/proxyPassword/proxyPrivateKey/proxyPassphrase", "JSON: {\"action\":\"exec|add_config\",\"conn\":\"连接名\",\"command\":\"命令\",\"name\":\"连接名\",\"host\":\"主机\",\"port\":22,\"user\":\"用户\"}"),
         ToolSpec("js_run", "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 无文件/网络权限, 断网可用不依赖服务器)", "JSON: {\"code\":\"要执行的JS脚本\",\"timeoutMs\":8000}"),
         ToolSpec("sh_run", "本机系统级执行 Shell 脚本(就地, 断网可用): 设备已 root 则 su -c 提权执行, 未 root 降级普通 sh 执行; 危险命令(rm -rf / /mkfs/dd 写设备/重启等)自动整脚本拦截; 返回 exit code + 输出(超2万字符截断)。用于清目录/查系统/禁自启/冻结App等系统级操作", "JSON: {\"script\":\"脚本内容\",\"timeout_ms\":15000} 参数名是 script(传 command/cmd 也会被自动兼容)。本工具在手机本机就地执行, 不需要任何 SSH 连接, 与远端 ssh_run 完全不同"),
         ToolSpec("ask_user", "当用户指令模糊/多义/缺关键信息、无法可靠推断时, 向用户当面澄清: 在手机弹原生选择框, 列出候选选项让用户点选(可选自定义输入)。用户的选择会作为本工具结果返回, 据此继续。仅在确实拿不准时才调用, 不要滥用", "JSON: {\"question\":\"要确认的问题\",\"options\":[\"选项1\",\"选项2\"],\"allow_custom\":true}"),
@@ -233,9 +230,8 @@ object LocalEngine {
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}"),
         ToolSpec("security_set", "安全管理开关(2026-10-30 收紧): 模型侧仅保留 ssh_trust —— 信任待确认的SSH主机密钥。危险门禁三档(danger_mode)与 root 自动补权(root_auto_grant)已从模型侧收回: 调用这些参数会被直接拒绝, 只能由用户在 设置 → 安全中心 手动修改; 用户提出关/改门禁时应引导其自行前往该页面, 不要代为操作", "JSON: {\"ssh_trust\":\"连接名\"}"),
         ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}"),
-        ToolSpec("artifact_save", "产物登记通道: 把完整成品以卡片形式交付给用户, 成品全文不要直接贴在回复里。必须调用的场景: 用户要完整代码文件/可运行的 HTML 网页/成品文档/SVG 图形, 或产出连续代码超过 30 行, 或用户要求保存/导出/交付文件。不要滥用: 简短代码片段(<10行)、解释性示例、纯思路讨论不登记。只接受纯文本内容(代码/HTML/SVG/Markdown/PDF源码等): PNG/MP4/DOCX 等二进制格式走本工具会损坏, 一律拒绝并说明改用文件通道。content 必须是产物文件本身的正文, 不要把工具调用指令/JSON包装/解释文字混进 content。同名再登记自动覆盖升版, 历史卡片展示最新版。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片, 不要重复贴全文", "JSON: {\"name\":\"产物文件名(带扩展名, 如 demo.html / report.md)\",\"content\":\"完整产物内容(纯文本)\"}"),
-        ToolSpec("artifact_save_bin", "二进制产物登记通道: 把图片/音频/视频/压缩包等二进制成品以 Base64 编码登记为产物卡片, 供用户查看或分享。适用: 用户要图片文件/音频/视频小样/zip 包, 且内容能一次给全(解码后不超过 512KB)。data 必须是文件完整二进制的标准 Base64(不要混入 data: 前缀、引号或说明文字)。纯文本产物(HTML/SVG/Markdown/代码)仍走 artifact_save, 不要用本工具。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片", "JSON: {\"name\":\"产物文件名(带扩展名)\",\"data\":\"<完整文件的 Base64>\"}"),
-        ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}"),
+        ToolSpec("artifact", "产物登记通道(2026-11-11 合并 artifact_save/artifact_save_bin): kind=text 交付纯文本成品(代码/HTML/SVG/Markdown/PDF源码), kind=binary 交付二进制成品(图片/音频/视频/压缩包, data 为 Base64 且解码后不超过 512KB)。成品全文不要直接贴在回复里。必须调用场景: 用户要完整代码文件/可运行的HTML网页/成品文档/SVG, 或连续代码超过30行, 或要求保存/导出/交付文件。不要滥用: 简短代码片段/解释性示例/纯思路讨论不登记。content 与 data 二选一(kind=text 用 content, kind=binary 用 data); content 必须是产物文件本身正文, 不要把工具调用指令/JSON包装/解释文字混进 content。同名再登记自动覆盖升版, 历史卡片展示最新版。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片, 不要重复贴全文", "JSON: {\"name\":\"产物文件名(带扩展名)\",\"kind\":\"text|binary\",\"content\":\"kind=text 的正文\",\"data\":\"kind=binary 的Base64\"}"),
+ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}"),
         ToolSpec("gen_image", "AI 生图(2026-11-04, 成本门禁, 多厂商契约驱动): 根据画面描述生成图片, 产物自动落盘并作为图片卡片回显。当前可用厂商、模型与额度元信息由本机配置动态注入。用户明确要求\"画一张/生成图片/配图/封面/示意图/插图\"时调用; 每次调用需用户确认, 且受月度限额保护。", "JSON: {\"prompt\":\"画面描述(必填, 尽量详细: 主体/风格/构图/光线)\",\"size\":\"图片尺寸(默认 1024*1024, 长*宽)\",\"n\":\"本次生成张数 1~4(默认 1, 计入月度限额)\",\"provider\":\"可选: 指定厂商显示名(如 通义万相/腾讯混元), 不填走默认\"}")
     )
 
@@ -245,12 +241,11 @@ object LocalEngine {
      * 不占用对话 token; 文本协议降级模式才按需把完整 desc+params 追加进上下文。
      */
     private val toolIndex: Map<String, String> = mapOf(
-        "web_search" to "后台静默检索(Bing), 结果仅AI参考, 用户看不到页面; 用户想看搜索页时用 browser(action=open)",
+        "web" to "联网三合一: search 后台静默检索(Bing, 结果仅AI参考, 用户看不到页面; 想看搜索页用 browser(action=open)), fetch 抓网页正文, download 下载文件到工作目录",
         "browser" to "全屏浏览器控制(用户可见): open 打开网页/搜索词, scan 扫元素, text 读文字, scroll 滚动, click 点击, type 输入, upload 上传文件, clear_cache 清缓存, save_cookies 存登录Cookie",
         "app" to "第三方App控制: scan 扫屏幕元素(空树EMPTY_TREE), click 点击, text 输入, tap 坐标点击(x+y), screenshot 截图, back 返回, home 桌面, launch 启动App, installed 查已装",
         "workdir" to "手机工作目录文件: list 列文件, read 读, write 写, grep 搜索, head 读前N行, stats 统计",
         "file" to "远端文件(SSH): list 列目录, read 读, info 详情, write 写, upload 上传, download 下载, ls 列目录",
-        "web_fetch" to "抓取网页提取正文",
         "site_auth" to "管理站点登录 Cookie(site_auth.json)",
         "get_time" to "获取当前日期时间",
         "calc" to "数学计算",
@@ -259,8 +254,7 @@ object LocalEngine {
         "device_snapshot" to "设备面板实时快照(CPU/最高核频率/内存/SoC温度/电池/负载/存储/近5分钟峰值), 只读",
         "device_probe" to "只读探针: 包名或进程名 → pid/RSS/线程/状态/同名内核模块",
         "ssh_run" to "SSH 远程执行命令",
-        "ssh_config_add" to "新增/更新SSH连接配置(写配置库, 同名覆盖, 支持密码/私钥/跳板)",
-        "web_download" to "下载网页/文件到手机工作目录",
+        "artifact" to "产物登记: kind=text 文本成品 / kind=binary 二进制成品, 以卡片交付用户",
         "js_run" to "应用内就地执行 JS 脚本(纯计算/逻辑/数据操作, 断网可用)",
         "sh_run" to "本机系统级执行 Shell 脚本(root 自动 su 提权, 危险命令拦截)",
         "ask_user" to "需求模糊/多义/缺关键信息时弹窗向用户澄清(候选选项+可选自定义输入), 用户选择作为结果返回",
@@ -276,10 +270,8 @@ object LocalEngine {
     private const val MCP_TOP_N = 4        // MCP 工具按热度常驻数
     /** 跨场景核心工具白名单: 永远注入完整 schema, 防冷启动雪藏 */
     private val TOOL_WHITELIST = setOf(
-        "web_search", "browser", "app", "workdir", "file", "web_fetch", "memory_search",
-        "ssh_run", "ask_user", "get_time", "calc", "js_run", "attach_read", "video_frame", "pdf_page", "image_view", "audio_read", "file_export", "security_set",
-        "timer_task_create", "write_clipboard", "artifact_save", "artifact_save_bin", "gen_image",
-        "read_file_audit"
+        "browser", "app", "workdir", "file", "web", "ssh_run", "memory_search",
+        "sh_run", "js_run", "ask_user", "attach_read", "artifact"
     )
 
     interface Callback {
@@ -390,27 +382,6 @@ object LocalEngine {
      * 冷启动无数据保持注册默认顺序; 对末尾从未调用的冷门工具压缩描述为 toolIndex 瘦索引,
      * 省 token 且仍可正常调用(不真删)。
      */
-    private fun hotOrder(context: Context, specs: List<ToolSpec>): List<ToolSpec> {
-        val hot = ToolHotStore.load(context)
-        if (hot.isEmpty()) return specs  // 冷启动: 默认注册顺序
-        val ordered = specs.sortedWith(
-            compareByDescending<ToolSpec> { hot[it.name]?.count ?: 0 }
-                .thenByDescending { hot[it.name]?.lastTs ?: 0L }
-        )
-        // 压缩描述: 取末尾从未调用(热度0)的一批(不超过 1/3), 防雪藏过度
-        val zeroHotTail = ordered.takeLast(ordered.size / 3)
-            .filter { (hot[it.name]?.count ?: 0) == 0 }
-            .map { it.name }
-            .toSet()
-        if (zeroHotTail.isEmpty()) return ordered
-        return ordered.map { spec ->
-            if (spec.name in zeroHotTail) {
-                val short = toolIndex[spec.name]
-                if (short != null) ToolSpec(spec.name, short, spec.params) else spec
-            } else spec
-        }
-    }
-
     /** toolIndex 瘦索引按热度排序(与 function calling 的 tools 排序保持一致) */
     private fun hotToolIndex(context: Context): List<Pair<String, String>> {
         val hot = ToolHotStore.load(context)
@@ -529,12 +500,13 @@ object LocalEngine {
                 "script" to str("要执行的 Shell 脚本内容(多行用 \\n)。参数名必须是 script 而不是 command(sh_run 与 ssh_run 参数名不同)"),
                 "timeout_ms" to int("超时毫秒(默认15000)", 15000))
 
-            "web_search" -> obj(listOf("q"),
-                "q" to str("搜索关键词"),
-                "max_results" to int("返回结果条数(1-10)", 5))
-            "web_fetch" -> obj(listOf("url"),
-                "url" to str("要抓取的网页 URL, 以 http:// 或 https:// 开头"),
-                "max_chars" to int("提取正文最大字符数(默认3000)", 3000))
+            "web" -> obj(listOf("action"),
+                "action" to str("操作: search 后台静默搜索 / fetch 抓取网页正文 / download 下载到工作目录", enums = listOf("search", "fetch", "download")),
+                "q" to str("search 时: 搜索关键词", required = false),
+                "url" to str("fetch/download 时: 目标地址, 以 http:// 或 https:// 开头", required = false),
+                "max_results" to int("search 时: 返回结果条数(1-10)", 5),
+                "max_chars" to int("fetch 时: 提取正文最大字符数(默认3000)", 3000),
+                "name" to str("download 时: 可选保存文件名(不含路径分隔符)", required = false))
             "site_auth" -> obj(listOf("action"),
                 "action" to str("操作: list 列出 / set 保存 / del 删除", enums = listOf("list", "set", "del")),
                 "site" to str("站点域名, 如 annas-archive.org", required = false),
@@ -550,8 +522,20 @@ object LocalEngine {
                     .put("items", JSONObject().put("type", "string")))
             "device_probe" -> obj(listOf("target"),
                 "target" to str("包名或进程名, 如 com.tencent.mm / system_server"))
-            "ssh_run" -> obj(listOf("command"),
-                "command" to str("连接名:命令, 连接名见可用SSH连接; 例如 vps:ls / 或 dev188:free -h"))
+            "ssh_run" -> obj(listOf("action"),
+                "action" to str("操作: exec 远程执行命令 / add_config 新增或更新连接配置", enums = listOf("exec", "add_config")),
+                "conn" to str("exec 时: 连接名", required = false),
+                "command" to str("exec 时: 命令; 也可整体写成 连接名:命令 单字段形式", required = false),
+                "name" to str("add_config 时: 连接名, 同名覆盖", required = false),
+                "host" to str("add_config 时: 主机地址", required = false),
+                "port" to int("add_config 时: 端口(默认22)", 22),
+                "user" to str("add_config 时: 用户名", required = false),
+                "password" to str("add_config 时: 密码(与 privateKey 至少给一个)", required = false),
+                "privateKey" to str("add_config 时: 私钥内容", required = false),
+                "passphrase" to str("add_config 时: 私钥口令", required = false),
+                "proxyHost" to str("add_config 时: 跳板主机(选填)", required = false),
+                "proxyPort" to int("add_config 时: 跳板端口(默认22)", 22),
+                "proxyUser" to str("add_config 时: 跳板用户名", required = false))
             "file" -> obj(listOf("action"),
                 "action" to str("操作", enums = listOf("list", "read", "info", "write", "upload", "download", "ls")),
                 "conn" to str("SSH 连接名"),
@@ -561,9 +545,6 @@ object LocalEngine {
                 "append" to bool("write 时: true 追加, false 覆盖(默认false)"),
                 "local" to str("upload/download 时: 手机工作目录文件名(本地端)", required = false),
                 "remote" to str("upload/download 时: 远端绝对路径", required = false))
-            "web_download" -> obj(listOf("url"),
-                "url" to str("要下载的 URL"),
-                "name" to str("可选保存文件名(不含路径分隔符)", required = false))
             "attach_read" -> obj(listOf("name"),
                 "name" to str("附件文件名(可带 att:// 前缀)"),
                 "offset" to int("起始字符偏移, 默认0", 0),
@@ -577,12 +558,11 @@ object LocalEngine {
                 "name" to str("附件文件名(可带 att:// 前缀)"))
             "write_clipboard" -> obj(listOf("text"),
                 "text" to str("要复制到手机系统剪贴板的完整文本(用户可粘贴到其他 App)"))
-            "artifact_save" -> obj(listOf("name", "content"),
-                "name" to str("产物文件名(带扩展名, 如 demo.html / report.md)"),
-                "content" to str("完整产物内容(整文件一次给全, 不要截断)"))
-            "artifact_save_bin" -> obj(listOf("name", "data"),
-                "name" to str("产物文件名(带扩展名, 如 icon.png / ring.mp3)"),
-                "data" to str("完整文件内容的 Base64 编码(标准字母表, 不要换行前缀), 原始文件不超过 512KB"))
+            "artifact" -> obj(listOf("name", "kind"),
+                "name" to str("产物文件名(带扩展名, 如 demo.html / icon.png)"),
+                "kind" to str("产物类型: text 纯文本 / binary 二进制", enums = listOf("text", "binary")),
+                "content" to str("kind=text 时: 完整产物内容(整文件一次给全, 不要截断)", required = false),
+                "data" to str("kind=binary 时: 完整文件内容的 Base64(标准字母表, 不要换行前缀), 原始文件不超过 512KB", required = false))
             "gen_image" -> obj(listOf("prompt"),
                 "prompt" to str("画面描述(必填, 尽量详细: 主体/风格/构图/光线)"),
                 "size" to str("图片尺寸(默认 1024*1024, 长*宽)", required = false),
@@ -1836,7 +1816,7 @@ object LocalEngine {
         messages.put(JSONObject().put("role", "system").put("content",
             personaBlock + userBlock +
             "根据用户需求选择工具。工具清单(名称+用途):\n" +
-            "搜索策略(重要·三级)：1) 一般搜索默认先用 web_search 后台静默快查(不打断用户界面)，拿到标题+摘要直接汇报，用户没要求看页面就不要开浏览器展示页；2) 仅当用户明确要\"看页面/看结果页/进某站\"，或 web_search 无有效结果、需要登录态、卡验证码/登录墙时，才升级调用 browser(action=open) 打开全屏浏览器页(用户可见)；3) 浏览器页内遇到验证码/登录墙：不要硬点，停下提示用户点底部\"接管\"按钮手动完成(输验证码/登录)，用户再点\"交还 AI\"后你可继续 browser 的 scan/click/type 等操作；用户登录成功后调用 browser(action=save_cookies) 把该站点登录 Cookie 存入 site_auth.json，此后 web_fetch/web_download 静默抓取自动带登录态，无需再开浏览器。\n" +
+            "搜索策略(重要·三级)：1) 一般搜索默认先用 web(action=search) 后台静默快查(不打断用户界面)，拿到标题+摘要直接汇报，用户没要求看页面就不要开浏览器展示页；2) 仅当用户明确要\"看页面/看结果页/进某站\"，或 web(action=search) 无有效结果、需要登录态、卡验证码/登录墙时，才升级调用 browser(action=open) 打开全屏浏览器页(用户可见)；3) 浏览器页内遇到验证码/登录墙：不要硬点，停下提示用户点底部\"接管\"按钮手动完成(输验证码/登录)，用户再点\"交还 AI\"后你可继续 browser 的 scan/click/type 等操作；用户登录成功后调用 browser(action=save_cookies) 把该站点登录 Cookie 存入 site_auth.json，此后 web(action=fetch/download) 静默抓取自动带登录态，无需再开浏览器。\n" +
             hotToolIndex(context).joinToString("\n") { (n, d) -> "- $n: $d" } +
             "注: 回调列表仅常驻常用工具; 想用索引中未列出的工具时, 先调 tool_detail(name) 获取规格并激活, 激活后即可直接调用。\n" +
             buildMcpIndex() +
