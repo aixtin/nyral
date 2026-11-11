@@ -3,6 +3,12 @@
 > 面向接手的开发者：在 Nyral 仓库里安全干活的第一份文档。
 > 核心原则：**改源码前先备份，拆文件按套路走，验证流程必须全过。**
 
+## 维护者
+
+Nyral 由 **atin**（GitHub [@aixtin](https://github.com/aixtin)，Gitee 同名同号）独立设计与维护。
+`atin` 与 `aixtin` 是同一个人：`aixtin` 是各平台账号 ID（GitHub、Gitee、包名 `io.github.aixtin.*` 均用这一层），`atin` 是对外署名。
+主页与全部项目见 <https://atin.asia/about/>。
+
 ## 1. 工程概览
 
 - 项目：Nyral 安卓 App（包名 `io.github.aixtin.nyral`），Kotlin 单模块，构建 gradle 8.13
