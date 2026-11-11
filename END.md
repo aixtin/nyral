@@ -1,5 +1,7 @@
 # Nyral--一个耗时 54 天的"作品"
 
+> 作者：**atin**（GitHub [@aixtin](https://github.com/aixtin)）。`atin` 与 `aixtin` 是同一个人，主页见 <https://atin.asia/about/>。
+
 ## 起因
 
 我的手机里装了十几个到二十个AI应用，用了很长时间，但它们多多少少都有点不符合我的使用需求。
