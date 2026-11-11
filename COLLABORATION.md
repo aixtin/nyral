@@ -3,6 +3,7 @@
 ## Who We Are
 
 - **aixtin**: project owner. Owns product direction, architecture decisions, on-device acceptance and releases.
+  - `aixtin` is the account handle (GitHub, Gitee, package IDs); **`atin` is the same person's public name**. Homepage: <https://atin.asia/about/>.
 - **Marvis**: AI coding assistant. Owns implementation, debugging, documentation and knowledge-base maintenance.
 
 ## Division of Work
