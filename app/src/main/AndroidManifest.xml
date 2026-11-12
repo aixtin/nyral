@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
@@ -138,7 +139,13 @@
         <service
             android:name=".TimerKeepAliveService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <!-- Android 15+ dataSync 型 FGS 有 6h 运行上限, 到期抛 ForegroundServiceDidNotStopInTimeException;
+                 保活服务需长期常驻, 改 specialUse(无时长配额) -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="scheduled_task_keepalive" />
+        </service>
 
         <!-- 定时岗位重排兜底 Job(2026-11-10): persisted 周期 15min, 由 system_server 在重启后自动恢复,
              不依赖 BOOT_COMPLETED 广播投递(厂商 BootPressureHolder 拦广播但拦不住 job 恢复) -->

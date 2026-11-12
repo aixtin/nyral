@@ -870,4 +870,12 @@
     <string name="guide_tab_provider">选择服务商</string>
     <string name="guide_tab_key">填写 Key</string>
     <string name="guide_tab_done">完成与设置</string>
+    <!-- 定时岗位保活指引(2026-11-12) -->
+    <string name="keepalive_card_title">定时岗位保活</string>
+    <string name="keepalive_card_desc">定时任务（早报、早安等）能否到点出声，取决于两件事：① 通知权限；② 系统「自启动」白名单。自启动未放开时，进程被系统清理后任务不会自行复活，到点也不会有任何通知。</string>
+    <string name="keepalive_card_btn">去开启自启动</string>
+    <string name="keepalive_notif_btn">去检查通知设置</string>
+    <string name="keepalive_toast_auto">已打开系统页面，请为本应用允许「自启动 / 允许后台活动」</string>
+    <string name="keepalive_toast_fallback">未找到厂商自启动管理页，已打开应用详情，请在其中找到「自启动 / 后台管理」</string>
+    <string name="keepalive_toast_fail">跳转失败，请手动前往 系统设置 → 应用管理 → 本应用 → 自启动</string>
 </resources>

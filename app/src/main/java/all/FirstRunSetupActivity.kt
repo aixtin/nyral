@@ -2,6 +2,7 @@ package io.github.aixtin.nyral
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -93,6 +94,54 @@ class FirstRunSetupActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }.also { box -> listBox = box })
         content.addView(permCard)
+
+        // 定时岗位保活指引(2026-11-12): 通知 + 厂商自启动白名单是定时任务能否到点出声的硬前提，
+        // 实测未放开自启动时"杀后台 → 通知不出现 → 任务静默"，用户无从判断是权限问题还是功能没做
+        content.addView(TextView(this).apply {
+            text = getString(R.string.keepalive_card_title)
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Ui.TEXT)
+            setPadding(dp(4), dp(18), dp(4), dp(8))
+        })
+        content.addView(Ui.card(this).apply {
+            addView(LinearLayout(this@FirstRunSetupActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(14), dp(14), dp(14))
+                addView(TextView(this@FirstRunSetupActivity).apply {
+                    text = getString(R.string.keepalive_card_desc)
+                    textSize = 12.5f
+                    setTextColor(Ui.SUB)
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                })
+                addView(Ui.primaryBtn(this@FirstRunSetupActivity, getString(R.string.keepalive_card_btn)) {
+                    openAutoStart()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply {
+                        setMargins(0, dp(12), 0, 0)
+                    }
+                })
+                addView(TextView(this@FirstRunSetupActivity).apply {
+                    text = getString(R.string.keepalive_notif_btn)
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(Ui.PRIMARY)
+                    setPadding(0, dp(12), 0, 0)
+                    isClickable = true
+                    Ui.press(this)
+                    setOnClickListener {
+                        try {
+                            startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                            )
+                        } catch (e: Exception) {
+                            Toast.makeText(this@FirstRunSetupActivity, getString(R.string.keepalive_toast_fail), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                })
+            })
+        })
 
         // 模式选择卡
         content.addView(TextView(this).apply {
@@ -342,6 +391,41 @@ class FirstRunSetupActivity : Activity() {
                 })
             })
         }
+
+    /** 厂商自启动管理页无统一 API, 按机型依次尝试; 全部不可用则退回应用详情页(2026-11-12) */
+    private fun openAutoStart() {
+        val candidates = listOf(
+            ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+            ComponentName("com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity"),
+            ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+            ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"),
+            ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"),
+            ComponentName("com.transsion.phonemaster", "com.transsion.phonemaster.ui.autostart.AutoStartActivity")
+        )
+        for (c in candidates) {
+            val i = Intent().apply {
+                component = c
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (packageManager.resolveActivity(i, 0) == null) continue
+            try {
+                startActivity(i)
+                Toast.makeText(this, getString(R.string.keepalive_toast_auto), Toast.LENGTH_LONG).show()
+                return
+            } catch (_: Exception) {
+            }
+        }
+        try {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            Toast.makeText(this, getString(R.string.keepalive_toast_fallback), Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.keepalive_toast_fail), Toast.LENGTH_LONG).show()
+        }
+    }
 
     private fun openOverlay() {
         try {

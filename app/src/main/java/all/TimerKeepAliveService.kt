@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 
 /**
@@ -17,6 +18,12 @@ import androidx.core.app.NotificationCompat
  * 配合「耗电无限制(准点) + 自启动/pending alarm(兜底复活)」组成保活三件套:
  * FGS 负责"进程压根不被杀/不被速冻", 触发时任务已在进程中直接执行。
  * 仅当定时任务全部停用/删除时停止; 服务被系统意外重启(START_STICKY)时自动复检自停。
+ *
+ * 2026-11-12 修 ForegroundServiceDidNotStopInTimeException(type=dataSync):
+ * Android 15(API 35)起 dataSync 类型 FGS 单次/24h 累计运行有 6 小时上限, 到期系统回调
+ * onTimeout(), 应用未及时 stopSelf 即由 system_server 抛 RemoteServiceException 直接杀进程。
+ * 保活服务天然需要"长期常驻", 与 dataSync 时限在设计上冲突 —— 因此改用 specialUse 类型
+ * (无时长配额, manifest 声明 subtype), 并补 onTimeout 兜底自停, 避免未来政策变动再崩。
  */
 class TimerKeepAliveService : Service() {
 
@@ -24,6 +31,11 @@ class TimerKeepAliveService : Service() {
         private const val CHANNEL_ID = "timer_keepalive"
         // 2026-10-11: 1002 原与 DebugService 冲突互相覆盖, 改为 1003; 组内父通知 1004
         private const val NOTIF_ID = 1003
+        private const val TAG = "TimerKeepAlive"
+        /** 同进程内两次拉起的最小间隔: 恢复链路(L1/L2/L3)会并发 ensure, 防重复 start(2026-11-12) */
+        private const val START_THROTTLE_MS = 5_000L
+
+        @Volatile private var lastStartAt = 0L
 
         /** 按需启停: 存在启用任务则拉起保活服务, 否则停掉 */
         fun ensure(context: Context) {
@@ -36,7 +48,12 @@ class TimerKeepAliveService : Service() {
         }
 
         /** 启动保活前台服务(Android 8+ 走 startForegroundService) */
+        @Synchronized
         fun start(context: Context) {
+            val now = SystemClock.elapsedRealtime()
+            // 节流: 已拉起(或刚拉起)时不重复下发 start, 减少 FGS 状态机抖动
+            if (lastStartAt != 0L && now - lastStartAt < START_THROTTLE_MS) return
+            lastStartAt = now
             val i = Intent(context, TimerKeepAliveService::class.java)
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -45,12 +62,14 @@ class TimerKeepAliveService : Service() {
                     context.startService(i)
                 }
             } catch (e: Exception) {
-                android.util.Log.w("TimerKeepAlive", "启动保活服务失败: ${e.message}")
+                android.util.Log.w(TAG, "启动保活服务失败: ${e.message}")
             }
         }
 
         /** 停止保活服务并移除常驻通知(含 Live Updates/promoted 残留兜底) */
+        @Synchronized
         fun stop(context: Context) {
+            lastStartAt = 0L
             try {
                 context.stopService(Intent(context, TimerKeepAliveService::class.java))
             } catch (_: Exception) {
@@ -60,10 +79,22 @@ class TimerKeepAliveService : Service() {
             } catch (_: Exception) {
             }
         }
+
+        /** API 34+: 常驻保活用 specialUse(无 6h 配额); 更低版本无时限, 沿用 dataSync */
+        private fun fgsType(): Int =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            }
     }
+
+    /** 已进入停止流程: 此后不再前台化, 防"超时被杀 → 又 startForeground"循环 */
+    @Volatile private var stopping = false
 
     override fun onCreate() {
         super.onCreate()
+        stopping = false
         createChannel()
         // onCreate 立即前台化, 满足 Android 8+ 5s 时限要求
         startForegroundCompat()
@@ -71,7 +102,15 @@ class TimerKeepAliveService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundCompat()
+        if (stopping) {
+            // 停止流程中收到的 start: 直接确认并退出, 不再前台化
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (!startForegroundCompat()) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         ServiceNotifGroup.publishSummary(this)
         // 系统重启服务(空 intent)时复检: 已无启用任务则自停
         if (intent == null) {
@@ -81,8 +120,9 @@ class TimerKeepAliveService : Service() {
                 false
             }
             if (!hasEnabled) {
-                android.util.Log.i("TimerKeepAlive", "无启用任务, 保活服务自停")
-                stopSelf()
+                android.util.Log.i(TAG, "无启用任务, 保活服务自停")
+                stopping = true
+                stopSelf(startId)
                 return START_NOT_STICKY
             }
         }
@@ -90,21 +130,45 @@ class TimerKeepAliveService : Service() {
         return START_STICKY
     }
 
-    private fun startForegroundCompat() {
-        try {
-            val notif = buildNotification()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIF_ID, notif.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-            } else {
-                startForeground(NOTIF_ID, notif.build())
-            }
+    /**
+     * Android 15+ 前台服务超时回调(API 36 还有带 type 的重载, 默认实现会转调本方法)。
+     * specialUse 正常不触发; 一旦触发必须立刻自停, 否则 system_server 抛
+     * ForegroundServiceDidNotStopInTimeException 直接杀进程。
+     */
+    override fun onTimeout(startId: Int) {
+        android.util.Log.w(TAG, "前台服务超时, 主动自停(startId=$startId)")
+        stopping = true
+        stopForegroundCompat()
+        stopSelf()
+    }
+
+    private fun startForegroundCompat(): Boolean {
+        if (stopping) return false
+        return try {
+            startForeground(NOTIF_ID, buildNotification().build(), fgsType())
+            true
         } catch (e: Exception) {
             // 兜底: 个别 ROM 类型/权限异常时降级无类型前台服务, 避免崩溃
             try {
                 startForeground(NOTIF_ID, buildNotification().build())
+                true
             } catch (e2: Exception) {
-                android.util.Log.e("TimerKeepAlive", "startForeground 失败: ${e2.message}")
+                android.util.Log.e(TAG, "startForeground 失败: ${e2.message}")
+                false
             }
+        }
+    }
+
+    private fun stopForegroundCompat() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "stopForeground 失败: ${e.message}")
         }
     }
 
@@ -139,18 +203,15 @@ class TimerKeepAliveService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
+        // 先撤前台状态再交还父类, 保证通知与 FGS 状态在同一帧内一致
+        stopping = true
+        stopForegroundCompat()
         try {
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIF_ID)
         } catch (_: Exception) {
         }
         ServiceNotifGroup.unregister(this)
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
