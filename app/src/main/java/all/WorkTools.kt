@@ -43,14 +43,34 @@ object WorkTools {
      */
     fun write(context: Context, arg: String): String {
         val p = try { JSONObject(arg) } catch (e: Exception) { JSONObject() }
-        val name = p.optString("name").trim()
+        val rawName = p.optString("name").trim()
         val content = p.optString("content", "")
-        if (name.isEmpty()) return "错误: 缺少 name(文件名), 如 {\"name\":\"a.txt\",\"content\":\"...\"}"
-        if (name.contains('/')) return "错误: 文件名不能含路径分隔符, 只能填文件名"
+        if (rawName.isEmpty()) return "错误: 缺少 name(文件名), 如 {\"name\":\"a.txt\",\"content\":\"...\"}"
+        if (rawName.contains('/')) return "错误: 文件名不能含路径分隔符, 只能填文件名"
         if (content.length > 10 * 1024 * 1024) return "错误: 内容超过 10MB 上限"
+        // 2026-11-13: 模型常把 name 传成 "早报-2026-11-13.md.txt"(在正确扩展名后又叠 .txt),
+        // 落盘出现双后缀且与它自己回复的"已存档 xxx.md"不一致。这里做一次白名单纠正。
+        val name = stripRedundantTxtSuffix(rawName)
         val ok = WorkDir.write(context, name, content.toByteArray(Charsets.UTF_8))
-        return if (ok) "已写入: ${WorkDir.displayPath}$name (${content.length} 字符)"
-        else "错误: 写入失败: $name"
+        return if (ok) {
+            val fixNote = if (name != rawName) " (已纠正重复后缀, 请求名: $rawName)" else ""
+            "已写入: ${WorkDir.displayPath}$name (${content.length} 字符)$fixNote"
+        } else "错误: 写入失败: $name"
+    }
+
+    /** 已知文本类扩展名: 出现 xxx.<ext>.txt 时判定为模型误叠后缀 */
+    private val KNOWN_TEXT_EXTS = setOf(
+        "md", "markdown", "html", "htm", "json", "kt", "java", "py", "css", "js",
+        "ts", "csv", "yaml", "yml", "xml", "log", "sh", "txt", "ini", "toml"
+    )
+
+    /** 去掉多余的尾部 .txt: "早报-2026-11-13.md.txt" -> "早报-2026-11-13.md"; 非白名单原样返回 */
+    internal fun stripRedundantTxtSuffix(name: String): String {
+        if (!name.endsWith(".txt", ignoreCase = true)) return name
+        val base = name.dropLast(4)
+        val dot = base.lastIndexOf('.')
+        if (dot <= 0 || dot == base.length - 1) return name
+        return if (base.substring(dot + 1).lowercase() in KNOWN_TEXT_EXTS) base else name
     }
 
     /** 单文件内容搜索上限(超过跳过该文件, 防读大文件卡死) */
