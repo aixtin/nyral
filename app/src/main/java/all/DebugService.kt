@@ -100,4 +100,15 @@ class DebugService : Service() {
         super.onDestroy()
         ServiceNotifGroup.unregister(this)
     }
+
+    /** fix(2026-11-13): dataSync 前台配额到期时主动收摊, 避免系统抛 ForegroundServiceDidNotStopInTimeException 杀进程 */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int) {
+        android.util.Log.w("DebugService", "onTimeout: dataSync 前台配额到期, 主动停止服务 startId=$startId")
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Exception) {
+        }
+        stopSelf(startId)
+    }
 }

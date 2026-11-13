@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.SystemClock
 import android.os.IBinder
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 
 /**
@@ -38,6 +39,15 @@ class TaskService : Service() {
         private const val NOTIF_ID = 1001
         private const val NOTIF_DONE_ID = 1005
 
+        /**
+         * fix(2026-11-13): 定岗任务前台服务看门狗上限(30 分钟)。
+         * 定时岗位要跑完整 AI 链路(联网+工具), 正常 1~3 分钟; 但 LocalEngine.chat 经 chatLock 单飞,
+         * 若主对话长时间不释放锁、或网络请求挂死, 后台线程会一直阻塞, TaskService 前台状态不退出,
+         * 直到 dataSync 6 小时配额到期被系统杀进程(2026-11-13 08:00:10 线上崩溃即此路径,
+         * 与 08:00 早报闹钟同一秒, 任务被打断)。故超过上限主动收摊, 只丢这一轮, 不连累进程。
+         */
+        private const val TIMER_TASK_WATCHDOG_MS = 30 * 60 * 1000L
+
         /** 胶囊重试动作(通知 Action 携带, MainActivity.onNewIntent 处理) */
         const val ACTION_RETRY = "io.github.aixtin.nyral.action.RETRY_TASK"
 
@@ -51,6 +61,8 @@ class TaskService : Service() {
         @Volatile private var pendingStop = false
         /** fix(2026-11-09): 补停标记登记时刻, 超过 5s 视为失效, 避免跨对话残留吞掉真实闹钟唤醒 */
         @Volatile private var pendingStopAt = 0L
+        /** fix(2026-11-13): 定岗看门狗投递用主线程 Handler */
+        private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
         /** 启动前台服务(Android 8+ 需 startForegroundService, 兼容旧版走 startService) */
         fun start(context: Context) {
@@ -250,6 +262,17 @@ class TaskService : Service() {
             "目标: " + task.goal + "\n" +
             "请作为 Nyral 后台静默执行该定时任务, 完成后输出简洁结果摘要, 不需要请示确认。"
         android.util.Log.i("TimerTask", "定时岗位执行开始: ${task.name}")
+        // fix(2026-11-13): 起看门狗, 超时主动收摊, 避免前台服务被定岗线程拖住直到配额到期杀进程
+        val watchdog = Runnable {
+            android.util.Log.w("TimerTask", "定时岗位执行超时(30min), 强制停止前台服务: ${task.name}")
+            try {
+                SecurityConfig.audit(this, "timer_task_timeout",
+                    "${task.name} 超过 30 分钟未返回, 已强制停止前台服务", "timer_task", "timer_task")
+            } catch (_: Exception) {
+            }
+            TaskService.stop(this)
+        }
+        mainHandler.postDelayed(watchdog, TIMER_TASK_WATCHDOG_MS)
         // 2026-10-11 fix: LocalEngine 网络请求必须在后台线程执行(主线程会抛 NetworkOnMainThreadException)
         val cb = object : LocalEngine.Callback {
             override fun onThinkingStart() {}
@@ -258,6 +281,7 @@ class TaskService : Service() {
             override fun onTool(name: String, arg: String) {}
             override fun onDelta(text: String) {}
             override fun onDone(reply: String) {
+                mainHandler.removeCallbacks(watchdog)
                 db.setLastRun(taskId, System.currentTimeMillis(), reply.take(500))
                 writeToSession(sessionId, task, history, reply)
                 SecurityConfig.audit(this@TaskService, "timer_task_run",
@@ -273,6 +297,7 @@ class TaskService : Service() {
                 TaskService.stop(this@TaskService)
             }
             override fun onError(msg: String) {
+                mainHandler.removeCallbacks(watchdog)
                 db.setLastRun(taskId, System.currentTimeMillis(), "失败: $msg")
                 writeToSession(sessionId, task, history, "执行失败: $msg")
                 SecurityConfig.audit(this@TaskService, "timer_task_run",
@@ -379,6 +404,28 @@ class TaskService : Service() {
         }
         }
         ServiceNotifGroup.unregister(this)
+    }
+
+    /**
+     * fix(2026-11-13): Android 15(API35) 起 dataSync 型前台服务有 6 小时运行配额(单次/24h 累计),
+     * 到期由 system_server 回调本方法; 若不在回调内主动停服, 系统直接抛
+     * RemoteServiceException$ForegroundServiceDidNotStopInTimeException 杀掉整个进程。
+     * 2026-11-13 08:00:10 线上崩溃即此路径(Process-Runtime 15493976ms, 与 08:00 早报闹钟同一秒),
+     * 该轮早报任务被连带打断且未留存档。
+     * 此处兜底: 记录审计 + 移除前台通知 + 自停, 保进程活着, 剩余工作交给看门狗与下次闹钟。
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int) {
+        android.util.Log.w("TaskService", "onTimeout: dataSync 前台配额到期, 主动停止服务 startId=$startId")
+        try {
+            SecurityConfig.audit(this, "fgs_timeout", "dataSync 前台配额到期, 服务主动停止(startId=$startId)", "system", "service")
+        } catch (_: Exception) {
+        }
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Exception) {
+        }
+        stopSelf(startId)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
