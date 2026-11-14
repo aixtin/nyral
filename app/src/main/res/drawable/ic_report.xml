@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 运行报告入口图标(2026-11-14): 标题栏柱状图, 替代原先的纯文字"报告" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M4,20h16v2H4zM6,10h3v8H6zM10.5,4h3v14h-3zM15,7h3v11h-3z" />
+</vector>

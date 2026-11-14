@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 悬浮新建按钮图标(2026-11-14): 对齐 BlogPad 的 FAB 十字, 24dp 视口内 2px 线宽 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M11,5h2v14h-2zM5,11h14v2H5z" />
+</vector>

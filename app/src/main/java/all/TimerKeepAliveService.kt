@@ -44,7 +44,27 @@ class TimerKeepAliveService : Service() {
             } catch (e: Exception) {
                 false
             }
-            if (hasEnabled) start(context) else stop(context)
+            // 第四批(2026-11-14): 常驻保活降级为可关开关。默认仍开(沿用旧行为, 不引入可靠性回归),
+            // 但用户可在"定时岗位体检"页关掉 —— 对每日 1~2 次的任务它是净负担(占通知位 + 常驻内存)
+            if (hasEnabled && keepAliveEnabled(context)) start(context) else stop(context)
+        }
+
+        /** 常驻保活开关(默认开, 兼容旧行为) */
+        fun keepAliveEnabled(context: Context): Boolean = try {
+            context.getSharedPreferences("timer_health", Context.MODE_PRIVATE)
+                .getBoolean("keep_alive", true)
+        } catch (e: Exception) {
+            true
+        }
+
+        /** 切换开关并即时生效: 开 -> 若有启用任务则拉起; 关 -> 立刻停掉并移除常驻通知 */
+        fun setKeepAlive(context: Context, on: Boolean) {
+            try {
+                context.getSharedPreferences("timer_health", Context.MODE_PRIVATE).edit()
+                    .putBoolean("keep_alive", on).apply()
+            } catch (_: Exception) {
+            }
+            if (on) ensure(context) else stop(context)
         }
 
         /** 启动保活前台服务(Android 8+ 走 startForegroundService) */

@@ -323,7 +323,10 @@ object Ui {
         if (Build.VERSION.SDK_INT >= 35) {
             setOnApplyWindowInsetsListener { v, insets ->
                 val top = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top
-                v.setPadding(0, top, 0, 0)
+                // fix(2026-11-14): 只消费状态栏时, 页面最后一行(如体检页保活开关 bounds [844,2353][984,2376])会被导航栏压住,
+                // 用户必须先上滑才能点到。补 navigationBars 底部 inset, 全站页面统一生效。
+                val bottom = insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+                v.setPadding(0, top, 0, bottom)
                 insets
             }
         }

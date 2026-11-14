@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Android 13+ 闹钟类豁免: 免用户手动授权精确闹钟, 自分发无 Play 政策限制 -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- 所有文件访问: 解决作用域存储下 adb push 落盘文件 owner=NULL 对 MediaStore 查询不可见的问题 -->
@@ -134,6 +135,19 @@
             android:exported="false"
             android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
+
+        <!-- 岗位详情页(2026-11-14): 状态 / 目标全文 / 能力授权 / 最近台账 -->
+        <activity
+            android:name=".TimerTaskDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
+
+        <!-- 岗位编辑页(2026-11-14): 新建与编辑共用; 目标多行输入需要键盘压缩窗口 -->
+        <activity
+            android:name=".TimerTaskEditActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Nyral.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- 定时岗位保活前台服务(2026-10-11): 有启用任务时常驻通知钉住进程, 防速冻/防被杀 -->
         <service
@@ -265,6 +279,10 @@
             android:theme="@style/Theme.Nyral.NoActionBar" />
 
         <!-- 权限管理: 查看/补开全部依赖权限 -->
+        <activity
+            android:name=".TimerHealthActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".PermissionsActivity"
             android:exported="false"
