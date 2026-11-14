@@ -35,8 +35,8 @@ android {
         applicationId = "io.github.aixtin.nyral"
         minSdk = 29
         targetSdk = 36
-        versionCode = 139
-        versionName = "2.9.26"
+        versionCode = 142
+        versionName = "2.9.29"
         // 崩溃上报 token 构建时注入(local.properties 不入库); 空串时禁用上报鉴权将 401
         val crashProps = rootProject.file("local.properties")
         val crashToken = Properties().apply {
