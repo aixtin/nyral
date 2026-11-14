@@ -345,6 +345,7 @@
             android:name=".KnowledgeBaseActivity"
             android:exported="false"
             android:label="知识库"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Nyral.NoActionBar" />
         <activity
             android:name=".KnowledgeEntryActivity"

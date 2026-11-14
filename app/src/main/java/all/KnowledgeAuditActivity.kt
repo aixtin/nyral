@@ -10,9 +10,6 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 知识库变更审计页(阶段3, 2026-10-19):
@@ -57,7 +54,8 @@ class KnowledgeAuditActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, dp(8), 0, dp(4))
                 addView(TextView(this@KnowledgeAuditActivity).apply {
-                    text = fmt(a.ts) + "  ·  " + actionLabel(a.action)
+                    text = KnowledgeUi.rel(this@KnowledgeAuditActivity, a.ts) + "  ·  " +
+                        KnowledgeUi.actionLabel(this@KnowledgeAuditActivity, a.action)
                     textSize = 12f
                     setTextColor(Ui.SUB)
                 })
@@ -69,7 +67,7 @@ class KnowledgeAuditActivity : Activity() {
                     typeface = Typeface.DEFAULT
                 })
                 addView(TextView(this@KnowledgeAuditActivity).apply {
-                    text = a.entityType + " #" + a.entityId
+                    text = entityLabel(a.entityType) + " #" + a.entityId
                     textSize = 11f
                     setTextColor(Ui.SUB)
                     setPadding(0, dp(2), 0, 0)
@@ -79,15 +77,11 @@ class KnowledgeAuditActivity : Activity() {
         }
     }
 
-    private fun actionLabel(action: String): String = when (action) {
-        "create" -> getString(R.string.kb_action_create)
-        "update" -> getString(R.string.kb_action_update)
-        "delete" -> getString(R.string.kb_action_delete)
-        "restore" -> getString(R.string.kb_action_restore)
-        "purge" -> getString(R.string.kb_action_purge)
-        else -> action
+    /** 审计表里存的是内部枚举, 界面上不能直接露出 "entry #12" 这种英文 */
+    private fun entityLabel(type: String): String = when (type) {
+        "book" -> getString(R.string.kb_entity_book)
+        "chapter" -> getString(R.string.kb_entity_chapter)
+        "entry" -> getString(R.string.kb_entity_entry)
+        else -> type
     }
-
-    private fun fmt(ts: Long): String =
-        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
 }

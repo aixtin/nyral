@@ -15,9 +15,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 知识条目详情页(阶段3, 2026-10-19):
@@ -76,17 +73,22 @@ class KnowledgeEntryActivity : Activity() {
         }
         container.addView(TextView(this).apply {
             text = e.title
-            textSize = 19f
+            textSize = 20f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setLineSpacing(dp(2).toFloat(), 1f)
             setTextColor(Ui.TEXT)
         })
         container.addView(TextView(this).apply {
-            text = getString(R.string.kb_entry_meta,
-                e.version,
-                if (e.sourceSessionId > 0) getString(R.string.kb_source, e.sourceSessionId) else "",
-                fmt(e.updatedTs)) + if (e.deleted) " · " + getString(R.string.kb_deleted_tag) else ""
+            // 版本/来源/更新时间分开用「·」连接; 之前来源串没带分隔符, 渲染成了 "v1来源会话 #12"
+            val parts = ArrayList<String>()
+            parts.add("v${e.version}")
+            if (e.sourceSessionId > 0) parts.add(getString(R.string.kb_source, e.sourceSessionId))
+            if (e.deleted) parts.add(getString(R.string.kb_deleted_tag))
+            text = parts.joinToString(" · ") + " · " +
+                getString(R.string.kb_updated_at, KnowledgeUi.rel(this@KnowledgeEntryActivity, e.updatedTs))
             textSize = 12f
             setTextColor(Ui.SUB)
-            setPadding(0, dp(6), 0, dp(4))
+            setPadding(0, dp(7), 0, dp(4))
         })
         container.addView(Ui.divider(this).apply {
             (layoutParams as LinearLayout.LayoutParams).topMargin = dp(4)
@@ -241,7 +243,8 @@ class KnowledgeEntryActivity : Activity() {
                     orientation = LinearLayout.VERTICAL
                     setPadding(0, dp(8), 0, dp(2))
                     addView(TextView(this@KnowledgeEntryActivity).apply {
-                        text = fmt(a.ts) + "  ·  " + a.action
+                        text = KnowledgeUi.rel(this@KnowledgeEntryActivity, a.ts) + "  ·  " +
+                            KnowledgeUi.actionLabel(this@KnowledgeEntryActivity, a.action)
                         textSize = 12f
                         setTextColor(Ui.SUB)
                     })
@@ -259,7 +262,4 @@ class KnowledgeEntryActivity : Activity() {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply { topMargin = dp(12) })
         dlg.show()
     }
-
-    private fun fmt(ts: Long): String =
-        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
 }

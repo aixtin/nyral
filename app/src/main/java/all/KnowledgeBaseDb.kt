@@ -230,6 +230,29 @@ class KnowledgeBaseDb(context: Context) : SQLiteOpenHelper(context, "knowledge.d
         }
     }
 
+    /** 搜索命中: 条目 + 所属章/书, 用于书列表页的跨书检索 */
+    data class EntryHit(val entry: Entry, val chapterTitle: String, val bookTitle: String)
+
+    /** 标题/正文/章节名/关键词/书名一起匹配; 已删除的书章与回收区条目不参与搜索结果 */
+    fun searchEntries(query: String, limit: Int = 120): List<EntryHit> = lock.withLock {
+        val q = query.trim().replace("%", "").replace("_", "")
+        if (q.isEmpty()) return emptyList()
+        val like = "%$q%"
+        readableDatabase.rawQuery(
+            "SELECT e.id,e.chapter_id,e.title,e.content,e.img_refs,e.source_session_id,e.source_msg_ids,e.version,e.deleted,e.created_ts,e.updated_ts,c.title,b.title " +
+                "FROM kb_entries e JOIN kb_chapters c ON e.chapter_id=c.id JOIN kb_books b ON c.book_id=b.id " +
+                "WHERE e.deleted=0 AND c.deleted=0 AND b.deleted=0 AND " +
+                "(e.title LIKE ? OR e.content LIKE ? OR c.title LIKE ? OR c.keywords LIKE ? OR b.title LIKE ?) " +
+                "ORDER BY e.updated_ts DESC, e.id DESC LIMIT $limit",
+            arrayOf(like, like, like, like, like)).use { c ->
+            val out = ArrayList<EntryHit>()
+            while (c.moveToNext()) {
+                out.add(EntryHit(entryRow(c), c.getString(11), c.getString(12)))
+            }
+            out
+        }
+    }
+
     /** 更新条目: 版本号 +1, 留痕 */
     fun updateEntry(id: Long, title: String, content: String) {
         lock.withLock {

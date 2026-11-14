@@ -13,9 +13,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 知识库回收区(阶段3, 2026-10-19):
@@ -92,9 +89,10 @@ class KnowledgeTrashActivity : Activity() {
                         typeface = Typeface.DEFAULT_BOLD
                         setTextColor(Ui.TEXT)
                         maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
                     })
                     addView(TextView(this@KnowledgeTrashActivity).apply {
-                        text = fmt(e.updatedTs)
+                        text = KnowledgeUi.rel(this@KnowledgeTrashActivity, e.updatedTs)
                         textSize = 12f
                         setTextColor(Ui.SUB)
                         setPadding(0, dp(3), 0, 0)
@@ -141,7 +139,4 @@ class KnowledgeTrashActivity : Activity() {
         box.addView(btnRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
         dlg.show()
     }
-
-    private fun fmt(ts: Long): String =
-        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
 }
