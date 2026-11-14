@@ -2108,6 +2108,13 @@ class MainActivity : Activity() {
         flushStreamingDraft(activeAiHolder)
         // 划掉后台/杀进程前兜底保存当前未落库的对话
         maybeSaveCurrent()
+        // 2026-11-14: Live Updates(灵动岛/流体云)。应用在前台时系统会抑制 promoted 请求,
+        // 且切后台不会自动重新评估; AI 仍在跑时等 Activity 完全不可见后重发一次通知,
+        // 让系统在后台上下文重新判定提升, 用户自己发起的长任务才能上岛。
+        if (session.aiBusy) {
+            val app = applicationContext
+            android.os.Handler(mainLooper).postDelayed({ TaskService.repromote(app) }, 800L)
+        }
     }
 
     override fun onTrimMemory(level: Int) {

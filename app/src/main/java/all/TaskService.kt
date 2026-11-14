@@ -155,15 +155,41 @@ class TaskService : Service() {
         /**
          * 更新任务阶段文案(同时刷新 Live Updates 胶囊/进度)。
          * 由 MainActivity 在思考/工具/作答等阶段切换时调用。
+         *
+         * fix(2026-11-14): 服务存活时一律走 startForeground 更新, 不再用 nm.notify。
+         * nm.notify 会把前台服务通知按普通通知重发, ColorOS 上 promoted 提升态随之丢失
+         * (定时任务只在启动时发布一次, 所以不受影响; 用户聊天一更新阶段就不上岛)。
          */
         fun updateStage(context: Context, stage: String) {
             try {
-                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                val builder = buildNotification(context, stage)
-                nm.notify(NOTIF_ID, builder.build())
+                lastStage = stage
+                val svc = instance
+                if (svc != null && state == State.FOREGROUND) {
+                    svc.startForegroundCompat(stage)
+                } else {
+                    val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    nm.notify(NOTIF_ID, buildNotification(context, stage).build())
+                }
                 ServiceNotifGroup.publishSummary(context)
             } catch (e: Exception) {
                 android.util.Log.e("TaskService", "updateStage 失败: ${e.message}")
+            }
+        }
+
+        /**
+         * fix(2026-11-14): 切后台重新申请 Live Updates 提升。
+         * 应用在前台时系统会抑制 promoted 请求(前台不需要上岛), 且切后台不会自动重新评估;
+         * MainActivity.onStop 时 Activity 已不可见, 此时重发一次通知让系统在后台上下文重新判定,
+         * 用户自己发起的长任务切后台后才有胶囊/流体云。
+         */
+        fun repromote(context: Context) {
+            val svc = instance ?: return
+            if (state != State.FOREGROUND) return
+            try {
+                svc.startForegroundCompat(lastStage ?: context.getString(R.string.ts_content))
+                android.util.Log.i("TaskService", "切后台重新申请 Live Updates 提升: ${lastStage ?: ""}")
+            } catch (e: Exception) {
+                android.util.Log.e("TaskService", "repromote 失败: ${e.message}")
             }
         }
 
@@ -189,7 +215,8 @@ class TaskService : Service() {
                 .setDeleteIntent(deleteIntent)
                 .setOnlyAlertOnce(true)
                 .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-                .setGroup(ServiceNotifGroup.GROUP_KEY)
+            // 2026-11-14: 任务通知不并入 ServiceNotifGroup。
+            // ColorOS 16 只把通知栏里独立展示的前台服务通知提升为实况大卡片, 组内 child 会被折叠。
             // 胶囊交互卡: 取消(广播后台静默停)+重试(拉起主界面重发最后一条用户消息)
             val cancelPI = PendingIntent.getBroadcast(
                 context, 1,
@@ -221,7 +248,13 @@ class TaskService : Service() {
             if (Build.VERSION.SDK_INT >= 36) {
                 // Android 16 Live Updates: 申请提升为系统胶囊(TASK 场景, 无限进度)
                 builder.setRequestPromotedOngoing(true)
-                builder.setShortCriticalText(stage.take(7))
+                // 2026-11-14: 同时挂老式 indeterminate 进度。
+                // ColorOS 16(API 36.0) 的实况/流体云判定读的是 Notification.progress 老字段,
+                // 只写 ProgressStyle 时系统不认, 通知栏大卡片和上岛都不出现。
+                builder.setProgress(0, 0, true)
+                // 2026-11-14: 固定 3 字短标题。原先取阶段前 7 字(如"AI 正在后台")
+                // 正好顶到系统 7 字符上限, 厂商渲染时容易被截断/拒绝提升。
+                builder.setShortCriticalText(context.getString(R.string.ts_short_text))
                 val ps = NotificationCompat.ProgressStyle()
                 ps.setProgressIndeterminate(true)
                 builder.setStyle(ps)
@@ -237,8 +270,10 @@ class TaskService : Service() {
         // 冷启动首读是 Binder 重活)再 startForeground, 叠加主线程其他重活即超系统 FGS 时限,
         // 抛 ForegroundServiceDidNotStartInTimeException 闪退(线上 6 次, 跨 4 品牌)。
         createChannel()
+        instance = this
         startForegroundCompat()
-        fgStarted = true
+        // 第三批(2026-11-14): STOPPING 表示本次启动在 onCreate 前已被请求停止, 保留标记交给 onStartCommand 补停
+        if (state != State.STOPPING) state = State.FOREGROUND
         ApiConfig.init(this)
         MemoryApiConfig.init(this)
         ModeConfig.init(this)
@@ -485,9 +520,11 @@ class TaskService : Service() {
         }
     }
 
-    private fun startForegroundCompat() {
+    private fun startForegroundCompat(stage: String? = null) {
+        val text = stage ?: lastStage ?: getString(R.string.ts_content)
+        lastStage = text
         try {
-            val notif = buildNotification(this, getString(R.string.ts_content))
+            val notif = buildNotification(this, text)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 // Android 10+ 前台服务必须带类型; targetSdk 34 下 Android 14 强制校验
                 startForeground(NOTIF_ID, notif.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -497,7 +534,7 @@ class TaskService : Service() {
         } catch (e: Exception) {
             // 兜底: 个别 ROM 类型/权限异常时降级为无类型前台服务, 避免崩溃
             try {
-                startForeground(NOTIF_ID, buildNotification(this, getString(R.string.ts_content)).build())
+                startForeground(NOTIF_ID, buildNotification(this, text).build())
             } catch (e2: Exception) {
                 android.util.Log.e("TaskService", "startForeground 失败: ${e2.message}")
             }
@@ -510,23 +547,31 @@ class TaskService : Service() {
             val channel = NotificationChannel(CHANNEL_ID, getString(R.string.ts_channel_name), NotificationManager.IMPORTANCE_LOW)
             channel.description = getString(R.string.ts_channel_desc)
             nm.createNotificationChannel(channel)
+            // 失败告警渠道: 定时任务失败时唯一的可见通道, 用 DEFAULT 才有提示音与横幅
+            val alert = NotificationChannel(CHANNEL_ALERT_ID, "定时任务失败告警", NotificationManager.IMPORTANCE_DEFAULT)
+            alert.description = "定时任务执行失败时提醒, 点击可直达定时岗位体检页排查"
+            nm.createNotificationChannel(alert)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        fgStarted = false
+        state = State.IDLE
+        instance = null
+        // 阶段文案属于单轮任务, 清掉避免下一轮先显示上一轮的阶段
+        lastStage = null
         // 任务结束由外部显式 stopService, 这里只需移除前台标记
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
             @Suppress("DEPRECATION")
             stopForeground(true)
-        // 兜底: 显式移除 Live Updates 残留通知(服务销毁后通知中心可能仍挂有旧通知)
+        }
+        // fix(2026-11-14): 兜底 cancel 原先被误嵌在 else 分支内, API>=24 时永不执行,
+        // Live Updates 提升(promoted)后的通知会残留在通知中心
         try {
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIF_ID)
         } catch (_: Exception) {
-        }
         }
         ServiceNotifGroup.unregister(this)
     }
