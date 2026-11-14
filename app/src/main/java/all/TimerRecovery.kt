@@ -23,6 +23,11 @@ object TimerRecovery {
     private const val KEY_BOOT_ELAPSED = "last_boot_elapsed"
     private const val KEY_LAST_REASON = "last_reason"
 
+    /** 第二批(2026-11-14): 错过补跑的基线与节流状态 */
+    private const val CATCHUP_PREFS = "timer_catchup_state"
+    private const val KEY_BASELINED = "baselined"
+    private const val CATCHUP_THROTTLE_MS = 24 * 60 * 60 * 1000L
+
     /**
      * 判定是否需要重排, 需要则全量 cancel+schedule。
      * 触发条件(命中任一): ① 本次开机 boot_count 与上次记录不同(或 uptime 倒退); ② 任一启用任务的闹钟 PendingIntent 已不存在。
@@ -56,11 +61,13 @@ object TimerRecovery {
             try { !TimerScheduler.hasAlarm(ctx, it.id) } catch (e: Exception) { true }
         }
 
+        TimerTrace.write(ctx, "ensure 进入 reason=" + reason + " force=" + force + " rebooted=" + rebooted + " enabled=" + enabled.size + " missing=" + missing.size)
         // force=true: 冷启动通道(L2)无条件重排。force-stop / 厂商清理后 AlarmManager 里的闹钟已被移除,
         // 但 PendingIntentRecord 与锚点都还在, 任何"是否齐全"的探测都会误判(红米实测),
         // 所以这一步不探测, 直接幂等 cancel+schedule —— 与 MacroDroid 开机无条件重排同思路。
         if (!force && !rebooted && missing.isEmpty()) {
             Log.i(TAG, "$reason: 无需重排(启用 ${enabled.size} 个, 闹钟齐全)")
+            TimerTrace.write(ctx, "ensure 早退: 闹钟齐全且非冷启动, 不补跑")
             return false
         }
 
@@ -77,6 +84,8 @@ object TimerRecovery {
                 Log.e(TAG, "$reason: 任务 ${t.id} 重排失败 ${e.message}")
             }
         }
+        // 第二批(2026-11-14): 重排只能排"下一次", 被关机/被杀期间错过的那一次必须显式补跑
+        catchUpMissed(ctx, enabled, reason)
         prefs.edit()
             .putInt(KEY_BOOT_COUNT, bootCount)
             .putLong(KEY_BOOT_ELAPSED, elapsed)
@@ -94,6 +103,94 @@ object TimerRecovery {
         return true
     }
 
+    /**
+     * 补跑巡检入口(fix 2026-11-15): 供定时任务收尾时顺手调用。
+     * 补跑原先只在 ensure()(开机/冷启动/闹钟缺失)时触发, 若用户整天不开 App 也不重启,
+     * 僵尸认领会一直躺到下次开机才被发现。每轮定时任务结束扫一次, 频率由每任务 24h 节流兜住。
+     */
+    fun sweepCatchUpAsync(ctx: Context, reason: String) {
+        val app = ctx.applicationContext
+        Thread {
+            try {
+                val tasks = TimerTaskDb(app).all().filter { it.enabled }
+                catchUpMissed(app, tasks, reason)
+            } catch (e: Exception) {
+                Log.e(TAG, "$reason: 补跑巡检异常 ${e.message}")
+            }
+        }.start()
+    }
+
+    /**
+     * 错过补跑(2026-11-14, 第二批): 判据 = 最近一个到期 slot 既没被认领(last_slot_ts) 也没跑过(last_run_ts)。
+     * 原型 Past Rearm.catchUp(): missed = enabled && due 已过 && lastRunAt < due && 台账未认领。
+     * 两个护栏:
+     * ① 基线初始化 —— 升级前没有 last_slot_ts 字段, 首次运行把当前 slot 视为已处理, 避免全量补跑风暴;
+     * ② 节流 —— 同一任务 24h 内最多补 1 次, 避免重排风暴(冷启动/保活反复拉 ensure)放大成刷屏。
+     * 补跑走 TaskService.startTimerTask(catchUp=true), 与正常投递共用同一套 slot 闸门。
+     */
+    private fun catchUpMissed(ctx: Context, tasks: List<TimerTaskDb.Task>, reason: String) {
+        TimerTrace.write(ctx, "catchUpMissed 进入 reason=" + reason + " tasks=" + tasks.size)
+        if (tasks.isEmpty()) return
+        val prefs = ctx.getSharedPreferences(CATCHUP_PREFS, Context.MODE_PRIVATE)
+        val db = try {
+            TimerTaskDb(ctx)
+        } catch (e: Exception) {
+            Log.e(TAG, "$reason: 补跑读取任务库失败 ${e.message}")
+            return
+        }
+        val now = System.currentTimeMillis()
+
+        if (!prefs.getBoolean(KEY_BASELINED, false)) {
+            var filled = 0
+            for (t in tasks) {
+                val due = TimerScheduler.latestDueSlot(t.cronDesc, now)
+                if (due > 0L && t.lastSlotTs < due && db.tryClaimSlot(t.id, due)) filled++
+            }
+            TimerTrace.write(ctx, "补跑基线初始化, 回填 " + filled + " 个 slot, 本次不补跑")
+            prefs.edit().putBoolean(KEY_BASELINED, true).apply()
+            Log.i(TAG, "$reason: 补跑基线初始化(旧数据无 slot 记录, 回填 " + filled + " 个, 本次不补跑)")
+            return
+        }
+
+        for (t in tasks) {
+            val due = TimerScheduler.latestDueSlot(t.cronDesc, now)
+            if (due <= 0L) continue
+            // fix(2026-11-15): "已认领" 不再直接算跑过。
+            // 原先 t.lastSlotTs >= due 就 continue, 而认领发生在执行之前 —— 认领后进程被杀,
+            // 这一 slot 既没产物也没台账, 却因为"已认领"永远不补跑, 等于永久丢一次。
+            // 现在要求: 认领了还要有终态台账(ok=0/1)才算跑过; 只有 ok=-1 占位或被认领后根本没起来,
+            // 且超过宽限期, 判为僵尸认领, 允许补跑(交 TimerDispatch 重新接管 slot)。
+            var zombie = false
+            if (t.lastSlotTs >= due) {
+                // 跑完的硬证据: onDone/onError 都会刷新 last_run_ts(旧版本还没有台账, 只能靠它兜底),
+                // 而认领后被杀则 last_run 一定还停在旧值 —— 所以"已认领 + last_run 已越过 due" = 真跑过
+                if (t.lastRunTs >= due) continue
+                if (db.hasFinishedRun(t.id, due)) continue
+                if (now - due < TimerDispatch.ZOMBIE_GRACE_MS) continue
+                zombie = true
+            } else {
+                // 老字段兜底: 上次执行时间已覆盖该 slot
+                if (t.lastRunTs >= due) continue
+            }
+            TimerTrace.write(ctx, "任务 " + t.id + " slot=" + TimerScheduler.fmtSlot(due) + " lastSlot=" + TimerScheduler.fmtSlot(t.lastSlotTs) + " lastRun=" + TimerScheduler.fmtSlot(t.lastRunTs) + " zombie=" + zombie)
+            if (now - prefs.getLong("t:" + t.id, 0L) < CATCHUP_THROTTLE_MS) {
+                TimerTrace.write(ctx, "任务 " + t.id + " 24h 节流中, 跳过")
+                continue
+            }
+            prefs.edit().putLong("t:" + t.id, now).apply()
+            Log.i(TAG, "$reason: 任务 " + t.id + "(" + t.name + ") " +
+                (if (zombie) "slot=" + TimerScheduler.fmtSlot(due) + " 已认领但无终态台账(僵尸认领)" else "错过 slot=" + TimerScheduler.fmtSlot(due)) +
+                ", 触发补跑")
+            try {
+                TimerTrace.write(ctx, "补跑拉起 task=" + t.id)
+                TaskService.startTimerTask(ctx, t.id, catchUp = true)
+            } catch (e: Exception) {
+                TimerTrace.write(ctx, "补跑拉起失败 task=" + t.id + ": " + e)
+                Log.e(TAG, "$reason: 任务 " + t.id + " 补跑拉起失败 ${e.message}")
+            }
+        }
+    }
+
     /** 异步版本: 供 onCreate / 广播 onReceive 使用, 避免主线程碰 SQLite 与 AlarmManager binder */
     fun ensureAsync(context: Context, reason: String, force: Boolean = false) {
         val app = context.applicationContext
@@ -101,6 +198,7 @@ object TimerRecovery {
             try {
                 ensure(app, reason, force)
             } catch (e: Exception) {
+                TimerTrace.write(app, "ensure 异常 reason=" + reason + ": " + e)
                 Log.e(TAG, "$reason: 重排异常 ${e.message}")
             }
         }.start()
