@@ -1,16 +1,7 @@
 package io.github.aixtin.nyral
 
-import io.github.aixtin.nyral.R
-
-import android.Manifest
 import android.app.Activity
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -20,45 +11,44 @@ import android.widget.TextView
 import android.widget.Toast
 
 /**
- * 权限管理 — 集中查看 / 补开 app 依赖的全部权限。
- * 背景: 部分手机长时间不使用某权限会自动收回, 需一处查看哪些已授权、哪些未授权并一键补开。
- * 权限项与首启引导(runFirstRunPermissionGuide)保持一致:
- *   通知 / 麦克风(运行时权限); 悬浮窗 / 所有文件访问 / 安装未知应用(特殊权限)
+ * 权限管理页(2026-11-14 重排版)。
+ *
+ * 12 项平铺有两个问题: 看不出"哪几项决定定时任务能不能跑", 也看不出整体进度。
+ * 现在按 PermCatalog 的分组展示(基础 / 定时任务保障 / 高级与扩展), 每组带小计,
+ * 顶部一张"已就绪 x/y + 手动确认 n 项"的汇总卡, 外加一条进度条。
+ *
+ * 行状态统一为四种: ✓ 已开启(绿) / 去开启(浅底胶囊) / 去设置(厂商开关) / 无需开启(灰)。
+ * 带有"手动确认"的项永远不计入分母 —— 没有任何 API 能读到它们的真实状态,
+ * 把它们算进去只会让用户永远看到"未全部授权"。
  */
 class PermissionsActivity : Activity() {
 
     private var listBox: LinearLayout? = null
-    private var sumText: TextView? = null
-    /** root 授权状态: -1=检测中/未知, 0=未授权, 1=已授权(后台线程实时探测, 无进程级缓存) */
-    private var rootGranted = -1
+    /** root 授权状态: -1=检测中/未知, 0=未授权, 1=已授权(首帧取进程缓存, onResume 后台重探) */
+    private var rootGranted = when (RootCheck.cachedGranted()) {
+        true -> 1
+        false -> 0
+        else -> -1
+    }
+    /** 本机是否检出 root 环境(用于横幅提示, 与"是否已授权"分开)。
+     *  首帧只读进程级缓存, 后台探测完成后刷新, 避免主线程起 su 子进程。 */
+    private var deviceRooted = RootCheck.cachedRooted() ?: false
     /** 本次进程内是否已用 root 自动补齐过自身权限(仅一次, 幂等) */
     @Volatile private var rootAutoGranted = false
-
-    private class PermItem(
-        val iconRes: Int,
-        val name: String,
-        val desc: String,
-        /** 当前系统是否需要该权限(false 表示本机无需, 展示getString(R.string.perm_17)) */
-        val required: () -> Boolean,
-        /** 是否已授权 */
-        val granted: () -> Boolean,
-        /** 发起授权(运行时弹窗或跳系统设置页) */
-        val request: (PermissionsActivity) -> Unit,
-        /** 是否为 Root 权限项(特殊三态渲染 + 后台探测, 不跳转任何授权软件) */
-        val isRoot: Boolean = false
-    )
 
     /** 后台实时探测 root 授权(不依赖进程级缓存, 用户去授权工具回来后能即时刷新);
      *  首次探测到已授权时用 root 静默补齐自身权限(尽力而为, 失败保持手动入口) */
     private fun probeRoot() {
         Thread {
-            val g = RootCheck.isGranted()
+            val rooted = RootCheck.deviceRooted()
+            val g = rooted && RootCheck.isGranted()
             if (g && !rootAutoGranted) {
                 rootAutoGranted = true
                 RootCheck.grantSelf(this)
             }
             val act = this@PermissionsActivity
             act.runOnUiThread {
+                deviceRooted = rooted
                 rootGranted = if (g) 1 else 0
                 refresh()
             }
@@ -72,47 +62,12 @@ class PermissionsActivity : Activity() {
         val root = Ui.pageRoot(this)
         root.addView(Ui.titleBar(this, getString(R.string.perm_01)))
 
-        val content = LinearLayout(this).apply {
+        listBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(16))
+            setPadding(dp(16), dp(10), dp(16), dp(16))
         }
-
-        // 汇总卡: 已授权数 + 背景说明
-        content.addView(Ui.card(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-            addView(TextView(this@PermissionsActivity).apply {
-                text = getString(R.string.perm_02)
-                textSize = 24f
-                setTextColor(Ui.OK)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                sumText = this
-            })
-            addView(TextView(this@PermissionsActivity).apply {
-                text = getString(R.string.perm_03)
-                textSize = 12f
-                setTextColor(Ui.SUB)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(6), 0, 0)
-            })
-        })
-
-        // 权限明细卡
-        content.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, 0)
-        }.also { holder ->
-            listBox = LinearLayout(this@PermissionsActivity).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-            holder.addView(Ui.card(this@PermissionsActivity).apply {
-                addView(listBox)
-            })
-        })
-
         root.addView(ScrollView(this).apply {
-            addView(content)
+            addView(listBox)
             isFillViewport = true
         })
 
@@ -132,50 +87,12 @@ class PermissionsActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         refresh()
         // 运行时权限被永久拒绝时引导去应用设置页
-        if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+        if (grantResults.any { it != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
             Toast.makeText(this, getString(R.string.perm_04), Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun items(): List<PermItem> = listOf(
-        PermItem(R.drawable.ic_perm_notification, getString(R.string.perm_05), getString(R.string.perm_06), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-        }, {
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        }, { a ->
-            a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_RUNTIME)
-        }),
-        PermItem(R.drawable.ic_perm_mic, getString(R.string.perm_07), getString(R.string.perm_08), {
-            true
-        }, {
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        }, { a ->
-            a.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RUNTIME)
-        }),
-        PermItem(R.drawable.ic_perm_overlay, getString(R.string.perm_09), getString(R.string.perm_10), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-        }, {
-            Settings.canDrawOverlays(this)
-        }, { a -> a.openOverlay() }),
-        PermItem(R.drawable.ic_perm_folder, getString(R.string.perm_11), getString(R.string.perm_12), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-        }, {
-            Environment.isExternalStorageManager()
-        }, { a -> a.openAllFiles() }),
-        PermItem(R.drawable.ic_perm_package, getString(R.string.perm_13), getString(R.string.perm_14), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        }, {
-            packageManager.canRequestPackageInstalls()
-        }, { a -> a.openUnknownSources() }),
-        // Root 权限: 通用探测不依赖具体授权框架, 不跳转任何授权软件, 只展示是否已授权
-        PermItem(R.drawable.ic_perm_root, getString(R.string.perm_24), getString(R.string.perm_25), {
-            RootCheck.deviceRooted()
-        }, {
-            rootGranted == 1
-        }, { a ->
-            a.rootHint()
-        }, isRoot = true)
-    )
+    private fun items(): List<PermSpec> = PermCatalog.build(this, rootGranted, deviceRooted)
 
     /** 重建列表(不 recreate activity, 避免闪屏) */
     private fun refresh() {
@@ -186,31 +103,94 @@ class PermissionsActivity : Activity() {
         var granted = 0
         var total = 0
         list.forEach {
-            if (it.required()) {
+            // manual 项无 API 可读状态, 不能计入分母; root 检测中计入分母但不计入已授权
+            if (it.required() && !it.manual) {
                 total++
-                // root 检测中暂不计入(避免闪烁), 探测完成后 refresh 再纳入
-                if (it.isRoot && rootGranted == -1) { /* 待定 */ }
-                else if (it.granted()) granted++
+                if (it.granted()) granted++
             }
         }
-        sumText?.apply {
-            text = if (total == 0) getString(R.string.perm_15) else getString(R.string.perm_16, granted, total)
-            setTextColor(if (granted == total) Ui.OK else Ui.DANGER)
+        val manualCount = list.count { it.manual }
+
+        // ===== 汇总卡 =====
+        box.addView(Ui.card(this).apply {
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            addView(TextView(this@PermissionsActivity).apply {
+                text = if (total == 0) getString(R.string.perm_15)
+                else if (manualCount > 0) getString(R.string.perm_56, granted, total, manualCount)
+                else getString(R.string.perm_57, granted, total)
+                textSize = 20f
+                setTextColor(if (total > 0 && granted == total) Ui.OK else Ui.TEXT)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+            })
+            addView(progressBar(granted, total), LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(6)).apply {
+                topMargin = dp(12)
+            })
+        })
+
+        // ===== Root 横幅(仅检出 root 环境时出现) =====
+        if (deviceRooted) {
+            box.addView(TextView(this).apply {
+                text = if (rootGranted == 1) getString(R.string.perm_55) else getString(R.string.perm_54)
+                textSize = 12f
+                setTextColor(if (rootGranted == 1) Ui.OK else Ui.SUB)
+                setLineSpacing(dp(2).toFloat(), 1f)
+                background = TimerTaskUi.capsule(this@PermissionsActivity, TimerTaskUi.tint(if (rootGranted == 1) Ui.OK else Ui.SUB), 12)
+                setPadding(dp(14), dp(10), dp(14), dp(10))
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            })
         }
 
-        var first = true
-        list.forEach { item ->
-            if (!first) box.addView(Ui.divider(this))
-            first = false
-            box.addView(buildRow(item))
+        // ===== 分组明细 =====
+        listOf(PermSpec.GROUP_BASE, PermSpec.GROUP_TIMER, PermSpec.GROUP_ADV).forEach { g ->
+            val group = list.filter { it.group == g }
+            if (group.isEmpty()) return@forEach
+            val gt = group.count { it.required() && !it.manual }
+            val gg = group.count { it.required() && !it.manual && it.granted() }
+            box.addView(Ui.groupLabel(this, buildString {
+                append(PermCatalog.groupTitle(this@PermissionsActivity, g))
+                if (gt > 0) append(" · $gg/$gt")
+            }))
+            box.addView(Ui.card(this).apply {
+                group.forEachIndexed { i, item ->
+                    if (i > 0) addView(Ui.divider(this@PermissionsActivity, 16))
+                    addView(buildRow(item))
+                }
+            })
         }
     }
 
-    private fun buildRow(item: PermItem): LinearLayout {
+    /** 进度条: 已就绪绿/主色 + 未完成浅灰底 */
+    private fun progressBar(granted: Int, total: Int): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(3).toFloat()
+                setColor(Ui.INPUT_BG)
+            }
+            clipToOutline = true
+        }
+        if (total > 0 && granted > 0) {
+            bar.addView(View(this).apply {
+                setBackgroundColor(if (granted >= total) Ui.OK else Ui.PRIMARY)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, granted.toFloat()))
+        }
+        if (total > granted) {
+            bar.addView(View(this), LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, (total - granted).toFloat()))
+        }
+        return bar
+    }
+
+    private fun buildRow(item: PermSpec): LinearLayout {
         val required = item.required()
         val granted = item.granted()
-        // root 项检测中不可点击(避免误触), 已确认未授权时可点击提示手动去系统授权工具
-        val clickable = required && !granted && !(item.isRoot && rootGranted == -1)
+        val detecting = item.isRoot && rootGranted == -1
+        // manual 项恒可点(它本身就是跳转入口); root 检测中不可点, 避免误触
+        val clickable = item.manual || (required && !detecting && !granted)
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -226,81 +206,52 @@ class PermissionsActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     setMargins(dp(12), 0, dp(8), 0)
                 }
-                addView(Ui.itemTitle(this@PermissionsActivity, item.name))
+                addView(Ui.itemTitle(this@PermissionsActivity, item.name).apply { textSize = 14f })
                 addView(TextView(this@PermissionsActivity).apply {
                     text = item.desc
                     textSize = 12f
                     setTextColor(Ui.SUB)
                     setPadding(0, dp(3), 0, 0)
-                    maxLines = 1
+                    maxLines = 2
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
             })
-            addView(TextView(this@PermissionsActivity).apply {
-                val detecting = item.isRoot && rootGranted == -1
-                text = when {
-                    !required -> getString(R.string.perm_17)
-                    detecting -> getString(R.string.perm_26)
-                    granted -> getString(R.string.perm_18)
-                    else -> getString(R.string.perm_19)
+            addView(statusView(item, required, granted, detecting))
+        }
+    }
+
+    /** 右侧统一状态: 已开启(绿勾) / 去开启(浅底胶囊) / 去设置(厂商开关) / 无需开启(灰) */
+    private fun statusView(item: PermSpec, required: Boolean, granted: Boolean, detecting: Boolean): TextView =
+        TextView(this).apply {
+            textSize = 13f
+            when {
+                item.manual -> {
+                    text = getString(R.string.perm_41) + " ›"
+                    setTextColor(Ui.SUB)
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }
-                textSize = 13f
-                setTextColor(when {
-                    !required -> Ui.SUB
-                    detecting -> Ui.SUB
-                    granted -> Ui.OK
-                    else -> Ui.DANGER
-                })
-                val showBtn = required && !granted && !detecting
-                typeface = if (showBtn) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
-                if (showBtn) {
-                    setPadding(dp(10), dp(6), dp(10), dp(6))
-                    background = android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = dp(14).toFloat()
-                        setColor(0x1AD32F2F.toInt())
-                    }
-                    // root 未授权: 不跳转授权软件, 用"未授权"而非"去授权", 点击弹手动授权提示
-                    text = if (item.isRoot) getString(R.string.perm_19) else getString(R.string.perm_20)
+                !required -> {
+                    text = getString(R.string.perm_53)
+                    setTextColor(Ui.SUB)
                 }
-            })
+                detecting -> {
+                    text = getString(R.string.perm_26)
+                    setTextColor(Ui.SUB)
+                }
+                granted -> {
+                    text = "✓ " + getString(R.string.perm_52)
+                    setTextColor(Ui.OK)
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                }
+                else -> {
+                    text = getString(R.string.perm_51)
+                    setTextColor(Ui.PRIMARY)
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    background = TimerTaskUi.capsule(this@PermissionsActivity, Ui.PRIMARY_LIGHT, 13)
+                    setPadding(dp(12), dp(6), dp(12), dp(6))
+                }
+            }
         }
-    }
-
-    /** Root 未授权提示: 不内置各家授权框架包名, 不跳转, 引导用户去系统授权工具手动授权 */
-    private fun rootHint() {
-        Toast.makeText(this, getString(R.string.perm_27), Toast.LENGTH_LONG).show()
-    }
-
-    private fun openOverlay() {
-        try {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        } catch (e: Exception) {
-            try { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) }
-            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_21), Toast.LENGTH_LONG).show() }
-        }
-    }
-
-    private fun openAllFiles() {
-        try {
-            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-        } catch (e: Exception) {
-            try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
-            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_22), Toast.LENGTH_LONG).show() }
-        }
-    }
-
-    private fun openUnknownSources() {
-        try {
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-        } catch (e: Exception) {
-            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)) }
-            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_23), Toast.LENGTH_LONG).show() }
-        }
-    }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private companion object {
-        const val REQ_RUNTIME = 2001
-    }
 }

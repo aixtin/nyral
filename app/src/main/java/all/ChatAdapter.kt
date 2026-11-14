@@ -88,6 +88,11 @@ internal class ChatAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val row = getItem(position)
         holder.root.removeAllViews()
+        // 欢迎卡是整屏空态: 撑满消息区高度, 内容才能垂直居中; 其他行保持包裹高度
+        val lp = holder.root.layoutParams as RecyclerView.LayoutParams
+        lp.height = if (row is ChatRow.Welcome) ViewGroup.LayoutParams.MATCH_PARENT
+        else ViewGroup.LayoutParams.WRAP_CONTENT
+        holder.root.layoutParams = lp
         Log.d("AVFIX", "CTA onBind pos=" + position + " type=" + row.javaClass.simpleName)
         if (row is ChatRow.Streaming) {
             row.bubbleBox?.let { box ->

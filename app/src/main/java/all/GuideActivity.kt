@@ -53,7 +53,7 @@ class GuideActivity : Activity() {
     private val providerSubViews = mutableListOf<TextView>()
 
     // Step2 引用
-    private var keyInput: TextView? = null        // Key 输入行：点击弹窗输入，确认后自动拉取模型
+    private var keyInput: EditText? = null        // Key 内联输入框：输入即写入 pendingKeys，回车拉取模型
     private val pendingKeys = mutableMapOf<String, String>()          // 各服务商已确认密钥（providerId -> key）
     private val fetchedModelsMap = mutableMapOf<String, List<String>>()  // 各服务商最近拉取到的实时模型列表
     private val selectedModels = mutableMapOf<String, String>()       // 各服务商最终选中的模型
@@ -68,24 +68,21 @@ class GuideActivity : Activity() {
 
     // Step3 完成与设置: 权限列表 + 模式选择引用
     private var listBox: LinearLayout? = null
-    private var modeBox: LinearLayout? = null
-    /** root 授权状态: -1=检测中/未知, 0=未授权, 1=已授权(后台线程实时探测, 无进程级缓存) */
-    private var rootGranted = -1
+    /** 折叠的分组(默认收起"高级与扩展": 12 项平铺太长, 常用项不该被淹没) */
+    private val collapsedGroups = mutableSetOf(PermSpec.GROUP_ADV)
+    /** root 授权状态: -1=检测中/未知, 0=未授权, 1=已授权(首帧取进程缓存, 后台重探) */
+    private var rootGranted = when (RootCheck.cachedGranted()) {
+        true -> 1
+        false -> 0
+        else -> -1
+    }
+    /** 设备是否具备 root 环境: 仅后台探测, 主线程读缓存(避免列表首帧卡在 su 子进程) */
+    private var deviceRooted = RootCheck.cachedRooted() ?: false
     /** 本次进程内是否已用 root 自动补齐过自身权限(仅一次, 幂等) */
     @Volatile private var rootAutoGranted = false
     /** 进入 Step3(完成与设置) 前所在的步骤: 返回按钮按来源回跳 */
     private var step3SourceStep = 2
 
-    private class PermItem(
-        val iconRes: Int,
-        val name: String,
-        val desc: String,
-        val required: () -> Boolean,
-        val granted: () -> Boolean,
-        val request: (GuideActivity) -> Unit,
-        /** 是否为 Root 权限项(特殊三态渲染 + 后台探测, 不跳转任何授权软件) */
-        val isRoot: Boolean = false
-    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -243,38 +240,48 @@ class GuideActivity : Activity() {
         })
 
 
-        // 模式双卡横排：聊天模式 / Agent 模式
-        c.addView(TextView(this).apply {
-            text = getString(R.string.guide_mode_t)
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Ui.TEXT)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, dp(44), 0, dp(20))
-            }
-        })
-        c.addView(LinearLayout(this).apply {
+        // 模式双卡横排：聊天 / Agent —— 这是引导流程里唯一的选择入口, 点卡片即选中
+        val modeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            addView(modeCard(
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(40)
+            }
+        }
+        fun fillModeRow() {
+            modeRow.removeAllViews()
+            modeRow.addView(modeCard(
                 R.drawable.ic_guide_chat,
                 getString(R.string.guide_mode_chat_t),
                 getString(R.string.guide_mode_chat_d),
                 listOf(
                     Triple(R.drawable.ic_guide_chat, getString(R.string.guide_f1_t), getString(R.string.guide_point_chat_d)),
                     Triple(R.drawable.ic_guide_folder, getString(R.string.guide_f3_t), getString(R.string.guide_point_file_d))
-                )
+                ),
+                checked = ModeConfig.chatMode(),
+                onPick = { ModeConfig.setChatMode(true); fillModeRow() }
             ))
-            addView(Space(this@GuideActivity), LinearLayout.LayoutParams(dp(10), 1))
-            addView(modeCard(
+            modeRow.addView(Space(this@GuideActivity), LinearLayout.LayoutParams(dp(10), 1))
+            modeRow.addView(modeCard(
                 R.drawable.ic_guide_tool,
                 getString(R.string.guide_mode_agent_t),
                 getString(R.string.guide_mode_agent_d),
                 listOf(
                     Triple(R.drawable.ic_guide_tool, getString(R.string.guide_f2_t), getString(R.string.guide_f2_d)),
                     Triple(R.drawable.ic_guide_server, getString(R.string.guide_f4_t), getString(R.string.guide_f4_d))
-                )
+                ),
+                checked = !ModeConfig.chatMode(),
+                onPick = { ModeConfig.setChatMode(false); fillModeRow() }
             ))
+        }
+        fillModeRow()
+        c.addView(modeRow)
+        c.addView(TextView(this).apply {
+            text = getString(R.string.guide_mode_pick_tip)
+            textSize = 11f
+            setTextColor(Ui.SUB)
+            setPadding(dp(4), dp(8), dp(4), 0)
         })
 
         // ===== 协议勾选栏：方形勾选框 + 同意文字 + 品牌色链接 =====
@@ -560,15 +567,45 @@ class GuideActivity : Activity() {
             setPadding(0, dp(8), 0, dp(4))
         })
 
-        keyInput = TextView(this).apply {
-            text = if (pendingKeys.containsKey(p.id)) getString(R.string.guide_key_saved) else getString(R.string.guide_key_tap_hint)
+        keyInput = EditText(this).apply {
+            hint = getString(R.string.guide_key_inline_hint)
             textSize = 14f
-            setTextColor(if (pendingKeys.containsKey(p.id)) Ui.TEXT else Ui.SUB)
+            setTextColor(Ui.TEXT)
+            setHintTextColor(Ui.SUB)
+            typeface = Typeface.MONOSPACE
+            // Key 是单行串: 多行输入会把回车吃掉变成换行, IME 的"完成"就到不了我们手里
+            setSingleLine(true)
             background = Ui.rounded(Ui.INPUT_BG, 12, this@GuideActivity)
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            isClickable = true
-            Ui.press(this)
-            setOnClickListener { openKeyDialog(p) }
+            // 显示明文: Key 需要用户自己核对是否粘全, 打码反而制造"不知道错在哪"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            setText(pendingKeys[p.id].orEmpty())
+            setSelection(text.length)
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    val k = s?.toString()?.trim().orEmpty()
+                    if (k == pendingKeys[p.id].orEmpty()) return
+                    pendingKeys[p.id] = k
+                    // Key 变了, 之前拉到的模型列表就不再可信, 重置模型行等用户重新拉取
+                    fetchedModelsMap.remove(p.id)
+                    selectedModels.remove(p.id)
+                    modelInput?.text = getString(R.string.guide_model_placeholder)
+                    modelInput?.setTextColor(Ui.SUB)
+                    connTv?.text = ""
+                }
+                override fun afterTextChanged(s: android.text.Editable?) {}
+            })
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                    val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.hideSoftInputFromWindow(windowToken, 0)
+                    if (pendingKeys[p.id].orEmpty().isNotEmpty()) startFetchModels(p)
+                    true
+                } else false
+            }
         }
         c.addView(keyInput)
 
@@ -834,41 +871,6 @@ class GuideActivity : Activity() {
         }.start()
     }
 
-    /** 弹窗输入密钥：点「确认」才写入 pendingKeys[当前服务商]，并触发自动拉取模型 */
-    private fun openKeyDialog(p: ApiConfig.Provider) {
-        val (dlg, box) = Ui.dialog(this, getString(R.string.guide_key_dialog_title))
-        val input = EditText(this).apply {
-            hint = getString(R.string.guide_key_dialog_hint)
-            textSize = 14f
-            setTextColor(Ui.TEXT)
-            setHintTextColor(Ui.SUB)
-            background = Ui.rounded(Ui.INPUT_BG, 12, this@GuideActivity)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(pendingKeys[p.id].orEmpty())
-        }
-        box.addView(input)
-        box.addView(Ui.primaryBtn(this, getString(R.string.guide_confirm_fetch)) {
-            val k = input.text.toString().trim()
-            if (k.isEmpty()) {
-                Toast.makeText(this@GuideActivity, getString(R.string.guide_key_empty_hint), Toast.LENGTH_SHORT).show()
-                return@primaryBtn
-            }
-            pendingKeys[p.id] = k
-            keyInput?.text = getString(R.string.guide_key_saved)
-            keyInput?.setTextColor(Ui.TEXT)
-            dlg.dismiss()
-            startFetchModels(p)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-        })
-        box.addView(Ui.dialogCancelBtn(this, getString(R.string.dialog_cancel)) { dlg.dismiss() }, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(10)
-        })
-        dlg.show()
-    }
-
     /** 替换模型：有实时列表直接弹单选；没有先拉取 */
     private fun openReplaceModel(p: ApiConfig.Provider) {
         if (pendingKeys[p.id].orEmpty().isEmpty()) {
@@ -1012,6 +1014,14 @@ class GuideActivity : Activity() {
             setLineSpacing(dp(3).toFloat(), 1f)
             setPadding(dp(4), dp(4), dp(4), dp(12))
         })
+        // 12 项里有 4 项是厂商私有开关, 没有可读状态, 先说清楚"手动确认"是什么意思, 免得起疑
+        c.addView(TextView(this).apply {
+            text = getString(R.string.perm_50)
+            textSize = 11f
+            setTextColor(Ui.SUB)
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(dp(4), 0, dp(4), dp(10))
+        })
 
         // 权限列表卡
         val permCard = Ui.card(this)
@@ -1020,23 +1030,12 @@ class GuideActivity : Activity() {
         }.also { box -> listBox = box })
         c.addView(permCard)
 
-        // 模式选择卡
+        // 模式已在 Step0 选定, 这里不再重复一套选择器, 只提示去哪改
         c.addView(TextView(this).apply {
-            text = getString(R.string.guide_mode_card_title)
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Ui.TEXT)
-            setPadding(dp(4), dp(18), dp(4), dp(8))
-        })
-        val modeCardBox = Ui.card(this)
-        modeBox = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        modeCardBox.addView(modeBox)
-        c.addView(modeCardBox)
-        c.addView(TextView(this).apply {
-            text = getString(R.string.guide_mode_tip)
+            text = if (ModeConfig.chatMode()) getString(R.string.guide_mode_chat_t) else getString(R.string.guide_mode_agent_t)
             textSize = 11f
             setTextColor(Ui.SUB)
-            setPadding(dp(4), dp(8), dp(4), dp(4))
+            setPadding(dp(4), dp(14), dp(4), dp(4))
         })
 
         // 底部一分为二：返回(小比率, 回 Step2 填 Key) + 进入 APP(大比率)
@@ -1067,20 +1066,22 @@ class GuideActivity : Activity() {
         })
 
         refreshPerms()
-        renderMode()
     }
 
     /** 后台实时探测 root 授权(不依赖进程级缓存, 用户去授权工具回来后能即时刷新);
      *  首次探测到已授权时用 root 静默补齐自身权限(尽力而为, 失败保持手动入口) */
     private fun probeRoot() {
         Thread {
-            val g = RootCheck.isGranted()
+            // 先探测是否存在 root 环境, 再执行 su -c id: 未 root 的设备不必白等一次超时
+            val rooted = RootCheck.deviceRooted()
+            val g = rooted && RootCheck.isGranted()
             if (g && !rootAutoGranted) {
                 rootAutoGranted = true
                 RootCheck.grantSelf(this)
             }
             val act = this@GuideActivity
             act.runOnUiThread {
+                deviceRooted = rooted
                 rootGranted = if (g) 1 else 0
                 refreshPerms()
             }
@@ -1094,64 +1095,71 @@ class GuideActivity : Activity() {
         goMain(finishSelf = true)
     }
 
-    private fun items(): List<PermItem> = listOf(
-        PermItem(R.drawable.ic_perm_notification, getString(R.string.perm_05), getString(R.string.perm_06), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-        }, {
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        }, { a ->
-            a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_RUNTIME)
-        }),
-        PermItem(R.drawable.ic_perm_mic, getString(R.string.perm_07), getString(R.string.perm_08), {
-            true
-        }, {
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        }, { a ->
-            a.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RUNTIME)
-        }),
-        PermItem(R.drawable.ic_perm_overlay, getString(R.string.perm_09), getString(R.string.perm_10), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-        }, {
-            Settings.canDrawOverlays(this)
-        }, { a -> a.openOverlay() }),
-        PermItem(R.drawable.ic_perm_folder, getString(R.string.perm_11), getString(R.string.perm_12), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-        }, {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
-        }, { a -> a.openAllFiles() }),
-        PermItem(R.drawable.ic_perm_package, getString(R.string.perm_13), getString(R.string.perm_14), {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        }, {
-            packageManager.canRequestPackageInstalls()
-        }, { a -> a.openUnknownSources() }),
-        // Root 权限: 通用探测不依赖具体授权框架, 不跳转任何授权软件, 只展示是否已授权
-        PermItem(R.drawable.ic_perm_root, getString(R.string.perm_24), getString(R.string.perm_25), {
-            RootCheck.deviceRooted()
-        }, {
-            rootGranted == 1
-        }, { a ->
-            a.rootHint()
-        }, isRoot = true)
-    )
+    private fun items(): List<PermSpec> = PermCatalog.build(this, rootGranted, deviceRooted)
 
     private fun refreshPerms() {
         val box = listBox ?: return
         box.removeAllViews()
-        var first = true
-        items().forEach { item ->
-            if (!first) box.addView(Ui.divider(this))
-            first = false
-            box.addView(buildPermRow(item))
+        val all = items()
+        var firstGroup = true
+        listOf(PermSpec.GROUP_BASE, PermSpec.GROUP_TIMER, PermSpec.GROUP_ADV).forEach { g ->
+            val group = all.filter { it.group == g }
+            if (group.isEmpty()) return@forEach
+            if (!firstGroup) box.addView(Ui.divider(this))
+            firstGroup = false
+            // 小计只统计"有 API 可读状态"的必需项, manual 项永远不计入分母
+            val groupTotal = group.count { it.required() && !it.manual }
+            val groupDone = group.count {
+                it.required() && !it.manual && it.granted()
+            }
+            val collapsed = g in collapsedGroups
+            box.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(12), dp(12), dp(8))
+                isClickable = true
+                Ui.press(this)
+                setOnClickListener {
+                    if (!collapsedGroups.add(g)) collapsedGroups.remove(g)
+                    refreshPerms()
+                }
+                addView(TextView(this@GuideActivity).apply {
+                    text = PermCatalog.groupTitle(this@GuideActivity, g) +
+                        if (groupTotal > 0) " · $groupDone/$groupTotal" else ""
+                    textSize = 12f
+                    setTextColor(Ui.SUB)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(TextView(this@GuideActivity).apply {
+                    text = if (collapsed) "▸" else "▾"
+                    textSize = 13f
+                    setTextColor(Ui.SUB)
+                    setPadding(dp(8), 0, dp(2), 0)
+                })
+            })
+            if (collapsed) return@forEach
+            group.forEachIndexed { i, item ->
+                if (i > 0) box.addView(Ui.divider(this, 12))
+                box.addView(buildPermRow(item))
+            }
         }
     }
 
-    private fun buildPermRow(item: PermItem): LinearLayout {
+    private fun buildPermRow(item: PermSpec): LinearLayout {
         val required = item.required()
         val granted = item.granted()
+        val detecting = item.isRoot && rootGranted == -1
+        // manual 项(自启动/后台运行/锁屏显示/后台弹窗)没有可读状态, 它本身就是跳转入口, 恒可点
+        val clickable = item.manual || (required && !detecting && !granted)
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(14), dp(12), dp(14))
+            if (clickable) {
+                isClickable = true
+                setOnClickListener { item.request(this@GuideActivity) }
+                Ui.press(this)
+            }
             addView(ImageView(this@GuideActivity).apply {
                 setImageResource(item.iconRes)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -1177,17 +1185,25 @@ class GuideActivity : Activity() {
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
             })
-            // 右侧状态/按钮：不需要=灰字提示；已授权=绿色"已完成"；未授权=蓝色"去授权"按钮
+            // 右侧状态/按钮：手动项=中性描边胶囊；不需要=灰字；已授权=绿色"已完成"；未授权=主色"去授权"
             addView(TextView(this@GuideActivity).apply {
                 textSize = 13f
-                val detecting = item.isRoot && rootGranted == -1
                 when {
+                    item.manual -> {
+                        text = getString(R.string.perm_40)
+                        setTextColor(Ui.SUB)
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(dp(10), dp(6), dp(10), dp(6))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp(14).toFloat()
+                            setStroke(dp(1), Ui.SUB)
+                        }
+                    }
                     !required -> {
                         text = getString(R.string.perm_17)
                         setTextColor(Ui.SUB)
                     }
                     detecting -> {
-                        // root 检测中: 灰色提示不可点
                         text = getString(R.string.perm_26)
                         setTextColor(Ui.SUB)
                     }
@@ -1204,8 +1220,6 @@ class GuideActivity : Activity() {
                             cornerRadius = dp(14).toFloat()
                             setColor(Ui.PRIMARY)
                         }
-                        isClickable = true
-                        setOnClickListener { item.request(this@GuideActivity) }
                     }
                 }
             })
@@ -1213,96 +1227,6 @@ class GuideActivity : Activity() {
     }
 
     /** Root 未授权提示: 不内置各家授权框架包名, 不跳转, 引导用户去系统授权工具手动授权 */
-    private fun rootHint() {
-        Toast.makeText(this, getString(R.string.perm_27), Toast.LENGTH_LONG).show()
-    }
-
-    private fun renderMode() {
-        val box = modeBox ?: return
-        box.removeAllViews()
-        box.addView(modePickCard(
-            iconRes = R.drawable.ic_guide_chat,
-            title = getString(R.string.guide_mode_chat_title),
-            desc = getString(R.string.guide_mode_chat_d),
-            checked = ModeConfig.chatMode(),
-            onPick = { ModeConfig.setChatMode(true); renderMode() }
-        ))
-        box.addView(Space(this), LinearLayout.LayoutParams(dp(10), 1))
-        box.addView(modePickCard(
-            iconRes = R.drawable.ic_guide_tool,
-            title = getString(R.string.guide_mode_agent_title),
-            desc = getString(R.string.guide_mode_agent_d),
-            checked = !ModeConfig.chatMode(),
-            onPick = { ModeConfig.setChatMode(false); renderMode() }
-        ))
-    }
-
-    /** 模式二选一并排卡（图标左置横排），选中态高亮，无需功能点描述 */
-    private fun modePickCard(iconRes: Int, title: String, desc: String, checked: Boolean, onPick: () -> Unit): LinearLayout =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                setColor(if (checked) Ui.PRIMARY_LIGHT else 0xFFFFFFFF.toInt())
-                cornerRadius = dp(16).toFloat()
-                setStroke(dp(1), if (checked) Ui.PRIMARY else 0xFFE5E7EB.toInt())
-            }
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            isClickable = true
-            setOnClickListener { onPick() }
-            addView(ImageView(this@GuideActivity).apply {
-                setImageResource(iconRes)
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setColorFilter(Ui.TEXT)
-                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
-            })
-            addView(LinearLayout(this@GuideActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                setPadding(dp(10), 0, 0, 0)
-                addView(TextView(this@GuideActivity).apply {
-                    text = title
-                    textSize = 15f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Ui.TEXT)
-                })
-                addView(TextView(this@GuideActivity).apply {
-                    text = desc
-                    textSize = 11f
-                    maxLines = 1
-                    setTextColor(Ui.SUB)
-                    setPadding(0, dp(3), 0, 0)
-                })
-            })
-        }
-
-    private fun openOverlay() {
-        try {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        } catch (e: Exception) {
-            try { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) }
-            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_21), Toast.LENGTH_LONG).show() }
-        }
-    }
-
-    private fun openAllFiles() {
-        try {
-            startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
-        } catch (e: Exception) {
-            try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
-            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_22), Toast.LENGTH_LONG).show() }
-        }
-    }
-
-    private fun openUnknownSources() {
-        try {
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-        } catch (e: Exception) {
-            try { startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)) }
-            catch (e2: Exception) { Toast.makeText(this, getString(R.string.perm_23), Toast.LENGTH_LONG).show() }
-        }
-    }
 
     private fun backTextRow(label: String, onBack: () -> Unit): TextView =
         TextView(this).apply {
@@ -1315,28 +1239,41 @@ class GuideActivity : Activity() {
             setOnClickListener { onBack() }
         }
 
-    private fun modeCard(iconRes: Int, title: String, desc: String, points: List<Triple<Int, String, String>>): LinearLayout =
+    private fun modeCard(
+        iconRes: Int,
+        title: String,
+        desc: String,
+        points: List<Triple<Int, String, String>>,
+        checked: Boolean = false,
+        onPick: (() -> Unit)? = null
+    ): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
                 cornerRadius = dp(16).toFloat()
-                setStroke(dp(1), Ui.STROKE)
+                if (checked) setStroke(dp(2), Ui.PRIMARY) else setStroke(dp(1), Ui.STROKE)
             }
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setPadding(dp(14), dp(20), dp(14), dp(20))
+            if (onPick != null) {
+                isClickable = true
+                contentDescription = if (checked) "已选择 $title" else "选择 $title"
+                Ui.press(this)
+                setOnClickListener { onPick() }
+            }
             addView(ImageView(this@GuideActivity).apply {
                 setImageResource(iconRes)
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                setColorFilter(Ui.TEXT)
+                setColorFilter(if (checked) Ui.PRIMARY else Ui.TEXT)
                 layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
             })
             addView(TextView(this@GuideActivity).apply {
-                text = title
+                text = if (checked) "✓ $title" else title
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Ui.TEXT)
+                setTextColor(if (checked) Ui.PRIMARY else Ui.TEXT)
                 gravity = Gravity.CENTER
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 setPadding(0, dp(12), 0, 0)

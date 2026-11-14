@@ -12,7 +12,13 @@ import java.util.concurrent.TimeUnit
  */
 object RootCheck {
 
-    /** 设备是否具备 root 能力(仅探测 su 二进制/框架痕迹, 不执行 su、不触发授权弹窗) */
+    /** 最近一次探测结果(进程级缓存): null=还没探测过。
+     *  权限页首帧用它避免在主线程重复探测, 保证分母不会因探测结果来回变化。 */
+    @Volatile private var rootedCache: Boolean? = null
+    @Volatile private var grantedCache: Boolean? = null
+
+    /** 设备是否具备 root 能力(仅探测 su 二进制/框架痕迹, 不执行 su、不触发授权弹窗)。
+     *  含子进程, 禁止主线程调用。 */
     fun deviceRooted(): Boolean {
         val traces = listOf(
             "/system/bin/su",
@@ -24,8 +30,16 @@ object RootCheck {
             "/data/adb/magisk",        // Magisk
             "/data/adb/ap"             // APatch
         )
-        return traces.any { File(it).exists() } || suInPath()
+        val result = traces.any { File(it).exists() } || suInPath()
+        rootedCache = result
+        return result
     }
+
+    /** 已缓存的 root 环境探测结果; null 表示本进程尚未探测(调用方按"未 root"渲染即可) */
+    fun cachedRooted(): Boolean? = rootedCache
+
+    /** 已缓存的 root 授权结果; null 表示尚未探测 */
+    fun cachedGranted(): Boolean? = grantedCache
 
     /** PATH 中是否存在 su(仅查找不执行, 无副作用) */
     private fun suInPath(): Boolean = try {
@@ -44,12 +58,14 @@ object RootCheck {
      */
     fun isGranted(timeoutMs: Long = 3000): Boolean = try {
         val p = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
-        if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
+        val ok = if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
             p.destroyForcibly()
             false
         } else {
             p.inputStream.readBytes().toString(Charsets.UTF_8).contains("uid=0")
         }
+        grantedCache = ok
+        ok
     } catch (e: Exception) {
         false
     }

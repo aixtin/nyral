@@ -2826,99 +2826,145 @@ class MainActivity : Activity() {
         return java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(ts)
     }
 
-    /** 新会话开场介绍卡片 View(欢迎卡片本体, 不含外侧气泡壳) */
+    /**
+     * 空会话欢迎区(2026-11-14 二版)。
+     *
+     * 空会话本身就是一个"整屏空态", 再套一层描边卡片会显得多余;
+     * 这一版去掉卡片壳, 内容直接坐在聊天背景上、垂直居中, 与 APP 融为一体:
+     *  - 一句标题 + 一行副标题, 只回答"这里能干嘛"
+     *  - 三条起手式(只填充输入框, 不自动发送, 避免误触产生调用)
+     *  - 门禁三档用分段控件, 选中态唯一
+     * 介绍类内容已由引导页承担, 这里不再重复。
+     */
     private fun welcomeCardView(): View {
-        val maxW = chatMaxW()
-        val cardW = (maxW * 0.92f).toInt().coerceAtLeast(dp(260))
-        val inner = LinearLayout(this).apply {
+        return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(dp(16), floatBubbleColor(BUBBLE_AI))
-            setPadding(dp(Ui.SP4), dp(Ui.SP4), dp(Ui.SP4), dp(Ui.SP4))
-            addView(TextView(this@MainActivity).apply {
-                text = getString(R.string.welcome_intro_title)
-                textSize = 16f
-                setTextColor(Ui.PRIMARY)
-                typeface = Typeface.DEFAULT_BOLD
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(Ui.SP2)
-            })
-            addView(TextView(this@MainActivity).apply {
-                textSize = 14f
-                setTextColor(BUBBLE_AI_TEXT)
-                setLineSpacing(dp(3).toFloat(), 1f)
-                movementMethod = android.text.method.LinkMovementMethod.getInstance()
-                synchronized(markwonRenderLock) { markwon.setMarkdown(this, getString(R.string.welcome_intro_body)) }
-            })
-            // ===== 危险操作门禁三档快捷切换(2026-10-04): 新会话开场即可切档, 写审计 channel=welcome_card =====
-            addView(TextView(this@MainActivity).apply {
-                text = "危险操作门禁"
-                textSize = 12f
-                setTextColor(Ui.SUB)
-                typeface = Typeface.DEFAULT_BOLD
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(Ui.SP3)
-                bottomMargin = dp(Ui.SP2)
-            })
-            val modeBtns = LinkedHashMap<String, TextView>()
-            var currentMode = SecurityConfig.dangerMode(this@MainActivity)
-            fun refreshModeBtns() {
-                modeBtns.forEach { (k, b) ->
-                    val sel = k == currentMode
-                    b.setTextColor(if (sel) Color.WHITE else Ui.PRIMARY)
-                    b.background = if (sel) Ui.rounded(Ui.PRIMARY, 10, this@MainActivity)
-                    else {
-                        // 未选中: 三档按聊天背景三种质感呈现(不透明/普通透明/毛玻璃透明), 统一 PRIMARY 细描边镶边
-                        val solid = when (k) {
-                            "strict" -> Ui.PRIMARY_LIGHT                       // 不透明实底
-                            "auto" -> Ui.PRIMARY_LIGHT                                    // 不透明实底(与strict一致)
-                            else -> android.graphics.Color.TRANSPARENT          // 毛玻璃: 透明底+描边
-                        }
-                        android.graphics.drawable.GradientDrawable().apply {
-                            cornerRadius = dp(10).toFloat()
-                            setColor(solid)
-                            setStroke(dp(1), Ui.PRIMARY)
-                        }
-                    }
-                }
-            }
-            fun applyMode(m: String) {
-                SecurityConfig.setDangerMode(this@MainActivity, m)
-                SecurityConfig.audit(this@MainActivity, "security_mode", m, "ui_user", "welcome_card")
-                currentMode = m
-                refreshModeBtns()
-            }
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(16), dp(24), dp(16))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                val modes = listOf("strict" to "严格", "auto" to "自动", "off" to "放行")
-                modes.forEachIndexed { i, (key, label) ->
-                    val b = TextView(this@MainActivity).apply {
-                        text = label
-                        textSize = 13f
-                        gravity = Gravity.CENTER
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(this@MainActivity).apply {
+                    text = "有什么可以帮你？"
+                    textSize = 20f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Ui.TEXT)
+                    gravity = Gravity.CENTER
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = "直接提问，或从下面挑一个开始"
+                    textSize = 13f
+                    setTextColor(Ui.SUB)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(8), 0, 0)
+                })
+
+                // 起手式: 点击只填入输入框, 不直接发送
+                listOf("帮我做一次手机体检", "创建一个每天 9 点的岗位", "总结一下最近的聊天").forEachIndexed { i, s ->
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        background = rounded(dp(14), Ui.INPUT_BG)
+                        setPadding(dp(Ui.SP3), dp(Ui.SP2) + dp(2), dp(Ui.SP3), dp(Ui.SP2) + dp(2))
                         isClickable = true
-                        setPadding(dp(0), dp(Ui.SP2), dp(0), dp(Ui.SP2))
                         Ui.press(this)
                         setOnClickListener {
-                            val target = key
-                            if (target == currentMode) return@setOnClickListener
-                            if (target == "off") {
-                                SecurityUi.confirmDisableGate(this@MainActivity, onConfirm = { applyMode("off") })
-                            } else {
-                                applyMode(target)
-                            }
+                            input.setText(s)
+                            input.setSelection(input.text.length)
+                            input.requestFocus()
                         }
-                    }
-                    modeBtns[key] = b
-                    addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        if (i > 0) leftMargin = dp(Ui.SP2)
+                        addView(TextView(this@MainActivity).apply {
+                            text = s
+                            textSize = 14f
+                            setTextColor(Ui.TEXT)
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+                        addView(TextView(this@MainActivity).apply {
+                            text = "›"
+                            textSize = 16f
+                            setTextColor(Ui.SUB)
+                            setPadding(dp(Ui.SP2), 0, 0, 0)
+                        })
+                    }, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = if (i == 0) dp(28) else dp(10)
                     })
                 }
-                refreshModeBtns()
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+                // ===== 危险操作门禁三档快捷切换(保留原逻辑, 视觉改分段控件) =====
+                addView(TextView(this@MainActivity).apply {
+                    text = "危险操作门禁"
+                    textSize = 12f
+                    setTextColor(Ui.SUB)
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(30)
+                })
+                val modeHint = TextView(this@MainActivity).apply {
+                    textSize = 11f
+                    setTextColor(Ui.SUB)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(4), 0, 0)
+                }
+                addView(modeHint)
+                val modeBtns = LinkedHashMap<String, TextView>()
+                var currentMode = SecurityConfig.dangerMode(this@MainActivity)
+                fun refreshModeBtns() {
+                    modeBtns.forEach { (k, b) ->
+                        val sel = k == currentMode
+                        b.setTextColor(if (sel) Color.WHITE else Ui.SUB)
+                        b.background = if (sel) rounded(dp(9), Ui.PRIMARY) else null
+                    }
+                    modeHint.text = when (currentMode) {
+                        "strict" -> "每次危险操作都要你确认"
+                        "auto" -> "低风险自动放行，高风险仍要确认"
+                        else -> "全部放行，风险自负"
+                    }
+                }
+                fun applyMode(m: String) {
+                    SecurityConfig.setDangerMode(this@MainActivity, m)
+                    SecurityConfig.audit(this@MainActivity, "security_mode", m, "ui_user", "welcome_card")
+                    currentMode = m
+                    refreshModeBtns()
+                }
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    background = rounded(dp(12), Ui.INPUT_BG)
+                    setPadding(dp(3), dp(3), dp(3), dp(3))
+                    val modes = listOf("strict" to "严格", "auto" to "自动", "off" to "放行")
+                    modes.forEachIndexed { i, (key, label) ->
+                        val b = TextView(this@MainActivity).apply {
+                            text = label
+                            textSize = 13f
+                            gravity = Gravity.CENTER
+                            isClickable = true
+                            setPadding(0, dp(Ui.SP2), 0, dp(Ui.SP2))
+                            Ui.press(this)
+                            setOnClickListener {
+                                if (key == currentMode) return@setOnClickListener
+                                if (key == "off") {
+                                    SecurityUi.confirmDisableGate(this@MainActivity, onConfirm = { applyMode("off") })
+                                } else {
+                                    applyMode(key)
+                                }
+                            }
+                        }
+                        modeBtns[key] = b
+                        addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                            if (i > 0) leftMargin = dp(3)
+                        })
+                    }
+                    refreshModeBtns()
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(10)
+                })
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        inner.layoutParams = LinearLayout.LayoutParams(cardW, ViewGroup.LayoutParams.WRAP_CONTENT)
-        return chatWrap(inner, false)
     }
 
     /** AI ask_user 澄清对话框: 标题+问题正文+候选选项按钮(全宽浅色), 可选自定义输入; 点外部/返回视为取消 */

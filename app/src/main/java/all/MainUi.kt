@@ -705,6 +705,13 @@ import android.widget.Toast
         if (!statusStripReady) return
         val pid = ApiConfig.providerId()
         val p = ApiConfig.providerById(pid)
+        // 未配 Key(且非本地模型)时不要显示预设的兜底模型名, 否则用户会误以为已经可用
+        if (ApiConfig.apiKey().isBlank() && ApiConfig.localUri().isBlank()) {
+            statusModel.text = getString(R.string.status_model_unconfigured)
+            statusCtx.visibility = View.GONE
+            statusDot.setBackgroundColor(Ui.SUB)
+            return
+        }
         val model = shortModelLabel(ApiConfig.currentModelOf(pid).ifBlank { "默认" }, pid)
         statusModel.text = (p?.label ?: pid) + " · " + model
         val ctx = TokenStore.lastPrompt(this)
