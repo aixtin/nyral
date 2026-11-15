@@ -27,6 +27,7 @@
 | `StreamUiBridge.kt` | 流式行创建 + LocalEngine 回调簇桥接（思考/工具/正文/收尾/错误全分支） |
 | `MainActivityVoice.kt` / `MainActivitySession.kt` / `MainActivityInputBar.kt` | MainActivity 功能域横向拆分（录音域 / 会话域 / 附件域输入栏） |
 | `MainUi.kt` / `UiKit.kt` / `BubbleSpans.kt` / `Typewriter.kt` | UI 构建与动效、气泡 span、打字机动效 |
+| `InputBarMemDot.kt` | 输入栏记忆召回状态点（发送按钮左上角，状态位骨架，检索结果尚未接入） |
 | `ModeConfig.kt` | 聊天 / Agent 双模式开关与分派 |
 | `MdTableView.kt` / `MdBlocksView.kt` / `MdBlocksRender.kt` | 消息流 Markdown 表格渲染（方案 C：气泡内独立 TableView 块化 + 单元格垂直居中 + 列宽按文字需求压缩/内部横滑） |
 
@@ -80,6 +81,16 @@
 | `MainActivity.sendAttachmentFromUri` | 附件读取 → 发送主流程入口 |
 | `FileAuditStore.kt` / `FileAuditActivity.kt` | 删除审计闭环：删除前快照私有落盘，文件管理页只读展示，AI 经 read_file_audit 自查 |
 
+### 定时岗位（Timer）
+
+| 载体 | 职责 |
+|------|------|
+| `TimerTaskDb.kt` / `TimerTaskUi.kt` | 岗位表（时间/动作/会话绑定/台账字段）与列表渲染 |
+| `TimerScheduler.kt` / `TimerDispatch.kt` | 闹钟排布与投递闸门：未到时不提前投递、slot 占位、manual 旁路 |
+| `TimerTaskActivity.kt` / `TimerTaskEditActivity.kt` / `TimerTaskDetailActivity.kt` / `TimerHealthActivity.kt` | 岗位列表 / 编辑 / 详情 / 体检四页 |
+| `TimerKeepAliveService.kt` / `TimerWakeReceiver.kt` / `TimerRecovery.kt` | specialUse 保活、唤醒接收、多路径重排与补跑 |
+| `TaskService.kt` | 定时任务执行前台服务：执行台账、成功性核查、看门狗、会话绑定校验 |
+
 ### 调试与可视化
 
 | 载体 | 职责 |
@@ -125,7 +136,7 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.9.24 / versionCode 137）
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.9.31 / versionCode 144）
 
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 
