@@ -915,4 +915,13 @@ For everyday chat experience</string>
     <string name="perm_57">%1$d/%2$d ready</string>
     <string name="guide_key_inline_hint">Paste your API key, press Enter to fetch models</string>
     <string name="guide_mode_pick_tip">Tap a card to pick a mode; you can switch it later in Settings</string>
+
+    <!-- Scheduled-job keep-alive guide (2026-11-12) -->
+    <string name="keepalive_card_title">Keep scheduled jobs alive</string>
+    <string name="keepalive_card_desc">Whether a scheduled job (morning briefing, greeting and so on) actually fires on time depends on two things: (1) notification permission; (2) the system auto-start allowlist. Without auto-start, the process can be killed while idle and the job will not come back on its own — nothing is delivered at the scheduled time.</string>
+    <string name="keepalive_card_btn">Open auto-start settings</string>
+    <string name="keepalive_notif_btn">Check notification settings</string>
+    <string name="keepalive_toast_auto">System page opened — allow \"Auto-start / background activity\" for this app</string>
+    <string name="keepalive_toast_fallback">No vendor auto-start page found; app details opened instead — look for \"Auto-start / background management\" there</string>
+    <string name="keepalive_toast_fail">Could not open that settings page — go to System settings → Apps → this app → Auto-start manually</string>
 </resources>

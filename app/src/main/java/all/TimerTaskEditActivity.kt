@@ -1,7 +1,9 @@
 package io.github.aixtin.nyral
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -12,6 +14,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.TimePicker
 import android.widget.Toast
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 
 /**
  * 岗位编辑页(2026-11-14, 新建/编辑共用)。
@@ -36,6 +40,8 @@ class TimerTaskEditActivity : Activity() {
     private var hh = 9
     private var mm = 0
     private var allowTools = ""
+    // 返回键: targetSdk 35+ 起系统改走 OnBackInvokedCallback, onBackPressed 不再被调用
+    private var backCallback: OnBackInvokedCallback? = null
 
     // 进入页面时的快照: 返回时用它判断有没有未保存的修改
     private var initName = ""
@@ -48,6 +54,12 @@ class TimerTaskEditActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val cb = OnBackInvokedCallback { confirmExit() }
+            backCallback = cb
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb)
+        }
         Ui.statusBar(this)
         ApiConfig.init(this)
         MemoryApiConfig.init(this)
@@ -235,7 +247,17 @@ class TimerTaskEditActivity : Activity() {
         dlg.show()
     }
 
-    @Deprecated("Activity 已无 OnBackPressedDispatcher, 编辑页是纯 Activity 且无 fragment")
+    override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            backCallback?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
+            backCallback = null
+        }
+        super.onDestroy()
+    }
+
+    // API 33 以下仍由系统回调此方法; 33+ 已注册 OnBackInvokedCallback, 这里只作低版本兜底
+    @SuppressLint("GestureBackNavigation")
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         confirmExit()
     }
