@@ -446,8 +446,16 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
 
     // ===================== Agent 单轨折叠流(2026-10-25) =====================
 
-    /** Agent 折叠流判定: 非聊天模式(无头像模式)恒走折叠流; 聊天模式原气泡形态不动 */
-    private fun agentFold(): Boolean = !ModeConfig.chatMode()
+    /** Agent 折叠流开关(2026-11-16 停用): 老板要求 Agent 模式思考/工具展现回归聊天模式同款
+     *  (单行状态行 + 片段轮播 + 点击就地展开), 折叠胶囊 + 底部抽屉方案整段保留, 置 true 可一键恢复 */
+    private val AGENT_FOLD_ENABLED = false
+
+    /** Agent 折叠流判定: 开关打开且非聊天模式(无头像模式)才走折叠流; 聊天模式原气泡形态不动 */
+    private fun agentFold(): Boolean = AGENT_FOLD_ENABLED && !ModeConfig.chatMode()
+
+    /** Agent 正文全宽无框判定(2026-11-16 从 agentFold 拆出): 思考/工具形态与正文形态解耦,
+     *  非聊天模式正文仍全宽直排无气泡 */
+    private fun agentWideBody(): Boolean = !ModeConfig.chatMode()
 
     /** 折叠胶囊行: [图标 + 单行摘要 + 查看] 深色圆角行, 点击弹底部抽屉时间线 */
     private fun makeAgentCapsule(
@@ -1652,7 +1660,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             setTextColor(BUBBLE_AI_TEXT)
             setLineSpacing(host.dp(3).toFloat(), 1.45f)
             includeFontPadding = false
-            if (agentFold()) {
+            if (agentWideBody()) {
                 // 单轨折叠流(2026-10-25): 正文全宽直排无框(无气泡背景/阴影, 不缩进), 打字机照旧
                 setPadding(0, host.dp(2), 0, host.dp(2))
                 maxWidth = host.chatMaxW()
@@ -1709,7 +1717,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
             setTextColor(BUBBLE_AI_TEXT)
             setLineSpacing(host.dp(3).toFloat(), 1.45f)
             includeFontPadding = false
-            if (agentFold()) {
+            if (agentWideBody()) {
                 // 单轨折叠流(2026-10-25): 占位与正文一致全宽无框
                 setPadding(0, host.dp(2), 0, host.dp(2))
                 maxWidth = host.chatMaxW()
@@ -1817,7 +1825,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
     private fun ensureBlocksView(b: ContentBlock, tv: TextView): MdBlocksView {
         b.blocksView?.let { return it }
         val bv = MdBlocksView(host).apply {
-            if (agentFold()) {
+            if (agentWideBody()) {
                 // 单轨折叠流(2026-10-25): 块容器与占位一致全宽无框
                 setPadding(0, host.dp(2), 0, host.dp(2))
                 layoutParams = tv.layoutParams
@@ -1842,7 +1850,7 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         // 可用宽 = 占位 maxWidth - 块容器自身左右 padding(表格实际可摆放空间,
         // 否则表格按未减 padding 的宽度计算 -> 恒超宽被横滑裁剪, 右边框缺失)
         val padH = when {
-            agentFold() -> 0
+            agentWideBody() -> 0
             ModeConfig.actionTrack() -> host.dp(Ui.SP2)
             else -> host.dp(Ui.SP6)
         }

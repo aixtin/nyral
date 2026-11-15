@@ -173,11 +173,13 @@ internal fun MainActivity.showEmojiDrawer() {
     setBrowserBarVisible(false)
 }
 
-/** 抽屉统一设高: 只设置抽屉高度; 一体式下抽屉在 dockContent 内, 高度变化直接改变大抽屉总高(输入框+表情区) */
+/** 抽屉统一设高: 只设置抽屉高度; 一体式下抽屉在 dockContent 内, 高度变化直接改变大抽屉总高(输入框+表情区)。
+ * 设高后同帧把让位推给聊天区(不等布局回调), 消除逐帧滞后。 */
 internal fun MainActivity.setEmojiDrawerHeight(h: Int) {
     val d = emojiDrawer ?: return
     val lp = d.layoutParams
     if (lp.height != h) { lp.height = h; d.layoutParams = lp }
+    applyBottomOcclusion(h)
 }
 
 /** 抽屉高度展开动画(一体式): 0→emojiDrawerTargetH; 反悔打断可 cancel 后反向 */
@@ -216,7 +218,12 @@ internal fun MainActivity.startEmojiPopAnim(durationMs: Long) {
 /** 聊天区视口尺寸变化(表情区高度动画/键盘恢复)后末条贴底:
  * 末条可见按真实像素 gap 拉底(长文/变高消息也精确); 末条不可见(用户正翻历史)保持阅读位置不动 */
 internal fun MainActivity.alignChatToViewport() {
+    // 合并节流: 掉帧时 post 队列里堆多个补偿会依次执行, 表现为消息"下去又上来";
+    // 只保留最新一次(下一帧按最新视口重算)。
+    if (chatAlignPending) return
+    chatAlignPending = true
     chatRec.post {
+        chatAlignPending = false
         if (chatRec.scrollState != androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE) return@post
         val lm = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
         val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1

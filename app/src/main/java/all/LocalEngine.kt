@@ -43,6 +43,63 @@ object LocalEngine {
     // 单次完整回复输出上限(字符): 防模型超长输出/多轮 tool 累积导致上下文顶爆窗口; 超限截断并提示
     private const val MAX_OUTPUT_CHARS = 60000
 
+    // ===== 上游存活探测(2026-11-15) =====
+    // 背景: 连接只设了 connectTimeout/readTimeout, 而 readTimeout 只管"读不到字节"。
+    // 上游(网关/中转)持续发心跳、空 delta、role-only 帧时字节不断, readTimeout 永不触发,
+    // 表现为"一直卡在思考中、无正文、无工具、无报错", 用户只能手动停止(实测 4 分 23 秒零输出)。
+    // 三道闸: 首内容超时 / 已出内容后无进展超时 / 单轮流总时长硬上限, 命中即保留 partial 收口。
+
+    /** 首内容超时(ms): 建流后迟迟没有任何思考/正文/工具增量, 视为上游卡死 */
+    private const val FIRST_CONTENT_TIMEOUT_MS = 90_000L
+
+    /** 无进展超时(ms): 已收到过增量后又长期静默(只剩心跳), 视为上游卡死 */
+    private const val STALL_TIMEOUT_MS = 120_000L
+
+    /** 单轮流总时长上限(ms): 即使持续有思考增量也不允许无限拖, 到点保留 partial 收口 */
+    private const val MAX_STREAM_DURATION_MS = 600_000L
+
+    /** 等待提示步长(ms): 静默期每隔这么久向 UI 报一次"已等待 N 秒" */
+    private const val WAIT_NOTICE_STEP_MS = 30_000L
+
+    /** 回归可调阈值(2026-11-15): 默认取上面的常量, DebugServer POST /v1/timeouts 可临时下调,
+     *  让"只发心跳"的收敛行为能在秒级验证(否则要等 90s/120s); 进程重启即恢复默认值 */
+    @Volatile internal var tuneFirstContentMs = FIRST_CONTENT_TIMEOUT_MS
+    @Volatile internal var tuneStallMs = STALL_TIMEOUT_MS
+    @Volatile internal var tuneMaxStreamMs = MAX_STREAM_DURATION_MS
+    @Volatile internal var tuneWaitNoticeMs = WAIT_NOTICE_STEP_MS
+
+    /** 存活探测判定结果(2026-11-15) */
+    internal enum class ProbeVerdict { OK, FIRST_CONTENT_TIMEOUT, NO_PROGRESS_TIMEOUT, TOTAL_DURATION_EXCEEDED }
+
+    /**
+     * 上游存活判定(纯函数, 便于单测): 每收到一行 SSE 数据调用一次。
+     * 顺序上"总时长"优先——即使持续有增量, 也不允许单轮无限拖。
+     * 阈值可注入, 便于用例覆盖边界, 生产路径由 tune* 字段传入默认常量。
+     */
+    internal fun probeVerdict(
+        elapsedTotalMs: Long,
+        idleMs: Long,
+        gotProgress: Boolean,
+        firstContentMs: Long = FIRST_CONTENT_TIMEOUT_MS,
+        stallMs: Long = STALL_TIMEOUT_MS,
+        maxStreamMs: Long = MAX_STREAM_DURATION_MS
+    ): ProbeVerdict {
+        if (elapsedTotalMs >= maxStreamMs) return ProbeVerdict.TOTAL_DURATION_EXCEEDED
+        val limit = if (gotProgress) stallMs else firstContentMs
+        if (idleMs >= limit) {
+            return if (gotProgress) ProbeVerdict.NO_PROGRESS_TIMEOUT else ProbeVerdict.FIRST_CONTENT_TIMEOUT
+        }
+        return ProbeVerdict.OK
+    }
+
+    /** 恢复超时阈值为默认常量(调试口调过之后复位用) */
+    internal fun resetTuning() {
+        tuneFirstContentMs = FIRST_CONTENT_TIMEOUT_MS
+        tuneStallMs = STALL_TIMEOUT_MS
+        tuneMaxStreamMs = MAX_STREAM_DURATION_MS
+        tuneWaitNoticeMs = WAIT_NOTICE_STEP_MS
+    }
+
     /** 输出截断: 超过上限截断并追加提示, 防单条超长注入顶爆上下文窗口 */
     private fun capOut(s: String): String =
         if (s.length > MAX_OUTPUT_CHARS) s.take(MAX_OUTPUT_CHARS) + "\n…[输出过长已截断]" else s
@@ -142,6 +199,10 @@ object LocalEngine {
     @Volatile
     var cancelRequested = false
 
+    /** 取消原因(2026-11-15): 与 cancelRequested 同步置位, 供 UI 与日志区分"用户停止/切会话/上游超时" */
+    @Volatile
+    var cancelReason = CancelReason.NONE
+
     /** 浏览器页桥接: AI 调用 open_browser 时由 MainActivity 注册回调打开全屏浏览器页(需主线程执行) */
     @Volatile
     var onOpenBrowser: ((url: String?) -> Unit)? = null
@@ -178,8 +239,9 @@ object LocalEngine {
     private val activeConns = java.util.Collections.newSetFromMap(
         java.util.concurrent.ConcurrentHashMap<HttpURLConnection, Boolean>())
 
-    /** 请求停止当前 AI 输出/工具循环(软停: 断链 + 进度打断) */
-    fun requestCancel() {
+    /** 请求停止当前 AI 输出/工具循环(软停: 断链 + 进度打断); reason 供 UI/日志区分停止来源 */
+    fun requestCancel(reason: CancelReason = CancelReason.USER_STOP) {
+        cancelReason = reason
         cancelRequested = true
         activeConn?.let { try { it.disconnect() } catch (_: Throwable) {} }
         for (c in activeConns.toList()) { try { c.disconnect() } catch (_: Throwable) {} }
@@ -188,7 +250,8 @@ object LocalEngine {
     }
 
     /** 强制停止(第二击 / 兜底): 再杀一遍进程组, 已有的 UI 渲染队列由 cancelRequested 统一作废 */
-    fun requestCancelHard() {
+    fun requestCancelHard(reason: CancelReason = CancelReason.USER_STOP) {
+        cancelReason = reason
         cancelRequested = true
         activeConn?.let { try { it.disconnect() } catch (_: Throwable) {} }
         for (c in activeConns.toList()) { try { c.disconnect() } catch (_: Throwable) {} }
@@ -280,12 +343,22 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         fun onThinkingEnd()            // 思考段结束 -> UI 收缩
         /** P2-1(2026-11-07): 工具参数仍在流式生成(尚无正文/思考增量), 用于显示"正在生成 xxx · N KB" */
         fun onToolPending(name: String, bytes: Int) {}
+        /** 上游静默提示(2026-11-15): 连接仍有字节(心跳/空帧)但无任何有效增量时按步长上报,
+         *  仅用于告知用户"还在等上游", 不得写正文/思考区(避免污染落库内容) */
+        fun onWaiting(elapsedSec: Int) {}
         fun onTool(name: String, arg: String)  // 正在执行工具
         fun onToolResult(name: String, result: String) {}  // 工具执行完成(结果回填, 默认空实现)
         fun onDelta(text: String)      // 正文增量(流式)
         fun onDone(reply: String)
         fun onError(msg: String)
     }
+
+    /** 取消原因分型(2026-11-15): 用户手点停止 / 切会话 / 上游超时自动收口 走同一取消出口,
+     *  旧实现三者共用"用户停止输出"文案, 日志与气泡提示无法区分, 排查时会把超时误判成用户操作。 */
+    enum class CancelReason { NONE, USER_STOP, SESSION_SWITCH, STALL_TIMEOUT }
+
+    /** 上游卡死收口: 与用户取消一样保留 partial, 但原因记为 STALL_TIMEOUT(气泡提示"上游超时未响应") */
+    class StallTimeoutException(val partial: String, val stage: String) : CancellationException("stream stalled: $stage")
 
     /**
      * 停止后现场取舍 —— 方案B(2026-10-31 拍板): 保留现场。
@@ -594,6 +667,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
     fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet(), taskId: Long = 0L) {
         synchronized(chatLock) {
             cancelRequested = false
+            cancelReason = CancelReason.NONE
             // fix(2026-11-15): 入口留一条汇总日志, 排查时能先从 logcat 确认"引擎确实被调起"以及规模,
             // 再往下钻 Nyral tag 的细粒度日志(此前只能靠 trace 文件反推)
             android.util.Log.i("LocalEngine", "chat 开始 taskId=" + taskId + " silent=" + silentMode +
@@ -862,6 +936,15 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             // 指数退避: 1s/2s/4s, 给弱网恢复窗口
             sleepCancellable(1000L shl (attempt - 1))
             continue
+        } catch (e: StallTimeoutException) {
+            // 上游卡死自动收口(2026-11-15): 复用"停止保留现场"路径, 但原因单独标记,
+            // UI 据此在气泡尾部提示"上游超时未响应", 不再借用"用户停止输出"文案
+            LogStore.w(LogStore.MAIN, "chat 收到超时 stage=${e.stage} partial=${e.partial.length}")
+            val body = scrubXmlLeak(CancelWithPartial.merge(full.toString(), e.partial))
+            android.util.Log.w("Nyral", "上游超时收口 stage=${e.stage} partial=${e.partial.length} body=${body.length}")
+            cancelReason = CancelReason.STALL_TIMEOUT
+            cb.onDone(body)
+            return
         } catch (e: CancelWithPartial) {
             // 方案B(2026-10-31): 停止保留现场 —— 跨轮累计 + 本轮已流式产出的正文一并交回 UI,
             // 由 StreamUiBridge 落库并追加〔已中断〕标记(空内容时仍按"不落库"处理)
@@ -991,6 +1074,25 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         conn.readTimeout = 60000
         activeConn = conn
         activeConns.add(conn)
+        // 上游存活探测起点(2026-11-15): 建连即刻计时, 首内容/无进展/总时长三道闸共用同一时间轴
+        val streamStartedAt = System.currentTimeMillis()
+        var lastProgressAt = streamStartedAt
+        var gotAnyProgress = false
+        // 看门狗(2026-11-15): 三道闸只挂在"读到行"之后, 上游彻底静默(零字节、无心跳)时 readLine 会
+        // 一直阻塞到 readTimeout(60s), 期间判定永不执行 -> 用户侧仍是"卡在思考中"。
+        // 用独立守护线程按同一时间轴兜底: 命中即置原因 + 断连接, 让读循环立刻抛出并保留 partial。
+        val progressAtRef = java.util.concurrent.atomic.AtomicLong(streamStartedAt)
+        val gotProgressRef = java.util.concurrent.atomic.AtomicBoolean(false)
+        val watchdogLive = java.util.concurrent.atomic.AtomicBoolean(false)
+        var stallWatchdog: Thread? = null
+        var waitNoticeAt = streamStartedAt + tuneWaitNoticeMs
+        /** 收到任一有效增量(思考/正文/工具参数)时打点: 心跳与空帧不算进展 */
+        fun markProgress() {
+            lastProgressAt = System.currentTimeMillis()
+            gotAnyProgress = true
+            progressAtRef.set(lastProgressAt)
+            gotProgressRef.set(true)
+        }
         val accumulated = StringBuilder()
         val toolCalls = mutableListOf<Pair<String, String>>()
         // 与 toolCalls 按序一一对应的 tool_call_id(并行同名工具必须各自独立 id, 按 name 建映射会覆盖
@@ -1002,6 +1104,60 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         var reader: BufferedReader? = null
         /** 流中断(连接断开/EOF)但已有部分输出: 主循环据此续跑重连(声明在 try 外, return 要用) */
         var interruptedOut = false
+        // 行缓冲: content 先落这里, 遇换行才并入 accumulated(声明提到 try 之前, 便于 catch 收口取现场)
+        val lineBuf = StringBuilder()
+        // 2026-11-15 修复: 连续无换行的长句停在半途时 accumulated 仍为空, 收口抛出的 partial=0,
+        // 已收到的正文被整段丢弃(真机实测: 4 帧共 12 字全部丢失, body=0)。
+        // 收口取现场时把 lineBuf 残余一并带上(排除 DSML/XML 工具标记, 避免脏内容进气泡)。
+        fun stallPartial(): String {
+            val tail = if (lineBuf.isNotBlank() && !DSML_MARK_RE.containsMatchIn(lineBuf) && !isXmlLeakRow(lineBuf.toString())) lineBuf.toString().trimEnd() else ""
+            return if (tail.isEmpty()) accumulated.toString() else accumulated.toString() + tail
+        }
+        // 看门狗兜底(2026-11-15 修正): 原实现挂在 reader 建立之后才启动, "写请求体 + 等响应头"整段裸奔。
+        // 上游接受连接却不回包时, responseCode 只能干等 readTimeout(60s) 抛 SocketTimeoutException,
+        // 再被转成 RetryableException 静默重连一次 => 用户侧实测 120s+ 无任何提示, 这才是"卡住"的真身。
+        // 现提前到建连之前启动, 时间轴仍是 streamStartedAt, 覆盖 建连 / 等响应头 / 读流 全过程;
+        // 零字节静默期间也按同一节拍上报"已等待 N 秒"(原 waitNotice 判定挂在读循环里, 零字节时永不执行)。
+        val wd = Thread {
+            while (watchdogLive.get() && !cancelRequested) {
+                try {
+                    Thread.sleep(400L)
+                } catch (e: InterruptedException) {
+                    return@Thread
+                }
+                if (!watchdogLive.get() || cancelRequested) return@Thread
+                val nowMs = System.currentTimeMillis()
+                val totalMs = nowMs - streamStartedAt
+                val idleMs = nowMs - progressAtRef.get()
+                val hasProgress = gotProgressRef.get()
+                if (idleMs >= tuneWaitNoticeMs && nowMs >= waitNoticeAt) {
+                    waitNoticeAt = nowMs + tuneWaitNoticeMs
+                    try { cb.onWaiting((idleMs / 1000L).toInt()) } catch (_: Throwable) {}
+                }
+                val verdict = probeVerdict(totalMs, idleMs, hasProgress, tuneFirstContentMs, tuneStallMs, tuneMaxStreamMs)
+                if (verdict == ProbeVerdict.OK) continue
+                val stage = when (verdict) {
+                    ProbeVerdict.TOTAL_DURATION_EXCEEDED -> "TOTAL_DURATION"
+                    ProbeVerdict.NO_PROGRESS_TIMEOUT -> "NO_PROGRESS"
+                    else -> "NO_FIRST_CONTENT"
+                }
+                android.util.Log.w("Nyral", "看门狗命中 stage=$stage idle=${idleMs}ms total=${totalMs}ms gotProgress=$hasProgress")
+                LogStore.w(LogStore.MAIN, "上游卡死(看门狗) stage=$stage idle=${idleMs / 1000}s total=${totalMs / 1000}s")
+                cancelReason = CancelReason.STALL_TIMEOUT
+                cancelRequested = true
+                // 顺序关键: 先 disconnect 关掉底层 socket, 再异步 close 流。
+                // 若先 close, 会与阻塞中的 readLine 争流锁而卡住, disconnect 永远执行不到,
+                // 读线程只能等上游自己关连接(实测多等 35s)。
+                try { conn.disconnect() } catch (_: Throwable) {}
+                Thread { try { reader?.close() } catch (_: Throwable) {} }.start()
+                return@Thread
+            }
+        }
+        wd.isDaemon = true
+        wd.name = "nyral-stall-watchdog"
+        watchdogLive.set(true)
+        wd.start()
+        stallWatchdog = wd
         try {
         conn.outputStream.use { it.write(body.toString().toByteArray()) }
 
@@ -1033,7 +1189,6 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         // 带 tools 的请求拿到 2xx: 能力已恢复, 清零降级状态
         if (useTools) clearToolsUnsupported()
         reader = BufferedReader(InputStreamReader(conn.inputStream))
-        val lineBuf = StringBuilder()
         // XML 工具调用累积缓冲: 部分模型输出 <tool_call><tool_name>x</tool_name><param>...</param></tool_call> 跨行格式
         var xmlBuf: StringBuilder? = null
         // DSML 泄漏拦截缓冲(2026-09-18): deepseek-flash 间歇性把工具调用以 DSML 文本写进 content 通道
@@ -1059,6 +1214,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         val pendingGate = PendingProgressGate(byteStep = 512, timeStepMs = 800L)
         var finishedByToolCalls = false
 
+
         try {
         while (true) {
             if (cancelRequested) throw CancelWithPartial(accumulated.toString())
@@ -1066,6 +1222,35 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             val line = rd.readLine()
             if (line == null) { eofAborted = true; break }
             android.util.Log.v("Nyral", "SSE chunk len=${line.length}")
+            // 上游存活探测(2026-11-15): 心跳/空帧/role-only 帧同样有字节, readTimeout 永不触发,
+            // 旧实现会无限停在"思考中"。此处对每条收到的行做三道闸判定, 命中即保留 partial 收口。
+            run {
+                val now = System.currentTimeMillis()
+                val totalMs = now - streamStartedAt
+                val idleMs = now - lastProgressAt
+                when (probeVerdict(totalMs, idleMs, gotAnyProgress, tuneFirstContentMs, tuneStallMs, tuneMaxStreamMs)) {
+                    ProbeVerdict.TOTAL_DURATION_EXCEEDED -> {
+                        android.util.Log.w("Nyral", "stream 单轮总时长超限 ${totalMs}ms(上限 ${tuneMaxStreamMs}ms), 保留 partial 收口")
+                        cancelReason = CancelReason.STALL_TIMEOUT
+                        cancelRequested = true
+                        throw StallTimeoutException(stallPartial(), "TOTAL_DURATION")
+                    }
+                    ProbeVerdict.FIRST_CONTENT_TIMEOUT, ProbeVerdict.NO_PROGRESS_TIMEOUT -> {
+                        val stage = if (gotAnyProgress) "NO_PROGRESS" else "NO_FIRST_CONTENT"
+                        val limit = if (gotAnyProgress) tuneStallMs else tuneFirstContentMs
+                        android.util.Log.w("Nyral", "stream 上游卡死 stage=$stage idle=${idleMs}ms limit=${limit}ms")
+                        cancelReason = CancelReason.STALL_TIMEOUT
+                        cancelRequested = true
+                        throw StallTimeoutException(stallPartial(), stage)
+                    }
+                    ProbeVerdict.OK -> {}
+                }
+                // 提示必须以"真实静默达阈值"为前提: 慢速滴灌时 idle 常常 <1s, 到点就报会刷出"已等待上游 0s"的噪声
+                if (now >= waitNoticeAt && idleMs >= tuneWaitNoticeMs) {
+                    waitNoticeAt = now + tuneWaitNoticeMs
+                    cb.onWaiting((idleMs / 1000L).toInt())
+                }
+            }
             val data = SseLine.payload(line) ?: continue
             if (SseLine.isDone(data)) { seenDone = true; break }
             val parsed = try { JSONObject(data) } catch (e: Exception) { null } ?: continue
@@ -1088,6 +1273,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 val delta = choice.optJSONObject("delta")
                 // 原生 function calling: delta.tool_calls 增量(分片 arguments)
                 if (delta != null && !delta.isNull("tool_calls")) {
+                    markProgress()
                     val calls = delta.getJSONArray("tool_calls")
                     for (i in 0 until calls.length()) {
                         val c = calls.getJSONObject(i)
@@ -1118,12 +1304,14 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         mode = MODE_THINKING
                         cb.onThinkingStart()
                     }
+                    markProgress()
                     cb.onThinkingDelta(rText)
                     // 2026-11-09 修复: 同帧 reasoning_content 与 content 并存时, 原实现 continue 直接跳过正文分支
                     // (NVIDIA nemotron 等模型首帧常同时给思考尾巴+正文开头), 导致每次回答首字被吞
                 }
                 val text = if (delta != null && !delta.isNull("content")) delta.optString("content") else ""
                 if (text.isEmpty()) continue
+                markProgress()
                 android.util.Log.d("Nyral", "SSE-CONTENT len=" + text.length + " head=" + text.take(60).replace("\n", " "))
                 // content 出现即思考结束
                 if (mode == MODE_THINKING) {
@@ -1271,9 +1459,36 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         } catch (e: SocketException) {
             aborted = true
             android.util.Log.w("Nyral", "SSE connection aborted: ${e.message}")
+            LogStore.w(LogStore.MAIN, "读循环退出(Socket) err=${e.message} reason=$cancelReason")
+            // 断链收口前把未换行的残余正文补进 partial/UI: 正文先进 lineBuf, 遇到换行才落 accumulated,
+            // 短句往往整段留在 lineBuf, 断链直接 throw 会导致部分内容丢失
+            if (cancelReason == CancelReason.STALL_TIMEOUT && lineBuf.isNotEmpty()) {
+                val tailTxt = lineBuf.toString().trimEnd()
+                lineBuf.setLength(0)
+                if (tailTxt.isNotEmpty()) {
+                    try { cb.onDelta(tailTxt) } catch (_: Throwable) {}
+                    accumulated.append(tailTxt)
+                    android.util.Log.w("Nyral", "断链补回残余正文 len=" + tailTxt.length)
+                }
+            }
+            // 看门狗主动断链: 不是网络故障, 不能落入自动重试(重试只会再卡一轮)
+            if (cancelReason == CancelReason.STALL_TIMEOUT) throw StallTimeoutException(stallPartial(), "WATCHDOG")
         } catch (e: IOException) {
             aborted = true
             android.util.Log.w("Nyral", "SSE read error: ${e.message}")
+            LogStore.w(LogStore.MAIN, "读循环退出(IO) err=${e.message} reason=$cancelReason")
+            // 断链收口前把未换行的残余正文补进 partial/UI: 正文先进 lineBuf, 遇到换行才落 accumulated,
+            // 短句往往整段留在 lineBuf, 断链直接 throw 会导致部分内容丢失
+            if (cancelReason == CancelReason.STALL_TIMEOUT && lineBuf.isNotEmpty()) {
+                val tailTxt = lineBuf.toString().trimEnd()
+                lineBuf.setLength(0)
+                if (tailTxt.isNotEmpty()) {
+                    try { cb.onDelta(tailTxt) } catch (_: Throwable) {}
+                    accumulated.append(tailTxt)
+                    android.util.Log.w("Nyral", "断链补回残余正文 len=" + tailTxt.length)
+                }
+            }
+            if (cancelReason == CancelReason.STALL_TIMEOUT) throw StallTimeoutException(stallPartial(), "WATCHDOG")
         }
         // EOF 无 [DONE] 视为中断: 服务端/网关提前关闭连接(运营商 NAT 掐断/弱网断流), 不再静默当正常结束
         if (eofAborted && !seenDone) {
@@ -1415,10 +1630,31 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         val completionTokens = if (usedCompletion > 0) usedCompletion else accumulated.length / 3L
         TokenStore.record(context, promptTokens.toInt().coerceAtLeast(0), completionTokens.toInt().coerceAtLeast(0))
         } catch (e: IOException) {
+            // 看门狗已判定上游卡死(覆盖 建连 / 等响应头 / 读流 任一段): 直接按停滞收口, 不再转可重试,
+            // 否则会被静默重连吞掉: 再等一轮 60s、用户侧仍无任何提示(2026-11-15 实测 120s+ 不收口)
+            if (cancelReason == CancelReason.STALL_TIMEOUT) {
+                android.util.Log.w("Nyral", "SSE watchdog 收口 err=${e.message} accLen=${accumulated.length}")
+                throw StallTimeoutException(stallPartial(), "WATCHDOG")
+            }
+            val emsg = (e.message ?: "").lowercase()
+            val connectPhase = emsg.contains("connect timed out") || emsg.contains("failed to connect") ||
+                emsg.contains("network is unreachable") || emsg.contains("econnrefused") ||
+                emsg.contains("host is unresolved")
+            // 首内容前 / 已出内容后 readTimeout 命中: 上游静默(零字节或不回包), 明确报"上游超时未响应"
+            if (!connectPhase && e is java.net.SocketTimeoutException) {
+                val stage = if (gotProgressRef.get()) "NO_PROGRESS" else "NO_FIRST_CONTENT"
+                android.util.Log.w("Nyral", "SSE 读超时收口 stage=$stage err=${e.message} accLen=${accumulated.length}")
+                LogStore.w(LogStore.MAIN, "上游卡死(读超时) stage=$stage accLen=${accumulated.length}")
+                cancelReason = CancelReason.STALL_TIMEOUT
+                throw StallTimeoutException(stallPartial(), stage)
+            }
             // 连接阶段失败(网络不可达/DNS/连接超时): 与读取阶段中断同等对待, 转可重试
             android.util.Log.w("Nyral", "SSE connect failed: ${e.message}")
             throw RetryableException("模型连接失败(网络不可达): ${e.message}")
         } finally {
+            watchdogLive.set(false)
+            stallWatchdog?.interrupt()
+            stallWatchdog = null
             try { reader?.close() } catch (_: Throwable) {}
             try { conn.disconnect() } catch (_: Throwable) {}
             activeConn = null

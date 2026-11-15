@@ -276,6 +276,39 @@ class MainActivity : Activity() {
     internal lateinit var dockContent: LinearLayout
     /** 最近一次键盘高度(px): 档位B基准, 键盘收回后小抽屉按键盘高度档展开 */
     internal var imeHeightField = 0
+    /** 上次推给 chatRec 的底部让位值(px): 用于同帧去重, 避免每帧重复 setPadding 触发多余布局 */
+    internal var lastBottomPadH = -1
+    /** alignChatToViewport 合并标记: 掉帧时后续帧不再排队 post, 防滚动补偿堆积成"先掉后顶" */
+    internal var chatAlignPending = false
+/** 底部让位唯一写入口: 抽屉高度 -> chatRec 底部 padding + 跳转按钮 bottomMargin。
+ * 与抽屉高度在同一调用栈内写入, 保证"抽屉长高"和"消息区让位"同一帧生效;
+ * 同一 pad 值直接返回, 不产生多余 requestLayout。 */
+internal fun applyBottomOcclusion(drawerH: Int) {
+    val h = drawerH.coerceAtLeast(0)
+    // +dp(30): 状态带胶囊(22dp)+上下间距, 最后一条气泡仍停在状态带上方而非被其压住
+    val pad = inputBar.height.coerceAtLeast(dp(52)) + dp(Ui.SP2) + dp(30) + h
+    if (pad == lastBottomPadH) return
+    lastBottomPadH = pad
+    chatRec.setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), pad)
+    jumpFab?.let { fab ->
+        (fab.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin = pad + dp(Ui.SP2)
+        fab.requestLayout()
+    }
+    // 抽屉动画路径 bodyWrap 高度不变, chatRec.height 即当前真实可视高 -> 同帧贴底, 不等下一帧 post。
+    // 只处理"内容超出可视底"的正向 gap, 避免在 bodyWrap 压缩路径(此处 height 仍为旧值)造成反向跳动。
+    val lmNow = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+    if (lmNow != null && chatRec.scrollState == androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_IDLE) {
+        val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
+        if (lastPos >= 0 && lmNow.findLastVisibleItemPosition() == lastPos) {
+            val lv = lmNow.findViewByPosition(lastPos)
+            if (lv != null) {
+                val gap = lv.bottom - (chatRec.height - pad)
+                if (gap > 0) chatRec.scrollBy(0, gap)
+            }
+        }
+    }
+}
+
     internal var inImeAnim = false  // 系统键盘 insets 动画进行中(提升为成员, 供抽屉转头判断 inImeAnim)
     internal var lastImeStableAt = 0L  // 键盘 insets 最近一次稳定弹到位时间戳: onPrepare 据此判断 animStartImeH 是否满高
     // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
@@ -548,8 +581,8 @@ class MainActivity : Activity() {
         SecurityUi.onQueueChanged = { list ->
             chatRec?.post { syncSecurityRows(list) }
         }
-        // 启动自动检查更新（同一天仅一次，静默；真实更新源开源后替换 UPDATE_URL 即可）
-        UpdateChecker.check(this, false)
+        // 自动检查更新：启动首次立即查，之后 6 小时节流；命中新版本走 Toast 轻提示
+        UpdateChecker.checkIfDue(this)
         // 键盘模式: 全局 adjustNothing, 窗口永不被键盘压缩;
         // 通过 WindowInsets.ime()(API30+) 精确取键盘高度, 手动驱动 bodyWrap 平移上移(同微信),
         // 标题栏与背景(挂 root.background)不动。adjustResize 下窗口被系统压缩, ime insets 会被吸收为0无法检测
@@ -1410,15 +1443,14 @@ class MainActivity : Activity() {
         overlayHost.addView(dockContent, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
         // 列表底部留出输入栏高度: 最后一条气泡能完整停在栏上方, 滚动过程则可穿到栏下(渐隐吃掉)
-        dockContent.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
-            if (top == oldTop && bottom - top == oldBottom - oldTop) return@addOnLayoutChangeListener
-            // +dp(30): 状态带胶囊(22dp)+上下间距, 最后一条气泡仍停在状态带上方而非被其压住
-            val pad = inputBar.height.coerceAtLeast(dp(52)) + dp(Ui.SP2) + dp(30)
-            chatRec.setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), pad)
-            jumpFab?.let { fab ->
-                (fab.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin = pad + dp(Ui.SP2)
-                fab.requestLayout()
-            }
+        // 表情抽屉展开时, 抽屉本体也计入底部让位: 抽屉撑起多高, 消息区就让出多高(与键盘 insets 压缩同语义)。
+        // 键盘态抽屉高=0 故 pad 不变; 键盘<->抽屉互斥切换时一侧恢复、另一侧让位, 消息净位移约等于 0。
+        // 底部让位(padding)改由驱动点同帧直推(见 applyBottomOcclusion / setEmojiDrawerHeight)。
+        // 旧实现靠布局回调回读抽屉高度: 回调发生在 layout 之后, padding 落后一帧;
+        // 低端机掉帧时落后数帧, 观感即"消息先掉下去再被顶上来"。此处仅作布局兜底校正。
+        dockContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            val dH = emojiDrawer?.let { if (it.visibility == View.VISIBLE) it.height else 0 } ?: 0
+            applyBottomOcclusion(dH)
         }
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -1776,6 +1808,19 @@ class MainActivity : Activity() {
                         } else {
                             smoothRestoreBodyWrap()
                         }
+                        // 键盘瞬时收起(系统未跑 insets 动画, onProgress 一帧都不会来)时,
+                        // 抽屉若仍为 0, 会让消息先整段落底、再等兜底动画撑起 -> "掉下去又上来"。
+                        // 此处与 bodyWrap 恢复同帧把抽屉直接撑满, 让位与视口变化同步发生。
+                        if (emojiOpen) {
+                            val dNow = emojiDrawer
+                            if (dNow != null && dNow.visibility == View.VISIBLE && emojiDrawerTargetH > 0 &&
+                                dNow.height < emojiDrawerTargetH - dp(1) &&
+                                emojiDrawerHAnim?.isRunning != true
+                            ) {
+                                android.util.Log.i("NyralIme", "instantPop imeH=$imeH h=${dNow.height} tgt=$emojiDrawerTargetH")
+                                setEmojiDrawerHeight(emojiDrawerTargetH)
+                            }
+                        }
                     }
                     // 键盘已收起: 输入框光标跟随关闭
                     if (input.isFocused) input.clearFocus()
@@ -1944,6 +1989,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // 回前台热检测: 距上次检查超 6 小时才真请求, 并启动前台轮询覆长时间驻留不切后台的场景
+        UpdateChecker.startForegroundPolling(this)
         // 首启权限引导: 从特殊权限设置页返回后推进到下一项
         if (firstRunGuideState in 2..4) {
             firstRunGuideState = 0
@@ -2118,6 +2165,8 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        // 退到后台: 停掉前台热检测轮询, 避免后台空跑
+        UpdateChecker.stopForegroundPolling()
         // 2026-11-06: 流式正文只在 AiBubbleHolder 内存态里, messages 中尚无此条;
         // 必须先落草稿再走通用兜底, 否则切后台/回前台正文空白(messages 里只有用户消息)
         flushStreamingDraft(activeAiHolder)
@@ -2167,19 +2216,19 @@ class MainActivity : Activity() {
 
     /** 取消当前 AI 请求(切会话/新会话调用): 代际自增使迟到回调全部失效, 立即恢复输入态,
      *  不依赖迟到 onDone/onError 清理状态(阶段2 流式竞态治理) */
-    internal fun cancelActiveRequest() {
+    internal fun cancelActiveRequest(reason: LocalEngine.CancelReason = LocalEngine.CancelReason.USER_STOP) {
         // 丢弃流式行引用(无论 AI 是否还在输出): 防止全量重建(切模式/开会话/新会话)时
         // buildRowsFromMessages 兜底把已收尾的 Streaming 行再次塞回 → 跨模式串写/AI回复重复
         session.resetStreamUi()
         updateJumpFab()
         if (!session.aiBusy) return
-        LocalEngine.requestCancel()
+        LocalEngine.requestCancel(reason)
         session.bumpEpoch()
         session.endRequest()
         TaskService.stop(this@MainActivity)
         updateInputMode()
         stopBtn.visibility = View.GONE
-        LogStore.i(LogStore.MAIN, "切会话取消进行中请求, 代际=${session.epoch}")
+        LogStore.i(LogStore.MAIN, (if (reason == LocalEngine.CancelReason.SESSION_SWITCH) "切会话取消进行中请求" else "用户停止输出") + ", 代际=${session.epoch}")
     }
 
     /** 递归刷新一棵 View 子树内所有头像 TextView(findViewWithTag 只返首个, Streaming/AiRich 行多段各带一个头像会漏刷) */

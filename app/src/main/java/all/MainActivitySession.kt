@@ -12,7 +12,7 @@ import android.widget.Toast
 
     internal fun MainActivity.startNewSession() {
         // AI 正在输出时切会话: 取消引擎 + 失效代际, 防止其把未完成的回复写进新会话历史
-        cancelActiveRequest()
+        cancelActiveRequest(LocalEngine.CancelReason.SESSION_SWITCH)
         maybeSaveCurrent()
         messages.clear()
         sessionBaseSeq = 0
@@ -37,7 +37,7 @@ import android.widget.Toast
         if (sid <= 0L) return
         i.removeExtra(DeviceAssist.EXTRA_ASK)
         if (db.loadSessionMessages(sid).isEmpty()) {
-            cancelActiveRequest()
+            cancelActiveRequest(LocalEngine.CancelReason.SESSION_SWITCH)
             maybeSaveCurrent()
             messages.clear()
             sessionBaseSeq = 0
@@ -61,7 +61,7 @@ import android.widget.Toast
 
     internal fun MainActivity.openSession(id: Long, locateSeq: Int? = null) {
         // AI 正在输出时切会话: 取消引擎 + 失效代际, 防止其把未完成的回复写进新会话历史
-        cancelActiveRequest()
+        cancelActiveRequest(LocalEngine.CancelReason.SESSION_SWITCH)
         maybeSaveCurrent()
         // 超长会话内存瘦身: 消息数 > MEM_WINDOW 时仅载入最近窗口(更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担)
         val total = db.countSessionMessages(id)

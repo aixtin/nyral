@@ -129,6 +129,13 @@ internal class StreamUiBridge(
                     holder.showToolPending(name, bytes)
                 }
             }
+            override fun onWaiting(elapsedSec: Int) {
+                // 上游只发心跳/空帧时的进度提示(2026-11-15): 只进日志与 AI 终端,
+                // 不写正文/思考区, 避免等待文案落库污染上下文
+                LogStore.w(LogStore.MAIN, "上游静默等待 ${elapsedSec}s(已收字节但无有效增量)")
+                AITerminal.push("waiting", "已等待上游 ${elapsedSec}s")
+                activity.debugSseSink?.invoke("waiting", elapsedSec.toString())
+            }
             override fun onTool(name: String, arg: String) {
                 toolTrace.add(name to arg)
                 LogStore.i(LogStore.MAIN, "调用工具: $name")
@@ -163,9 +170,17 @@ internal class StreamUiBridge(
             override fun onDone(reply: String) {
                 android.util.Log.i("Nyral", "onDone len=${reply.length}")
                 ChatProbe.onFinish("", LocalEngine.cancelRequested, reply)
+                // 取消原因分型(2026-11-15): 用户手点停止/切会话/上游超时此前共用"用户停止输出",
+                // 排障时无法区分"用户点的"还是"上游卡死后自动收的"
+                val reason = LocalEngine.cancelReason
                 if (LocalEngine.cancelRequested) {
-                    LogStore.w(LogStore.MAIN, "用户停止输出")
-                    AITerminal.push("stop", "已停止")
+                    val label = when (reason) {
+                        LocalEngine.CancelReason.SESSION_SWITCH -> "切会话取消进行中请求"
+                        LocalEngine.CancelReason.STALL_TIMEOUT -> "上游超时自动收口"
+                        else -> "用户停止输出"
+                    }
+                    LogStore.w(LogStore.MAIN, "$label len=${reply.length}")
+                    AITerminal.push("stop", label)
                 } else {
                     LogStore.i(LogStore.MAIN, "回复完成 len=${reply.length} 会话=${activity.replySessionId}")
                     AITerminal.push("done", "回复完成 len=${reply.length}")
@@ -189,11 +204,17 @@ internal class StreamUiBridge(
                         // 〔已中断〕标记(切会话/重启可复看, 可复制, 可据此续跑), 避免"停止后内容凭空消失";
                         // 真正零输出(如刚开始就停)仍不落库, 防止每次误点停止都产生空气泡。
                         val keep = reply.trim()
+                        // 标记分型: 上游超时要让用户看出"不是我点的停止", 也提示可重试
+                        val mark = if (reason == LocalEngine.CancelReason.STALL_TIMEOUT) {
+                            "\n\n〔已中断：上游超时未响应〕"
+                        } else {
+                            "\n\n〔已中断〕"
+                        }
                         if (keep.isNotEmpty()) {
-                            holder.appendContent("\n\n〔已中断〕")
-                            ChatProbe.noteFinish("〔已中断〕")
+                            holder.appendContent(mark)
+                            ChatProbe.noteFinish(mark.trim())
                             if (activity.replySessionId == activity.currentSessionId) {
-                                val body = keep + "\n\n〔已中断〕"
+                                val body = keep + mark
                                 contentIdx = activity.messages.size
                                 replyPartCount = 1
                                 activity.messages.add(MemoryDb.SessionMsg("assistant", body,
@@ -208,10 +229,18 @@ internal class StreamUiBridge(
                             // P2-2(2026-11-07): 中断时若已补偿执行产物写入, 明确告知用户产物已保存,
                             // 不让"(已停止)"把用户等了几十秒的成果盖掉
                             val salvaged = holder.toolsSnapshot().contains("产物已登记")
-                            holder.appendContent(if (salvaged) "\n(已停止；中断前生成的产物已保存)" else "\n(已停止)")
-                            ChatProbe.noteFinish(if (salvaged) "(已停止；中断前生成的产物已保存)" else "(已停止)")
+                            // 零输出的上游超时: 写明"上游没给内容", 与用户手点停止区分, 便于判断是否重试
+                            val emptyText = when {
+                                reason == LocalEngine.CancelReason.STALL_TIMEOUT ->
+                                    if (salvaged) "(上游超时未响应；中断前生成的产物已保存)" else "(上游超时未响应，可重试)"
+                                salvaged -> "(已停止；中断前生成的产物已保存)"
+                                else -> "(已停止)"
+                            }
+                            holder.appendContent("\n" + emptyText)
+                            ChatProbe.noteFinish(emptyText)
                         }
                         LocalEngine.cancelRequested = false
+                        LocalEngine.cancelReason = LocalEngine.CancelReason.NONE
                     } else {
                         // 思考内容随回复一起持久化, 切回会话可恢复思考区
                         // 竞态防护: 回调排队期间用户可能已切会话, 不能把回复写进新会话历史
@@ -317,6 +346,7 @@ internal class StreamUiBridge(
                     }
                     activity.appendError(human, msg)
                     LocalEngine.cancelRequested = false
+                    LocalEngine.cancelReason = LocalEngine.CancelReason.NONE
                     session.endRequest()
                     TaskService.stop(activity)
                     activity.updateInputMode()

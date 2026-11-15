@@ -279,6 +279,13 @@
             android:label="关于"
             android:theme="@style/Theme.Nyral.NoActionBar" />
 
+        <!-- 检查更新页：版本详情 + 更新日志 + 下载渠道 -->
+        <activity
+            android:name=".UpdateActivity"
+            android:exported="false"
+            android:label="检查更新"
+            android:theme="@style/Theme.Nyral.NoActionBar" />
+
         <!-- 权限管理: 查看/补开全部依赖权限 -->
         <activity
             android:name=".TimerHealthActivity"

@@ -924,4 +924,24 @@ For everyday chat experience</string>
     <string name="keepalive_toast_auto">System page opened — allow \"Auto-start / background activity\" for this app</string>
     <string name="keepalive_toast_fallback">No vendor auto-start page found; app details opened instead — look for \"Auto-start / background management\" there</string>
     <string name="keepalive_toast_fail">Could not open that settings page — go to System settings → Apps → this app → Auto-start manually</string>
+    <!-- Update page -->
+    <string name="upd_title">Check for updates</string>
+    <string name="upd_checking">Checking for updates…</string>
+    <string name="upd_up_to_date">You are up to date</string>
+    <string name="upd_new_version">New version %1$s</string>
+    <string name="upd_current_fmt">Current version %1$s</string>
+    <string name="upd_source_fmt">Source %1$s · %2$d ms</string>
+    <string name="upd_failed">Check failed. Please retry later.</string>
+    <string name="upd_retry">Retry</string>
+    <string name="upd_whats_new">What’s new</string>
+    <string name="upd_history">Previous versions</string>
+    <string name="upd_all_releases">View all releases</string>
+    <string name="upd_download">Choose a download channel</string>
+    <string name="upd_download_hint">All three channels ship the same package, pick any</string>
+    <string name="upd_channel_official">Official</string>
+    <string name="upd_channel_github">GitHub</string>
+    <string name="upd_channel_gitee">Gitee</string>
+    <string name="upd_empty_body">No release notes for this version</string>
+    <string name="upd_download_started">Download started, see notification</string>
+    <string name="upd_download_failed">Failed to start download</string>
 </resources>

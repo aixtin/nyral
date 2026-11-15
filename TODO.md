@@ -1,4 +1,5 @@
 # Nyral 待办
+- [x] v2.9.32 发版（2026-11-16，versionCode 145）：检查更新页独立化（版本详情 + 更新内容 + 历史版本 + 三渠道下载，GitHub/Gitee 双源竞速 + 响应耗时 + 一小时缓存）、流式卡死三闸收口（首内容 90s / 无进展 120s / 单轮 600s，保留半截正文，取消原因三型分型）、键盘与表情抽屉同帧让位消抖、Agent 模式思考与工具展现回归聊天模式形态（折叠开关置 false，代码留存可回退）
 - [x] v2.9.31 发版（2026-11-15，versionCode 144）：合并 v2.9.24 之后全部未发布改动一次性发版（v2.9.25–v2.9.30 为内部迭代，不单独打 tag）——定时岗位投递闸门与执行台账、岗位四页拆分与体检、认领 slot 后进程被杀漏跑的补跑链路、30 分钟看门狗、会话悬空自动重建回绑；TimerKeepAlive 改 specialUse + 三个 dataSync 服务 onTimeout 兜底；工作目录重复后缀纠正与 Markdown MIME 修复（不再被追加 .txt）、残留副本清理与删除审计、真机文本注入改 manual 前台服务；ColorOS 16 实况通知上岛与失败独立告警渠道；引导页/权限页重构、首页整屏空态、知识库统一列表样式与长列表滚动修复；工具精简第一批收尾（32→27）；输入栏记忆召回状态点骨架落地
 
 - [x] 工具精简第一批落地（2026-11-11，未发版）：registry 32→27（web_search/web_fetch/web_download→web(action=search|fetch|download)、artifact_save/artifact_save_bin→artifact(kind=text|binary)、ssh_config_add→ssh_run(action=add_config)），六处同步点落地、白名单 25→12 生效（BUILTIN_TOP_N 16 全量常驻 + 其余靠 tool_detail 按需激活）；删 hotOrder 死代码（893B，零调用，排序/压缩已由 buildToolsArray 内联）；SecurityConfig 增 normalizeAllowKey 且 riskOf 改为先归一后分级（堵死模型沿用旧工具名把 HIGH 降为 MEDIUM 绕过确认门禁）；定时任务 allow_tools 读取/回显/创建入参三处归一，旧 key 任务不再静默失效（真机 8 条任务现网 allow_tools 全空，无遗留风险）；工具返回文本与描述中的旧工具名统一改复合调用形式，避免诱导模型调用已合并工具；130 单测全绿、assembleRelease(R8) 通过、真机覆盖安装启动无崩溃
@@ -60,6 +61,7 @@
 - 2026-09-14: 工具自热度排序落地（拍板先做自热度/手动以后再说；新增 ToolHotStore 本地热度统计+衰减、buildToolsArray/hotToolIndex 按热度排序、冷门工具描述压缩不真删；versionCode 31 装机真机验证通过）
 - 2026-09-14: root 自动补齐自身权限（RootCheck.grantSelf：pm grant 运行时权限 + appops set 特殊权限；探测到 root 授权后首次进入权限页自动补齐通知/麦克风/悬浮窗/所有文件访问/安装未知应用，尽力而为失败保持手动入口；双页真机验证 6 项全绿）
 ## 已完成里程碑
+- 2026-11-16: v2.9.32 发布（versionCode 145）：检查更新页独立化与双源竞速、流式三闸收口与取消原因分型、键盘抽屉同帧让位、Agent 模式思考工具回归聊天形态
 - 2026-11-10: v2.9.24 发布（versionCode 137）：附件发送 OOM 根因修复（先分配后校验）+ 异常退出误报收敛 + 状态带模型名瘦身/上下文恒显 + 浏览器入口胶囊化
 - 2026-11-10: v2.9.23 发布（versionCode 136）：自启恢复四通道补测收口 + 强停漏重排、时区漏重排两处判据修复
 - 2026-11-05: v2.9.7 发布（versionCode 120）：移除内置语义模型（assets 24MB onnx+voca，APK 58MB→41MB），filesDir 热更单源；下载器弱网韧性改造（分级退避 60s/5min/30min/2h/24h、离线不惩罚、网络恢复自动续传、切源保留断点、读超时 60s、ACCESS_NETWORK_STATE 权限）；新增 4MB 分片下载通道（Gitee 附件 CDN 忽略 Range，分片独立落盘可跨强杀续跑，拼接+MD5+原子替换）；真机清数据冷启动自动落地 24010842B / MD5 acdcad4b，下载中强杀进程重启后从第 4 片续跑成功，双端 Release 附正式签名 APK

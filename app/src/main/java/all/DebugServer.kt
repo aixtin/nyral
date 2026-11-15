@@ -318,6 +318,9 @@ object DebugServer {
                     // 2026-11-07 P2 真机回归: 只读观测口 + provider 切换开关
                     method == "GET" && path == "/v1/chatstate" -> writeJson(out, 200, chatStateJson(c), reuse)
                     method == "POST" && path == "/v1/provider/mock" -> { mockProvider(c, out, body); keepAlive = false }
+                    // 2026-11-15 回归: 临时下调上游存活探测阈值, 让"只发心跳不返内容"能在秒级收敛,
+                    // 不必真等 90s/120s; 仅调试口可调, 进程重启恢复默认
+                    method == "POST" && path == "/v1/timeouts" -> { timeouts(out, body); keepAlive = false }
                     // 手机端 MCP Server(只读): 桌面 MCP 客户端反向调用手机能力
                     method == "POST" && path == McpServer.PATH -> {
                         val resp = McpServer.handle(c, body)
@@ -584,6 +587,30 @@ object DebugServer {
             if (list[i].role == "assistant") return list[i].content
         }
         return ""
+    }
+
+    /**
+     * /v1/timeouts: 调整 LocalEngine 上游存活探测阈值(仅回归用)。
+     * body {"first":8000,"stall":10000,"max":30000,"notice":2000}, 字段可缺省; {"reset":true} 恢复默认。
+     * 返回生效后的实际值, 验证脚本据此断言, 避免"改了没生效"的假阳性。
+     */
+    private fun timeouts(out: OutputStream, body: String) {
+        try {
+            val req = if (body.isBlank()) JSONObject() else JSONObject(body)
+            if (req.optBoolean("reset", false)) LocalEngine.resetTuning()
+            if (req.has("first")) LocalEngine.tuneFirstContentMs = req.optLong("first", LocalEngine.tuneFirstContentMs)
+            if (req.has("stall")) LocalEngine.tuneStallMs = req.optLong("stall", LocalEngine.tuneStallMs)
+            if (req.has("max")) LocalEngine.tuneMaxStreamMs = req.optLong("max", LocalEngine.tuneMaxStreamMs)
+            if (req.has("notice")) LocalEngine.tuneWaitNoticeMs = req.optLong("notice", LocalEngine.tuneWaitNoticeMs)
+            writeJson(out, 200, JSONObject()
+                .put("ok", true)
+                .put("first", LocalEngine.tuneFirstContentMs)
+                .put("stall", LocalEngine.tuneStallMs)
+                .put("max", LocalEngine.tuneMaxStreamMs)
+                .put("notice", LocalEngine.tuneWaitNoticeMs))
+        } catch (e: Exception) {
+            writeJson(out, 500, JSONObject().put("error", e.message ?: "bad request"))
+        }
     }
 
     /**

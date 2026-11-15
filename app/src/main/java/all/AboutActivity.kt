@@ -76,7 +76,7 @@ class AboutActivity : Activity() {
         card.addView(Ui.divider(this))
         card.addView(infoRow(getString(R.string.about_11), getString(R.string.about_12)).apply {
             isClickable = true
-            setOnClickListener { UpdateChecker.check(this@AboutActivity, true) }
+            setOnClickListener { UpdateChecker.openPage(this@AboutActivity) }
             Ui.press(this)
         })
         content.addView(card)
