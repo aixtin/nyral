@@ -28,7 +28,7 @@ object TimerDispatch {
      * 放行判定。
      * @return true 表示本次投递拿到执行权(已完成 slot 占位); false 表示应丢弃(早投递/重复投递/任务失效)
      */
-    fun admit(context: Context, taskId: Long, catchUp: Boolean): Boolean {
+    fun admit(context: Context, taskId: Long, catchUp: Boolean, manual: Boolean = false): Boolean {
         val db = TimerTaskDb(context)
         val task = try {
             db.get(taskId)
@@ -45,6 +45,15 @@ object TimerDispatch {
             return false
         }
 
+        // fix(2026-11-15): 手动「立即执行」旁路。
+        // 手动触发不在计划时刻上: 目标时刻未到时 isEarlyDelivery 恒为 true, 每一次立即执行都会被
+        // 当成"提前投递"丢弃 —— 表现就是弹了「已触发」的 Toast 但任务没跑(2026-11-15 真机复现)。
+        // 同时手动执行不占 slot: 手动跑过一轮不该影响当日计划 slot 的漏跑判定与补跑认领。
+        // 任务存在 / 启用校验在此前已完成, 执行期互斥由 LocalEngine.chatLock 负责。
+        if (manual) {
+            Log.i(TAG, "任务 " + taskId + " 手动执行, 跳过早投递栅栏与 slot 占位")
+            return true
+        }
         val now = System.currentTimeMillis()
         // 补跑是对过去 slot 的追认, 不受早投递栅栏约束
         if (!catchUp && TimerScheduler.isEarlyDelivery(task.cronDesc, now)) {
@@ -63,7 +72,9 @@ object TimerDispatch {
             // 变成"既没跑成、也永远补不上"(2026-11-14 08:00 冕宁早报即此形态)。
             // 僵尸判据四条同时成立才接管: catchUp 补跑 + last_run 未越过 slot(真跑完一定会刷 last_run)
             // + 该 slot 无终态台账 + 距 slot 已过宽限(避开正在跑的本轮)。
-            val zombie = catchUp && task.lastRunTs < slot && (now - slot > ZOMBIE_GRACE_MS) &&
+            // fix(2026-11-15): 去掉 last_run_ts < slot 这一条 —— 手动「立即执行」会刷新 last_run_ts,
+            // 用它当 slot 归属证据会让"手动跑过一次"永久掩盖该 slot 的漏跑。终态台账才是权威证据。
+            val zombie = catchUp && (now - slot > ZOMBIE_GRACE_MS) &&
                 !db.hasFinishedRun(taskId, slot)
             if (zombie && db.reclaimSlot(taskId, slot)) {
                 Log.w(TAG, "任务 " + taskId + " slot=" + TimerScheduler.fmtSlot(slot) + " 已认领但无终态台账, 判定僵尸认领, 补跑重新接管")

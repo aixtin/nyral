@@ -51,10 +51,13 @@ object WorkTools {
         // 2026-11-13: 模型常把 name 传成 "早报-2026-11-13.md.txt"(在正确扩展名后又叠 .txt),
         // 落盘出现双后缀且与它自己回复的"已存档 xxx.md"不一致。这里做一次白名单纠正。
         val name = stripRedundantTxtSuffix(rawName)
-        val ok = WorkDir.write(context, name, content.toByteArray(Charsets.UTF_8))
-        return if (ok) {
+        // fix(2026-11-15): 回报 MediaStore 里的真实 DISPLAY_NAME, 不再把期望名当结果回给模型,
+        // 否则模型会照着写错的期望名去跟用户说"已存为 xxx.md"(实际可能被补成 xxx.md.txt)
+        val actual = WorkDir.writeNamed(context, name, content.toByteArray(Charsets.UTF_8))
+        return if (actual != null) {
             val fixNote = if (name != rawName) " (已纠正重复后缀, 请求名: $rawName)" else ""
-            "已写入: ${WorkDir.displayPath}$name (${content.length} 字符)$fixNote"
+            val nameNote = if (actual != name) " [落盘名已被系统调整为: $actual]" else ""
+            "已写入: ${WorkDir.displayPath}$actual (${content.length} 字符)$fixNote$nameNote"
         } else "错误: 写入失败: $name"
     }
 

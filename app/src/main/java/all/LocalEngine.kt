@@ -594,6 +594,10 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
     fun chat(context: Context, history: String, cb: Callback, attachments: List<Attachment> = emptyList(), silentMode: Boolean = false, allowTools: Set<String> = emptySet(), taskId: Long = 0L) {
         synchronized(chatLock) {
             cancelRequested = false
+            // fix(2026-11-15): 入口留一条汇总日志, 排查时能先从 logcat 确认"引擎确实被调起"以及规模,
+            // 再往下钻 Nyral tag 的细粒度日志(此前只能靠 trace 文件反推)
+            android.util.Log.i("LocalEngine", "chat 开始 taskId=" + taskId + " silent=" + silentMode +
+                " tools=" + allowTools.size + " attachments=" + attachments.size + " history=" + history.length + " 字符")
             chatImpl(context, history, cb, attachments, silentMode, allowTools, taskId)
         }
     }

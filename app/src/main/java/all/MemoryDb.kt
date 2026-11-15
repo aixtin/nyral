@@ -977,6 +977,17 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
+    /** 会话是否真实存在(fix 2026-11-15): 定时任务绑定会话被用户删除后 session_id 会悬空, 需据此自愈重建 */
+    fun sessionExists(id: Long): Boolean {
+        if (id <= 0L) return false
+        lock.withLock {
+            readableDatabase.rawQuery("SELECT 1 FROM sessions WHERE id = ?", arrayOf(id.toString())).use { c ->
+                if (c.moveToFirst()) return true
+            }
+            return false
+        }
+    }
+
     /** 删除会话及其全部消息 */
     fun deleteSession(id: Long) {
         lock.withLock {
@@ -988,6 +999,59 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
 
     /** 更新已存在会话：标题、时间戳，并整体重写消息
      *  @param baseSeq 若 >0，仅重写 seq >= baseSeq 的消息（保留更早窗口外消息），用于超长会话内存瘦身 */
+    /**
+     * 增量追加消息(2026-11-15): 只 insert 新产生的消息, 不再 loadSessionMessages 全量读 + updateSession 全量重写。
+     * seq 从该会话现有最大 seq 续接, 历史行原样保留; 顺便刷新 updated_at(可选刷新 title/mode)。
+     * 返回实际写入条数; 返回 0 表示会话不存在(由调用方决定是否重建), 不再静默丢消息。
+     */
+    fun appendSessionMsgs(id: Long, msgs: List<SessionMsg>, title: String? = null, mode: Int? = null): Int {
+        if (id <= 0L || msgs.isEmpty()) return 0
+        lock.withLock {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                val now = System.currentTimeMillis()
+                val cvSession = android.content.ContentValues().apply {
+                    put("updated_at", now)
+                    if (title != null) put("title", title)
+                    if (mode != null) put("mode", mode)
+                }
+                // 先探会话是否存在: 影响 0 行说明悬空, 直接返回 0 交给上层重建
+                if (db.update("sessions", cvSession, "id = ?", arrayOf(id.toString())) <= 0) {
+                    db.setTransactionSuccessful()
+                    return 0
+                }
+                val base = db.rawQuery(
+                    "SELECT IFNULL(MAX(seq), -1) + 1 FROM session_msgs WHERE session_id = ?",
+                    arrayOf(id.toString())
+                ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+                var written = 0
+                msgs.forEachIndexed { i, m ->
+                    val ts = if (m.ts > 0) m.ts else now
+                    val r = db.insert("session_msgs", null,
+                        android.content.ContentValues().apply {
+                            put("session_id", id)
+                            put("role", m.role)
+                            put("content", m.content.take(MAX_FIELD_LEN))
+                            put("ts", ts)
+                            put("date", m.date.ifBlank { fmtDate(ts) })
+                            put("thinking", m.thinking.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("tools", m.tools.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("timeline", m.timeline.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("rendered", m.rendered.take(MAX_FIELD_LEN).ifBlank { null })
+                            put("rendered_version", m.renderedVersion)
+                            put("seq", base + i)
+                        })
+                    if (r >= 0) written++
+                }
+                db.setTransactionSuccessful()
+                return written
+            } finally {
+                db.endTransaction()
+            }
+        }
+    }
+
     fun updateSession(id: Long, title: String, msgs: List<SessionMsg>, mode: Int = 0, baseSeq: Int = 0) {
         lock.withLock {
             val db = writableDatabase

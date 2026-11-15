@@ -142,6 +142,17 @@ class TimerTaskDb(context: Context) : SQLiteOpenHelper(context, "timer.db", null
         }
     }
 
+    /** 解除会话绑定(fix 2026-11-15): 用户在会话列表里删掉任务专属会话时把 session_id 置 0, 下次触发按需重建 */
+    fun unbindSessionBySessionId(sessionId: Long) {
+        if (sessionId <= 0L) return
+        lock.withLock {
+            writableDatabase.execSQL(
+                "UPDATE timer_tasks SET session_id = 0, updated_ts = ? WHERE session_id = ?",
+                arrayOf(System.currentTimeMillis().toString(), sessionId.toString())
+            )
+        }
+    }
+
     fun setLastRun(id: Long, ts: Long, result: String) {
         lock.withLock {
             writableDatabase.execSQL(

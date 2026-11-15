@@ -209,10 +209,127 @@ object WorkDir {
         }
     }
 
+    /**
+     * 落盘 MIME(2026-11-15): 必须与 DISPLAY_NAME 的后缀一致, 否则 MediaProvider 会按 MIME 补扩展名
+     * (md 若按 text/plain 落盘会被改名成 xxx.md.txt)。仅对"后缀语义明确"的类型做精确映射。
+     */
+    private fun mimeFor(name: String): String = when (name.substringAfterLast(".", "").lowercase()) {
+        "md", "markdown" -> "text/markdown"
+        "json" -> "application/json"
+        "csv" -> "text/csv"
+        "xml" -> "text/xml"
+        "yml", "yaml" -> "text/yaml"
+        "py" -> "text/x-python"
+        "kt", "kts" -> "text/x-kotlin"
+        "sh" -> "text/x-sh"
+        else -> AttachmentStore.mimeOf(name)
+    }
+
+    /**
+     * 把条目 DISPLAY_NAME 校正为规范名(2026-11-15)。
+     * 仅在目标名未被其它条目占用时执行, 避免触发 MediaProvider 的冲突去重再次改名。
+     */
+    private fun renameTo(resolver: android.content.ContentResolver, uri: Uri, safeName: String, subDir: String = "") {
+        try {
+            val actual = resolver.query(
+                uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: return
+            if (actual == safeName) return
+            // 目标名已被别的条目占用时放弃改名, 否则会触发 MediaProvider 冲突去重再次改名
+            val rel = relPath(subDir)
+            val cnt = resolver.query(
+                collection(),
+                arrayOf(MediaStore.Downloads._ID),
+                "(${MediaStore.Downloads.RELATIVE_PATH} = ? OR ${MediaStore.Downloads.RELATIVE_PATH} = ?) AND ${MediaStore.Downloads.DISPLAY_NAME}=?",
+                arrayOf(rel, "$rel/", safeName),
+                null
+            )?.use { c -> c.count } ?: return
+            if (cnt > 0) return
+            // 先对齐 MIME 再改 DISPLAY_NAME: 两者不一致时 MediaProvider 会按 MIME 重新补扩展名
+            resolver.update(
+                uri,
+                ContentValues().apply {
+                    put(MediaStore.Downloads.MIME_TYPE, mimeFor(safeName))
+                    put(MediaStore.Downloads.DISPLAY_NAME, safeName)
+                },
+                null, null
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * 找"同一族"旧文件(2026-11-15): 规范化后与目标名相同的历史副本
+     * (a.md / a.md.txt / a.md (1).txt 视为同一份), 取最近修改的一份用于覆盖写,
+     * 从而终止 MediaStore 冲突去重造成的 (n) 副本堆积。
+     */
+    private fun findFamilyUri(context: Context, safeName: String, subDir: String = ""): Uri? {
+        if (!supported()) return null
+        val rel = relPath(subDir)
+        val target = normalizeName(safeName)
+        if (target.isEmpty()) return null
+        var bestUri: Uri? = null
+        var bestMod = Long.MIN_VALUE
+        try {
+            context.contentResolver.query(
+                collection(),
+                arrayOf(
+                    MediaStore.Downloads._ID,
+                    MediaStore.Downloads.DISPLAY_NAME,
+                    MediaStore.Downloads.DATE_MODIFIED
+                ),
+                "(${MediaStore.Downloads.RELATIVE_PATH} = ? OR ${MediaStore.Downloads.RELATIVE_PATH} = ?)",
+                arrayOf(rel, "$rel/"),
+                null
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(0)
+                    val n = c.getString(1) ?: continue
+                    if (n == safeName) continue // 精确同名会让位给 findUri
+                    if (normalizeName(n) != target) continue
+                    val mod = if (c.isNull(2)) 0L else c.getLong(2)
+                    if (mod >= bestMod) {
+                        bestMod = mod
+                        bestUri = ContentUris.withAppendedId(collection(), id)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return bestUri
+    }
+
+    /** 已知文本类扩展名(2026-11-15): 用于纠正模型误叠的重复后缀 a.md.txt -> a.md */
+    private val KNOWN_TEXT_EXTS = setOf(
+        "txt", "md", "markdown", "log", "csv", "json", "xml", "html", "htm",
+        "css", "js", "mjs", "ts", "java", "kt", "kts", "c", "cpp", "cc", "h",
+        "hpp", "sh", "bash", "zsh", "py", "rb", "php", "go", "rs", "sql",
+        "yml", "yaml", "toml", "ini", "cfg", "conf", "env", "properties",
+        "bat", "cmd", "ps1", "gradle", "lock"
+    )
+
+    /**
+     * 文件名规范化(2026-11-15): 命名归一化下沉到 WorkDir 层, 使 workdir_write / file_export /
+     * ssh_download 等所有写入入口一致生效。
+     *  1) 去掉 MediaStore 冲突去重尾巴: "报告 (1).md" -> "报告.md"
+     *  2) 纠正模型误叠的重复文本后缀: "早报-2026-11-15.md.txt" -> "早报-2026-11-15.md"
+     */
+    fun normalizeName(raw: String): String {
+        var n = raw.trim()
+        if (n.isEmpty()) return n
+        n = n.replace(Regex("\\s*\\(\\d+\\)(?=\\.[^.]+$)"), "")
+        if (n.length > 4 && n.lowercase().endsWith(".txt")) {
+            val head = n.substring(0, n.length - 4)
+            val dot = head.lastIndexOf('.')
+            if (dot > 0 && head.substring(dot + 1).lowercase() in KNOWN_TEXT_EXTS) n = head
+        }
+        return n
+    }
+
     /** 写文件(同名覆盖, 可指定子目录如 "下载"/"文件"; 空=根目录): 返回 true 成功, false 失败 */
     fun write(context: Context, name: String, bytes: ByteArray, subDir: String = ""): Boolean {
         if (!supported()) return false
-        val safeName = sanitize(name)
+        val safeName = sanitize(normalizeName(name))
         if (safeName.isEmpty()) return false
         val resolver = context.contentResolver
         val rel = relPath(subDir)
@@ -223,9 +340,20 @@ object WorkDir {
                 rescan(context)
                 existing = findUri(context, safeName, subDir)
             }
+            // 2026-11-15: 精确同名不存在时, 找规范化后同名的历史副本(a.md.txt / a (1).md)覆盖,
+            // 避免每次写入都被 MediaStore 冲突去重再生成一份新副本
+            if (existing == null) existing = findFamilyUri(context, safeName, subDir)
             if (existing != null) {
+                // 2026-11-15: 覆盖前先把 MIME_TYPE 对齐规范名后缀, 否则后续改名会被 MediaProvider 按旧 MIME 打回
+                runCatching {
+                    resolver.update(existing, ContentValues().apply {
+                        put(MediaStore.Downloads.MIME_TYPE, mimeFor(safeName))
+                    }, null, null)
+                }
                 // 覆盖已有文件: "wt" 截断写
                 resolver.openOutputStream(existing, "wt")?.use { it.write(bytes) } ?: return false
+                // 2026-11-15: 命中的是同族旧副本(a.md.txt / a.md (2).txt)时, 覆盖后一并改回规范名
+                renameTo(resolver, existing, safeName, subDir)
                 return true
             }
             // owner 过滤兜底: 文件在磁盘但 MediaStore 查不到(非本 App 创建), 已授权时 File 直写覆盖
@@ -238,7 +366,7 @@ object WorkDir {
             }
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, safeName)
-                put(MediaStore.Downloads.MIME_TYPE, AttachmentStore.mimeOf(safeName))
+                put(MediaStore.Downloads.MIME_TYPE, mimeFor(safeName))
                 put(MediaStore.Downloads.RELATIVE_PATH, rel)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
@@ -248,9 +376,37 @@ object WorkDir {
             } finally {
                 resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             }
+            // 2026-11-15: 落盘名校正。MediaProvider 可能按 MIME 补扩展名或冲突去重改名,
+            // 这里把 DISPLAY_NAME 强制改回规范化后的期望名, 保证用户看到的文件名可预期
+            renameTo(resolver, uri, safeName, subDir)
             true
         } catch (e: Exception) {
             false
+        }
+    }
+
+    /**
+     * 写文件并返回真实落盘名(2026-11-15): MediaProvider 可能按 MIME 补扩展名/冲突改名,
+     * renameTo 也可能因同族冲突放弃纠正, 所以写完回读 DISPLAY_NAME 才算数。
+     * 失败返回 null; 回读不到时退回规范化后的期望名。
+     */
+    fun writeNamed(context: Context, name: String, bytes: ByteArray, subDir: String = ""): String? {
+        if (!write(context, name, bytes, subDir)) return null
+        val safeName = sanitize(normalizeName(name))
+        return actualName(context, safeName, subDir) ?: safeName
+    }
+
+    /** 回读某个文件在 MediaStore 里的真实 DISPLAY_NAME */
+    fun actualName(context: Context, name: String, subDir: String = ""): String? {
+        val safeName = sanitize(normalizeName(name))
+        if (safeName.isEmpty()) return null
+        val uri = findUri(context, safeName, subDir) ?: findFamilyUri(context, safeName, subDir) ?: return null
+        return try {
+            context.contentResolver.query(
+                uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        } catch (e: Exception) {
+            null
         }
     }
 

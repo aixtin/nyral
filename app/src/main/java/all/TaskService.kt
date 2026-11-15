@@ -42,6 +42,8 @@ class TaskService : Service() {
         // 但失败必须能被看见, 所以单独开 DEFAULT 渠道, 用户可单独关掉它而不影响完成通知。
         private const val CHANNEL_ALERT_ID = "task_alert"
         private const val NOTIF_FAIL_ID = 1006
+        /** fix(2026-11-15): 投递被丢弃的提示(固定 id, 不刷屏) */
+        private const val NOTIF_SKIP_ID = 1007
 
         /**
          * fix(2026-11-13): 定岗任务前台服务看门狗上限(30 分钟)。
@@ -60,6 +62,8 @@ class TaskService : Service() {
         const val EXTRA_TASK_ID = "task_id"
         /** 第二批(2026-11-14): 本次投递是否为"错过补跑", 决定提示语与通知标题 */
         const val EXTRA_CATCH_UP = "catch_up"
+        /** fix(2026-11-15): 手动「立即执行」标记。手投不进定时闸门的早投递/slot 去重路径 */
+        const val EXTRA_MANUAL = "manual"
 
         /**
          * 第三批(2026-11-14): 服务生命周期收敛为单实例状态机。
@@ -110,7 +114,7 @@ class TaskService : Service() {
          * 导致上一轮对话在服务未前台化时登记的补停标记残留, 下一次真实闹钟被 onStartCommand 直接自停吞掉
          * (任务不执行、last_run 不变、且因不进 onDone 而不续期, 任务从此静默死亡)。
          */
-        fun startTimerTask(context: Context, taskId: Long, catchUp: Boolean = false) {
+        fun startTimerTask(context: Context, taskId: Long, catchUp: Boolean = false, manual: Boolean = false) {
             markStarting()
             val intent = Intent(context, TaskService::class.java)
                 .setAction(ACTION_TIMER_TASK)
@@ -300,16 +304,28 @@ class TaskService : Service() {
             ServiceNotifGroup.publishSummary(this)
             val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
             val catchUp = intent.getBooleanExtra(EXTRA_CATCH_UP, false)
+            val manual = intent.getBooleanExtra(EXTRA_MANUAL, false)
+            // fix(2026-11-15): ACTION 分支入口第一件事就留痕。
+            // 原先这里没有 trace, 出问题时只剩一条 "stop() 来源 onStartCommand",
+            // 无从分辨是 task_id 没传到、被闸门拦了, 还是执行体自己退了。
+            TimerTrace.write(this, "onStartCommand ACTION_TIMER_TASK task=" + taskId +
+                " manual=" + manual + " catchUp=" + catchUp + " startId=" + startId)
+            if (taskId <= 0L) {
+                TimerTrace.write(this, "task_id 非法(" + taskId + "), 丢弃本次投递")
+                notifyTimerSkipped(this, "触发参数缺失(task_id=" + taskId + "), 本次未执行")
+            }
             if (taskId > 0) {
                 // 第二批(2026-11-14): 投递闸门 —— 早投递栅栏 + slot 原子占位, 挡住"一天两次触发"
                 val admitted = try {
-                    TimerDispatch.admit(this, taskId, catchUp)
+                    TimerDispatch.admit(this, taskId, catchUp, manual)
                 } catch (e: Exception) {
                     android.util.Log.e("TimerTask", "投递闸门异常, 按放行处理: " + e.message)
                     true
                 }
                 if (!admitted) {
                     android.util.Log.i("TimerTask", "投递被闸门拦截 task=" + taskId + " catchUp=" + catchUp)
+                    TimerTrace.write(this, "投递被闸门拦截 task=" + taskId + " manual=" + manual + " catchUp=" + catchUp)
+                    if (manual) notifyTimerSkipped(this, "该任务当前不可执行(已停用或状态异常), 本次未执行")
                     val desc = try {
                         TimerTaskDb(this).get(taskId)?.cronDesc.orEmpty()
                     } catch (e: Exception) {
@@ -321,7 +337,7 @@ class TaskService : Service() {
                 }
                 // fix(2026-11-14): 触发即续期 —— 本轮中断也不会永久失调度
                 TimerScheduler.rescheduleNext(this, taskId)
-                runTimerTask(taskId, catchUp)
+                runTimerTask(taskId, catchUp, manual)
             } else TaskService.stop(this)
             return START_NOT_STICKY
         }
@@ -346,8 +362,8 @@ class TaskService : Service() {
      * 构造带任务目标的历史 -> LocalEngine.chat 后台跑完整链路; 回调只落库+审计, 不碰 UI。
      * AI 忙时 LocalEngine 内部互斥返回 false, 本次跳过留待下轮; 完成后自动停前台服务。
      */
-    private fun runTimerTask(taskId: Long, catchUp: Boolean = false) {
-        TimerTrace.write(this, "runTimerTask 进入 task=" + taskId + " catchUp=" + catchUp)
+    private fun runTimerTask(taskId: Long, catchUp: Boolean = false, manual: Boolean = false) {
+        TimerTrace.write(this, "runTimerTask 进入 task=" + taskId + " catchUp=" + catchUp + " manual=" + manual)
         val db = TimerTaskDb(this)
         val runStartTs = System.currentTimeMillis()
         val task = db.get(taskId) ?: run { TaskService.stop(this); return }
@@ -356,26 +372,37 @@ class TaskService : Service() {
         // 原先只有 onDone/onError 才写 timer_runs, 执行途中被系统杀掉(Doze 回收/厂商清理/FGS 配额到期)
         // 就彻底无痕: slot 已被认领 + 无台账 + last_run 不变, 事后完全看不出"跑过但没跑完",
         // 补跑判据还把已认领当跑过 —— 这一次就永久丢了(2026-11-14 08:00 早报即此形态)。
-        val runSlotTs = task.lastSlotTs
+        // fix(2026-11-15): 手动执行不占计划 slot, 台账 slot 用本次启动时刻,
+        // 避免把计划 slot 的台账与手动这一轮混写(hasFinishedRun / 补跑判定会互相污染)。
+        val runSlotTs = if (manual) runStartTs else task.lastSlotTs
         val runId = db.beginRun(taskId, runSlotTs, runStartTs, catchUp)
         TimerTrace.write(this, "beginRun runId=" + runId + " slot=" + runSlotTs + " sessionId=" + task.sessionId)
         // 专属会话绑定(2026-10-13): 创建时已建会话; 旧任务(测试用)首次触发时补绑, 模式用任务固化值(旧任务默认 Agent 模式)
         var sessionId = task.sessionId
+        // fix(2026-11-15): 原先只判 sessionId<=0。用户在会话列表里把任务专属会话删掉后, timer_tasks.session_id
+        // 仍指向一行已经不存在的会话, 于是整个执行期沿用这个悬空 id: writeToSession 的 updateSession 影响 0 行,
+        // 表现就是"任务照跑、结果哪都没落、界面上这个任务没有会话"。这里补存在性校验, 缺失即重建并回绑。
+        if (sessionId > 0L && !MemoryDb(this).sessionExists(sessionId)) {
+            TimerTrace.write(this, "绑定会话已不存在 sessionId=" + sessionId + ", 重建")
+            sessionId = 0L
+        }
         if (sessionId <= 0L) {
             sessionId = MemoryDb(this).saveSession(task.name, emptyList(), task.mode, MemoryDb.KIND_TIMER)
             db.bindSession(taskId, sessionId)
+            TimerTrace.write(this, "新建/重建会话 sessionId=" + sessionId)
         }
         val now = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
         // 能力预授权(2026-10-13): 解析任务白名单(逗号分隔 key), 静默执行命中即放行危险工具
         val allowTools = task.allowTools.split(',').map { SecurityConfig.normalizeAllowKey(it) }.filter { it.isNotEmpty() }.toSet()
         val history = "[当前时间]\n" + now + "\n\n" +
+            (if (manual) "[投递类型]\n手动执行 —— 用户在 App 内点「立即执行」触发, 不是定时调度, 摘要开头请标注[手动]\n\n" else "") +
             (if (catchUp) "[投递类型]\n补跑 —— 该任务上一次定时触发因设备关机/进程被杀等原因被错过, 本次是对那一次的补执行, 请照常执行并在摘要开头标注[补跑]\n\n" else "") +
             "[定时岗位任务]\n" +
             "任务名: " + task.name + "\n" +
             "目标: " + task.goal + "\n" +
             "请作为 Nyral 后台静默执行该定时任务, 完成后输出简洁结果摘要, 不需要请示确认。"
-        android.util.Log.i("TimerTask", "定时岗位执行开始: ${task.name}" + (if (catchUp) " (补跑)" else ""))
+        android.util.Log.i("TimerTask", "定时岗位执行开始: ${task.name}" + (if (manual) " (手动)" else if (catchUp) " (补跑)" else ""))
         // fix(2026-11-13): 起看门狗, 超时主动收摊, 避免前台服务被定岗线程拖住直到配额到期杀进程
         val watchdog = Runnable {
             android.util.Log.w("TimerTask", "定时岗位执行超时(30min), 强制停止前台服务: ${task.name}")
@@ -411,7 +438,7 @@ class TaskService : Service() {
                 SecurityConfig.audit(this@TaskService, "timer_task_run",
                     "${task.name} -> ${reply.take(120)}", "alarm", "timer_task")
                 android.util.Log.i("TimerTask", "定时岗位执行完成: ${task.name}")
-                notifyTaskDone(this@TaskService, task, reply, catchUp)
+                notifyTaskDone(this@TaskService, task, reply, catchUp, manual)
                 // fix(2026-11-15): 收尾时顺手巡检——别让其它任务因"认领后没跑完"永久失调度
                 TimerRecovery.sweepCatchUpAsync(this@TaskService, "定时任务收尾")
                 TaskService.stop(this@TaskService)
@@ -447,8 +474,35 @@ class TaskService : Service() {
         }.start()
     }
 
+    /**
+     * 投递被丢弃的可见提示(fix 2026-11-15)。
+     *
+     * 原先"闸门拦截 / task_id 非法"两条路径只写 Log, 用户侧只能看到那句无条件弹出的
+     * 「已触发静默执行」Toast —— 于是"弹了提示但没执行"完全无法自查。这里补一条固定 id 的
+     * 通知, 明确告知本次没有执行, 点击进主界面。
+     */
+    private fun notifyTimerSkipped(ctx: Context, msg: String) {
+        try {
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val pi = PendingIntent.getActivity(ctx, NOTIF_SKIP_ID,
+                Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle("定时任务未执行")
+                .setContentText(msg)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(msg))
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+            nm.notify(NOTIF_SKIP_ID, notif)
+        } catch (e: Exception) {
+            android.util.Log.w("TimerTask", "跳过提示失败: " + e.message)
+        }
+    }
+
     /** 定时岗位完成通知(2026-10-13): 静默执行完成后弹低重要性通知, 点击进主界面 */
-    private fun notifyTaskDone(ctx: Context, task: TimerTaskDb.Task, reply: String, catchUp: Boolean = false) {
+    private fun notifyTaskDone(ctx: Context, task: TimerTaskDb.Task, reply: String, catchUp: Boolean = false, manual: Boolean = false) {
         try {
             val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val pi = PendingIntent.getActivity(ctx, task.id.toInt(),
@@ -456,7 +510,7 @@ class TaskService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle((if (catchUp) "补跑完成: " else "定时任务完成: ") + task.name)
+                .setContentTitle((if (manual) "手动执行完成: " else if (catchUp) "补跑完成: " else "定时任务完成: ") + task.name)
                 .setContentText(reply.take(80))
                 .setStyle(NotificationCompat.BigTextStyle().bigText(reply.take(200)))
                 .setAutoCancel(true)
@@ -508,13 +562,35 @@ class TaskService : Service() {
         if (sessionId <= 0L) return
         try {
             val mdb = MemoryDb(this)
-            val msgs = mdb.loadSessionMessages(sessionId).toMutableList()
+            // fix(2026-11-15): 执行期间(可能长达十几分钟)用户也可能把会话删掉, 落库前再校验一次,
+            // 缺失就重建并回绑, 保证"任务跑过"一定有可见的会话与结果。
+            var sid = sessionId
+            if (!mdb.sessionExists(sid)) {
+                val rebuilt = mdb.saveSession(task.name, emptyList(), task.mode, MemoryDb.KIND_TIMER)
+                TimerTaskDb(this).bindSession(task.id, rebuilt)
+                TimerTrace.write(this, "writeToSession 会话缺失已重建 old=" + sid + " new=" + rebuilt)
+                sid = rebuilt
+            }
             val nowTs = System.currentTimeMillis()
             val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
             val dateStr = fmt.format(java.util.Date(nowTs))
-            msgs.add(MemoryDb.SessionMsg("user", userMsg, ts = nowTs, date = dateStr))
-            msgs.add(MemoryDb.SessionMsg("assistant", reply, ts = nowTs, date = dateStr))
-            mdb.updateSession(sessionId, mdb.sessionTitleOf(sessionId) ?: task.name, msgs, task.mode)
+            // fix(2026-11-15): 原来"读全量 -> 追加两条 -> updateSession 整段重写",
+            // 几十轮的会话每次触发都要重写全部历史, 单条超长还会撞 MAX_FIELD_LEN 截断风险。
+            // 改为 append 只 insert 本次两条; 返回 0 说明会话在写入瞬间已被删, 重建后再追加。
+            val pair = listOf(
+                MemoryDb.SessionMsg("user", userMsg, ts = nowTs, date = dateStr),
+                MemoryDb.SessionMsg("assistant", reply, ts = nowTs, date = dateStr)
+            )
+            var written = mdb.appendSessionMsgs(sid, pair, null, task.mode)
+            if (written <= 0) {
+                val rebuilt = mdb.saveSession(task.name, emptyList(), task.mode, MemoryDb.KIND_TIMER)
+                TimerTaskDb(this).bindSession(task.id, rebuilt)
+                TimerTrace.write(this, "writeToSession 追加时会话已不存在 old=" + sid + " new=" + rebuilt)
+                sid = rebuilt
+                written = mdb.appendSessionMsgs(sid, pair, null, task.mode)
+            }
+            TimerTrace.write(this, "writeToSession append sid=" + sid + " n=" + written +
+                " userLen=" + userMsg.length + " replyLen=" + reply.length)
         } catch (e: Exception) {
             android.util.Log.w("TimerTask", "写绑定会话失败: ${e.message}")
         }

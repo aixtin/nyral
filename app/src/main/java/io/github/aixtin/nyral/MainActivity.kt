@@ -345,6 +345,11 @@ class MainActivity : Activity() {
     internal var attachClosing = false  // 附件弹窗收起动画进行中, 防重复触发
     internal lateinit var sendBtn: ImageView
     internal lateinit var stopBtn: ImageView
+    /** 记忆预取指示点: 发送按钮左上角 6dp 圆点, 静默提示本轮记忆检索状态 */
+    internal lateinit var memDot: View
+    internal var memDotReady = false
+    internal var memDotState = MemDotState.HIDDEN
+    internal var memDotAnim: ValueAnimator? = null
     internal lateinit var drawerPanel: LinearLayout
     internal lateinit var drawerMask: View
     internal lateinit var sessionList: LinearLayout
@@ -1306,6 +1311,16 @@ class MainActivity : Activity() {
             Ui.press(this)
         }
         attachWrap.addView(stopBtn)
+
+        // 记忆预取指示点(2026-11-15): 叠在发送按钮左上角外侧, 默认全透明不打扰
+        memDot = View(this).apply {
+            background = rounded(dp(3), Ui.SUB)
+            layoutParams = FrameLayout.LayoutParams(dp(6), dp(6), Gravity.TOP or Gravity.START)
+            alpha = 0f
+            visibility = View.GONE
+        }
+        attachWrap.addView(memDot)
+        memDotReady = true
         inputBar.addView(attachWrap)
     }
     private fun setupBrowserBar() {

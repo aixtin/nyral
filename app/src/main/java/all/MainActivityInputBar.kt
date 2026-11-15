@@ -50,4 +50,6 @@ internal fun MainActivity.updateInputMode() {
     applyInputMode()
     // 输入态变化顺带对齐状态带(发送/收尾都会走到这里, 上下文数字随之更新)
     refreshStatusStrip()
+    // 记忆预取指示点: 暂以输入字数作临时信号, 待 MemoryPrefetch 就绪后换真实检索结果
+    applyMemDotFromInput()
 }

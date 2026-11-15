@@ -72,11 +72,15 @@ object TimerTaskUi {
 
     /** 立即执行: 与服务端/闹钟触发走同一条静默链路 */
     fun runNow(a: Activity, t: TimerTaskDb.Task) {
+        // fix(2026-11-15): 手动执行必须带 manual 标记。
+        // 原先手投与定时投递走同一入口: 目标时刻未到时被早投递栅栏判为"提前投递"直接丢弃,
+        // 或当日 slot 已被认领时判为"重复投递"丢弃 —— 两种情况都只弹 Toast 不执行。
         val svc = Intent(a, TaskService::class.java)
             .setAction(TaskService.ACTION_TIMER_TASK)
-            .putExtra("task_id", t.id)
+            .putExtra(TaskService.EXTRA_TASK_ID, t.id)
+            .putExtra(TaskService.EXTRA_MANUAL, true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) a.startForegroundService(svc) else a.startService(svc)
-        Toast.makeText(a, "已触发「${t.name}」静默执行", Toast.LENGTH_SHORT).show()
+        Toast.makeText(a, "已提交「${t.name}」立即执行, 完成后见通知", Toast.LENGTH_SHORT).show()
     }
 
     /** 启停: 数据库 + 闹钟 + 审计 + 保活四件事必须一起做 */

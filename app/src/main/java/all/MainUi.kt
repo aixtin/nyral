@@ -907,7 +907,21 @@ import android.widget.Toast
         box.addView(Ui.dialogText(this, getString(R.string.mui_dlg_confirm_delete, s.title)))
         box.addView(Ui.dangerBtn(this, getString(R.string.mui_delete)) {
             dlg.dismiss()
+            // fix(2026-11-15): 定时任务专属会话被删后 timer_tasks.session_id 会悬空, 任务照跑却把结果 update 到
+            // 不存在的行(0 行受影响), 表现为"重触发后既没有原会话也没有新会话"。删除即解除绑定, 下次触发重建。
+            if (s.kind == MemoryDb.KIND_TIMER) {
+                TimerTaskDb(this).unbindSessionBySessionId(s.id)
+                SecurityConfig.audit(this, "timer_task_session_unbind",
+                    "会话被删, 任务绑定已解除(session=${s.id})", "ui_user", "timer_task")
+            }
+            val wasCurrent = currentSessionId == s.id
             db.deleteSession(s.id)
+            if (wasCurrent) {
+                // 当前打开的就是被删会话: 先断开引用再起空白会话, 避免后续消息写进悬空 id 静默丢失
+                currentSessionId = null
+                currentSaved = true
+                startNewSession()
+            }
             refreshSessionList()
             Toast.makeText(this, getString(R.string.mui_toast_deleted), Toast.LENGTH_SHORT).show()
         }, LinearLayout.LayoutParams(

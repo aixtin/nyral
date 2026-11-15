@@ -212,10 +212,15 @@ import android.widget.Toast
                     ?.replace("\n", " ")?.take(20) ?: getString(R.string.ma_unnamed_session)
             }
             val sid = currentSessionId
-            if (sid != null) {
+            // fix(2026-11-15): 当前会话可能在别处被删掉(抽屉删除/任务会话被清), 悬空 id 下 updateSession
+            // 影响 0 行, 界面看着有内容、库里一条没有。落库前校验存在性, 缺失就另起新会话承载本次内容。
+            if (sid != null && db.sessionExists(sid)) {
                 db.updateSession(sid, title, messages, mode, sessionBaseSeq)
             } else {
+                if (sid != null) LogStore.i(LogStore.MAIN, "当前会话已不存在 id=" + sid + ", 另起新会话承载本次内容")
+                // 新建会话的 seq 从 0 起(内存里可能只是长会话的后半窗口), baseSeq 必须归零
                 currentSessionId = db.saveSession(title, messages, mode)
+                sessionBaseSeq = 0
             }
             currentSessionTitle = title
             currentSaved = true
