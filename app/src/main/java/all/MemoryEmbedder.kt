@@ -33,6 +33,9 @@ class MemoryEmbedder(context: Context) {
         reload()
     }
 
+    // detekt: 这里的宽捕获与"吞异常"都是刻意为之 —— native 层失败抛的是 Error(UnsatisfiedLinkError),
+    // 收窄到 Exception 会漏出去打断启动; 而"记日志再降级"在能力探测里是正确的处置(调用方靠返回值区分)。
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     @Synchronized
     fun reload(): Boolean {
         return try {
@@ -60,7 +63,8 @@ class MemoryEmbedder(context: Context) {
             outputName = out
             ready = true
             true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // native 层失败抛的是 Error(UnsatisfiedLinkError 等), 不是 Exception —— 必须兜 Throwable
             closeSession()
             false
         }

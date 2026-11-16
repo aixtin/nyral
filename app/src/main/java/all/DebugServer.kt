@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
 import android.os.SystemClock
@@ -526,7 +527,11 @@ object DebugServer {
         try {
             val perms = JSONObject()
             perms.put("overlay", Settings.canDrawOverlays(c))
-            perms.put("all_files", Environment.isExternalStorageManager())
+            // 2026-11-16: isExternalStorageManager 是 API 30 新增, minSdk 29 上直呼抛 NoSuchMethodError
+            // (Error 系, 外层 catch(Exception) 拦不住)。加版本守卫, API<30 报 false。
+            val allFiles = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                Environment.isExternalStorageManager()
+            perms.put("all_files", allFiles)
             perms.put("install_unknown", c.packageManager.canRequestPackageInstalls())
             perms.put("post_notifications", c.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
             perms.put("record_audio", c.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)

@@ -241,7 +241,9 @@ class FirstRunSetupActivity : Activity() {
         PermItem(R.drawable.ic_perm_folder, getString(R.string.perm_11), getString(R.string.perm_12), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
         }, {
-            Environment.isExternalStorageManager()
+            // 2026-11-16: 上面的 showIf 已经限定 API>=30, 但 lint 不跨 lambda 识别, 且 API<30 直呼会抛
+            // NoSuchMethodError(Error 系)。这里再守一道, 两道都不依赖对方。
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
         }, { a -> a.openAllFiles() }),
         PermItem(R.drawable.ic_perm_package, getString(R.string.perm_13), getString(R.string.perm_14), {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O

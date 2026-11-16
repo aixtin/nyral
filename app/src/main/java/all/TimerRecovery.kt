@@ -1,6 +1,7 @@
 package io.github.aixtin.nyral
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -26,6 +27,13 @@ object TimerRecovery {
     /** 第二批(2026-11-14): 错过补跑的基线与节流状态 */
     private const val CATCHUP_PREFS = "timer_catchup_state"
     private const val KEY_BASELINED = "baselined"
+
+    /**
+     * 补跑水位线(fix 2026-11-16 第二版): 全局一条, 记录"这次基线建立的时点"。
+     * 语义是"升级前的历史 slot 一律不回灌", 与"某个任务跑没跑过"无关 ——
+     * 所以它是一个时间戳, 不是每任务一条 key, 也不写进执行台账。
+     */
+    private const val KEY_BASELINE_TS = "baseline_ts"
     private const val CATCHUP_THROTTLE_MS = 24 * 60 * 60 * 1000L
 
     /**
@@ -121,6 +129,28 @@ object TimerRecovery {
     }
 
     /**
+     * 补跑基线(fix 2026-11-16 第二版): 只记一条全局水位线, **不写任何执行台账**。
+     *
+     * 为什么不能靠台账占位:
+     * ① 台账是"执行证据", 拿它当水位标记会让统计口径变脏 —— hasFinishedRun 判的是 ok >= 0
+     *    (TimerTaskDb.kt:325), 写 ok=false 同样算"有终态", 等于把"升级后不补跑"写成一条假失败;
+     * ② 写 ok=true 则让成功率虚高, 详情页(recentRuns)与健康页两边都会脏;
+     * ③ 水位线语义是"这一次升级的时点", 全局一条就够, 按任务各存一条只会多一堆 key。
+     *
+     * 只做一件事: 把 now 记为水位线, 与 baselined 同一次 commit 落盘, 后续 catchUpMissed
+     * 主循环开头 `if (due <= baselineTs) continue` 短路, 从而既不回灌历史,
+     * 也不会在 10 分钟后被"僵尸认领"判据把刚认领的 slot 当漏跑再补一轮。
+     */
+    private fun seedBaseline(ctx: Context, prefs: SharedPreferences, now: Long, reason: String) {
+        prefs.edit()
+            .putLong(KEY_BASELINE_TS, now)
+            .putBoolean(KEY_BASELINED, true)
+            .apply()
+        TimerTrace.write(ctx, "补跑基线初始化(水位线): " + TimerScheduler.fmtSlot(now) + ", 早于此的 slot 不补跑")
+        Log.i(TAG, "$reason: 补跑基线初始化(只记水位线 ${TimerScheduler.fmtSlot(now)}, 本次不补跑, 不写台账)")
+    }
+
+    /**
      * 错过补跑(2026-11-14, 第二批): 判据 = 最近一个到期 slot 既没被认领(last_slot_ts) 也没跑过(last_run_ts)。
      * 原型 Past Rearm.catchUp(): missed = enabled && due 已过 && lastRunAt < due && 台账未认领。
      * 两个护栏:
@@ -141,28 +171,23 @@ object TimerRecovery {
         val now = System.currentTimeMillis()
 
         if (!prefs.getBoolean(KEY_BASELINED, false)) {
-            var filled = 0
-            for (t in tasks) {
-                val due = TimerScheduler.latestDueSlot(t.cronDesc, now)
-                if (due > 0L && t.lastSlotTs < due && db.tryClaimSlot(t.id, due)) {
-                    // fix(2026-11-16): 基线只占位、不留终态 —— 10 分钟后同一次冷启动的另一条路径
-                    // 会按"已认领 + last_run 未越线 + 无终态台账 + 超宽限"判成僵尸认领并补跑一轮,
-                    // 与"升级后避免全量补跑风暴"的初衷正好相反。这里补一行 ok=1 的终态台账,
-                    // 让下面 catchUpMissed 的两条 continue(hasFinishedRun / 24h 节流) 真正生效。
-                    db.recordRun(t.id, due, now, ok = true, catchUp = false, result = "基线占位(升级后不补跑)")
-                    prefs.edit().putLong("t:" + t.id, now).apply()
-                    filled++
-                }
-            }
-            TimerTrace.write(ctx, "补跑基线初始化, 回填 " + filled + " 个 slot(含终态台账), 本次不补跑")
-            prefs.edit().putBoolean(KEY_BASELINED, true).apply()
-            Log.i(TAG, "$reason: 补跑基线初始化(旧数据无 slot 记录, 回填 " + filled + " 个, 本次不补跑)")
+            seedBaseline(ctx, prefs, now, reason)
             return
         }
+
+        // 水位线: 早于基线时点的 slot 不进任何补跑判据。
+        // 老版本(v2.9.32 之前的 v1 基线)只写过 baselined 而没有 baseline_ts, 读到 0 即不短路,
+        // 等价于旧行为(宁可多补一次, 也不吞掉真正该补的)。
+        val baselineTs = prefs.getLong(KEY_BASELINE_TS, 0L)
 
         for (t in tasks) {
             val due = TimerScheduler.latestDueSlot(t.cronDesc, now)
             if (due <= 0L) continue
+            // 水位线短路(fix 2026-11-16 第二版): 基线之前的 slot 一律视为"升级前的历史", 不回灌。
+            // 这一条同时挡住了"10 分钟后僵尸认领又把刚认领的 slot 当漏跑"的老问题 ——
+            // 而且不必伪造任何台账记录(伪造 ok=1 会让成功率虚高, 伪造 ok=0 会变假失败,
+            // hasFinishedRun 判的是 ok >= 0, 两种都进详情页与健康页统计)。
+            if (due <= baselineTs) continue
             // fix(2026-11-15): "已认领" 不再直接算跑过。
             // 原先 t.lastSlotTs >= due 就 continue, 而认领发生在执行之前 —— 认领后进程被杀,
             // 这一 slot 既没产物也没台账, 却因为"已认领"永远不补跑, 等于永久丢一次。

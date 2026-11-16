@@ -9,7 +9,9 @@ import android.view.animation.LinearInterpolator
 internal enum class MemDotState { HIDDEN, SEARCHING, HIT, MISS }
 
 /** 渲染指示点。底栏不可用(AI 输出中/语音模式/发送按钮隐藏)时一律隐藏, 避免虚线元素残留。
- *  TODO: MemoryPrefetch 就绪后由真实检索结果驱动, 本函数签名无需改动。 */
+ *  待接 API, 不是死代码(2026-11-16): 目前只有 MemoryPrefetch 接入后才会调用它,
+ *  applyMemDotFromInput() 那个"按输入字数亮灯"的假信号驱动已在本次修复中删除,
+ *  因为它在没做任何检索的情况下就显示"已检索到记忆"。请勿顺手清理本函数。 */
 internal fun MainActivity.applyMemDot(state: MemDotState) {
     if (!memDotReady) return
     memDotState = state
@@ -39,16 +41,4 @@ internal fun MainActivity.applyMemDot(state: MemDotState) {
             }
         }
     }
-}
-
-/** 临时假信号(待 MemoryPrefetch 接入后整体替换): 输入字数驱动三态, 仅用于验证视觉与布局 */
-internal fun MainActivity.applyMemDotFromInput() {
-    val n = input.text.toString().trim().length
-    applyMemDot(
-        when {
-            n == 0 -> MemDotState.HIDDEN
-            n < 6 -> MemDotState.SEARCHING
-            else -> MemDotState.HIT
-        }
-    )
 }

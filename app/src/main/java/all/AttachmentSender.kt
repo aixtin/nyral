@@ -54,37 +54,49 @@ internal class AttachmentSender(private val host: MainActivity) {
 
     /** 视频时长(ms), 失败返回 0(不阻断发送) */
     private fun videoDurationMs(uri: Uri): Long {
-        val r = MediaMetadataRetriever()
+        var holder: MediaMetadataRetriever? = null
         return try {
-            r.setDataSource(host, uri)
-            r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            // fix(2026-11-16 第二版): 构造也放回 try 内 —— 构造本身抛 Error 时,
+            // 挪到 try 外面的写法连兜底返回值都拿不到。
+            val retriever = MediaMetadataRetriever()
+            holder = retriever
+            retriever.setDataSource(host, uri)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
         } catch (t: Throwable) {
             0L
         } finally {
-            // fix(2026-11-16): setDataSource 抛异常时原实现直接 return, 跳过了 release ——
             // MediaMetadataRetriever 持有 native 资源, 不解码成功的文件反复预览会累积泄漏。
-            runCatching { r.release() }
+            holder?.let { runCatching { it.release() } }
         }
     }
 
     /** 音频时长(ms), 失败返回 0(不阻断发送) */
     private fun audioDurationMs(uri: Uri): Long {
+        var holder: MediaMetadataRetriever? = null
         return try {
-            val r = MediaMetadataRetriever()
-            try { r.setDataSource(host, uri) } catch (t: Throwable) { return 0L }
-            val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            r.release(); ms
-        } catch (e: Exception) { 0L }
+            // 与视频路径对齐: 构造在 try 内, finally 释放, Throwable 兜底。
+            val retriever = MediaMetadataRetriever()
+            holder = retriever
+            retriever.setDataSource(host, uri)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        } catch (t: Throwable) {
+            0L
+        } finally {
+            holder?.let { runCatching { it.release() } }
+        }
     }
 
     /** 视频元信息 JSON(时长/分辨率/大小), 失败返回 null; 供直传写工作目录/落库写附件库复用 */
     private fun videoMetaJson(uri: Uri, name: String, size: Long, mime: String, durMs: Long): JSONObject? {
-        val r = MediaMetadataRetriever()
+        var holder: MediaMetadataRetriever? = null
         return try {
-            r.setDataSource(host, uri)
-            val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
-            val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
-            val fps = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE).orEmpty()
+            // 构造同样放回 try 内: 构造抛 Error 时不能连"返回 null"这条兜底都丢掉
+            val retriever = MediaMetadataRetriever()
+            holder = retriever
+            retriever.setDataSource(host, uri)
+            val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val fps = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE).orEmpty()
             JSONObject()
                 .put("name", name).put("mime", mime).put("size", size)
                 .put("durationMs", durMs).put("durationSec", (durMs + 500) / 1000)
@@ -96,7 +108,7 @@ internal class AttachmentSender(private val host: MainActivity) {
             null
         } finally {
             // fix(2026-11-16): 同上, 失败路径必须 release(原生解码器句柄)
-            runCatching { r.release() }
+            holder?.let { runCatching { it.release() } }
         }
     }
 
