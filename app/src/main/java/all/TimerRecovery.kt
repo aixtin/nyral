@@ -144,9 +144,17 @@ object TimerRecovery {
             var filled = 0
             for (t in tasks) {
                 val due = TimerScheduler.latestDueSlot(t.cronDesc, now)
-                if (due > 0L && t.lastSlotTs < due && db.tryClaimSlot(t.id, due)) filled++
+                if (due > 0L && t.lastSlotTs < due && db.tryClaimSlot(t.id, due)) {
+                    // fix(2026-11-16): 基线只占位、不留终态 —— 10 分钟后同一次冷启动的另一条路径
+                    // 会按"已认领 + last_run 未越线 + 无终态台账 + 超宽限"判成僵尸认领并补跑一轮,
+                    // 与"升级后避免全量补跑风暴"的初衷正好相反。这里补一行 ok=1 的终态台账,
+                    // 让下面 catchUpMissed 的两条 continue(hasFinishedRun / 24h 节流) 真正生效。
+                    db.recordRun(t.id, due, now, ok = true, catchUp = false, result = "基线占位(升级后不补跑)")
+                    prefs.edit().putLong("t:" + t.id, now).apply()
+                    filled++
+                }
             }
-            TimerTrace.write(ctx, "补跑基线初始化, 回填 " + filled + " 个 slot, 本次不补跑")
+            TimerTrace.write(ctx, "补跑基线初始化, 回填 " + filled + " 个 slot(含终态台账), 本次不补跑")
             prefs.edit().putBoolean(KEY_BASELINED, true).apply()
             Log.i(TAG, "$reason: 补跑基线初始化(旧数据无 slot 记录, 回填 " + filled + " 个, 本次不补跑)")
             return
@@ -185,6 +193,9 @@ object TimerRecovery {
                 TimerTrace.write(ctx, "补跑拉起 task=" + t.id)
                 TaskService.startTimerTask(ctx, t.id, catchUp = true)
             } catch (e: Exception) {
+                // fix(2026-11-16): 节流 key 在拉起之前就写, 拉起失败会把该任务静默按 24h 锁死;
+                // 失败时撤销, 交给下一次 ensure/sweep 重试。
+                prefs.edit().remove("t:" + t.id).apply()
                 TimerTrace.write(ctx, "补跑拉起失败 task=" + t.id + ": " + e)
                 Log.e(TAG, "$reason: 任务 " + t.id + " 补跑拉起失败 ${e.message}")
             }
