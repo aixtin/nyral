@@ -211,6 +211,16 @@ internal class StreamUiBridge(
                             "\n\n〔已中断〕"
                         }
                         if (keep.isNotEmpty()) {
+                            // fix(2026-11-16): 停止/超时收口时"未换行的残余正文"是由引擎在断链后经 onDelta 补发的,
+                            // 而 onDelta / dispatch 都带取消门禁(见 :163 与 :47) —— 引擎侧已把它并入 reply,
+                            // UI 侧却被丢掉, 于是"落库正文有尾巴、气泡里没有", 且 rendered 快照写回后会永久缺这段。
+                            // 这里按"已渲染前缀"做一次差值补写, 让气泡与落库正文一致;
+                            // 前缀对不上(被表情掩码/换行归一化过)则放弃, 宁缺不错。
+                            val visible = holder.contentSnapshot().trim()
+                            missingTail(keep, visible)?.let { tail ->
+                                android.util.Log.i("Nyral", "收口补写未渲染尾巴 len=${tail.length}")
+                                holder.appendContent(tail)
+                            }
                             holder.appendContent(mark)
                             ChatProbe.noteFinish(mark.trim())
                             if (activity.replySessionId == activity.currentSessionId) {
