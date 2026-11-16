@@ -98,11 +98,26 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // 2026-11-16: 启动冒烟用 Robolectric 需要真实资源与合并后的 manifest
+        unitTests.isIncludeAndroidResources = true
     }
 
     // 随机化 fuzz 轮数透传(2026-11-06): 默认 2 万轮走常规 CI, nightly 用 -Dnyral.fuzz.iters=200000 深度扫
     tasks.withType<Test>().configureEach {
         systemProperty("nyral.fuzz.iters", System.getProperty("nyral.fuzz.iters", "20000"))
+        // 2026-11-16: Robolectric 运行时要从 Maven Central 拉 android-all-instrumented(~145MB),
+        // 国内网络常被 TLS 中断(SSLHandshakeException)导致整轮单测失败。
+        // 加 -Probolectric.localM2=true 时改用本机 ~/.m2/repository 离线解析; CI 不传即走默认下载。
+        if (project.hasProperty("robolectric.localM2")) {
+            systemProperty("robolectric.offline", "true")
+            // 注意: Robolectric 离线模式按"扁平文件名"查找(<dir>/android-all-instrumented-<ver>.jar),
+            // 不是 maven 的目录树; -Probolectric.depDir 指向已摊平软链的目录
+            systemProperty(
+                "robolectric.dependency.dir",
+                (project.findProperty("robolectric.depDir") as String?)
+                    ?: (System.getProperty("user.home") + "/.m2/repository")
+            )
+        }
     }
 
     compileOptions {
@@ -140,6 +155,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     testImplementation("junit:junit:4.13.2")
+    // 2026-11-16: 冷启动冒烟(LauncherSmokeTest) —— 无模拟器环境下的"能打开"验证
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
     testImplementation("org.json:json:20231013")
     testImplementation("org.hamcrest:hamcrest-core:1.3")
 }
