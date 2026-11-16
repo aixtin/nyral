@@ -375,104 +375,12 @@
             column="40"/>
     </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.os.Environment#isExternalStorageManager`"
-        errorLine1="            perms.put(&quot;all_files&quot;, Environment.isExternalStorageManager())"
-        errorLine2="                                               ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/DebugServer.kt"
-            line="479"
-            column="48"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets#getInsets`"
-        errorLine1="        (window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0) > dp(80)"
-        errorLine2="                                            ~~~~~~~~~">
-        <location
-            file="src/main/java/all/EmojiDrawer.kt"
-            line="142"
-            column="45"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets.Type#ime`"
-        errorLine1="        (window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0) > dp(80)"
-        errorLine2="                                                                                     ~~~">
-        <location
-            file="src/main/java/all/EmojiDrawer.kt"
-            line="142"
-            column="86"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets#getInsets`"
-        errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.bottom ?: 0"
-        errorLine2="                                               ~~~~~~~~~">
-        <location
-            file="src/main/java/all/EmojiDrawer.kt"
-            line="153"
-            column="48"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets.Type#systemBars`"
-        errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.bottom ?: 0"
-        errorLine2="                                                                                        ~~~~~~~~~~">
-        <location
-            file="src/main/java/all/EmojiDrawer.kt"
-            line="153"
-            column="89"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.os.Environment#isExternalStorageManager`"
-        errorLine1="            Environment.isExternalStorageManager()"
-        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/FirstRunSetupActivity.kt"
-            line="195"
-            column="25"/>
-    </issue>
 
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets#getInsets`"
-        errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())"
-        errorLine2="                                               ~~~~~~~~~">
-        <location
-            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2178"
-            column="48"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.view.WindowInsets.Type#systemBars`"
-        errorLine1="            window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())"
-        errorLine2="                                                                                        ~~~~~~~~~~">
-        <location
-            file="src/main/java/io/github/aixtin/nyral/MainActivity.kt"
-            line="2178"
-            column="89"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 30 (current min is 29): `android.os.Environment#isExternalStorageManager`"
-        errorLine1="            Environment.isExternalStorageManager()"
-        errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/all/PermissionsActivity.kt"
-            line="163"
-            column="25"/>
-    </issue>
 
     <issue
         id="OldTargetApi"
