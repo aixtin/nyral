@@ -54,12 +54,17 @@ internal class AttachmentSender(private val host: MainActivity) {
 
     /** 视频时长(ms), 失败返回 0(不阻断发送) */
     private fun videoDurationMs(uri: Uri): Long {
+        val r = MediaMetadataRetriever()
         return try {
-            val r = MediaMetadataRetriever()
-            try { r.setDataSource(host, uri) } catch (t: Throwable) { return 0L }
-            val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            r.release(); ms
-        } catch (e: Exception) { 0L }
+            r.setDataSource(host, uri)
+            r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        } catch (t: Throwable) {
+            0L
+        } finally {
+            // fix(2026-11-16): setDataSource 抛异常时原实现直接 return, 跳过了 release ——
+            // MediaMetadataRetriever 持有 native 资源, 不解码成功的文件反复预览会累积泄漏。
+            runCatching { r.release() }
+        }
     }
 
     /** 音频时长(ms), 失败返回 0(不阻断发送) */
@@ -74,19 +79,25 @@ internal class AttachmentSender(private val host: MainActivity) {
 
     /** 视频元信息 JSON(时长/分辨率/大小), 失败返回 null; 供直传写工作目录/落库写附件库复用 */
     private fun videoMetaJson(uri: Uri, name: String, size: Long, mime: String, durMs: Long): JSONObject? {
+        val r = MediaMetadataRetriever()
         return try {
-            val r = MediaMetadataRetriever()
-            try { r.setDataSource(host, uri) } catch (t: Throwable) { return null }
+            r.setDataSource(host, uri)
             val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
             val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
             val fps = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE).orEmpty()
-            r.release()
             JSONObject()
                 .put("name", name).put("mime", mime).put("size", size)
                 .put("durationMs", durMs).put("durationSec", (durMs + 500) / 1000)
                 .put("width", w).put("height", h).put("fps", fps)
                 .put("createdAt", System.currentTimeMillis())
-        } catch (e: Exception) { null }
+        } catch (t: Throwable) {
+            // 与原实现保持一致: 收窄成 Exception 会漏掉 LinkageError/OOM 等,
+            // 元信息构造失败不应阻断整条发送链路
+            null
+        } finally {
+            // fix(2026-11-16): 同上, 失败路径必须 release(原生解码器句柄)
+            runCatching { r.release() }
+        }
     }
 
     /** 视频元信息 → 工作目录 .meta.json(供 AI 后续按需观看/抽帧; 失败不阻断发送) */
