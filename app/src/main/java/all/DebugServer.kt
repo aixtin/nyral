@@ -101,7 +101,7 @@ object DebugServer {
         val p = prefs(c)
         var t = p.getString(K_TOKEN, null)
         if (t.isNullOrBlank()) {
-            // 加固(2026-10-31): 新签发 token 提到 192bit, 旧 token 保留(用户可在设置里重置换新)
+            // 加固(2026-10-31): 新签发 token 提到 96bit(UUID 去横线取 24 字符十六进制), 旧 token 保留(用户可在设置里重置换新)
             t = "droid-" + java.util.UUID.randomUUID().toString().replace("-", "").take(24)
             p.edit().putString(K_TOKEN, t).apply()
         }
@@ -255,10 +255,10 @@ object DebugServer {
                         // 2026-10-31: Long 解析 —— Int 溢出时 >2GB 的声明值变 0, 绕过 413 上限
                         if (k == "content-length") {
                             contentLength = v.toLongOrNull() ?: 0L
-                            if (contentLength > 32L * 1024 * 1024) {
-                                writeJson(out, 413, JSONObject().put("error", "body too large"), false)
-                                break
-                            }
+                            // fix(2026-11-16): 这里原先直接 writeJson(413)+break, 而下面的统一闸门还会再写一次,
+                            // 同一 socket 上出现两个响应体(keep-alive 客户端会串包)。只跳出 header 循环,
+                            // 由鉴权后那道统一 413 闸门负责回包(且不与 401 抢着写)。
+                            if (contentLength > 32L * 1024 * 1024) break
                         }
                         if (k == "x-auth-token") authToken = v
                         // 兼容 MCP 客户端惯例的 Authorization: Bearer <token>, 与 X-Auth-Token 等价
