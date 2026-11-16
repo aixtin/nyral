@@ -13,7 +13,14 @@ import java.io.File
  */
 class MemoryEmbedder(context: Context) {
 
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    // U7(2026-11-16): OrtEnvironment.getEnvironment() 会触发 native 库(onnnxruntime)加载。
+    // 原实现放在字段初始化里 = 类被首次触摸(含 MainActivity.onCreate 构造 MemoryEmbedder)
+    // 就加载; Robolectric/JVM 单测没有 .so, 直接 UnsatisfiedLinkError 打断整个类初始化。
+    // 改成 by lazy + runCatching: 拿不到就保持 null, 上层按"模型未就绪"降级 ——
+    // 语义检索不可用, 不影响其它功能(与 bge_model.onnx 缺失时的既有降级路径一致)。
+    private val env: OrtEnvironment? by lazy {
+        runCatching { OrtEnvironment.getEnvironment() }.getOrNull()
+    }
     private val ctx: Context = context.applicationContext
 
     @Volatile private var session: OrtSession? = null
@@ -39,7 +46,9 @@ class MemoryEmbedder(context: Context) {
             val opts = OrtSession.SessionOptions()
             // 单线程推理: 双线程虽快但会占满 2 个核导致发热(2026-10-20 真机诊断), 归档场景优先控温
             opts.setIntraOpNumThreads(1)
-            val s = env.createSession(modelFile.absolutePath, opts)
+            // native 库不可用(单测/Robolectric 或 so 缺失): 保持未就绪, 语义检索降级
+            val e = env ?: run { closeSession(); return false }
+            val s = e.createSession(modelFile.absolutePath, opts)
             val info = s.outputInfo
             val out = if (info.keys.any { it.contains("sentence", true) }) {
                 info.keys.first { it.contains("sentence", true) }
@@ -68,6 +77,7 @@ class MemoryEmbedder(context: Context) {
     fun isReady(): Boolean = ready
 
     fun embed(text: String): FloatArray {
+        val e = env ?: throw IllegalStateException("onnxruntime 不可用")
         val s = session ?: throw IllegalStateException("语义模型未就绪")
         val tk = tokenizer!!
         val on = outputName!!
@@ -78,9 +88,9 @@ class MemoryEmbedder(context: Context) {
         val types = LongArray(seqLen) { 0L }
 
         val inputs = LinkedHashMap<String, OnnxTensor>()
-        inputs["input_ids"] = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(inputIds), longArrayOf(1L, seqLen.toLong()))
-        inputs["attention_mask"] = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(attn), longArrayOf(1L, seqLen.toLong()))
-        inputs["token_type_ids"] = OnnxTensor.createTensor(env, java.nio.LongBuffer.wrap(types), longArrayOf(1L, seqLen.toLong()))
+        inputs["input_ids"] = OnnxTensor.createTensor(e, java.nio.LongBuffer.wrap(inputIds), longArrayOf(1L, seqLen.toLong()))
+        inputs["attention_mask"] = OnnxTensor.createTensor(e, java.nio.LongBuffer.wrap(attn), longArrayOf(1L, seqLen.toLong()))
+        inputs["token_type_ids"] = OnnxTensor.createTensor(e, java.nio.LongBuffer.wrap(types), longArrayOf(1L, seqLen.toLong()))
 
         s.run(inputs).use { results ->
             val out = results[on]?.get() as ai.onnxruntime.OnnxTensor
