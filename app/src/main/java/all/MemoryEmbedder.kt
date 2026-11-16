@@ -38,16 +38,16 @@ class MemoryEmbedder(context: Context) {
         return try {
             val modelFile = File(ctx.filesDir, "bge_model.onnx")
             val vocabFile = File(ctx.filesDir, "bge_vocab.txt")
-            // 仅认 filesDir 热更模型; 缺失即视为未就绪, 交由 ModelUpdater 冷启动下载
-            if (!modelFile.exists() || !vocabFile.exists()) {
+            // 仅认 filesDir 热更模型; 缺失即视为未就绪, 交由 ModelUpdater 冷启动下载。
+            // native 库不可用(单测/Robolectric 或 so 缺失)同样按"未就绪"降级, 不抛异常打断启动。
+            val e = env
+            if (e == null || !modelFile.exists() || !vocabFile.exists()) {
                 closeSession()
                 return false
             }
             val opts = OrtSession.SessionOptions()
             // 单线程推理: 双线程虽快但会占满 2 个核导致发热(2026-10-20 真机诊断), 归档场景优先控温
             opts.setIntraOpNumThreads(1)
-            // native 库不可用(单测/Robolectric 或 so 缺失): 保持未就绪, 语义检索降级
-            val e = env ?: run { closeSession(); return false }
             val s = e.createSession(modelFile.absolutePath, opts)
             val info = s.outputInfo
             val out = if (info.keys.any { it.contains("sentence", true) }) {
@@ -77,7 +77,7 @@ class MemoryEmbedder(context: Context) {
     fun isReady(): Boolean = ready
 
     fun embed(text: String): FloatArray {
-        val e = env ?: throw IllegalStateException("onnxruntime 不可用")
+        val e = env ?: error("onnxruntime 不可用")
         val s = session ?: throw IllegalStateException("语义模型未就绪")
         val tk = tokenizer!!
         val on = outputName!!
@@ -88,9 +88,15 @@ class MemoryEmbedder(context: Context) {
         val types = LongArray(seqLen) { 0L }
 
         val inputs = LinkedHashMap<String, OnnxTensor>()
-        inputs["input_ids"] = OnnxTensor.createTensor(e, java.nio.LongBuffer.wrap(inputIds), longArrayOf(1L, seqLen.toLong()))
-        inputs["attention_mask"] = OnnxTensor.createTensor(e, java.nio.LongBuffer.wrap(attn), longArrayOf(1L, seqLen.toLong()))
-        inputs["token_type_ids"] = OnnxTensor.createTensor(e, java.nio.LongBuffer.wrap(types), longArrayOf(1L, seqLen.toLong()))
+        inputs["input_ids"] = OnnxTensor.createTensor(
+            e, java.nio.LongBuffer.wrap(inputIds), longArrayOf(1L, seqLen.toLong())
+        )
+        inputs["attention_mask"] = OnnxTensor.createTensor(
+            e, java.nio.LongBuffer.wrap(attn), longArrayOf(1L, seqLen.toLong())
+        )
+        inputs["token_type_ids"] = OnnxTensor.createTensor(
+            e, java.nio.LongBuffer.wrap(types), longArrayOf(1L, seqLen.toLong())
+        )
 
         s.run(inputs).use { results ->
             val out = results[on]?.get() as ai.onnxruntime.OnnxTensor

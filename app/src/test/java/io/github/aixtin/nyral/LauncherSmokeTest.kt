@@ -10,7 +10,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 
 /**
@@ -54,14 +53,14 @@ class LauncherSmokeTest {
         // 路面二：老用户路径/通知与快捷方式直接跳主界面
         // 注: MainActivity 初始化会拉起 onnxruntime, 而 Robolectric 的 JVM 里没有 arm64 so,
         // 这条路径只能在真机/模拟器验证 —— 无 native 库时跳过, 不算失败。
-        var controller: ActivityController<MainActivity>? = null
+        // buildActivity 只构造控制器(不触碰 native), 真正加载资源的是 create()
+        val controller = Robolectric.buildActivity(MainActivity::class.java)
         val activity = try {
-            controller = Robolectric.buildActivity(MainActivity::class.java)
-            controller!!.create().get()
-        } catch (e: UnsatisfiedLinkError) {
+            controller.create().get()
+        } catch (_: UnsatisfiedLinkError) {
             assumeTrue("JVM 缺少 native 库(onnxruntime), 跳过主界面用例", false)
             return
-        } catch (e: ArrayIndexOutOfBoundsException) {
+        } catch (_: ArrayIndexOutOfBoundsException) {
             // Robolectric 未 shadow Environment.isExternalStorageManager(API 30+):
             // SDK 34 的 shadow 实现里 getSystemService 返回空数组, WorkDir.hasBroadFileAccess
             // 直接越界。这是测试框架限制, 真机路径正常 —— 同样跳过, 不算失败。
@@ -71,6 +70,6 @@ class LauncherSmokeTest {
         assertNotNull("MainActivity 未创建", activity)
         val content = activity.findViewById<ViewGroup>(android.R.id.content)
         assertTrue("主界面内容视图未挂载", content != null && content.childCount > 0)
-        controller?.pause()?.stop()?.destroy()
+        controller.pause().stop().destroy()
     }
 }
