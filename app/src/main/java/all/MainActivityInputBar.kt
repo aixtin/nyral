@@ -50,6 +50,8 @@ internal fun MainActivity.updateInputMode() {
     applyInputMode()
     // 输入态变化顺带对齐状态带(发送/收尾都会走到这里, 上下文数字随之更新)
     refreshStatusStrip()
-    // 记忆预取指示点: 暂以输入字数作临时信号, 待 MemoryPrefetch 就绪后换真实检索结果
-    applyMemDotFromInput()
+    // fix(2026-11-16): 记忆召回指示点下线 —— 原来用"输入字数"假信号驱动(≥6 字常亮"已检索到记忆"),
+    // 真实检索(MemoryPrefetch)还没接上, 等于给用户一个会说谎的指示器。
+    // 接上真实结果后在此处调用 applyMemDot(state) 即可恢复。
+    // applyMemDotFromInput()
 }
