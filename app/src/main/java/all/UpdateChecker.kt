@@ -8,7 +8,6 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
-import android.widget.LinearLayout
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
@@ -66,7 +65,6 @@ object UpdateChecker {
     private const val OFFICIAL_URL = "https://atin.asia/dl/nyral-latest.apk"
 
     private const val PREFS = "app_prefs"
-    private const val KEY_IGNORED_VERSION = "update_ignored_version"
     private const val KEY_LAST_CHECK_AT = "update_last_check_at"
     private const val KEY_LAST_TOAST_AT = "update_last_toast_at"
     private const val KEY_LAST_TOAST_VER = "update_last_toast_version"
@@ -76,39 +74,31 @@ object UpdateChecker {
     private const val TOAST_INTERVAL_MS = 24 * 60 * 60 * 1000L
     /** 缓存新鲜期：超过后仍先展示旧数据，同时后台刷新 */
     const val CACHE_TTL_MS = 60 * 60 * 1000L
-    /** 竞速总超时：超过即判定这一次拉取失败 */
-    private const val RACE_TIMEOUT_MS = 9000L
-    private const val NET_TIMEOUT_MS = 7000
+    /** 竞速总超时：超过即判定这一次拉取失败。必须 ≥ 单源最坏耗时(connect + read)，否则慢网下会误判失败 */
+    private const val RACE_TIMEOUT_MS = 11000L
+    private const val NET_TIMEOUT_MS = 5000
 
     private val main = Handler(Looper.getMainLooper())
 
     // ============================ 对外：检查是否更新 ============================
 
-    /** manual=true 来自关于页手动点击；false 为启动/前台自动检查。 */
-    fun check(ctx: Context, manual: Boolean) {
+    /**
+     * 启动/前台自动检查（唯一入口，见 [checkIfDue]）。
+     *
+     * 2026-11-16: 删除"手动检查弹窗 + 此版本不再提醒"整条死链路。
+     * 判断依据是它已经没有调用点(关于页早改为直开更新页)，且功能本身冗余：
+     * 自动检查 6h 一次、Toast 按版本号 24h 去重，用户每天最多被打扰一句；
+     * 为此再维护一个永久屏蔽开关 + 一个后台线程弹 Dialog 的路径(还有 BadTokenException 风险)不划算。
+     * 要看更新内容，更新页随时可进（About → 检查更新 / 桌面通知）。
+     */
+    fun check(ctx: Context) {
         Thread {
             val snap = race()
-            if (snap == null || snap.releases.isEmpty()) {
-                if (manual) toast(ctx, "检查失败，请稍后重试")
-                return@Thread
-            }
+            if (snap == null || snap.releases.isEmpty()) return@Thread
             saveCache(ctx, snap)
-            val version = latestVersion(snap) ?: run {
-                if (manual) toast(ctx, "暂无可用版本")
-                return@Thread
-            }
+            val version = latestVersion(snap) ?: return@Thread
             val current = currentVersion(ctx)
-            if (compareVersion(version, current) > 0) {
-                if (version == ignoredVersion(ctx)) {
-                    if (manual) toast(ctx, "该版本已设置不再提醒，可前往更新页查看")
-                } else if (manual) {
-                    main.post { showUpdateDialog(ctx, version) }
-                } else {
-                    toastUpdateAvailable(ctx, version)
-                }
-            } else {
-                if (manual) toast(ctx, "已是最新版本")
-            }
+            if (compareVersion(version, current) > 0) toastUpdateAvailable(ctx, version)
         }.start()
     }
 
@@ -123,7 +113,7 @@ object UpdateChecker {
         // 时钟回拨(last > now)时放行, 避免被永久静默
         if (last in 1..now && now - last < CHECK_INTERVAL_MS) return
         sp.edit().putLong(KEY_LAST_CHECK_AT, now).apply()
-        check(ctx, false)
+        check(ctx)
     }
 
     /** 前台轮询任务: 应用长时间留在前台(不切后台)时也能按 6 小时周期热检测。 */
@@ -221,11 +211,16 @@ object UpdateChecker {
         val url = downloadUrl(channel, tag)
         return try {
             val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            // fix(2026-11-16): 目标文件名固定会导致"第二次下载"必然失败 —— DownloadManager
+            // 在目标文件已存在时报 ERROR_FILE_ALREADY_EXISTS(注意: enqueue 仍返回 id, 所以这里看不出来,
+            // 用户只看到 Toast"已开始下载", 通知栏几秒后变失败)。加"日期-时分秒"后缀保证每次唯一。
+            val stamp = java.text.SimpleDateFormat("MMdd-HHmmss", Locale.US)
+                .format(java.util.Date(System.currentTimeMillis()))
             val req = DownloadManager.Request(Uri.parse(url))
                 .setTitle("Nyral $tag")
                 .setDescription("正在下载更新包")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "nyral-$tag.apk")
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "nyral-$tag-$stamp.apk")
                 .setMimeType("application/vnd.android.package-archive")
             dm.enqueue(req) >= 0
         } catch (e: Exception) {
@@ -382,43 +377,7 @@ object UpdateChecker {
         sp.edit().putLong(KEY_LAST_TOAST_AT, now).putString(KEY_LAST_TOAST_VER, version).apply()
         val app = ctx.applicationContext
         main.post {
-            Toast.makeText(app, "发现新版本 $version，可在「关于 → 检查更新」中查看更新内容", Toast.LENGTH_LONG).show()
+            Toast.makeText(app, app.getString(R.string.upd_toast_new, version), Toast.LENGTH_LONG).show()
         }
-    }
-
-    /** 用户选择「此版本不再提醒」的版本号, 无则 null。 */
-    private fun ignoredVersion(c: Context): String? =
-        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_IGNORED_VERSION, null)
-
-    private fun ignoreVersion(c: Context, version: String) {
-        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_IGNORED_VERSION, version).apply()
-    }
-
-    private fun showUpdateDialog(ctx: Context, version: String) {
-        if (ctx !is Activity) return
-        val (d, box) = Ui.dialog(ctx, "发现新版本 $version")
-        box.addView(Ui.dialogText(ctx, "检测到新版本，是否查看更新内容？"))
-        box.addView(Ui.primaryBtn(ctx, "查看更新内容") {
-            d.dismiss()
-            openPage(ctx)
-        })
-        val ignoreBtn = Ui.dialogCancelBtn(ctx, "此版本不再提醒") {
-            ignoreVersion(ctx, version)
-            d.dismiss()
-            toast(ctx, "已设置 $version 不再提醒")
-        }
-        box.addView(ignoreBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = Ui.dp(ctx, 10) })
-        val cancelBtn = Ui.dialogCancelBtn(ctx, "取消") { d.dismiss() }
-        box.addView(cancelBtn, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = Ui.dp(ctx, 10) })
-        d.show()
-    }
-
-    private fun toast(c: Context, msg: String) {
-        main.post { Toast.makeText(c, msg, Toast.LENGTH_SHORT).show() }
     }
 }

@@ -58,7 +58,7 @@ class UpdateActivity : Activity() {
                 setImageResource(R.drawable.lucide_refresh_cw)
                 setColorFilter(Ui.TEXT)
                 setPadding(dp(12), dp(8), dp(12), dp(8))
-                setOnClickListener { refresh() }
+                setOnClickListener { refresh(force = true) }
             }
             refreshBtn = btn
             bar.addView(btn)
@@ -93,8 +93,18 @@ class UpdateActivity : Activity() {
         }
     }
 
-    private fun refresh() {
+    /**
+     * 拉取最新版本详情。
+     * fix(2026-11-16): 一小时缓存此前只用于"首屏先渲染旧数据", 每次进页面仍会对两个仓库各查一次
+     * (GitHub 未带 token/ETag, 60 次/小时配额下很快就会 403 静默落回 Gitee)。
+     * 现在缓存新鲜期内直接重画缓存, 只有过期或用户主动点刷新(force=true)才走网络。
+     */
+    private fun refresh(force: Boolean = false) {
         if (loading) return
+        if (!force && cacheAt > 0 && System.currentTimeMillis() - cacheAt < UpdateChecker.CACHE_TTL_MS) {
+            render()
+            return
+        }
         loading = true
         failed = false
         spin()
@@ -213,7 +223,7 @@ class UpdateActivity : Activity() {
         }
 
         if (snap == null) {
-            val btn = Ui.lightBtn(this, getString(R.string.upd_retry)) { refresh() }
+            val btn = Ui.lightBtn(this, getString(R.string.upd_retry)) { refresh(force = true) }
             card.addView(btn, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(12)
@@ -417,7 +427,10 @@ class UpdateActivity : Activity() {
         val head = lines.first().trim()
             .trimStart('#').trim()
             .removeSurrounding("**").trim()
-            .lowercase().removePrefix("v")
+            .lowercase()
+            // fix(2026-11-16): "## v2.9.24（versionCode 137）" 这类带括注的头行剥不干净, 会让标题重复一遍
+            .substringBefore('（').substringBefore('(').trim()
+            .removePrefix("v")
         val keys = listOf(r.name, r.tag).map {
             it.trim().removeSurrounding("**").lowercase().removePrefix("v")
         }.filter { it.isNotEmpty() && !it.contains(" ") }
@@ -430,10 +443,14 @@ class UpdateActivity : Activity() {
 
     private fun dp(v: Int): Int = Ui.dp(this, v)
 
-    /** "2026-11-10T12:00:00Z" -> "2026-11-10" */
+    /** "2026-11-10T12:00:00Z" -> "2026-11-10"（按本机时区，避免东八区凌晨把发布日期显示成前一天） */
     private fun shortDate(s: String): String {
-        if (s.length >= 10) return s.substring(0, 10)
-        return s
+        // fix(2026-11-16): 原来直接截前 10 字符 = UTC 日期; 解析失败时仍退回截断
+        return runCatching {
+            // fix(2026-11-16): LocalDate.ofInstant 是 Java 9+ API, API<33 上无 desugar 会抛
+            // NoSuchMethodError(runCatching 兜住后静默退化成截断字符串)。改用 Instant.atZone
+            java.time.Instant.parse(s).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+        }.getOrElse { if (s.length >= 10) s.substring(0, 10) else s }
     }
 
     // ============================ 轻量 Markdown ============================

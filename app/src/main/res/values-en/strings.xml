@@ -944,4 +944,5 @@ For everyday chat experience</string>
     <string name="upd_empty_body">No release notes for this version</string>
     <string name="upd_download_started">Download started, see notification</string>
     <string name="upd_download_failed">Failed to start download</string>
+    <string name="upd_toast_new">New version %1$s is available. See what\'s new in About → Check updates</string>
 </resources>

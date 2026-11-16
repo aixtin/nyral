@@ -943,4 +943,5 @@
     <string name="upd_empty_body">该版本未填写更新说明</string>
     <string name="upd_download_started">已开始下载，进度见通知栏</string>
     <string name="upd_download_failed">下载启动失败，请稍后重试</string>
+    <string name="upd_toast_new">发现新版本 %1$s，可在「关于 → 检查更新」中查看更新内容</string>
 </resources>
