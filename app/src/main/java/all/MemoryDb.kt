@@ -720,15 +720,36 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         }
     }
 
-    /** 第一段回填: 本地截断占位标题(零模型成本)。已有索引不覆盖, 返回占位条数 */
+    /** 第一段回填: 本地截断占位标题(零模型成本)。只补缺口行, 已有索引不覆盖; 返回待精修条数 */
     fun backfillTitlesLocal(): Int = lock.withLock {
         writableDatabase.execSQL(
             "INSERT OR IGNORE INTO mem_index(mem_id, title, status, ts) " +
-                "SELECT id, substr(trim(content), 1, 15), 0, ts FROM memory"
+                "SELECT id, substr(trim(content), 1, 15), 0, ts FROM memory " +
+                "WHERE id NOT IN (SELECT mem_id FROM mem_index)"
         )
         readableDatabase.rawQuery(
-            "SELECT count(*) FROM mem_index WHERE status = 0", null
+            "SELECT count(*) FROM mem_index WHERE status = 0 AND anchor IS NULL", null
         ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+    }
+
+    /**
+     * 第二段回填/增量精修队列: 取仍为占位标题的索引行(anchor 为空 = 尚未被辅助AI精修),
+     * 按时间新->旧取 limit 条, 返回原文供 MemoryKeeper 逐条生成「标题|状态|触发词|锚点」。
+     */
+    fun pendingIndexRows(limit: Int = 20): List<PendingIndexRow> = lock.withLock {
+        val db = readableDatabase
+        val list = ArrayList<PendingIndexRow>()
+        db.rawQuery(
+            "SELECT m.id, m.content, m.ts FROM mem_index i " +
+                "JOIN memory m ON m.id = i.mem_id " +
+                "WHERE i.status = 0 AND i.anchor IS NULL ORDER BY i.ts DESC LIMIT ?",
+            arrayOf(limit.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                list.add(PendingIndexRow(c.getLong(0), c.getString(1) ?: "", c.getLong(2)))
+            }
+        }
+        list
     }
 
     /** 重建 summary 用: 只取 content+ts, 不反序列化向量 */
@@ -877,6 +898,9 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
 
     /** v14 索引行: 上下文注入的最小单元 */
     data class IndexRow(val memId: Long, val title: String, val status: Int, val ts: Long)
+
+    /** v14 待精修行: 带原文, 供辅助AI生成标题/状态/锚点 */
+    data class PendingIndexRow(val id: Long, val content: String, val ts: Long)
 
     /** 由时间戳格式化日期 yyyy-MM-dd；date 为空时的兜底派生 */
     private fun fmtDate(ts: Long): String =

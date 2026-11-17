@@ -63,8 +63,12 @@ object MemoryTools {
         "计算失败: ${e.message}"
     }
 
+    /** 关键词兜底命中的固定相关度(低于语义命中的常见分值, 排序时自然排在语义结果之后) */
+    private const val KEYWORD_ONLY_SCORE = 0.30f
+
     /**
-     * 双路召回: 语义相似 top3 + 关键词 LIKE 兜底
+     * 双路召回: 语义相似 top3 + 关键词 LIKE 兜底。
+     * v14: 出口带 #id 与相关度, 按相关度主序(旧版按时间重排会把"哪条最相关"抹平)
      */
     fun search(context: android.content.Context, query: String): String {
         return try {
@@ -73,33 +77,44 @@ object MemoryTools {
             val d = db!!
             val kwHits = d.searchKeyword(query.trim().take(10), 3)
 
-            val seen = HashSet<Long>()
-            val merged = ArrayList<MemoryDb.Mem>()
+            // id -> (记忆, 相关度, 是否语义命中)
+            val merged = LinkedHashMap<Long, Triple<MemoryDb.Mem, Float, Boolean>>()
             // 语义召回仅当本地模型就绪; 未就绪自动降级为关键词召回(不阻塞记忆检索)
             if (e.isReady()) {
                 try {
                     val qv = e.embed(query)
                     val scored = d.allCached().map { mem ->
-                        Triple(mem, e.cosine(qv, mem.embedding), mem.ts)
-                    }.sortedWith(compareByDescending<Triple<MemoryDb.Mem, Float, Long>> { it.second }.thenByDescending { it.third })
-                    for ((mem, _, _) in scored.take(3)) {
-                        if (seen.add(mem.id)) merged.add(mem)
+                        mem to e.cosine(qv, mem.embedding)
+                    }.sortedWith(
+                        compareByDescending<Pair<MemoryDb.Mem, Float>> { it.second }
+                            .thenByDescending { it.first.ts }
+                    )
+                    for ((mem, score) in scored.take(3)) {
+                        merged[mem.id] = Triple(mem, score, true)
                     }
                 } catch (ex: Exception) {
                     ModelUpdater.ensureDownloaded()
                 }
             }
             for (mem in kwHits) {
-                if (seen.add(mem.id)) merged.add(mem)
+                if (!merged.containsKey(mem.id)) merged[mem.id] = Triple(mem, KEYWORD_ONLY_SCORE, false)
             }
 
             if (merged.isEmpty()) return "记忆中暂无相关内容。"
-            // 冲突消解: 同主题多条记忆按时间新->旧注入, 并提示采用最新版本、旧版未覆盖细节仍有效
-            val ordered = merged.sortedByDescending { it.ts }
+            // 相关度主序: 语义命中在前, 关键词兜底在后; 同分再按时间新->旧
+            val ordered = merged.values.sortedWith(
+                compareByDescending<Triple<MemoryDb.Mem, Float, Boolean>> { it.second }
+                    .thenByDescending { it.first.ts }
+            )
             val df = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-            val sb = StringBuilder("相关记忆(多条相似记忆以时间最新为准, 旧版中未被新版覆盖的细节仍有效, 按时间新->旧):\n")
-            ordered.forEachIndexed { i, mem ->
-                sb.append("${i + 1}. [${df.format(Date(mem.ts))}] ${mem.content}\n")
+            val sb = StringBuilder(
+                "相关记忆(按相关度排序, 越靠前越相关; 同主题多条以时间最新为准, 旧版未被覆盖的细节仍有效; #编号为该记忆的全局 id):\n"
+            )
+            ordered.forEachIndexed { i, item ->
+                val mem = item.first
+                sb.append("${i + 1}. #${mem.id} [${df.format(Date(mem.ts))}] ")
+                if (item.third) sb.append("(相关度 ").append(String.format(Locale.US, "%.2f", item.second)).append(") ")
+                sb.append(mem.content).append("\n")
             }
             sb.toString().trim()
         } catch (e: Exception) {

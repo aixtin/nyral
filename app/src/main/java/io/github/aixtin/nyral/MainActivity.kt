@@ -456,6 +456,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
 
     // 记忆分级: 短期=最近KEEP条直接进上下文; 更早的交给 MemoryKeeper(辅助AI) 后台压缩
     private val KEEP = 20
+    private val INDEX_PAGE_LIMIT = 30      // 记忆索引页注入条数(约 1.2k token)
 
     // 气泡配色: AI 侧 4 色(BUBBLE_AI/BUBBLE_AI_TEXT/THINK_TEXT/THINK_BG)已随 AiBubbleHolder 提取至文件级共享
     // 用户气泡配色: 随主题刷新(onCreate 时同步)
@@ -2509,7 +2510,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
 
 
 
-    /** 中期摘要(每次实时读库, 辅助AI后台可能已更新) + 短期最近 KEEP 条; 每条消息携带时间戳(如 user[23:05]: ...)让模型建立时间观念 */
+    /** 记忆索引页(每次实时读库, 辅助AI后台可能已更新) + 短期最近 KEEP 条; 每条消息携带时间戳(如 user[23:05]: ...)让模型建立时间观念 */
     internal fun buildHistory(): String {
         summary = db.loadSummary() ?: summary
         val sb = StringBuilder()
@@ -2517,7 +2518,22 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         sb.append("[当前时间]\n")
             .append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date()))
             .append("\n\n")
-        summary?.let { sb.append("[历史摘要]\n$it\n\n") }
+        // v14: 索引页取代 summary 全量注入 —— 只注入「#id 时间 状态 标题」, 细节靠 memory_search 按需取回。
+        //      索引页尚未生成(刚升级/新装)时退回旧摘要, 避免长程记忆凭空消失。
+        val idxPage = try { db.loadIndexPage(INDEX_PAGE_LIMIT) } catch (e: Exception) { emptyList() }
+        if (idxPage.isNotEmpty()) {
+            sb.append("[记忆索引]\n")
+            for (row in idxPage) {
+                sb.append("#").append(row.memId).append(" ")
+                    .append(MemoryDb.fmtTs(row.ts)).append(" ")
+                val mark = indexStatusMark(row.status)
+                if (mark.isNotEmpty()) sb.append(mark).append(" ")
+                sb.append(row.title).append("\n")
+            }
+            sb.append("(以上为历史记忆索引, 需要具体细节时用 memory_search 检索对应主题)\n\n")
+        } else {
+            summary?.let { sb.append("[历史摘要]\n$it\n\n") }
+        }
         val recent = messages.takeLast(KEEP)
         sb.append(recent.joinToString("\n") { m ->
             // DSML 净化(2026-09-18): 剥除历史消息中的 DSML 泄漏块(含半截脏数据),
@@ -2534,6 +2550,15 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         // 注意: 不再原地截断 messages —— 否则 onStop 保存时会把被截断的列表写回数据库, 造成旧消息永久丢失。
         // 历史裁剪交给 buildHistory 的 takeLast 窗口即可, 完整历史始终保留在 messages/数据库里。
         return sb.toString()
+    }
+
+    /** 索引页状态标记: 0 未分类(不标) / 1 进行中 / 2 待办 / 3 已完成 / 4 已废弃 */
+    private fun indexStatusMark(status: Int): String = when (status) {
+        1 -> "[进行中]"
+        2 -> "[待办]"
+        3 -> "[已完成]"
+        4 -> "[已废弃]"
+        else -> ""
     }
 
     /** AI 表情标记流式掩码: 完整 [表情:名] 显示为〔表情〕占位; 跨 delta 分片的半截标记缓冲到 emojiMaskTail */
