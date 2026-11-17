@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 13) {
+class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 14) {
 
     companion object {
         const val DIM = 512
@@ -102,6 +102,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 "session_id INTEGER NOT NULL DEFAULT 0)"
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_diag_created ON diag_archive(created_at)")
+        ensureMemIndex(db)
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -269,7 +270,33 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_diag_created ON diag_archive(created_at)")
     }
 
+    /** 幂等建表: 记忆索引层(v14 新增)。与 memory 行 1:1, 删记忆经触发器级联删除 */
+    private fun ensureMemIndex(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS mem_index (" +
+                "mem_id INTEGER PRIMARY KEY," +
+                "title TEXT NOT NULL DEFAULT ''," +
+                "status INTEGER NOT NULL DEFAULT 0," +
+                "ts INTEGER NOT NULL DEFAULT 0," +
+                "anchor TEXT," +
+                "triggers TEXT)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_mem_index_order ON mem_index(status, ts DESC)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_mem_index_ts ON mem_index(ts DESC)")
+        // 删记忆级联删索引: 触发器挂在 memory 表上, 自动覆盖 delete/deleteMany/deleteBySrc/clearAll 全部路径
+        db.execSQL(
+            "CREATE TRIGGER IF NOT EXISTS trg_mem_index_del " +
+                "AFTER DELETE ON memory BEGIN " +
+                "DELETE FROM mem_index WHERE mem_id = OLD.id; END"
+        )
+        // 清理指向已不存在记忆的残留索引
+        db.execSQL("DELETE FROM mem_index WHERE mem_id NOT IN (SELECT id FROM memory)")
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 14) {
+            ensureMemIndex(db)
+        }
         if (oldVersion < 13) {
             ensureSessionKind(db)
             ensureSessionLastUsed(db)
@@ -608,6 +635,102 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         all().also { vectorCache = it }
     }
 
+    // ===== v14: 记忆索引层 mem_index 读写 =====
+
+    /** 写入/更新一条索引。title 传空串时保留原值, 便于分阶段回填 */
+    fun upsertMemIndex(
+        memId: Long,
+        title: String?,
+        status: Int?,
+        ts: Long,
+        anchor: String? = null,
+        triggers: String? = null
+    ) {
+        lock.withLock {
+            writableDatabase.execSQL(
+                "INSERT INTO mem_index(mem_id, title, status, ts, anchor, triggers) " +
+                    "VALUES(?, ?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(mem_id) DO UPDATE SET " +
+                    "title = CASE WHEN excluded.title = '' THEN title ELSE excluded.title END, " +
+                    "status = excluded.status, " +
+                    "ts = excluded.ts, " +
+                    "anchor = COALESCE(excluded.anchor, anchor), " +
+                    "triggers = COALESCE(excluded.triggers, triggers)",
+                arrayOf(memId, title ?: "", status ?: 0, ts, anchor, triggers)
+            )
+        }
+    }
+
+    /** 索引页: 上下文注入用。只读 mem_index, 不碰 memory 主表, 复杂度 O(limit) */
+    fun loadIndexPage(limit: Int = 30): List<IndexRow> {
+        lock.withLock {
+            val out = ArrayList<IndexRow>()
+            readableDatabase.rawQuery(
+                "SELECT mem_id, title, status, ts FROM mem_index WHERE title <> '' " +
+                    "ORDER BY CASE status WHEN 1 THEN 0 WHEN 2 THEN 1 WHEN 0 THEN 2 WHEN 3 THEN 3 ELSE 4 END, " +
+                    "ts DESC LIMIT ?",
+                arrayOf(limit.toString())
+            ).use { c ->
+                while (c.moveToNext()) {
+                    out.add(IndexRow(c.getLong(0), c.getString(1), c.getInt(2), c.getLong(3)))
+                }
+            }
+            return out
+        }
+    }
+
+    /** 按 id 取全文: 第二轮"回取详情"用 */
+    fun getByIds(ids: List<Long>): List<Mem> {
+        if (ids.isEmpty()) return emptyList()
+        lock.withLock {
+            val out = ArrayList<Mem>()
+            val ph = ids.joinToString(",") { "?" }
+            readableDatabase.rawQuery(
+                "SELECT id, content, ts, embedding, session_title, src_session_id, src_msg_no " +
+                    "FROM memory WHERE id IN ($ph)",
+                ids.map { it.toString() }.toTypedArray()
+            ).use { c ->
+                while (c.moveToNext()) {
+                    out.add(Mem(
+                        id = c.getLong(0),
+                        content = c.getString(1),
+                        ts = c.getLong(2),
+                        embedding = BytesToFloatArray(c.getBlob(3)),
+                        sessionTitle = if (c.isNull(4)) null else c.getString(4),
+                        srcSessionId = if (c.isNull(5)) null else c.getLong(5),
+                        srcMsgNo = if (c.isNull(6)) null else c.getInt(6)
+                    ))
+                }
+            }
+            return out
+        }
+    }
+
+    /** 索引缺口: 有记忆但无索引的条数 */
+    fun indexGapCount(): Int = lock.withLock {
+        readableDatabase.rawQuery(
+            "SELECT count(*) FROM memory WHERE id NOT IN (SELECT mem_id FROM mem_index)", null
+        ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+    }
+
+    /** 索引总条数 */
+    fun indexCount(): Int = lock.withLock {
+        readableDatabase.rawQuery("SELECT count(*) FROM mem_index", null).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+    }
+
+    /** 第一段回填: 本地截断占位标题(零模型成本)。已有索引不覆盖, 返回占位条数 */
+    fun backfillTitlesLocal(): Int = lock.withLock {
+        writableDatabase.execSQL(
+            "INSERT OR IGNORE INTO mem_index(mem_id, title, status, ts) " +
+                "SELECT id, substr(trim(content), 1, 15), 0, ts FROM memory"
+        )
+        readableDatabase.rawQuery(
+            "SELECT count(*) FROM mem_index WHERE status = 0", null
+        ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+    }
+
     /** 重建 summary 用: 只取 content+ts, 不反序列化向量 */
     fun allContents(): List<ContentRow> {
         lock.withLock {
@@ -751,6 +874,9 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
 
     /** 重建 summary 用的轻量行(不带 embedding, 避免无谓反序列化) */
     data class ContentRow(val content: String, val ts: Long)
+
+    /** v14 索引行: 上下文注入的最小单元 */
+    data class IndexRow(val memId: Long, val title: String, val status: Int, val ts: Long)
 
     /** 由时间戳格式化日期 yyyy-MM-dd；date 为空时的兜底派生 */
     private fun fmtDate(ts: Long): String =
