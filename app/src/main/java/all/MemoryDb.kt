@@ -197,6 +197,12 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         ensureSessionLastUsed(db)
         // 幂等兜底：体检档案表(v13)，缺失则补齐
         ensureDiagArchive(db)
+        // 幂等兜底：记忆索引层(v14)。ensureMemIndex 内部含全表残留清理，代价高，
+        // 故仅在表缺失时补建；表已存在则跳过，避免每次启动扫全表。
+        val hasMemIndex = db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='mem_index'", null
+        ).use { it.moveToNext() }
+        if (!hasMemIndex) ensureMemIndex(db)
 
         // 体检会话退场(2026-10-30): 「手机体检」改为只读设备面板, 历史 kind=2 会话降级为普通会话,
         // 不再单独分组; 档案表保留(空表无害), 老报告仍可查
