@@ -64,7 +64,37 @@ object MemoryTools {
     }
 
     /** 关键词兜底命中的固定相关度(低于语义命中的常见分值, 排序时自然排在语义结果之后) */
+    // 余弦阈值门: 校准完成前保持 false, 只埋点不拦截 RECALLSRC_V1
+    private const val COS_GATE_ENABLED = false
+    private const val MIN_COS = 0.55f
     private const val KEYWORD_ONLY_SCORE = 0.30f
+
+    // ===== 本轮检索来源记录(甲方案: 仅内存, 重启即失效) ===== RECALLSRC_V1
+    data class Recalled(val memId: Long, val score: Float, val keywordOnly: Boolean, val snippet: String)
+    private val roundHits = LinkedHashMap<Long, Recalled>()
+
+    /** 最近一次检索的最高余弦分(供 MemoryGate 判断是否值得注入) RECALLSRC_V1 */
+    @Volatile
+    var lastTopScore = 0f
+        private set
+
+    @Synchronized
+    fun beginRound() {
+        roundHits.clear()
+    }
+
+    @Synchronized
+    fun collectRound(list: List<Recalled>) {
+        for (r in list) if (!roundHits.containsKey(r.memId)) roundHits[r.memId] = r
+    }
+
+    @Synchronized
+    fun takeRound(): List<Recalled> {
+        val out = roundHits.values.toList()
+        roundHits.clear()
+        return out
+    }
+
 
     /**
      * 双路召回: 语义相似 top3 + 关键词 LIKE 兜底。
@@ -110,7 +140,20 @@ object MemoryTools {
             val sb = StringBuilder(
                 "相关记忆(按相关度排序, 越靠前越相关; 同主题多条以时间最新为准, 旧版未被覆盖的细节仍有效; #编号为该记忆的全局 id):\n"
             )
-            ordered.forEachIndexed { i, item ->
+            val gated = if (COS_GATE_ENABLED) ordered.filter { it.third || it.second >= MIN_COS } else ordered
+            val _top = ordered.maxOfOrNull { it.second } ?: 0f
+            val _min = ordered.minOfOrNull { it.second } ?: 0f
+            lastTopScore = _top
+            LogStore.i(LogStore.MEM, "[recall] q=" + query.take(20) + " hits=" + gated.size + "/" + ordered.size +
+                " top=" + String.format(java.util.Locale.US, "%.3f", _top) +
+                " min=" + String.format(java.util.Locale.US, "%.3f", _min) +
+                " gate=" + (if (COS_GATE_ENABLED) "on" else "off"))
+            // 记录本轮命中, 供长按弹窗展示来源 RECALLSRC_V1
+            collectRound(gated.map { item ->
+                Recalled(item.first.id, item.second, !item.third,
+                    item.first.content.take(24).replace("\n", " "))
+            })
+            gated.forEachIndexed { i, item ->
                 val mem = item.first
                 sb.append("${i + 1}. #${mem.id} [${df.format(Date(mem.ts))}] ")
                 if (item.third) sb.append("(相关度 ").append(String.format(Locale.US, "%.2f", item.second)).append(") ")

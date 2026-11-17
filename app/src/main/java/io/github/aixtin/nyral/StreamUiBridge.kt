@@ -190,6 +190,17 @@ internal class StreamUiBridge(
                     if (!session.isCurrent(epoch)) return@launch
                     drain(holder, epoch)   // 收尾前排空合帧缓冲: 排队中的思考/正文增量先上屏
                     // 2026-11-06: onStop/onDestroy 可能已落过草稿条, 先摘掉再由下面的正常路径写完整回复
+                    // 本轮检索来源摘要(甲方案: 仅内存) RECALLSRC_V1
+                    val roundSrc: String? = MemoryTools.takeRound().let { rs ->
+                        if (rs.isEmpty()) null else {
+                            val top = rs.maxOf { it.score }
+                            val hasVec = rs.any { !it.keywordOnly }
+                            "来源 · 本轮命中 " + rs.size + " 条记忆" +
+                                (if (hasVec) "（最高相关度 " + String.format(java.util.Locale.US, "%.2f", top) + "）" else "（关键词匹配）")
+                        }
+                    }
+                    activity.activeRecallSource = roundSrc
+                    roundSrc?.let { activity.recallSourceBySeq[activity.messages.size.toLong()] = it }
                     activity.discardStreamingDraft()
                     session.setAiStage(0)
                     session.setContentFollow(false)

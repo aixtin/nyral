@@ -15,6 +15,7 @@ import android.widget.Toast
         cancelActiveRequest(LocalEngine.CancelReason.SESSION_SWITCH)
         maybeSaveCurrent()
         messages.clear()
+        MemoryGate.resetSession() // RECALLSRC_V1:ms.reset
         sessionBaseSeq = 0
         chatRows.clear(); chatAdapter.notifyDataSetChanged()
         currentSaved = true
@@ -40,6 +41,7 @@ import android.widget.Toast
             cancelActiveRequest(LocalEngine.CancelReason.SESSION_SWITCH)
             maybeSaveCurrent()
             messages.clear()
+            MemoryGate.resetSession() // RECALLSRC_V1:ms.reset
             sessionBaseSeq = 0
             chatRows.clear(); chatAdapter.notifyDataSetChanged()
             currentSaved = true
@@ -69,6 +71,7 @@ import android.widget.Toast
             sessionBaseSeq = total - MEM_WINDOW
             db.loadSessionMessagesTail(id, MEM_WINDOW)
         } else {
+            MemoryGate.resetSession() // RECALLSRC_V1:ms.reset
             sessionBaseSeq = 0
             db.loadSessionMessages(id)
         }
@@ -116,6 +119,7 @@ import android.widget.Toast
                     if (locateSeq < sessionBaseSeq) {
                         Toast.makeText(this, R.string.toast_loaded_far_history, Toast.LENGTH_LONG).show()
                         // 窗口外命中: 临时全量加载该会话(仅本次, 定位后恢复窗口)
+                        MemoryGate.resetSession() // RECALLSRC_V1:ms.reset
                         sessionBaseSeq = 0
                         val full = db.loadSessionMessages(id)
                         messages.clear(); messages.addAll(full)
@@ -220,6 +224,7 @@ import android.widget.Toast
                 if (sid != null) LogStore.i(LogStore.MAIN, "当前会话已不存在 id=" + sid + ", 另起新会话承载本次内容")
                 // 新建会话的 seq 从 0 起(内存里可能只是长会话的后半窗口), baseSeq 必须归零
                 currentSessionId = db.saveSession(title, messages, mode)
+                MemoryGate.resetSession() // RECALLSRC_V1:ms.reset
                 sessionBaseSeq = 0
             }
             currentSessionTitle = title

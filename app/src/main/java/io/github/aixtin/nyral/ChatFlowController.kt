@@ -26,6 +26,7 @@ internal class ChatFlowController(
     internal fun doSend(attachments: List<LocalEngine.Attachment>) {
         val text = activity.input.text.toString().trim()
         android.util.Log.i("Nyral", "onSend textLen=${text.length} aiBusy=${session.aiBusy} attachments=${attachments.size} (M6 脱敏)")
+        MemoryTools.beginRound() // RECALLSRC_V1
         if (text.isEmpty() && attachments.isEmpty()) return
         if (session.aiBusy) {
             Toast.makeText(activity, R.string.toast_ai_typing, Toast.LENGTH_SHORT).show()

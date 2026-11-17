@@ -24,13 +24,37 @@ object MemoryGate {
      * 轮首: 判断 + 检索, 返回可注入主请求的记忆参考文本; 无需翻记忆(判断 NO / 检索无命中 / 异常)返回 null。
      * @param recent 近期对话尾部(建议 1200~1500 字符), 含最新用户问题的语境
      */
+    /** 会话轮次计数: 新会话前 FORCE_TURNS 轮强制检索(跳过辅助模型判断, 省一次调用) RECALLSRC_V1 */
+    @Volatile
+    private var turnInSession = 0
+
+    private const val FORCE_TURNS = 3
+    /** 前 FORCE_TURNS 轮: 命中分不足到此值时不注入正文, 交给上下文里的[记忆索引]兜底 RECALLSRC_V1 */
+    private const val FORCE_MIN_TOP = 0.55f
+
+    /** 新建/切换会话时清零轮次 */
+    fun resetSession() {
+        turnInSession = 0
+    }
+
     fun recall(context: Context, recent: String): String? {
         return try {
-            val need = judge(context, recent) ?: return null
-            if (!need.first) return null
-            val query = need.second.ifBlank { lastUserText(recent) }
+            val turn = synchronized(this) { ++turnInSession }
+            val query: String
+            if (turn <= FORCE_TURNS) {
+                query = lastUserText(recent)
+                android.util.Log.i("MemoryGate", "前 " + FORCE_TURNS + " 轮强制检索 turn=" + turn)
+            } else {
+                val need = judge(context, recent) ?: return null
+                if (!need.first) return null
+                query = need.second.ifBlank { lastUserText(recent) }
+            }
             val hits = MemoryTools.search(context, query)
             if (hits.isBlank() || hits.startsWith("记忆中暂无") || hits.startsWith("记忆检索失败")) return null
+            if (turn <= FORCE_TURNS && MemoryTools.lastTopScore < FORCE_MIN_TOP) { // RECALLSRC_V1
+                android.util.Log.i("MemoryGate", "前 " + FORCE_TURNS + " 轮命中分不足, 不注入 top=" + MemoryTools.lastTopScore)
+                return null
+            }
             "$REF_PREFIX(可能相关,以对话为准):\n$hits"
         } catch (e: Exception) {
             android.util.Log.w("MemoryGate", "recall 降级为 NO: ${e.message}")

@@ -194,6 +194,9 @@ class MainActivity : Activity() {
     // role, content, thinking(assistant 思考内容, 持久化到会话以便切回时恢复思考区), tools(工具调用序列 JSON)
     private var lastModeValue = -1
     internal val messages = mutableListOf<MemoryDb.SessionMsg>()
+    // 记忆来源标记(甲方案: 仅内存, 重启即失效); key = messages 内索引 RECALLSRC_V1
+    internal var activeRecallSource: String? = null
+    internal val recallSourceBySeq = HashMap<Long, String>()
     /** 超长会话内存瘦身: 仅最近 WINDOW 条消息载入内存渲染, 更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担 */
     internal val MEM_WINDOW = 150
     /** 单附件本地解析文本注入上限(字符): 超过截断防单条请求 token 突增 */
@@ -4241,7 +4244,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     /** AiRich 行池化绑定（09-28 第二波）：复用外层容器 View 树，先回收旧子树再原地填充 */
     private fun bindAiRichPooled(container: LinearLayout, row: ChatRow.AiRich) {
         recycleAiRichChildren(container)
-        fillAiRich(container, row.thinking, row.content, row.tools, row.timeline, row.rendered) { spanned -> writeBackRendered(row.id, spanned) }
+        fillAiRich(container, row.thinking, row.content, row.tools, row.timeline, row.rendered, { spanned -> writeBackRendered(row.id, spanned) }, row.id) // RECALLSRC_V1
 
     }
 
@@ -4277,7 +4280,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
 
 
     /** AiRich 容器原地填充（原 aiBubbleWithThinking apply 体）：分片 TextView/AI 头像/chatWrap 从池取用 */
-    private fun fillAiRich(container: LinearLayout, thinking: String, content: String, toolsJson: String, timelineJson: String, rendered: String = "", writeback: ((Spanned) -> Unit)? = null) {
+    private fun fillAiRich(container: LinearLayout, thinking: String, content: String, toolsJson: String, timelineJson: String, rendered: String = "", writeback: ((Spanned) -> Unit)? = null, rowSeq: Long = -1L) { // RECALLSRC_V1
         // 正文独立气泡(浅色背景, 不折叠), 与流式 appendContent 一致; 阶段2 分片: 超长正文按段落切多段渲染
         // 方案B(2026-10-01): 含表格的消息走块化(独立 MdTableView), 不再走 markwon span 表格
         /** 历史正文 TextView 池化获取(含池复用清理) */
@@ -4321,7 +4324,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     // 长按复制(2026-10-02): 与流式块化一致, 长按弹原文本对话框
                     setOnLongClickListener {
                         if (activeAiHolder?.hasActiveTypewriter() == true) return@setOnLongClickListener false
-                        openRawText(seg)
+                        openRawText(seg, recallSourceBySeq[(rowSeq - sessionBaseSeq)]) // RECALLSRC_V1
                         true
                     }
                     isLongClickable = true
@@ -4807,7 +4810,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     }
 
     /** "原文本模式"对话框: 只读展示原始文本, 支持长按/手柄自由选择复制片段 */
-    internal fun openRawText(text: String) {
+    internal fun openRawText(text: String, source: String? = activeRecallSource) { // RECALLSRC_V1
         val tv = TextView(this).apply {
             this.text = text
             textSize = 14f
@@ -4824,12 +4827,29 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             setColor(Ui.INPUT_BG)
         }
         val scroll = ScrollView(this).apply {
-            background = bg
-            addView(tv)
+            addView(tv) // 背景上移到 panel, 避免圆角叠加 RECALLSRC_V1
         }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = bg
+        }
+        val src = source?.trim().orEmpty()
+        if (src.isNotEmpty()) {
+            val title = TextView(this).apply {
+                this.text = src
+                textSize = 12f
+                setTextColor((Ui.TEXT and 0x00FFFFFF) or 0x99000000.toInt())
+                setPadding(dp(14), dp(10), dp(14), 0)
+                maxLines = 2
+            }
+            panel.addView(title, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        panel.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         val d = Dialog(this)
         d.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        d.setContentView(scroll)
+        d.setContentView(panel)
         d.window?.apply {
             setBackgroundDrawable(ColorDrawable(0))
             setLayout(
