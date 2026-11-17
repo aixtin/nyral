@@ -310,7 +310,8 @@ class NyralApp : Application() {
                 sb.append("-- ").append(t.name).append(" (daemon=").append(t.isDaemon).append(") --\n")
                 st.forEach { sb.append("\tat ").append(it).append('\n') }
             }
-            sb.append("recent log:\n").append(recentLogs())
+            sb.append("recent log:\n").append(recentLogs()).append('\n')
+            sb.append(FrameStats.snapshot("main")).append('\n')
             val dir = File(filesDir, "crash")
             dir.mkdirs()
             val f = File(dir, "anr_" + System.currentTimeMillis() + ".txt")
@@ -327,6 +328,12 @@ class NyralApp : Application() {
         f.writeText(text)
     }
 
+    /** 手动触发待发日志上传(2026-11-17): 诊断面板导出帧统计后立刻走一次, 不必等下次冷启动 */
+    fun requestUploadNow() {
+        try { exportPendingCrashes() } catch (ignored: Throwable) { }
+    }
+
+
     private fun exportPendingCrashes() {
         // 单后台线程: 先上传云端(成功删源), 再对剩余源文件导出公共副本(失败保留源, 下次冷启动重试上传)
         Thread {
@@ -335,7 +342,7 @@ class NyralApp : Application() {
             try {
                 val dir = File(filesDir, "crash")
                 val marked = getSharedPreferences("crash_export", MODE_PRIVATE)
-                var files = dir.listFiles()?.filter { it.isFile && (it.name.startsWith("crash_") || it.name.startsWith("anr_")) && it.name.endsWith(".txt") } ?: return@Thread
+                var files = dir.listFiles()?.filter { it.isFile && (it.name.startsWith("crash_") || it.name.startsWith("anr_") || it.name.startsWith("frame_")) && it.name.endsWith(".txt") } ?: return@Thread
                 if (files.isEmpty()) return@Thread
                 // 1) 上传: 成功删源+标记; 失败保留源
                 for (f in files) {
@@ -348,7 +355,7 @@ class NyralApp : Application() {
                     }
                 }
                 // 2) 剩余源(上传失败/未尝试)导出副本到公共 Download/nyral_crash 供用户手动取, 不删源
-                files = dir.listFiles()?.filter { it.isFile && (it.name.startsWith("crash_") || it.name.startsWith("anr_")) && it.name.endsWith(".txt") } ?: return@Thread
+                files = dir.listFiles()?.filter { it.isFile && (it.name.startsWith("crash_") || it.name.startsWith("anr_") || it.name.startsWith("frame_")) && it.name.endsWith(".txt") } ?: return@Thread
                 for (f in files) {
                     val key = "done_" + f.name
                     if (marked.getBoolean(key, false)) continue

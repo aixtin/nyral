@@ -2148,6 +2148,8 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         }
         // 从设置/模型配置"保存并应用"返回: 图标按钮无需刷新文字, 仅重刷背景
         applyChatBackground()
+        // 帧统计(self-drawn frame metrics, 2026-11-17): 无 ADB 设备诊断绘制卡顿
+        FrameStats.attach(window, "main")
         // 从模型配置页返回: 手动模型能力勾选可能变化, 重刷语音切换按钮显隐
         refreshVoiceButton()
         // 状态带随模型/上下文变化刷新(从模型配置页返回也能立即对上)

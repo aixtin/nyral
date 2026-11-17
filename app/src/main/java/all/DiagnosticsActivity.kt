@@ -29,10 +29,10 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
-import android.widget.Toast
 import org.json.JSONObject
 import kotlin.math.floor
 import kotlin.math.log10
@@ -92,6 +92,8 @@ class DiagnosticsActivity : Activity() {
         setContentView(buildRoot())
         darkSystemBars()
         loadProfile()
+        // 帧统计挂到诊断页窗口(2026-11-17): 无 ADB 设备只能 App 内自采
+        FrameStats.attach(window, "diag")
     }
 
     override fun onResume() {
@@ -167,6 +169,20 @@ class DiagnosticsActivity : Activity() {
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(TXT)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        bar.addView(TextView(this).apply {
+            text = "帧统计"
+            textSize = 13f
+            setTextColor(ACCENT)
+            setPadding(dpi(10), dpi(6), dpi(10), dpi(6))
+            background = roundBg(ACCENT_BG, 999)
+            isClickable = true
+            Ui.press(this)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dpi(6)
+            }
+            setOnClickListener { exportFrameStats() }
         })
         bar.addView(TextView(this).apply {
             text = "复制快照"
@@ -705,6 +721,20 @@ class DiagnosticsActivity : Activity() {
     private fun timeNow(): String {
         val d = java.util.Date()
         return java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(d)
+    }
+
+    /** 导出帧统计(2026-11-17): 取聊天页渲染帧耗时分布, 写完立刻触发一次上传 */
+    private fun exportFrameStats() {
+        val main = FrameStats.count("main")
+        val tag = if (main >= 10) "main" else "diag"
+        val f = FrameStats.writeReport(this, tag)
+        android.util.Log.i("NyralFrame", "export " + (f?.name ?: "null") + " tag=" + tag + " samples=" + FrameStats.count(tag))
+        if (f == null) {
+            Toast.makeText(this, "帧统计写入失败", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try { (application as? NyralApp)?.requestUploadNow() } catch (ignored: Throwable) { }
+        Toast.makeText(this, "已导出 " + f.name + " (samples=" + FrameStats.count(tag) + ")", Toast.LENGTH_LONG).show()
     }
 
     private fun copySnapshot() {
