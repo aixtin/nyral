@@ -262,7 +262,9 @@ object Diagnostics {
         val am = c.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
             ?: return Result("crash", "崩溃与异常退出", 0, false, "读取失败", error = "无法获取 ActivityManager")
         val list = try {
+            // 2026-11-17: 只取主进程, 排除 WebView sandboxed_process 等 isolated 子进程的退出记录
             am.getHistoricalProcessExitReasons(c.packageName, 0, 10)
+                .filter { it.processName == c.packageName }
         } catch (t: Throwable) {
             return Result("crash", "崩溃与异常退出", 0, false, "读取失败", error = t.message ?: "查询异常")
         }

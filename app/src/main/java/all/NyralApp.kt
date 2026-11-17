@@ -131,7 +131,8 @@ class NyralApp : Application() {
                     LogStore.i("NYRAL", "上次退出属正常原因(" + exitReasonName(info.reason) + "), 不上报")
                     return
                 }
-                exitDetail = "exit_reason: " + info.reason + " (" + exitReasonName(info.reason) + ")\n" +
+                exitDetail = "exit_process: " + (info.processName ?: "-") + "\n" +
+                        "exit_reason: " + info.reason + " (" + exitReasonName(info.reason) + ")\n" +
                         "exit_timestamp_epoch_ms: " + info.timestamp + "\n" +
                         "exit_importance: " + info.importance + "\n" +
                         "exit_rss_kb: " + info.rss + "\n" +
@@ -167,21 +168,28 @@ class NyralApp : Application() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         return try {
             val am = getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return null
-            am.getHistoricalProcessExitReasons(packageName, 0, 10).maxByOrNull { it.timestamp }
+            // 2026-11-17: 按包名查询会带回本包所有进程的退出历史。WebView 渲染子进程是 isolated 进程
+            // (com.android.webview:sandboxed_process0...), 系统空闲回收时记 importance=300、
+            // description="isolated not needed", 原先未过滤 processName, 导致线上 20 条被误判成
+            // 主进程异常退出。这里只认主进程(进程名 == 包名)的退出记录。
+            am.getHistoricalProcessExitReasons(packageName, 0, 10)
+                .filter { it.processName == packageName }
+                .maxByOrNull { it.timestamp }
         } catch (e: Exception) {
             null
         }
     }
 
-    /** 只有这些退出原因才算"需要上报的异常消失" */
+    /** 只有这些退出原因才算"需要上报的异常消失"。2026-11-17: 移除 REASON_OTHER —— 线上 20 条
+     *  全是 isolated 子进程回收(description="isolated not needed")顶着 OTHER 混进来; 主进程若被
+     *  其它原因杀掉, description 会写明实际情形, 不再靠 OTHER 兜底, 宁缺毋滥。 */
     private fun isAbnormalExit(reason: Int): Boolean = when (reason) {
         android.app.ApplicationExitInfo.REASON_CRASH,
         android.app.ApplicationExitInfo.REASON_CRASH_NATIVE,
         android.app.ApplicationExitInfo.REASON_ANR,
         android.app.ApplicationExitInfo.REASON_LOW_MEMORY,
         android.app.ApplicationExitInfo.REASON_SIGNALED,
-        android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE,
-        android.app.ApplicationExitInfo.REASON_OTHER -> true
+        android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> true
         else -> false
     }
 
