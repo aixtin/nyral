@@ -73,7 +73,11 @@ object WorkDir {
                 arrayOf("/storage/emulated/0/Download/Nyral_work"),
                 null
             ) { _, uri -> if (uri != null) indexed.set(true); latch.countDown() }
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            // 2026-11-17: 主线程禁止同步等待——scanFile 回调经主线程 Handler 投递，
+            // 主线程 await 时回调永远排队，只能等满 timeout 才返回，冷启动必触发 ANR
+            if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+                latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            }
         } catch (_: Exception) {
             latch.countDown()
         }
