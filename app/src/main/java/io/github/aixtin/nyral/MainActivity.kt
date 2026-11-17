@@ -276,6 +276,8 @@ class MainActivity : Activity() {
     internal lateinit var dockContent: LinearLayout
     /** 最近一次键盘高度(px): 档位B基准, 键盘收回后小抽屉按键盘高度档展开 */
     internal var imeHeightField = 0
+    /** API29-: ADJUST_RESIZE 下系统不派发 IME inset, 用 bodyWrap 高度差反推的键盘高(px) */
+    internal var legacyImeH = 0
     /** 上次推给 chatRec 的底部让位值(px): 用于同帧去重, 避免每帧重复 setPadding 触发多余布局 */
     internal var lastBottomPadH = -1
     /** alignChatToViewport 合并标记: 掉帧时后续帧不再排队 post, 防滚动补偿堆积成"先掉后顶" */
@@ -586,7 +588,18 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         // 键盘模式: 全局 adjustNothing, 窗口永不被键盘压缩;
         // 通过 WindowInsets.ime()(API30+) 精确取键盘高度, 手动驱动 bodyWrap 平移上移(同微信),
         // 标题栏与背景(挂 root.background)不动。adjustResize 下窗口被系统压缩, ime insets 会被吸收为0无法检测
-        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        // 键盘模式分版本: API30+ 有 WindowInsets.Type.ime(), 窗口保持 adjustNothing(不被压缩),
+        // 由我们自己按 insets 精确压缩 bodyWrap(见 setupKeyboardInsets);
+        // Android 10 及以下拿不到 ime insets(实测 ADJUST_NOTHING 下 getWindowVisibleDisplayFrame 也不变),
+        // 只能把让位交回系统: adjustResize 让窗口被键盘缩短, bodyWrap 权重自适应变矮, 输入栏自然贴键盘顶。
+        // 背景挂独立 bgLayer 并已锁定全屏高度, 窗口压缩时壁纸不会跟着抬起。
+        window.setSoftInputMode(
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            } else {
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            }
+        )
         window.statusBarColor = Ui.SURFACE
         window.navigationBarColor = Ui.SURFACE
         // 状态栏/导航栏图标明暗随主题底亮度自适应: 浅底深图标, 深底浅图标
@@ -1454,7 +1467,16 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         }
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
+    // 旧系统(Android 10-)走 adjustResize: 键盘让位由系统压缩窗口实现, bodyWrap 权重自适应变矮。
+    // 视口高度变化后按新视口贴底, 语义与 API30 的键盘压缩路径一致(否则键盘弹起后消息不跟随)
+    if (Build.VERSION.SDK_INT < 30) {
+        bodyWrap.addOnLayoutChangeListener { v, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) {
+                bodyWrap.post { alignChatToViewport() }
+            }
+        }
+        setupLegacyImeBridge()
+    }
         // 左侧抽屉: 遮罩 + 面板
         drawerMask = View(this).apply {
             setBackgroundColor(Color.parseColor("#66000000"))
@@ -1651,6 +1673,134 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             }
         })
     }
+    /** API29 及以下: ADJUST_RESIZE 只压缩窗口、不派发 IME inset, 应用侧拿不到键盘高度信号。
+     * 这里用 decorView 高度差(fullH - curH)反推键盘高, 补上 API30+ 的 imeH 语义(否则表情抽屉的
+     * 键盘/抽屉互斥公式、键盘态判断全部失效: 抽屉收不回、与输入法上下重叠)。
+     * 1) 键盘弹起 -> 记录 imeHeightField, 并无条件收起表情区(等价 API30 的 startEmojiDropSync)
+     * 2) 键盘收起且抽屉待展开 -> 撑起表情区(等价 API30 的 startEmojiPopSync)
+     * 3) 视口变化后末条贴底(窗口被压缩后消息需跟随上移) */
+    private fun setupLegacyImeBridge() {
+        if (Build.VERSION.SDK_INT >= 30) return
+        // 键盘信号源: bodyWrap 高度。
+        // 实测(AEmulator API29): ADJUST_RESIZE 下 decorView.height 恒为 960 不跟随 resize,
+        // 真正被压缩的是 bodyWrap(权重吃满窗口剩余高), 因此只能用子视图高度反推键盘高。
+        // bodyWrap 变矮 -> 键盘顶起; 复原 -> 键盘收回。
+        var bodyFullH = 0
+        var lastBodyH = -1
+        bodyWrap.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val bh = bottom - top
+            if (bh <= 0) return@addOnLayoutChangeListener
+            if (bh > bodyFullH) bodyFullH = bh
+            if (bh == lastBodyH) return@addOnLayoutChangeListener
+            lastBodyH = bh
+            val kb = (bodyFullH - bh).coerceAtLeast(0)
+            if (Math.abs(kb - legacyImeH) > dp(4)) {
+                val prev = legacyImeH
+                legacyImeH = kb
+                onLegacyImeChanged(prev, kb)
+            }
+        }
+        installDrawerPreDrawGuard()
+    }
+
+    /** fix(11-17): 键盘->抽屉切换的最后一帧补洞。
+     * addOnLayoutChangeListener 只能"布局完成后"改高度, 改完要等下一帧才布局,
+     * 那一帧里窗口已复原(dock 掉到屏幕底)、抽屉仍是 0 高 -> 用户看到"先掉到底部再弹上来"。
+     * 在 onPreDraw(本帧绘制前)发现这种不一致就先把抽屉撑到位并 return false 取消本帧绘制,
+     * 中间态一帧都不给渲染。 */
+    private var preDrawSkipAt = 0L
+    private var preDrawSkipRun = 0
+
+    private fun installDrawerPreDrawGuard() {
+        if (Build.VERSION.SDK_INT >= 30) return
+        val vto = window.decorView.viewTreeObserver
+        vto.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val d = emojiDrawer ?: return true
+                if (!emojiOpen || d.visibility != View.VISIBLE) return true
+                if (legacyImeH > dp(4)) {
+                    // 键盘已在本帧生效: 抽屉必须同帧让位, 否则"键盘 + 满高抽屉"会把输入栏挤出屏幕。
+                    // 跳过超过 2 帧就放行, 防 setEmojiDrawerHeight 不生效时卡住不绘制。
+                    if (d.visibility == View.VISIBLE && d.height > dp(1) && emojiDrawerHAnim?.isRunning != true) {
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - preDrawSkipAt < 40) preDrawSkipRun++ else preDrawSkipRun = 1
+                        preDrawSkipAt = now
+                        if (preDrawSkipRun <= 2) {
+                            setEmojiDrawerHeight((emojiDrawerKbH - legacyImeH).coerceAtLeast(0))
+                            return false
+                        }
+                    }
+                    return true            // 键盘还在, 由互斥公式逐帧跟随
+                }
+                val tgt = emojiDrawerTargetH.coerceAtLeast(dp(160))
+                if (d.height >= tgt - dp(4)) return true        // 已到位
+                if (emojiDrawerHAnim?.isRunning == true) return true
+                setEmojiDrawerHeight(tgt)
+                return false                                    // 本帧不绘制, 下一帧直接是到位态
+            }
+        })
+    }
+
+    private fun onLegacyImeChanged(prev: Int, kb: Int) {
+        val nowUp = kb > dp(80)
+        if (nowUp) {
+            imeHeightField = kb
+            // 纯键盘路径贴底: ADJUST_RESIZE 下窗口被压缩 (kb-prev), RecyclerView 保持旧滚动锚点,
+            // 末条会被裁在键盘下方(现场即"直接点输入框, 消息不上移"; 只有抽屉路径因改 padding 才带动)。
+            // 按压缩量直接补偿滚动, 与 API30 的 onProgress 逐帧压缩驱动同语义。
+            compensateViewportChange(kb - prev)
+        }
+        val d = emojiDrawer
+        if (nowUp) {
+            // 键盘顶起: 表情区必须无条件收起, 否则抽屉与输入法上下重叠(API30 的 dropSync 语义)
+            if (emojiOpen || (d != null && d.visibility == View.VISIBLE && d.height > dp(1))) {
+                emojiOpen = false
+                emojiDropPending = false
+                emojiDrawerHAnim?.cancel(); emojiDrawerHAnim = null
+                if (d != null) {
+                    setEmojiDrawerHeight(0)
+                    d.visibility = View.GONE
+                }
+            }
+        } else if (emojiOpen && d != null && d.visibility == View.VISIBLE) {
+            // fix(11-17): 键盘->抽屉切换零位移。
+            // 旧实现等键盘收完再 startEmojiPopAnim(180) 长高: ADJUST_RESIZE 的窗口复原是单帧瞬时的,
+            // 抽屉却要 180ms 才长回来 -> 中间若干帧 输入框跟着窗口掉到屏幕最底, 抽屉长高再把它顶回去
+            // (= 用户看到的"抽屉先掉到底部再弹上来")。
+            // 改为一体式互斥逐帧跟随: 抽屉高 = 基准键盘高 - 当前键盘高,
+            // 则 dock 位置 = 窗口高 - 键盘高 - 抽屉高 = 常量, 全程零位移, 无中间态可抖。
+            emojiDrawerHAnim?.cancel(); emojiDrawerHAnim = null
+            val popTarget = emojiDrawerTargetH.coerceAtLeast(dp(160))
+            val h = (emojiDrawerKbH - kb).coerceIn(0, popTarget)
+            setEmojiDrawerHeight(h)
+            if (kb <= dp(4)) {
+                setEmojiDrawerHeight(popTarget)
+                d.post {
+                    alignChatToViewport()
+                    if (!scrollUserScrolled) scrollToBottom(auto = false, force = true)
+                }
+            }
+        }
+        // 窗口压缩/复原后按新视口贴底(布局稳定后再校一次, 防 RecyclerView 仍处 SETTLING 被跳过)
+        chatRec.post { alignChatToViewport() }
+        chatRec.postDelayed({ alignChatToViewport() }, 80)
+    }
+
+    /** 视口变矮 delta px 后按同量上移内容(末条仍在可视区才跟随, 用户翻历史时不打扰)。
+     * 用"压缩量直接补偿"而不是回读 lv.bottom 算 gap: 布局尚未完成时 lv.bottom 仍是旧值,
+     * gap 会算成 0 从而漏滚 —— 这正是"直接点输入框弹键盘, 消息不上移"的现场。 */
+    internal fun compensateViewportChange(delta: Int) {
+        val lastPos = (chatRec.adapter?.itemCount ?: 0) - 1
+        if (lastPos < 0) return
+        if (scrollUserScrolled) return
+        // 关键: 内容比视口短时 RV 没有滚动余量, 按 dlta 推算的 scrollBy 会等于空操作
+        // (末条被键盘裁掉 = "消息不跟着推上去")。统一改用 scrollToBottom 的 preDraw 精确对齐:
+        // 布局完成后以末条子 View 底边与视口底(paddingBottom 之上)的真实像素差一次拉齐。
+        if (delta != 0) scrollToBottom(auto = false, force = true)
+        chatRec.post { if (!scrollUserScrolled) scrollToBottom(auto = false, force = true) }
+        chatRec.postDelayed({ if (!scrollUserScrolled) scrollToBottom(auto = false, force = true) }, 60)
+    }
+
     private fun setupKeyboardInsets() {
         // 键盘检测: WindowInsets.ime()(API30+) 精确报告键盘高度(adjustNothing 下不被窗口吸收)。
         // setDecorFitsSystemWindows(false) 让系统不自动消化 insets, 完整派发到内容层(含 IME), 我们统一处理:

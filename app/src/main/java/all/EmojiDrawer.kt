@@ -136,7 +136,10 @@ internal fun MainActivity.showEmojiDrawer() {
     val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
     // 键盘是否真的在显示: 实时读 insets ime 高(>80dp 视为弹出)。imm.isActive 仅表示 IME 会话活跃,
     // 键盘收起后仍为 true, 误判会导致走"收起键盘+350ms 兜底"分支 -> 直开表情停顿(用户 bug 现场)
-    val kbOpen = try {
+    val kbOpen = if (android.os.Build.VERSION.SDK_INT < 30) {
+        // API29-: ADJUST_RESIZE 下无 ime inset, 用根视图高度差反推的键盘高判断
+        legacyImeH > dp(80)
+    } else try {
         all.InsetsX.imeBottom(window.decorView.rootWindowInsets) > dp(80)
     } catch (e: Exception) { false }
     android.util.Log.i("NyralIme", "showDrawer kbOpen=$kbOpen isActive=${imm?.isActive} imeShown=$imeShown imeHeightField=$imeHeightField")
@@ -150,8 +153,13 @@ internal fun MainActivity.showEmojiDrawer() {
         val sbNav = try {
             all.InsetsX.systemBarsBottom(window.decorView.rootWindowInsets)
         } catch (e: Exception) { 0 }
-        emojiDrawerTargetH = if (imeHeightField > dp(80)) (imeHeightField - sbNav).coerceAtLeast(dp(160))
-                             else emojiDrawerFixedH.coerceAtLeast(dp(160))
+        // API29-: imeHeightField 是 bodyWrap 被压缩的高度差, 即纯键盘高(内容区本就在导航栏上方),
+        // 再减 sbNav 属重复扣减; 且键盘态下 systemBars().bottom 读数会膨胀(实测 48dp→130dp),
+        // 减去后 target 被 coerceAtLeast(dp(160)) 截断 -> "先开键盘再切抽屉, 抽屉很矮"。
+        emojiDrawerTargetH = if (imeHeightField > dp(80)) {
+            if (android.os.Build.VERSION.SDK_INT < 30) imeHeightField.coerceAtLeast(dp(160))
+            else (imeHeightField - sbNav).coerceAtLeast(dp(160))
+        } else emojiDrawerFixedH.coerceAtLeast(dp(160))
         if (kbOpen) {
             // 键盘开着: 收起键盘, 表情区撑高由 insets 动画逐帧驱动(互斥公式 h = target - imeH)
             imm?.hideSoftInputFromWindow(input.windowToken, 0)
@@ -162,8 +170,13 @@ internal fun MainActivity.showEmojiDrawer() {
             // 改判"抽屉可见且尚未撑起"。
             window.decorView.postDelayed({
                 val dd = emojiDrawer ?: return@postDelayed
-                if (dd.visibility == View.VISIBLE && dd.height <= dp(1)) startEmojiPopAnim(220)
-            }, 350)
+                // fix(11-17): 兜底(legacy 桥无信号时)改为瞬时到位, 不再走 220ms 长高动画:
+                // 窗口已复原的单帧里再从 0 长高, 同样会先"掉底再弹上来"。
+                if (emojiOpen && dd.visibility == View.VISIBLE && dd.height <= dp(1)) {
+                    setEmojiDrawerHeight(emojiDrawerTargetH.coerceAtLeast(dp(160)))
+                    alignChatToViewport()
+                }
+            }, 400)
         } else {
             // 无键盘: 直接撑到目标高
             startEmojiPopAnim(220)
@@ -248,6 +261,19 @@ internal fun MainActivity.hideEmojiDrawer() {
             // (长按进附件: 抽屉下滑中抬手, 落点可能已判为抽屉外, 643 分支 post 的 hideSoftInput+clearFocus 会把刚弹的键盘收掉 = 概率性不弹根因)
             suppressHideImeUntil = android.os.SystemClock.uptimeMillis() + 500
             val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+            // API29-: 没有 insets 动画驱动抽屉收起(API30 靠 startEmojiDropSync), 自行收起,
+            // 否则 emojiOpen 已置 false 但高度停在原位 -> 抽屉收不回去、点击无反应
+            if (android.os.Build.VERSION.SDK_INT < 30) {
+                // fix(11-17b): 键盘即将提起时不能先跑收起动画。抽屉先收缩会让输入栏跟着往下滑
+                // (实测 dockY 430 -> 438 -> 465 -> 507, 再被键盘顶回 431): 慢速下看不出来, 1x 下就是闪抖。
+                // 这里保持满高不动, 等键盘真正顶上来那一帧由 onLegacyImeChanged / preDraw 同步收到 0,
+                // 输入栏全程零位移。
+                d.postDelayed({
+                    if (!emojiOpen && d.visibility == View.VISIBLE && d.height > 1) {
+                        startEmojiDropAnim(180)   // 键盘始终没弹起(被系统拒绝)的兜底, 防抽屉悬空
+                    }
+                }, 600)
+            }
             val ok = imm?.showSoftInput(input, 0) == true
             android.util.Log.i("NyralIme", "showIme ok=$ok open=$emojiOpen")
             if (!ok) {

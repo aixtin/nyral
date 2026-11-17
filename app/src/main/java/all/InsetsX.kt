@@ -30,7 +30,12 @@ object InsetsX {
         )
     }
 
-    /** 键盘高度: API<30 无 ime 类型, 返回 0(交给布局自身 adjustResize 兜底) */
+    /**
+     * 键盘高度: API<30 无 ime 类型, 返回 0。
+     * 该类机型不靠 insets 让位, 而是 MainActivity 在 initThemeAndWindow 里对 SDK<30 使用
+     * SOFT_INPUT_ADJUST_RESIZE, 交系统压缩窗口实现键盘避让(bodyWrap 权重自适应)。
+     * 注意: ADJUST_NOTHING 下 getWindowVisibleDisplayFrame 不会反映键盘, 别再走可见区差值方案。
+     */
     fun ime(insets: WindowInsets?): android.graphics.Insets = if (insets != null && hasType) {
         insets.getInsets(WindowInsets.Type.ime())
     } else {
