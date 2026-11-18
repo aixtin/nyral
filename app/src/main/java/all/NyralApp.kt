@@ -77,6 +77,12 @@ class NyralApp : Application() {
         // (判据: boot_count 变化 / 启用任务的闹钟 PendingIntent 已不存在), 无变化时零副作用。
         TimerBootJobService.ensureScheduled(this)
         TimerRecovery.ensureAsync(this, "app_start", force = true)
+        // 2026-11-18: 可观测性 P0 —— 对账侧。
+        // 上面两层只保证"接下来会跑", 没人确认"上一次到底跑成了没有"; 这里只读 timer_runs 台账,
+        // 把"该跑没跑 / 跑了但结果不对"记成 evt_ 事件, 落本地队列后按满 50 条或满 5 分钟批量上报。
+        // 全程异步且只读, 不排闹钟、不补跑、不碰 UI。
+        ObsEvent.start(this)
+        TimerReconciler.sweepAsync(this, "cold_start")
     }
 
     private fun installCrashHandler() {

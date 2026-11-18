@@ -216,6 +216,38 @@ class TimerTaskDb(context: Context) : SQLiteOpenHelper(context, "timer.db", null
         }
     }
 
+    /**
+     * 对账用(2026-11-18): 按槽位读台账行, 只读不改状态。
+     * ok 保留原值(-1 表示 beginRun 占位未收尾), 不能折成 Boolean —— 折了就分不清
+     * "跑完失败(0)" 和 "跑到一半没了(-1)", 而这两者的 why 归因完全不同。
+     */
+    data class SlotRun(
+        val id: Long,
+        val startTs: Long,
+        val endTs: Long,
+        val okInt: Int,
+        val catchUp: Boolean,
+        val result: String?
+    )
+
+    fun runOfSlot(taskId: Long, slotTs: Long): SlotRun? {
+        lock.withLock {
+            return try {
+                readableDatabase.rawQuery(
+                    "SELECT id, start_ts, end_ts, ok, catch_up, result FROM timer_runs WHERE task_id = ? AND slot_ts = ? ORDER BY id DESC LIMIT 1",
+                    arrayOf(taskId.toString(), slotTs.toString())
+                ).use { c ->
+                    if (!c.moveToFirst()) null else SlotRun(
+                        id = c.getLong(0), startTs = c.getLong(1), endTs = c.getLong(2),
+                        okInt = c.getInt(3), catchUp = c.getInt(4) == 1, result = c.getString(5)
+                    )
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
     /** 台账单行 */
     data class RunRecord(
         val id: Long,
