@@ -877,6 +877,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     }
 
     private fun FloatArrayToBytes(fa: FloatArray): ByteArray {
+        // NANSANITIZE_20261118: 模型偶发输出 NaN/Inf 维度, 写库前清洗为 0, 避免污染 cosine
+        for (i in fa.indices) { val v = fa[i]; if (v.isNaN() || v.isInfinite()) fa[i] = 0f }
         val bb = java.nio.ByteBuffer.allocate(fa.size * 4)
         bb.asFloatBuffer().put(fa)
         return bb.array()

@@ -196,6 +196,7 @@ class MainActivity : Activity() {
     internal val messages = mutableListOf<MemoryDb.SessionMsg>()
     // 记忆来源标记(甲方案: 仅内存, 重启即失效); key = messages 内索引 RECALLSRC_V1
     internal var activeRecallSource: String? = null
+    internal var activeRecallSrcSeq: Long = -1L // RECALLSRC_FIX
     internal val recallSourceBySeq = HashMap<Long, String>()
     /** 超长会话内存瘦身: 仅最近 WINDOW 条消息载入内存渲染, 更早消息保留 DB 供搜索/回溯, 上下文由 summary 承担 */
     internal val MEM_WINDOW = 150
@@ -2961,7 +2962,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     internal fun buildRowView(row: ChatRow): View = when (row) {
         is ChatRow.User -> chatWrap(bubble(row.content, isUser = true).also { it.tag = POOLED_BUBBLE_TAG }, true)
         is ChatRow.Ai -> chatWrap(bubble(row.content, isUser = false, rendered = row.rendered, writeback = { spanned -> writeBackRendered(row.id, spanned) }).also { it.tag = POOLED_BUBBLE_TAG }, false)
-        is ChatRow.AiRich -> aiBubbleWithThinking(row.thinking, row.content, row.tools, row.timeline, row.rendered) { spanned -> writeBackRendered(row.id, spanned) }
+        is ChatRow.AiRich -> aiBubbleWithThinking(row.thinking, row.content, row.tools, row.timeline, row.rendered, { spanned -> writeBackRendered(row.id, spanned) }, row.id) // RECALLSRC_FIX
         is ChatRow.Sys -> TextView(this).apply {
             text = row.text
             textSize = 12f
@@ -4224,7 +4225,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         return row
     }
 
-    private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = "", rendered: String = "", writeback: ((Spanned) -> Unit)? = null): LinearLayout {
+    private fun aiBubbleWithThinking(thinking: String, content: String, toolsJson: String = "", timelineJson: String = "", rendered: String = "", writeback: ((Spanned) -> Unit)? = null, rowSeq: Long = -1L): LinearLayout { // RECALLSRC_FIX
         val container = LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false   // 气泡阴影不被容器裁剪
@@ -4237,7 +4238,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 topMargin = dp(Ui.SP2)
             }
         }
-        fillAiRich(container, thinking, content, toolsJson, timelineJson, rendered, writeback)
+        fillAiRich(container, thinking, content, toolsJson, timelineJson, rendered, writeback, rowSeq) // RECALLSRC_FIX
         return container
     }
 
@@ -4324,7 +4325,10 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     // 长按复制(2026-10-02): 与流式块化一致, 长按弹原文本对话框
                     setOnLongClickListener {
                         if (activeAiHolder?.hasActiveTypewriter() == true) return@setOnLongClickListener false
-                        openRawText(seg, recallSourceBySeq[(rowSeq - sessionBaseSeq)]) // RECALLSRC_V1
+                        val _key = if (rowSeq >= 0) rowSeq - sessionBaseSeq else messages.size.toLong() - 1 // RECALLSRC_FIX
+                        val _rsDbg = if (rowSeq < 0 && activeRecallSrcSeq != _key) null else recallSourceBySeq[_key]
+                        LogStore.i(LogStore.MEM, "[recallsrc] get seq=" + rowSeq + " key=" + _key + " hit=" + (_rsDbg != null) + " keys=" + recallSourceBySeq.keys.toString()) // RECALLSRC_DBG
+                        openRawText(seg, _rsDbg)
                         true
                     }
                     isLongClickable = true

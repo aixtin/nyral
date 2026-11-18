@@ -200,7 +200,10 @@ internal class StreamUiBridge(
                         }
                     }
                     activity.activeRecallSource = roundSrc
-                    roundSrc?.let { activity.recallSourceBySeq[activity.messages.size.toLong()] = it }
+                    val _rsKey = (activity.messages.size - 1).coerceAtLeast(0).toLong()
+                    activity.activeRecallSrcSeq = _rsKey
+                    roundSrc?.let { activity.recallSourceBySeq[_rsKey] = it }
+                    LogStore.i(LogStore.MEM, "[recallsrc] put key=" + activity.messages.size + " src=" + (roundSrc ?: "null")) // RECALLSRC_DBG
                     activity.discardStreamingDraft()
                     session.setAiStage(0)
                     session.setContentFollow(false)

@@ -116,8 +116,19 @@ object MemoryGate {
 
     /** 从对话文本末尾提取最近一条用户消息(供 fallback query 用) */
     fun lastUserText(recent: String): String {
-        val idx = recent.lastIndexOf("user: ")
-        return if (idx >= 0) recent.substring(idx + 6).substringBefore('\n').trim()
-            .ifBlank { recent.takeLast(200) } else recent.takeLast(200)
+        // QUERYFIX_20261118: 兼容 "user[hh:mm]: " 长历史格式; 从后往前取最后一条用户消息, 避免取到 AI 回复尾巴
+        val lines = recent.split('\n')
+        for (i in lines.indices.reversed()) {
+            val line = lines[i].trim()
+            if (!line.startsWith("user")) continue
+            val content = when {
+                line.contains("]: ") -> line.substring(line.indexOf("]: ") + 3)
+                line.contains(": ") -> line.substring(line.indexOf(": ") + 2)
+                else -> continue
+            }.trim()
+            if (content.isEmpty()) continue
+            return content
+        }
+        return recent.takeLast(200)
     }
 }

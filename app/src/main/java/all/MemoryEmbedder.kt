@@ -135,7 +135,9 @@ class MemoryEmbedder(context: Context) {
         var dot = 0f; var na = 0f; var nb = 0f
         for (i in a.indices) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }
         val denom = kotlin.math.sqrt(na) * kotlin.math.sqrt(nb)
-        return if (denom == 0f) 0f else dot / denom
+        val r = if (denom == 0f) 0f else dot / denom
+        // NANSANITIZE_20261118: 已入库的脏向量(含 NaN 维度)会算出 NaN, 归 0 避免排序被污染
+        return if (r.isNaN() || r.isInfinite()) 0f else r
     }
 
     companion object {
