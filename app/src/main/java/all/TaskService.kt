@@ -366,6 +366,17 @@ class TaskService : Service() {
         TimerTrace.write(this, "runTimerTask 进入 task=" + taskId + " catchUp=" + catchUp + " manual=" + manual)
         val db = TimerTaskDb(this)
         val runStartTs = System.currentTimeMillis()
+        // fix(2026-11-18): 收尾对账挂载。对账此前只在冷启动(cold_start)跑,
+        // 长期不开 App 的用户 "跑了但结果不对"(空结果/失败/槽位缺失) 永远等不到对账时机。
+        // 这里在每条终态路径收尾时补一次, 幂等(同槽位同 kind 去重), 只读不排闹钟不补跑。
+        fun reconcileAfterRun() {
+            try {
+                TimerReconciler.sweepAsync(this@TaskService, "after_run")
+            } catch (e: Exception) {
+                android.util.Log.w("TimerTask", "收尾对账失败: " + e.message)
+            }
+        }
+
         val task = db.get(taskId) ?: run { TaskService.stop(this); return }
         if (!task.enabled) { TaskService.stop(this); return }
         // fix(2026-11-15): 台账占位前移到"真正开跑之前"。
@@ -410,6 +421,7 @@ class TaskService : Service() {
             try {
                 db.setLastRun(taskId, System.currentTimeMillis(), "失败: 超时(30min)未返回")
                 db.finishRun(runId, taskId, runSlotTs, runStartTs, false, catchUp, "失败: 超时(30min)未返回")
+                reconcileAfterRun()
             } catch (_: Exception) {
             }
             try {
@@ -434,6 +446,7 @@ class TaskService : Service() {
                 // 第四批(2026-11-14): 台账留痕, slot 直接取任务行上已认领的值, 不重算
                 // fix(2026-11-15): 改成收尾 beginRun 落的占位行, 避免同一轮出现"占位行 + 终态行"两条
                 db.finishRun(runId, taskId, runSlotTs, runStartTs, true, catchUp, reply.take(300))
+                reconcileAfterRun()
                 writeToSession(sessionId, task, history, reply)
                 SecurityConfig.audit(this@TaskService, "timer_task_run",
                     "${task.name} -> ${reply.take(120)}", "alarm", "timer_task")
@@ -448,6 +461,7 @@ class TaskService : Service() {
                 TimerTrace.write(this@TaskService, "onError task=" + taskId + ": " + msg)
                 db.setLastRun(taskId, System.currentTimeMillis(), "失败: $msg")
                 db.finishRun(runId, taskId, runSlotTs, runStartTs, false, catchUp, "失败: $msg")
+                reconcileAfterRun()
                 writeToSession(sessionId, task, history, "执行失败: $msg")
                 SecurityConfig.audit(this@TaskService, "timer_task_run",
                     "${task.name} -> 失败: $msg", "alarm", "timer_task")
