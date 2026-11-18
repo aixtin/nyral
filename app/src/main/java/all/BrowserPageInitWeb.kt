@@ -11,16 +11,23 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.RenderProcessGoneDetail
+import android.view.ViewGroup
+import android.widget.FrameLayout
 
 /**
  * BrowserPage 初始化域(第一刀拆分, BP7):
- * - WebView 配置 + WebViewClient/WebChromeClient + JS 桥注册(daBridge) + 滚动高亮跟随
- * - 主类 init 第一步调用, 初始化 highlight/web 两个 lateinit 字段
+ * - highlight 浮层(轻量, 构造期即建)
+ * - WebView 懒创建: 仅首次真正打开网页/首次访问 web 时构造并挂到 root 底层(索引 0)
+ *   背景: Pixel 8 Pro 冷启动 ANR —— 主线程 WebView.<init> 内 ApkAssets.nativeLoad 阻塞 5014ms
  */
-internal fun BrowserPage.initWebViews() {
-    val page = this
+internal fun BrowserPage.initHighlightView() {
     highlight = BrowserHighlightView(act).apply { isClickable = false }
-    web = WebView(act).apply {
+}
+
+/** WebView 懒创建(主线程调用): 配置 + WebViewClient/WebChromeClient + JS 桥注册(daBridge) + 滚动高亮跟随 */
+internal fun BrowserPage.createWeb(): WebView {
+    val page = this
+    val w = WebView(act).apply {
         setBackgroundColor(Color.WHITE)
         // 未接管时网页内容不可点击/不可滚动(用户触摸全拦截), 接管后放行; AI 物理点击走 onTouchEvent 直通不受影响
         setOnTouchListener { _, _ -> if (!taken) true else false }
@@ -86,4 +93,9 @@ internal fun BrowserPage.initWebViews() {
             }
         }
     }
+    // 插到 root 最底层, highlight/takeover/汉堡等浮层仍在其上方(若 root 尚未构建则为空操作)
+    runCatching {
+        root.addView(w, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+    return w
 }

@@ -29,6 +29,8 @@ import java.util.concurrent.CountDownLatch
 import android.widget.Toast
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import android.os.Looper
+import java.util.concurrent.TimeUnit
 
 /**
  * 右侧整屏浏览器操作页（自研 Agent 浏览器第一版雏形）：
@@ -40,7 +42,26 @@ import kotlin.math.roundToInt
 internal class BrowserPage(internal val act: MainActivity) {
 
     internal lateinit var root: FrameLayout
-    internal lateinit var web: WebView
+    // WebView 懒创建: 冷启动不再构造 WebView(Trichrome provider 的 ApkAssets.nativeLoad 是启动 ANR 根因),
+    // 仅真正打开网页/首次访问 web 时才创建, 由 createWeb() 挂到 root 底层
+    private var webImpl: WebView? = null
+    internal val web: WebView
+        get() {
+            webImpl?.let { return it }
+            if (Looper.myLooper() == Looper.getMainLooper()) return createWeb().also { webImpl = it }
+            // 非主线程首次访问(工具回调线程): 切主线程构造, 避免 WebView 跨线程构造崩溃
+            var made: WebView? = null
+            val latch = CountDownLatch(1)
+            act.runOnUiThread {
+                made = createWeb().also { webImpl = it }
+                latch.countDown()
+            }
+            latch.await(10, TimeUnit.SECONDS)
+            return made ?: throw IllegalStateException("WebView 创建超时")
+        }
+
+    /** WebView 是否已创建(未创建时读取 web 会触发懒创建) */
+    internal fun webReady(): Boolean = webImpl != null
     internal lateinit var thinkBody: TextView
     internal lateinit var thinkAll: TextView
     internal var thinkLog = ""
@@ -130,11 +151,14 @@ internal class BrowserPage(internal val act: MainActivity) {
     var onHamburgerChange: ((Boolean) -> Unit)? = null
     internal val hostCookieCache = HashMap<String, String>()
 
-    internal fun destroy() { web.destroy() }
+    internal fun destroy() {
+        webImpl?.let { runCatching { it.destroy() } }
+        webImpl = null
+    }
     internal fun hideHighlight() { highlight.clearTarget() }
 
     init {
-        initWebViews()
+        initHighlightView()
         initRootUi()
         loadEngines()
     }

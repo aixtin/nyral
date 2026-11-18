@@ -27,7 +27,7 @@ internal fun BrowserPage.initRootUi() {
         translationX = act.resources.displayMetrics.widthPixels.toFloat()
         // 浏览器作为底层内容层(悬浮聊天模式): 不再置顶, 层级由 MainActivity addView 顺序决定(main 在其上)
         elevation = 0f
-        addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // web 懒创建: 不在此处 addView, 由 createWeb() 首次构造时插到索引 0
         addView(highlight, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         // 底部中央"接管"按钮: 交还用户直接点验证码

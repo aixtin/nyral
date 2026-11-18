@@ -83,7 +83,8 @@ internal fun BrowserPage.ensureLoad() {
         loaded = true
         paintStatus(act.getString(R.string.br_welcome_ready))
         loadDoneLatch = CountDownLatch(1)
-        act.runOnUiThread { web.loadUrl("file:///android_asset/home.html") }
+        // 懒创建: 先回主线程, 再 post 一帧, 让滑入动画起跑后才付 WebView 构造代价
+        act.runOnUiThread { root.post { web.loadUrl("file:///android_asset/home.html") } }
     }
 }
 
