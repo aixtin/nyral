@@ -806,11 +806,12 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             gravity = Gravity.CENTER_VERTICAL
         }
         titleBar.addView(ImageView(this).apply {
-            setImageResource(R.drawable.ic_menu)
             setColorFilter(Ui.TEXT)
             setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP2))
             setOnClickListener { openDrawer() }
             Ui.press(this)
+            // 冷启动不在 onCreate 同步链解析 vector(华为 Android 10 上 getComplexColor 可卡数秒), 延迟一帧加载
+            post { setImageResource(R.drawable.ic_menu) }
         })
         titleBar.addView(TextView(this).apply {
             text = TitleConfig.mainTitle()
@@ -824,11 +825,11 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             Ui.press(this)
         }.also { mainTitleText = it })
         titleBar.addView(ImageView(this).apply {
-            setImageResource(R.drawable.lucide_sigma)
             setColorFilter(Ui.TEXT)
             setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP2))
             setOnClickListener { toggleTokenPanel() }
             Ui.press(this)
+            post { setImageResource(R.drawable.lucide_sigma) }
         })
         main.addView(titleBar)
         // 状态带: 24dp 细条, 左"模型 · 上下文 tok", 右侧圆点(输出中主色/空闲灰色)
