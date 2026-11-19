@@ -56,6 +56,20 @@ class StreamSanitizer(
     private val useTools: Boolean = true,
     private val emit: (Delta) -> Unit
 ) {
+    /**
+     * 批次 C(2026-11-19): 本轮实际下发的工具名集合(构造后设置)。
+     * 旧实现靠 LocalEngine.isXmlLeakRow 的「白名单制」(不在正文标签里就吞) 兜未知壳,
+     * 收敛到净化器后必须补上等价能力: 命中本轮工具名的标签(<web_search>{..}</web_search>)同样按壳吞。
+     * 这里只认工具名, 不认"任意未知标签", 避免把正文里的自定义 HTML 吞掉。
+     */
+    var extraShell: Set<String> = emptySet()
+        set(value) {
+            field = value
+            extraShellSet = value.mapTo(HashSet()) { it.lowercase() }
+        }
+
+    private var extraShellSet: Set<String> = emptySet()
+
 
     companion object {
         /** 滞后窗口: 未判定的 '<' 前缀最多扣这么久, 超过即当正文放行 */
@@ -111,6 +125,14 @@ class StreamSanitizer(
             "<\\s*(?:antml:)?invoke\\b[^>]*\\bname\\s*=\\s*\"([^\"]+)\"",
             RegexOption.IGNORE_CASE
         )
+
+        /** 方括号壳的闭合形态 */
+        private val BRACKET_CLOSE = listOf(
+            "[/tool_call]", "[/tool_calls]", "[/invoke]", "[/tool_use]", "[/function_call]", "[/antml]"
+        )
+
+        /** 判定硬上限: 超过它就按正文放行, 防止孤立开括号卡住整条流 */
+        private const val LAG_HARD = 96
 
         private val ARG_KEY_RE = Regex("<\\s*arg_key\\s*>(.*?)<\\s*/\\s*arg_key\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val ARG_VALUE_RE = Regex("<\\s*arg_value\\s*>(.*?)<\\s*/\\s*arg_value\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
@@ -225,7 +247,15 @@ class StreamSanitizer(
                 return
             }
 
-            val lt = buf.indexOf("<")
+            // 批次 C: 方括号壳([tool_call])不带 '<', 只找 '<' 会把它整段当正文放行,
+            // 必须把 '[' 也作为候选切点, 由 classify 决定吞还是放行。
+            val ltRaw = buf.indexOf("<")
+            val brRaw = buf.indexOf("[")
+            val lt = when {
+                ltRaw < 0 -> brRaw
+                brRaw < 0 -> ltRaw
+                else -> minOf(ltRaw, brRaw)
+            }
             val fence = buf.indexOf("```")
             if (fence >= 0 && (lt < 0 || fence < lt)) {
                 val atLineStart = fence == 0 || buf[fence - 1] == '\n'
@@ -252,8 +282,13 @@ class StreamSanitizer(
                 buf.delete(0, lt)
             }
             when (classify(final)) {
-                Cls.NEED_MORE -> return
-                Cls.PLAIN -> { out.append('<'); buf.deleteCharAt(0) }
+                Cls.NEED_MORE -> {
+                    // 硬滞后上限: 判定不出又囤太久(正文里塞了奇怪的开括号), 按正文放行,
+                    // 否则整条流会被一个孤立的 '[' 卡住
+                    if (buf.length > LAG_HARD) { out.append(buf[0]); buf.deleteCharAt(0); continue }
+                    return
+                }
+                Cls.PLAIN -> { out.append(buf[0]); buf.deleteCharAt(0) }
                 Cls.SHELL -> startBlock()
             }
         }
@@ -306,14 +341,45 @@ class StreamSanitizer(
             return Cls.PLAIN
         }
         val c1 = buf[1]
+        // 方括号壳([tool_call] ... [/tool_call]): deepseek 系偶发用 Markdown 风格包裹工具调用,
+        // 旧的尖括号状态机对它完全无感(实测 round#7 直接上屏)。这里只认"方括号内就是壳名",
+        // 不做"未知方括号一律吞", 避免误吞正文里的 [1] 这类引用标记。
+        if (buf[0] == '[') {
+            val close = buf.indexOf(']')
+            if (close < 0) {
+                // 真机实测: 工具调用解析成功后引擎会提前收流, 残余的 "[/tool_call]" 只到了 "[/",
+                // 收尾时 final=true 把它当正文吐了两个字符上屏。只要已积累的内容是已知壳名的
+                // 前缀, 就必须按壳吞掉, 不能因为它没写完就当正文。
+                val partial = buf.substring(1).trim().lowercase().removePrefix("/")
+                if (isShellPrefix(partial)) return Cls.SHELL
+                return if (final || buf.length > LAG_HARD) Cls.PLAIN else Cls.NEED_MORE
+            }
+            val nm = buf.substring(1, close).trim().lowercase().removePrefix("/")
+            return if (isShell(nm)) Cls.SHELL else Cls.PLAIN
+        }
         if (c1 == '/') {
-            val name = readTagName(2) ?: return if (final) Cls.PLAIN else Cls.NEED_MORE
-            return if (name in SHELL_TAGS) Cls.SHELL else Cls.PLAIN
+            val name = readTagName(2)
+                ?: return if (!final) Cls.NEED_MORE
+                else if (isShellPrefix(buf.substring(2).lowercase())) Cls.SHELL else Cls.PLAIN
+            return if (isShell(name)) Cls.SHELL else Cls.PLAIN
         }
         if (!c1.isLetter()) return Cls.PLAIN
-        val name = readTagName(1) ?: return if (final) Cls.PLAIN else Cls.NEED_MORE
-        return if (name in SHELL_TAGS) Cls.SHELL else Cls.PLAIN
+        val name = readTagName(1)
+            ?: return if (!final) Cls.NEED_MORE
+            else if (isShellPrefix(buf.substring(1).lowercase())) Cls.SHELL else Cls.PLAIN
+        return if (isShell(name)) Cls.SHELL else Cls.PLAIN
     }
+
+    /** 输入耗尽时, 已积累的部分是否某个已知壳名的前缀(含空串=只有一个起始括号) */
+    private fun isShellPrefix(p: String): Boolean {
+        if (p.isEmpty()) return true
+        if (SHELL_TAGS.any { it.startsWith(p) }) return true
+        return extraShellSet.isNotEmpty() && extraShellSet.any { it.startsWith(p) }
+    }
+
+    /** 是否按泄漏壳处理: 已知壳标签 ∪ 本轮工具名 */
+    private fun isShell(name: String): Boolean =
+        name in SHELL_TAGS || (extraShellSet.isNotEmpty() && name in extraShellSet)
 
     /**
      * 读标签名; 名字还没结束(没有空格 / '/' / '>')且长度未超过 24 时返回 null 表示"证据不足"。
@@ -340,6 +406,9 @@ class StreamSanitizer(
     private fun blockLooksComplete(s: CharSequence): Boolean {
         val str = s.toString()
         if (CLOSE_SHELL_RE.containsMatchIn(str)) return true
+        if (str.contains('[')) {
+            for (t in BRACKET_CLOSE) if (str.contains(t, ignoreCase = true)) return true
+        }
         if (str.contains("DSML", ignoreCase = true)) {
             // DSML: 优先认最外层 tool_calls 闭合, 没有再退到 invoke 闭合(部分模型不给外层)
             if (Regex("<\\s*/[^<>]{0,24}tool_calls\\s*>", RegexOption.IGNORE_CASE).containsMatchIn(str)) return true
@@ -363,7 +432,11 @@ class StreamSanitizer(
         val json = extractBalancedJson(str)
         if (json != null) {
             val after = str.substring(str.indexOf(json) + json.length)
-            if (after.isBlank() || after.startsWith("\n")) return true
+            // 紧随其后的若还是闭合壳([/tool_call] / </tool_call>), 说明块没结束, 不能结算,
+            // 否则闭合标签会被漏到正文
+            val at = after.trimStart()
+            val trailingClose = at.startsWith("[/") || at.startsWith("</")
+            if (!trailingClose && (after.isBlank() || after.startsWith("\n"))) return true
         }
         return false
     }
@@ -384,9 +457,16 @@ class StreamSanitizer(
         blockActive = false
         blockBuf.setLength(0)
         suppressOneNewline = true
-        val parsed = parseBlock(raw)
+        // 批次 C(2026-11-19): 只有"自然闭合"的块才允许产出 ToolCall。
+        // 之前 XML 缓冲分流时, 半截块靠 xmlTagsClosed 判定不完整才被丢弃; 收敛到净化器后
+        // 若仍对 forced(EOF/断链/超长)块直接 parseBlock, 半截 <invoke name="sh_run"><parameter ...>id;uname -a
+        // 会被解析成 sh_run|{} 真去执行(参数全丢), 实测弹出工具确认框 —— 这是比泄漏更严重的问题。
+        val complete = blockLooksComplete(raw)
+        val parsed = if (complete) parseBlock(raw) else null
         when {
             parsed != null -> emit(Delta.ToolCall(parsed.first, parsed.second))
+            // 只吞到一个壳前缀(如收流后被掐断的 "[/"): 既没形成标签也没形成 JSON, 属残渣, 不必重试
+            !raw.contains('>') && !raw.contains(']') && !raw.contains('{') -> Unit
             abort -> emit(Delta.LeakDropped("abort-residue", raw.take(256), false))
             forced -> emit(Delta.NeedRetry("leak-block-truncated"))
             else -> emit(Delta.LeakDropped("unparsable", raw.take(256), true))
@@ -480,13 +560,24 @@ class StreamSanitizer(
     }
 
     /** 标量按 JSON 语义归一, 对象/数组保持字符串 */
-    private fun coerce(v: String): Any = runCatching {
-        when (val parsed = org.json.JSONTokener(v).nextValue()) {
+    private fun coerce(v: String): Any {
+        // 批次 C(2026-11-19): 裸文本直接原样返回。
+        // 之前无脑丢给 JSONTokener: 它读到空格就停, 把 "echo c_ok" 截成 "echo",
+        // 导致完整块的参数被吃掉后半截, 工具真按截断参数执行(实测 mock 注入复现)。
+        val t = v.trim()
+        if (t.isEmpty()) return ""
+        val c = t[0]
+        val looksJson = c == '{' || c == '[' || c == '"' || c == '-' || c.isDigit() ||
+            t == "true" || t == "false" || t == "null"
+        if (!looksJson) return v
+        return runCatching {
+            when (val parsed = org.json.JSONTokener(t).nextValue()) {
             is JSONObject, is org.json.JSONArray, is Int, is Long, is Double, is Boolean -> parsed
-            is String -> if (parsed == "null") JSONObject.NULL else parsed
-            else -> v
-        }
-    }.getOrElse { v }
+                is String -> if (parsed == "null") JSONObject.NULL else parsed
+                else -> v
+            }
+        }.getOrElse { v }
+    }
 
     /** 取第一个平衡的 {...}(跳过字符串内的大括号) */
     private fun extractBalancedJson(s: String): String? {
