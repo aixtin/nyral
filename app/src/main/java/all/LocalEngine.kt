@@ -4,6 +4,7 @@ package io.github.aixtin.nyral
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
+import android.util.Log
 import java.io.ByteArrayOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
@@ -744,7 +745,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         return
                     }
                     full.append(capOut(res.accumulated))
-                    cb.onDelta("\n\n[网络中断，正在续跑…]")
+                    emitDelta(cb, "\n\n[网络中断，正在续跑…]", shadow = false)
                     messages.put(JSONObject().put("role", "assistant").put("content", capOut(res.accumulated.trimEnd())))
                     messages.put(JSONObject().put("role", "user").put("content",
                         "你刚才的回答因网络中断未能完整输出。请严格从断点继续完整输出剩余内容，不要重复已输出的部分。"))
@@ -764,7 +765,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         if (finalText.isNotBlank()) {
                             full.append(capOut(finalText))
                         } else {
-                            cb.onDelta("\n\n[工具预算已耗尽, 未能生成最终总结; 以上为已完成的执行结果]")
+                            emitDelta(cb, "\n\n[工具预算已耗尽, 未能生成最终总结; 以上为已完成的执行结果]", shadow = false)
                         }
                         PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = true)
                         cb.onDone(scrubXmlLeak(full.toString()))
@@ -932,7 +933,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 return
             }
             android.util.Log.w("Nyral", "chat network interrupted, auto-retry #$attempt: ${e.message}")
-            cb.onDelta("\n\n[网络波动，已自动重连一次]")
+            emitDelta(cb, "\n\n[网络波动，已自动重连一次]", shadow = false)
             // 指数退避: 1s/2s/4s, 给弱网恢复窗口
             sleepCancellable(1000L shl (attempt - 1))
             continue
@@ -1024,6 +1025,46 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         "NestedBlockDepth", // 同上
         "ThrowsCount", // 断流/泄漏重试需抛可重试异常，属既定控制流语义
     )
+    /**
+     * 批次 B(2026-11-19): 当前流会话的影子净化器。仅做新旧并行对比, 不改变上屏内容。
+     */
+    @Volatile
+    private var streamShadow: StreamShadow? = null
+
+    /**
+     * 正文唯一上屏出口(批次 B)。原先散落的 14 处 cb.onDelta 与四个 tail 收口分支全部收敛到这里。
+     *
+     * shadow=true 时同一份文本并行喂给 StreamShadow, 收口只打日志、不改变上屏内容;
+     * 提示语/续跑占位(非模型输出)传 shadow=false, 避免污染影子语义。
+     */
+    private fun emitDelta(cb: Callback, text: String, shadow: Boolean = true) {
+        if (text.isEmpty()) return
+        if (shadow) {
+            // 诊断(2026-11-19): 区分「影子实例为 null」与「feed 抛异常」两种丢失, 限频打点
+            val s = streamShadow
+            if (s == null) {
+                val n = ++shadowNullMiss
+                if (n == 1 || n % 200 == 0) {
+                    try { Log.w("NyralStream", "[shadow] FEED_MISS null count=$n") } catch (_: Throwable) {}
+                }
+            } else {
+                try { s.feed(text) } catch (t: Throwable) {
+                    val n = ++shadowFeedErr
+                    if (n == 1 || n % 200 == 0) {
+                        try { Log.w("NyralStream", "[shadow] FEED_ERR count=$n err=" + t) } catch (_: Throwable) {}
+                    }
+                }
+            }
+        }
+        cb.onDelta(text)
+    }
+
+    @Volatile
+    private var shadowNullMiss = 0
+
+    @Volatile
+    private var shadowFeedErr = 0
+
     private fun streamOnce(
         context: Context,
         messages: JSONArray,
@@ -1094,6 +1135,14 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             gotProgressRef.set(true)
         }
         val accumulated = StringBuilder()
+        // 批次 B(2026-11-19): 影子对比。净化器与实际上屏并行跑, 只在收口打日志验证净吞/误吞;
+        // 上屏内容仍是原文, 用户可见行为与改造前逐字节一致(出问题可整批回退)。
+        val shadow = StreamShadow(useTools) { msg ->
+            try { Log.w("NyralStream", msg) } catch (_: Throwable) {}
+            // 诊断(2026-11-19): 同步写 App 内日志, 规避 logcat 丢行导致的轮号缺口
+            try { LogStore.w(LogStore.MAIN, msg) } catch (_: Throwable) {}
+        }
+        streamShadow = shadow
         val toolCalls = mutableListOf<Pair<String, String>>()
         // 与 toolCalls 按序一一对应的 tool_call_id(并行同名工具必须各自独立 id, 按 name 建映射会覆盖
         // 导致回填重复 id -> 服务端 400 Duplicate tool_call_id -> 误降级文本协议 -> DSML 泄漏, 2026-09-18)
@@ -1374,7 +1423,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                             continue
                         }
                         if (row.isBlank()) {
-                            if (mode == MODE_CONTENT) { cb.onDelta("\n"); accumulated.append('\n') }
+                            if (mode == MODE_CONTENT) { emitDelta(cb, "\n"); accumulated.append('\n') }
                             continue
                         }
                         val stop = processRow(row, mode, accumulated, cb, { m -> mode = m }, answerGate, restartOut)
@@ -1432,7 +1481,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                             if (mode == MODE_THINKING) cb.onThinkingEnd()
                             mode = MODE_CONTENT
                             val t = row.substring(3).trim()
-                            if (t.isNotEmpty()) { cb.onDelta(t + "\n"); accumulated.append(t).append('\n') }
+                            if (t.isNotEmpty()) { emitDelta(cb, t + "\n"); accumulated.append(t).append('\n') }
                             continue
                         }
                         if (mode != MODE_CONTENT) {
@@ -1445,7 +1494,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                             mode = MODE_CONTENT
                         }
                         val out = if (row.endsWith("\r")) row.dropLast(1) else row
-                        cb.onDelta(out + "\n"); accumulated.append(out).append('\n')
+                        emitDelta(cb, out + "\n"); accumulated.append(out).append('\n')
                     }
                 }
                 if (restartOut.isNotEmpty()) break
@@ -1466,9 +1515,14 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 val tailTxt = lineBuf.toString().trimEnd()
                 lineBuf.setLength(0)
                 if (tailTxt.isNotEmpty()) {
-                    try { cb.onDelta(tailTxt) } catch (_: Throwable) {}
-                    accumulated.append(tailTxt)
-                    android.util.Log.w("Nyral", "断链补回残余正文 len=" + tailTxt.length)
+                    if (isToolTagResidue(tailTxt)) {
+                        // 残余是工具标签(如 "</tool_call>"): 属泄漏, 不能进正文
+                        android.util.Log.w("Nyral", "断链残余含工具标签, 丢弃不入正文: " + tailTxt.take(80))
+                    } else {
+                        try { emitDelta(cb, tailTxt) } catch (_: Throwable) {}
+                        accumulated.append(tailTxt)
+                        android.util.Log.w("Nyral", "断链补回残余正文 len=" + tailTxt.length)
+                    }
                 }
             }
             // 看门狗主动断链: 不是网络故障, 不能落入自动重试(重试只会再卡一轮)
@@ -1483,9 +1537,14 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 val tailTxt = lineBuf.toString().trimEnd()
                 lineBuf.setLength(0)
                 if (tailTxt.isNotEmpty()) {
-                    try { cb.onDelta(tailTxt) } catch (_: Throwable) {}
-                    accumulated.append(tailTxt)
-                    android.util.Log.w("Nyral", "断链补回残余正文 len=" + tailTxt.length)
+                    if (isToolTagResidue(tailTxt)) {
+                        // 残余是工具标签(如 "</tool_call>"): 属泄漏, 不能进正文
+                        android.util.Log.w("Nyral", "断链残余含工具标签, 丢弃不入正文: " + tailTxt.take(80))
+                    } else {
+                        try { emitDelta(cb, tailTxt) } catch (_: Throwable) {}
+                        accumulated.append(tailTxt)
+                        android.util.Log.w("Nyral", "断链补回残余正文 len=" + tailTxt.length)
+                    }
                 }
             }
             if (cancelReason == CancelReason.STALL_TIMEOUT) throw StallTimeoutException(stallPartial(), "WATCHDOG")
@@ -1498,7 +1557,8 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         // 连接中断收尾
         if (aborted) {
             // 断流瞬间的末尾残余(整行无换行)先并入, 否则已有内容也会被误判成零输出而丢弃
-            val tailResidue = lineBuf.isNotBlank() && !DSML_MARK_RE.containsMatchIn(lineBuf)
+            val tailResidue = lineBuf.isNotBlank() && !DSML_MARK_RE.containsMatchIn(lineBuf) &&
+                !isToolTagResidue(lineBuf.toString())
             if (toolCalls.isEmpty() && nativeAcc.isEmpty() && tailResidue) {
                 val tail = lineBuf.toString().trimEnd()
                 lineBuf.setLength(0)
@@ -1508,7 +1568,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         mode = MODE_CONTENT
                     }
                     if (useTools) {
-                        cb.onDelta(tail); accumulated.append(tail)
+                        emitDelta(cb, tail); accumulated.append(tail)
                     } else {
                         val stop = processRow(tail, mode, accumulated, cb, { m -> mode = m }, answerGate, restartOut)
                         if (stop != null) {
@@ -1535,12 +1595,20 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 dsmlBuf = (dsmlBuf ?: StringBuilder()).append(lineBuf.toString().trimEnd()).append('\n')
             } else if (useTools) {
                 // 原生模式: 残余即纯正文直接流式
-                if (mode != MODE_CONTENT) {
-                    if (mode == MODE_THINKING) cb.onThinkingEnd()
-                    mode = MODE_CONTENT
+                if (isToolTagResidue(lineBuf.toString())) {
+                    // 泄漏残余(如整段只剩 "</tool_call>"): 不进正文, 转泄漏缓冲交下方 EOF 尽力解析;
+                    // 解析不出即按"零输出+泄漏"处理, 由上层自动重试原生 tool_calls(2026-11-19)
+                    xmlLeakBuf = (xmlLeakBuf ?: StringBuilder()).append(lineBuf.toString().trimEnd())
+                    lineBuf.setLength(0)
+                    android.util.Log.w("Nyral", "EOF 残余含工具标签, 转泄漏缓冲不入正文")
+                } else {
+                    if (mode != MODE_CONTENT) {
+                        if (mode == MODE_THINKING) cb.onThinkingEnd()
+                        mode = MODE_CONTENT
+                    }
+                    val tail = lineBuf.toString().trimEnd()
+                    emitDelta(cb, tail); accumulated.append(tail)
                 }
-                val tail = lineBuf.toString().trimEnd()
-                cb.onDelta(tail); accumulated.append(tail)
             } else {
                 val stop = processRow(lineBuf.toString().trimEnd(), mode, accumulated, cb, { m -> mode = m }, answerGate, restartOut)
                 if (stop != null) {
@@ -1596,6 +1664,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 toolCallIds.add("xml_${toolCalls.size}")
                 android.util.Log.w("Nyral", "XML 泄漏半截 EOF 尽力解析: ${t.first} argsLen=${t.second.length}")
             } else {
+                xmlLeakDropped = true
                 android.util.Log.w("Nyral", "XML 泄漏残留解析失败已丢弃: ${xmlLeakBuf.toString().take(120)}")
             }
             xmlLeakBuf = null
@@ -1652,6 +1721,10 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             android.util.Log.w("Nyral", "SSE connect failed: ${e.message}")
             throw RetryableException("模型连接失败(网络不可达): ${e.message}")
         } finally {
+            try { shadow.finish(interruptedOut, toolCalls.size) } catch (t: Throwable) {
+                try { Log.e("NyralStream", "[shadow] finish failed: " + t) } catch (_: Throwable) {}
+            }
+            streamShadow = null
             watchdogLive.set(false)
             stallWatchdog?.interrupt()
             stallWatchdog = null
@@ -1723,11 +1796,11 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         }
                         setMode(MODE_CONTENT)
                         val t = row.substring(3).trim()
-                        if (t.isNotEmpty()) { cb.onDelta(t + "\n"); accumulated.append(t).append('\n') }
+                        if (t.isNotEmpty()) { emitDelta(cb, t + "\n"); accumulated.append(t).append('\n') }
                     }
                     else -> {
                         setMode(MODE_CONTENT)
-                        cb.onDelta(row + "\n")
+                        emitDelta(cb, row + "\n")
                         accumulated.append(row).append('\n')
                     }
                 }
@@ -1745,7 +1818,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         setMode(MODE_CONTENT)
                         cb.onThinkingEnd()
                         val t = row.substring(3).trim()
-                        if (t.isNotEmpty()) { cb.onDelta(t + "\n"); accumulated.append(t).append('\n') }
+                        if (t.isNotEmpty()) { emitDelta(cb, t + "\n"); accumulated.append(t).append('\n') }
                     }
                     else -> {
                         val ti = row.indexOf("TOOL:")
@@ -1762,7 +1835,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                             setMode(MODE_CONTENT)
                             cb.onThinkingEnd()
                             val t = row.substring(idx + 3).trim()
-                            if (t.isNotEmpty()) { cb.onDelta(t + "\n"); accumulated.append(t).append('\n') }
+                            if (t.isNotEmpty()) { emitDelta(cb, t + "\n"); accumulated.append(t).append('\n') }
                         } else {
                             cb.onThinkingDelta(row)
                         }
@@ -1770,7 +1843,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 }
             }
             else -> { // CONTENT
-                cb.onDelta(row + "\n")
+                emitDelta(cb, row + "\n")
                 accumulated.append(row).append('\n')
             }
         }
@@ -1904,6 +1977,18 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         return tag !in xmlBodyTags
     }
 
+    /**
+     * 残余/tail 出口兜底(2026-11-19): [isXmlLeakRow] 只覆盖"标签独占一行且落在行首"的形态。
+     * 实测 deepseek-flash 会把 `</tool_call>` 作为流末残余(整段无换行)留在 lineBuf,
+     * 走 EOF/断链的 tail 分支时既绕过入口拦截、又绕过落库前的 scrubXmlLeak,
+     * 最终在气泡里渲染成孤立标签(用户可见的"</tool_call>"裸文本 bug)。
+     * 此处按「行内出现工具标签即判泄漏」兜底, 覆盖标签粘在行中/行尾/整段残余的形态。
+     */
+    private fun isToolTagResidue(s: String): Boolean {
+        if (s.isEmpty() || !s.contains('<')) return false
+        return TOOL_TAG_RESIDUE_RE.containsMatchIn(s)
+    }
+
     /** 缓冲中所有开标签均有对应闭合标签(用于判定泄漏块完整); 支持带属性标签 */
     private fun xmlTagsClosed(s: String): Boolean {
         val open = Regex("<([a-z][a-z0-9_]*)(?:\\s+[a-z_]+=\"[^\"]*\")*\\s*/?>").findAll(s)
@@ -1946,6 +2031,12 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
     private val DSML_MARK_RE = Regex("<[｜|]{1,2}DSML")
     /** DSML 块闭标记 */
     private val DSML_CLOSE_RE = Regex("</[｜|]{1,2}DSML[｜|]{1,2}\\s*calls>")
+
+    /** 工具调用壳标签(残余出口兜底用): 出现即视为泄漏, 与行首无关 */
+    private val TOOL_TAG_RESIDUE_RE = Regex(
+        "</?(?:tool_call|tool_calls|tool_name|tool_use|tool_result|tool_detail|function_call|function_calls|invoke|arg_key|arg_value|memory_search)(?=[\\s>/])",
+        RegexOption.IGNORE_CASE
+    )
 
     /** 解析 DSML 文本中的工具调用: 返回 (工具名, JSON 参数字符串) 列表; 无有效 invoke 返回空列表 */
     fun parseDsmlToolCalls(text: String): List<Pair<String, String>> {

@@ -1320,7 +1320,26 @@ internal class AiBubbleHolder(private val host: MainActivity) : TypewriterTickab
         return -1
     }
 
-    fun appendContent(text: String) {
+    /** 整行只有一个工具调用壳标签(不含属性/内容): UI 层最终兜底用 */
+    private val PURE_TOOL_TAG_LINE = Regex(
+        "^\\s*</?(?:tool_call|tool_calls|tool_name|tool_use|tool_result|tool_detail|function_call|function_calls|invoke|arg_key|arg_value)\\s*>\\s*$",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** 剔除纯工具标签行; 保留原有换行结构, 未命中时原样返回(零拷贝) */
+    private fun stripPureToolTagLines(text: String): String {
+        if (text.isEmpty() || !text.contains('<')) return text
+        if (!text.contains('\n')) return if (PURE_TOOL_TAG_LINE.matches(text)) "" else text
+        val lines = text.split('\n')
+        if (lines.none { PURE_TOOL_TAG_LINE.matches(it) }) return text
+        return lines.filterNot { PURE_TOOL_TAG_LINE.matches(it) }.joinToString("\n")
+    }
+
+    fun appendContent(rawText: String) {
+        // 最后一道 UI 兜底(2026-11-19): 引擎侧残余出口漏网时, 孤立工具标签行(如 "</tool_call>")
+        // 曾被直接 append 进正文段并渲染成裸标签; 此处按"整行只有工具标签"剔除, 误伤面极小
+        val text = stripPureToolTagLines(rawText)
+        if (text.isEmpty()) return
         clearToolPending()   // 正文开始输出: 参数生成提示让位
         waitStage = ""   // 正文开始输出: 等待计时结束
         removeStatus()
