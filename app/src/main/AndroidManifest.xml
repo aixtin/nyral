@@ -92,6 +92,7 @@
         <activity
             android:name=".ArtifactViewerActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Nyral.NoActionBar">
         </activity>
 

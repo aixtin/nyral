@@ -63,6 +63,21 @@ class ArtifactViewerActivity : Activity() {
     private lateinit var fileName: String
     private var fileText: String = ""
 
+    /**
+     * 2026-11-19: standard 启动模式下, 查看器已在栈顶时再次拉起(am start 带 NEW_TASK,
+     * 或应用内连续点开另一产物), 系统会把 intent 投递给栈顶实例并回调本方法而不是新建实例。
+     * 原先未重写此方法, 界面就停在旧产物上(不刷新)。这里比对 file_name, 不同则换掉 intent
+     * 并重建界面; 相同则忽略, 避免无意义重建。
+     */
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        val fn = intent?.getStringExtra("file_name")
+        if (fn.isNullOrBlank()) return
+        if (this::fileName.isInitialized && fn == fileName) return
+        setIntent(intent)
+        recreate()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ApiConfig.init(this)
