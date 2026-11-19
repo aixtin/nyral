@@ -1,6 +1,6 @@
 # Nyral 发布流程（Release Process）
 
-> 版本基线：v2.10.0 / versionCode 146（2026-11-18）。
+> 版本基线：v2.11.0 / versionCode 148（2026-11-20）。
 
 > 适用仓库：aixtin/nyral　　本文档是发版的唯一操作手册。
 > 原则：机器只认两个版本号来源 —— `app/build.gradle.kts` 与 GitHub tag；其余全是文档，漏改不会报错，只会慢慢烂掉。
