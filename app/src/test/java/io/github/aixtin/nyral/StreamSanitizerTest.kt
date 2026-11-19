@@ -215,4 +215,22 @@ class StreamSanitizerTest {
         assertEquals("", StreamSanitizer.scrubText(p1))
         assertNotNull(StreamSanitizer.scrubText(p1))
     }
+
+    // ------------------------------------------- 批次D-1: 内联 function= 与自定义工具名壳
+    @Test
+    fun inlineFunctionForm_isScrubbed() {
+        val dirty = "我先查一下。<function=web_search>{\"query\":\"nyral\"}</function>另外 " +
+            "<web_search>{\"q\":\"x\"}</web_search> 尾部还有正文。"
+        val clean = StreamSanitizer.scrubText(dirty)
+        assertFalse("OUT=[" + clean + "]", clean.contains("function="))
+        assertFalse("OUT=[" + clean + "]", clean.contains("web_search"))
+        assertTrue("OUT=[" + clean + "]", clean.contains("我先查一下。"))
+        assertTrue("OUT=[" + clean + "]", clean.contains("尾部还有正文。"))
+    }
+
+    @Test
+    fun bodyHtmlTags_surviveScrub() {
+        val ok = "正文 <b>加粗</b> 与 <code>x = 1</code> 正常"
+        assertEquals(ok, StreamSanitizer.scrubText(ok))
+    }
 }

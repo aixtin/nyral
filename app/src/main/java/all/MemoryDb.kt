@@ -929,7 +929,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
     /** D-1 存量清洗: 历史 session_msgs.content 一次性去壳, flag 保证只跑一次 */
     private fun scrubStoredOnce(db: SQLiteDatabase) {
         val sp = appCtx.getSharedPreferences("nyral_db", Context.MODE_PRIVATE)
-        if (sp.getBoolean("scrub_stored_v1", false)) return
+        if (sp.getBoolean("scrub_stored_v2", false)) return
         val todo = ArrayList<Array<Any>>()
         db.rawQuery("SELECT session_id, seq, content FROM session_msgs WHERE content LIKE '%<%'", null).use { c ->
             while (c.moveToNext()) {
@@ -948,7 +948,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }
         }
-        sp.edit().putBoolean("scrub_stored_v1", true).apply()
+        sp.edit().putBoolean("scrub_stored_v2", true).apply()
     }
 
     fun saveSession(title: String, msgs: List<SessionMsg>, mode: Int = 0, kind: Int = 0): Long {

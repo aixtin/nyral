@@ -289,7 +289,20 @@ class StreamSanitizer(
                     return
                 }
                 Cls.PLAIN -> { out.append(buf[0]); buf.deleteCharAt(0) }
-                Cls.SHELL -> startBlock()
+                Cls.SHELL -> {
+                    // 孤立闭合壳(</xxx> 或 [/xxx]): 只吞标签本身, 不开启块 —— 否则块没有闭合条件,
+                    // 会把后面的正常正文一路吞到 EOF(批次D-1 真机存量数据实测)。
+                    if (buf.startsWith("</") || buf.startsWith("[/")) {
+                        val closeAt = buf.indexOf(if (buf.startsWith("</")) '>' else ']')
+                        if (closeAt < 0) return
+                        val tag = buf.substring(0, closeAt + 1)
+                        buf.delete(0, closeAt + 1)
+                        suppressOneNewline = true
+                        emit(Delta.LeakDropped("orphan-close", tag.take(256), false))
+                        continue
+                    }
+                    startBlock()
+                }
             }
         }
     }
@@ -361,13 +374,31 @@ class StreamSanitizer(
             val name = readTagName(2)
                 ?: return if (!final) Cls.NEED_MORE
                 else if (isShellPrefix(buf.substring(2).lowercase())) Cls.SHELL else Cls.PLAIN
-            return if (isShell(name)) Cls.SHELL else Cls.PLAIN
+            if (isShell(name)) return Cls.SHELL
+            // 批次D-1 补: 不在正文白名单里的闭合标签(如 </web_search>)一律按壳吞。否则块在 JSON
+            // 平衡处提前结算后, 闭合壳会成为孤立标签漏上屏(真机存量数据实测形态)。
+            if (name.isNotEmpty() && name !in BODY_TAGS) return Cls.SHELL
+            return Cls.PLAIN
         }
         if (!c1.isLetter()) return Cls.PLAIN
         val name = readTagName(1)
             ?: return if (!final) Cls.NEED_MORE
             else if (isShellPrefix(buf.substring(1).lowercase())) Cls.SHELL else Cls.PLAIN
-        return if (isShell(name)) Cls.SHELL else Cls.PLAIN
+        if (isShell(name)) return Cls.SHELL
+        // 批次D-1 补: 自定义工具名壳(如 <web_search>{...}</web_search>)不在已知名单里,
+        // 但正文 HTML 标签后面不会紧跟 JSON 对象, 据此兜底判壳, 否则 scrubText 会把
+        // "<function=web_search>..." 这类内联形态原样放进历史气泡。
+        if (name !in BODY_TAGS && looksLikeJsonTag()) return Cls.SHELL
+        return Cls.PLAIN
+    }
+
+    /** 未知标签名后面紧跟 JSON 对象/数组时, 判定为工具壳而非正文标签 */
+    private fun looksLikeJsonTag(): Boolean {
+        val gt = buf.indexOf('>')
+        if (gt < 0) return false
+        var i = gt + 1
+        while (i < buf.length && (buf[i] == ' ' || buf[i] == '\n' || buf[i] == '\r' || buf[i] == '\t')) i++
+        return i < buf.length && (buf[i] == '{' || buf[i] == '[')
     }
 
     /** 输入耗尽时, 已积累的部分是否某个已知壳名的前缀(含空串=只有一个起始括号) */
@@ -390,7 +421,7 @@ class StreamSanitizer(
         var i = from
         while (i < buf.length) {
             val c = buf[i]
-            if (c == ' ' || c == '\t' || c == '/' || c == '>' || c == '\n' || c == '\r') {
+            if (c == ' ' || c == '\t' || c == '/' || c == '>' || c == '\n' || c == '\r' || c == '=') {
                 return if (sb.isEmpty()) "" else sb.toString().lowercase()
             }
             if (c == '<') return if (sb.isEmpty()) "" else null
