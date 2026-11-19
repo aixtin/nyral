@@ -2576,38 +2576,39 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         }
         session.setMaskTail(tail)
         val head = if (tail.isNotEmpty()) full.substring(0, lastOpen) else full
-        return head.replace(Regex("\\[表情:[^\\]]*\\]"), "〔表情〕")
+        if (!head.contains("[表情:")) return head
+        // 2026-11-19: 只有库内名字才占位成〔表情〕; 库外名字(模型自造)直接剥除,
+        // 否则占位符会被 rendered 快照固化, 重进会话也一直显示〔表情〕。
+        val known = if (ModeConfig.emojiEnabled()) EmojiLib.nameToFile(this).keys else emptySet()
+        return EmojiLib.maskMarks(head, known)
     }
 
     /** AI 回复拆分: [表情:名] 命中表情库白名单则拆为独立表情气泡消息; 未命中/Agent 模式(emojiEnabled=false)保留原文 */
     internal fun splitAiEmojiReply(reply: String): List<String> {
-        if (!ModeConfig.emojiEnabled() || !reply.contains("[表情:")) return listOf(reply)
-        val nameToFile = try {
-            val a = org.json.JSONArray(getSharedPreferences("emoji_drawer", android.content.Context.MODE_PRIVATE).getString("lib_items", "[]") ?: "[]")
-            (0 until a.length()).mapNotNull { i ->
-                val o = a.optJSONObject(i) ?: return@mapNotNull null
-                val n = o.optString("name"); val f = o.optString("file")
-                if (n.isNotBlank() && f.isNotBlank()) n to f else null
-            }.toMap()
-        } catch (e: Exception) { emptyMap() }
-        if (nameToFile.isEmpty()) return listOf(reply)
+        if (!reply.contains("[表情:")) return listOf(reply)
+        val enabled = ModeConfig.emojiEnabled()
+        val nameToFile = if (enabled) EmojiLib.nameToFile(this) else emptyMap()
+        // 2026-11-19: 库外标记(模型自造名字)先剥除, 避免裸 [表情:xxx] 落库上屏
+        val text = EmojiLib.stripUnknownMarks(reply, nameToFile.keys)
+        if (!enabled || nameToFile.isEmpty() || !text.contains("[表情:")) return listOf(text)
         val re = Regex("\\[表情:([^\\]]+)\\]")
         var last = 0
         var hasSplit = false
         val parts = mutableListOf<String>()
-        for (m in re.findAll(reply)) {
+        for (m in re.findAll(text)) {
             val name = m.groupValues[1].trim()
-            val file = nameToFile[name] ?: continue // 白名单外: 不拆, 保留原文
-            val head = reply.substring(last, m.range.first)
+            val file = nameToFile[name] ?: continue // 白名单外: 不拆
+            val head = text.substring(last, m.range.first)
             if (head.isNotBlank()) parts.add(head)
             parts.add("[表情:$name](att://$file)")
             last = m.range.last + 1
             hasSplit = true
         }
-        if (!hasSplit) return listOf(reply)
-        val tail = reply.substring(last)
+        if (!hasSplit) return listOf(text)
+        val tail = text.substring(last)
         if (tail.isNotBlank()) parts.add(tail)
-        return if (parts.isEmpty()) listOf(reply) else parts
+        if (parts.isEmpty()) return if (text.isBlank()) emptyList() else listOf(text)
+        return parts
     }
 
     // ===================== 气泡渲染 =====================

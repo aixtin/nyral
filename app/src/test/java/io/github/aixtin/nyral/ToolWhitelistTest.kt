@@ -47,7 +47,11 @@ class ToolWhitelistTest {
             "tool_calls", "<tool_call>", "<function=", "<invoke>", "dsml",
             "[tool_call]", "arguments", "content", "[表情:"
         )
-        for (k in required) check(SHELL_BAN_PROMPT.contains(k)) { "禁令应覆盖壳形态: $k" }
-        check(SHELL_BAN_PROMPT.contains("严禁")) { "禁令必须显式禁止" }
+        val full = shellBanPrompt(allowEmojiMark = true)
+        for (k in required) check(full.contains(k)) { "禁令应覆盖壳形态: $k" }
+        check(full.contains("严禁")) { "禁令必须显式禁止" }
+        // 2026-11-19: 表情库为空时禁令里不得再出现 [表情: 例外, 否则模型会自造名字
+        check(!SHELL_BAN_PROMPT.contains("[表情:")) { "基础禁令不应再提表情语法" }
+        check(!shellBanPrompt(allowEmojiMark = false).contains("[表情:")) { "无表情库时不得给出例外" }
     }
 }

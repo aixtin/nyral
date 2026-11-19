@@ -1986,16 +1986,13 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         else
             "\n回答时鼓励使用 Markdown(如 # 标题、- 列表、`代码`、代码块、表格等)增强可读性; 涉及对比或数据时优先用表格呈现。"
         // 表情气泡约定(2026-09-20): 仅聊天模式注入; Agent 模式不注入(模型不会主动输出表情标记)
-        val emojiBlock = if (ModeConfig.emojiEnabled()) {
-            val names = try {
-                val a = JSONArray(context.getSharedPreferences("emoji_drawer", Context.MODE_PRIVATE).getString("lib_items", "[]") ?: "[]")
-                (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() } }
-            } catch (e: Exception) { emptyList() }
-            if (names.isEmpty()) ""
+        // 表情白名单同源读取(2026-11-19): 库为空则既不注入约定、也不在禁令里给例外,
+        // 否则模型会照"唯一允许的方括号标记"自造名字, 正文残留 [表情:xxx]。
+        val emojiNames = if (ModeConfig.emojiEnabled()) EmojiLib.names(context) else emptyList()
+        val emojiBlock = if (emojiNames.isEmpty()) ""
             else "\n表情气泡(仅当前聊天模式可用): 你可以在回复中穿插 [表情:名] 标记来发送独立表情气泡, 名字必须是: " +
-                names.joinToString("/") +
+                emojiNames.joinToString("/") +
                 "。标记所在位置即气泡顺序(在正文前=表情先出现, 在末尾=正文先出现); 每轮最多 1~2 个, 仅在你觉得自然时使用, 严禁滥用或连续刷屏。\n"
-        } else ""
         // 视觉/视频多帧分析规则(2026-10-20): 根治"抽多帧仍按首帧概括全程"的模型端偷懒
         val visionBlock = "\n【视频/多帧画面分析规则(重要)】当收到 video_frame 抽出的多帧画面(帧图带 @秒数 标签)或需要描述视频内容时:\n" +
             "1. 必须逐帧分别描述: 按时间顺序逐帧列出一句话(如 帧1@0s:..., 帧2@4s:...), 明确指出各帧内容与光线/色彩差异;\n" +
@@ -2011,7 +2008,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             buildMcpIndex() +
             "\n可用SSH连接:$sshHint\n" +
             "调用方式: 使用系统提供的 function calling 原生工具调用(工具名与 JSON 参数已由系统给出 schema), 一次(轮)可并行发起多个工具; 不要自己发明不存在的工具名。\n" +
-            SHELL_BAN_PROMPT +
+            shellBanPrompt(emojiNames.isNotEmpty()) +
             "记忆使用: 若所需信息可能来自与此用户过去的对话且当前上下文未提及, 应调用 memory_search 查证后再回答; 工具调用过程中拿不准时也先查记忆再作答。\n" +
             (if (memInject.isNullOrBlank()) "" else memInject + "\n") +
             (if (patHint.isNullOrBlank()) "" else patHint + "\n") + fmtRules + mdBan + emojiBlock + visionBlock))

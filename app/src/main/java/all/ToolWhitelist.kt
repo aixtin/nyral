@@ -28,5 +28,17 @@ fun issuedToolNamesOf(tools: JSONArray?): Set<String> {
  * 刻意穷举常见壳形态: 与 StreamSanitizer 的 SHELL_TAGS 对应, 改壳表时需同步本段。
  */
 const val SHELL_BAN_PROMPT: String =
-    "工具调用通道规约(强制): 调用工具只能通过原生 function calling 的 tool_calls 字段发起。严禁在正文(content)中输出任何形式的工具调用壳或标记: 不得写 <tool_call>/<tool_calls>/<function=名字>/<function_calls>/<invoke>/<parameter>/<arg_key>/<arg_value>/<dsml>/<tool_use> 等 XML 标签(含其闭合标签), 不得写 [tool_call]/[function_call] 之类的方括号壳, 不得写 {\"name\":..,\"arguments\":{..}} 这类 JSON 调用壳, 也不要为了\"示范\"把工具名和参数抄进正文。正文只写给人读的自然语言; 需要调用就直接发 tool_calls, 参数全部走结构化字段。工具不存在或参数不足时用自然语言说明, 不得伪造调用。例外: [表情:名] 表情气泡标记是唯一允许出现在正文的方括号标记。\n"
+    "工具调用通道规约(强制): 调用工具只能通过原生 function calling 的 tool_calls 字段发起。严禁在正文(content)中输出任何形式的工具调用壳或标记: 不得写 <tool_call>/<tool_calls>/<function=名字>/<function_calls>/<invoke>/<parameter>/<arg_key>/<arg_value>/<dsml>/<tool_use> 等 XML 标签(含其闭合标签), 不得写 [tool_call]/[function_call] 之类的方括号壳, 不得写 {\"name\":..,\"arguments\":{..}} 这类 JSON 调用壳, 也不要为了\"示范\"把工具名和参数抄进正文。正文只写给人读的自然语言; 需要调用就直接发 tool_calls, 参数全部走结构化字段。工具不存在或参数不足时用自然语言说明, 不得伪造调用。\n"
 
+/**
+ * 表情标记例外只在"表情库非空且处于聊天模式"时才追加(2026-11-19 修复)。
+ * 库为空时若仍告知模型 [表情:名] 是允许的方括号标记, 模型会自己编名字,
+ * 而拆分器因白名单为空不认, 正文残留标记 -> 流式掩码成〔表情〕占位直接上屏。
+ */
+fun shellBanPrompt(allowEmojiMark: Boolean): String =
+    if (allowEmojiMark) {
+        SHELL_BAN_PROMPT.trimEnd('\n') +
+            "例外: [表情:名] 表情气泡标记是唯一允许出现在正文的方括号标记。\n"
+    } else {
+        SHELL_BAN_PROMPT
+    }
