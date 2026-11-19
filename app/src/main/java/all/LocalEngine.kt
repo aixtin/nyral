@@ -762,7 +762,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         return
                     }
                     full.append(capOut(res.accumulated))
-                    emitDelta(cb, "\n\n[网络中断，正在续跑…]", shadow = false)
+                    emitDelta(cb, "\n\n[网络中断，正在续跑…]")
                     messages.put(JSONObject().put("role", "assistant").put("content", capOut(res.accumulated.trimEnd())))
                     messages.put(JSONObject().put("role", "user").put("content",
                         "你刚才的回答因网络中断未能完整输出。请严格从断点继续完整输出剩余内容，不要重复已输出的部分。"))
@@ -782,7 +782,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                         if (finalText.isNotBlank()) {
                             full.append(capOut(finalText))
                         } else {
-                            emitDelta(cb, "\n\n[工具预算已耗尽, 未能生成最终总结; 以上为已完成的执行结果]", shadow = false)
+                            emitDelta(cb, "\n\n[工具预算已耗尽, 未能生成最终总结; 以上为已完成的执行结果]")
                         }
                         PatternStore.record(context, patSig, toolSeqUsed.toList(), ok = true)
                         cb.onDone(scrubXmlLeak(full.toString()))
@@ -950,7 +950,7 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
                 return
             }
             android.util.Log.w("Nyral", "chat network interrupted, auto-retry #$attempt: ${e.message}")
-            emitDelta(cb, "\n\n[网络波动，已自动重连一次]", shadow = false)
+            emitDelta(cb, "\n\n[网络波动，已自动重连一次]")
             // 指数退避: 1s/2s/4s, 给弱网恢复窗口
             sleepCancellable(1000L shl (attempt - 1))
             continue
@@ -1043,44 +1043,13 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         "ThrowsCount", // 断流/泄漏重试需抛可重试异常，属既定控制流语义
     )
     /**
-     * 批次 B(2026-11-19): 当前流会话的影子净化器。仅做新旧并行对比, 不改变上屏内容。
+     * 正文唯一上屏出口(批次 C)。原先散落的 14 处 cb.onDelta 与四个 tail 收口分支全部收敛到这里。
+     * 批次 B 的新旧并行对比已在分歧归零后拆除。
      */
-    @Volatile
-    private var streamShadow: StreamShadow? = null
-
-    /**
-     * 正文唯一上屏出口(批次 B)。原先散落的 14 处 cb.onDelta 与四个 tail 收口分支全部收敛到这里。
-     *
-     * shadow=true 时同一份文本并行喂给 StreamShadow, 收口只打日志、不改变上屏内容;
-     * 提示语/续跑占位(非模型输出)传 shadow=false, 避免污染影子语义。
-     */
-    private fun emitDelta(cb: Callback, text: String, shadow: Boolean = true) {
+    private fun emitDelta(cb: Callback, text: String) {
         if (text.isEmpty()) return
-        if (shadow) {
-            // 诊断(2026-11-19): 区分「影子实例为 null」与「feed 抛异常」两种丢失, 限频打点
-            val s = streamShadow
-            if (s == null) {
-                val n = ++shadowNullMiss
-                if (n == 1 || n % 200 == 0) {
-                    try { Log.w("NyralStream", "[shadow] FEED_MISS null count=$n") } catch (_: Throwable) {}
-                }
-            } else {
-                try { s.feed(text) } catch (t: Throwable) {
-                    val n = ++shadowFeedErr
-                    if (n == 1 || n % 200 == 0) {
-                        try { Log.w("NyralStream", "[shadow] FEED_ERR count=$n err=" + t) } catch (_: Throwable) {}
-                    }
-                }
-            }
-        }
         cb.onDelta(text)
     }
-
-    @Volatile
-    private var shadowNullMiss = 0
-
-    @Volatile
-    private var shadowFeedErr = 0
 
     private fun streamOnce(
         context: Context,
@@ -1161,14 +1130,6 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             gotProgressRef.set(true)
         }
         val accumulated = StringBuilder()
-        // 批次 B(2026-11-19): 影子对比。净化器与实际上屏并行跑, 只在收口打日志验证净吞/误吞;
-        // 上屏内容仍是原文, 用户可见行为与改造前逐字节一致(出问题可整批回退)。
-        val shadow = StreamShadow(useTools) { msg ->
-            try { Log.w("NyralStream", msg) } catch (_: Throwable) {}
-            // 诊断(2026-11-19): 同步写 App 内日志, 规避 logcat 丢行导致的轮号缺口
-            try { LogStore.w(LogStore.MAIN, msg) } catch (_: Throwable) {}
-        }
-        streamShadow = shadow
         val toolCalls = mutableListOf<Pair<String, String>>()
         // 与 toolCalls 按序一一对应的 tool_call_id(并行同名工具必须各自独立 id, 按 name 建映射会覆盖
         // 导致回填重复 id -> 服务端 400 Duplicate tool_call_id -> 误降级文本协议 -> DSML 泄漏, 2026-09-18)
@@ -1624,10 +1585,6 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             android.util.Log.w("Nyral", "SSE connect failed: ${e.message}")
             throw RetryableException("模型连接失败(网络不可达): ${e.message}")
         } finally {
-            try { shadow.finish(interruptedOut, toolCalls.size) } catch (t: Throwable) {
-                try { Log.e("NyralStream", "[shadow] finish failed: " + t) } catch (_: Throwable) {}
-            }
-            streamShadow = null
             watchdogLive.set(false)
             stallWatchdog?.interrupt()
             stallWatchdog = null
