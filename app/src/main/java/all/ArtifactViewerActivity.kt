@@ -291,30 +291,40 @@ class ArtifactViewerActivity : Activity() {
                 fileName.lowercase().endsWith(".md") || fileName.lowercase().endsWith(".markdown"))) {
             // 2026-11-19: MD 产物走富文本渲染(标题/列表/表格/代码块/图片), 不再当纯文本等宽显示
             val mdText = if (fileText.length > MAX_VIEW_CHARS) fileText.substring(0, MAX_VIEW_CHARS) else fileText
+            // 2026-11-19: 表格已迁到方案B块渲染(MdToBlocks + MdBlocksView), 单 TextView 路径会跳过表格区间
             val sv = ScrollView(this).apply { setBackgroundColor(Color.WHITE) }
-            val tv = TextView(this).apply {
-                textSize = 15f
-                setTextColor(Color.parseColor("#222222"))
-                setLineSpacing(dp(3).toFloat(), 1.05f)
-                setPadding(dp(16), dp(14), dp(16), dp(24))
-                setTextIsSelectable(true)
-            }
-            tv.post {
-                val w = tv.width - dp(2)
-                if (w > 0) {
-                    MdSpannable.tableMaxWidth = w
-                    MdSpannable.kbImageMaxWidth = w
+            val availW = (resources.displayMetrics.widthPixels - dp(32)).coerceAtLeast(dp(120))
+            MdSpannable.tableMaxWidth = availW
+            MdSpannable.kbImageMaxWidth = availW
+            val fallbackTv = {
+                TextView(this).apply {
+                    text = mdText
+                    textSize = 15f
+                    setTextColor(Color.parseColor("#222222"))
+                    setLineSpacing(dp(3).toFloat(), 1.05f)
+                    setPadding(dp(16), dp(14), dp(16), dp(24))
+                    setTextIsSelectable(true)
                 }
             }
-            tv.text = try {
-                MdSpannable.toSpannable(MdToSpans.parse(mdText))
+            val body: View = try {
+                MdBlocksView(this).apply {
+                    setPadding(dp(16), dp(14), dp(16), dp(24))
+                    setRenderContext(
+                        availW, availW,
+                        Color.parseColor("#222222"),
+                        Color.parseColor("#DDDDDD"),
+                        Color.parseColor("#F2F2F2")
+                    )
+                    bindBlocks(MdToBlocks.render(mdText))
+                }
             } catch (e: OutOfMemoryError) {
-                mdText
+                LogStore.w("ArtifactViewer", "MD 块渲染 OOM, 降级纯文本")
+                fallbackTv()
             } catch (e: Exception) {
-                LogStore.w("ArtifactViewer", "MD 渲染失败, 降级纯文本: ${e.message}")
-                mdText
+                LogStore.w("ArtifactViewer", "MD 块渲染失败, 降级纯文本: ${e.message}")
+                fallbackTv()
             }
-            sv.addView(tv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            sv.addView(body, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             card.addView(sv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         } else {
             val sv = ScrollView(this).apply { setBackgroundColor(Color.WHITE) }
