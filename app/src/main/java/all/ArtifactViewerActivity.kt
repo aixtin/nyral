@@ -250,10 +250,23 @@ class ArtifactViewerActivity : Activity() {
         } else if (mime.startsWith("video/") || mime.startsWith("audio/")) {
             // 视频/音频产物: 内嵌播放器直接播放(2026-11-19 新增, 之前落入文本分支只能看到乱码)
             val wrap = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-            val vv = android.widget.VideoView(this).apply {
+            val vv = AspectVideoView(this).apply {
+                // 先用 MediaMetadataRetriever 同步取真实分辨率: 部分解码器在 prepared 回调里
+                // videoWidth 仍为 0, 会退回铺满导致拉伸。竖拍视频常以 1920x1080+rotation=90 存储, 需交换宽高
+                runCatching {
+                    val mmr = android.media.MediaMetadataRetriever()
+                    mmr.setDataSource(f.absolutePath)
+                    val vw = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                    val vh = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                    val rot = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                    mmr.release()
+                    if (rot == 90 || rot == 270) setAspect(vh, vw) else setAspect(vw, vh)
+                }
                 setVideoPath(f.absolutePath)
                 setOnPreparedListener { mp ->
                     mp.isLooping = false
+                    // 兜底: 元数据取不到时用解码器上报的尺寸补一次
+                    if (mp.videoWidth > 0 && mp.videoHeight > 0) runCatching { setAspect(mp.videoWidth, mp.videoHeight) }
                     // 打开即播(否则只有黑底首帧, 用户以为打不开)
                     runCatching { start() }
                 }
@@ -264,7 +277,8 @@ class ArtifactViewerActivity : Activity() {
                 setOnClickListener { if (isPlaying) pause() else start() }
             }
             vv.setMediaController(android.widget.MediaController(this).apply { setAnchorView(vv) })
-            wrap.addView(vv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            // 等比缩放 + 居中: 横屏视频上下留黑垂直居中, 竖屏视频左右留黑水平居中
+            wrap.addView(vv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.CENTER))
             val hint = TextView(this).apply {
                 text = "${f.length() / 1024} KB · 点一下播放/暂停"
                 textSize = 11f
