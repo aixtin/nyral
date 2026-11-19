@@ -610,6 +610,22 @@ class TaskService : Service() {
         }
     }
 
+    /**
+     * fix(2026-11-20): 原实现固定 dataSync 类型, Android 15+(API35) 起 dataSync 型前台服务受
+     * 6h/24h 运行配额约束, 配额到期 system_server 回调 onTimeout; 若未在该回调 5s 内真正停服,
+     * 系统抛 ForegroundServiceDidNotStopInTimeException 直接杀进程。
+     * 线上 Xiaomi 25102RK69C(Android 17/SDK37, 2.9.32) 复现: 崩溃前 35s 正处会话归档 + 主题索引
+     * 收尾, 索引请求 HTTP 503 重试耗时叠加, 服务迟迟不停。
+     * TaskService 语义是"AI 任务执行期间保活", 与 TimerKeepAliveService 同源, 一并改 specialUse
+     * (无时长配额); API<34 仍走 dataSync 保持旧行为。
+     */
+    private fun fgsType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        }
+
     private fun startForegroundCompat(stage: String? = null) {
         val text = stage ?: lastStage ?: getString(R.string.ts_content)
         lastStage = text
@@ -617,7 +633,7 @@ class TaskService : Service() {
             val notif = buildNotification(this, text)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 // Android 10+ 前台服务必须带类型; targetSdk 34 下 Android 14 强制校验
-                startForeground(NOTIF_ID, notif.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                startForeground(NOTIF_ID, notif.build(), fgsType())
             } else {
                 startForeground(NOTIF_ID, notif.build())
             }
@@ -685,7 +701,11 @@ class TaskService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } catch (_: Exception) {
         }
-        stopSelf(startId)
+        // fix(2026-11-20): 原为 stopSelf(startId), 仅当该 startId 是最后一次请求时才真正停服;
+        // 收尾阶段若又有新的 startService 进来, 服务继续存活, 系统 5s 后照样抛 DidNotStopInTime。
+        // 配额已到一律无条件停服, 剩余收尾交给看门狗与下次闹钟。
+        state = State.IDLE
+        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
