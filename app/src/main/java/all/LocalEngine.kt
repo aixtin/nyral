@@ -1099,7 +1099,16 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
         body.put("stream", true)
         // 原生 function calling: 请求携带 tools(模型支持时); probe 失败过则降级纯文本
         val useTools = !toolsDegradedNow() && !forceNoTools
-        if (useTools) body.put("tools", buildToolsArray(context, hotLoaded))
+        // 请求侧工具白名单(批次D-2): 下发的 tools 数组既是模型可调用清单, 也是净化器壳识别白名单的唯一来源
+        var issuedNames: Set<String> = emptySet()
+        if (useTools) {
+            val toolsArr = buildToolsArray(context, hotLoaded)
+            body.put("tools", toolsArr)
+            issuedNames = issuedToolNamesOf(toolsArr)
+            // 显式声明 auto: 避免个别 OpenAI 兼容后端默认按 required 强行调用工具
+            body.put("tool_choice", "auto")
+            android.util.Log.d("Nyral", "请求侧白名单: tools=${issuedNames.size} tool_choice=auto")
+        }
         // 默认厂商支持流式返回真实 usage(最后一块); 其余厂商未知, 不加避免报错, 靠本地估算
         if (ApiConfig.providerId() == "deepseek") {
             body.put("stream_options", JSONObject().put("include_usage", true))
@@ -1288,6 +1297,8 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             }
         }
         // 把本轮下发的工具名交给净化器: <web_search>{..}</web_search> 这类"工具名当壳"的泄漏同样要吞
+        // 壳名白名单: 不做"只认下发集合"的收窄 —— 系统提示词的工具索引会列出未下发 schema 的工具名,
+        // 模型正文里照样可能吐出这些名字的壳, 收窄会漏; 保持全量工具名兜底
         sanitizer.extraShell = currentToolNames(hotLoaded)
         /** 正文唯一入口: 只喂净化器, 不直接上屏 */
         fun sink(s: String) {
@@ -2042,7 +2053,8 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             "注: 回调列表仅常驻常用工具; 想用索引中未列出的工具时, 先调 tool_detail(name) 获取规格并激活, 激活后即可直接调用。\n" +
             buildMcpIndex() +
             "\n可用SSH连接:$sshHint\n" +
-            "调用方式: 使用系统提供的 function calling 原生工具调用(工具名与 JSON 参数已由系统给出 schema), 一次(轮)可并行发起多个工具; 不要自己发明不存在的工具名。" +
+            "调用方式: 使用系统提供的 function calling 原生工具调用(工具名与 JSON 参数已由系统给出 schema), 一次(轮)可并行发起多个工具; 不要自己发明不存在的工具名。\n" +
+            SHELL_BAN_PROMPT +
             "记忆使用: 若所需信息可能来自与此用户过去的对话且当前上下文未提及, 应调用 memory_search 查证后再回答; 工具调用过程中拿不准时也先查记忆再作答。\n" +
             (if (memInject.isNullOrBlank()) "" else memInject + "\n") +
             (if (patHint.isNullOrBlank()) "" else patHint + "\n") + fmtRules + mdBan + emojiBlock + visionBlock))
