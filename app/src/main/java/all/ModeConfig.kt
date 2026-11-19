@@ -46,7 +46,6 @@ object ModeConfig {
     }
 
     /** 表情气泡开关: 仅聊天模式可用(有头像场景); Agent 模式(无头像)两端均禁发表情气泡 */
-    fun emojiEnabled(): Boolean = chatMode()
 
     /** 聊天模式正文协议前缀硬兜底(与 MD 开关无关, 所有渲染路径统一先剥):
      * 思考:/TOOL: 行整体剔除(思考已由 thinking 区承载, TOOL 走原生 function calling), 答案: 仅去前缀保留正文。全半角兼容。

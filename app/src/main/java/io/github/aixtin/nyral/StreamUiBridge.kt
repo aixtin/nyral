@@ -45,14 +45,14 @@ internal class StreamUiBridge(
     private fun dispatch(holder: AiBubbleHolder, think: String?, content: String?) {
         think?.let { holder.appendThinking(it) }
         if (content != null && !LocalEngine.cancelRequested) {
-            val masked = activity.maskAiEmojiMarks(content)
+            val body = activity.sanitizeEmojiMarks(content)
             // 正文块开始(首个 token): 阶段推进, 正文默认停滚(视口停留, 一键到底按钮接管)
             if (session.aiStage != ChatSessionState.AI_STAGE_CONTENT) {
                 session.setAiStage(ChatSessionState.AI_STAGE_CONTENT)
                 session.setContentFollow(false)
                 activity.updateJumpFab()
             }
-            holder.appendContent(masked)
+            holder.appendContent(body)
             // 正文阶段停滚: FAB 显隐随内容增长刷新(无滚动帧, onScrolled 兜底覆盖不到)
             if (session.aiStage == ChatSessionState.AI_STAGE_CONTENT && !session.contentFollow) {
                 activity.updateJumpFab()
@@ -269,25 +269,14 @@ internal class StreamUiBridge(
                         // 思考内容随回复一起持久化, 切回会话可恢复思考区
                         // 竞态防护: 回调排队期间用户可能已切会话, 不能把回复写进新会话历史
                         if (activity.replySessionId == activity.currentSessionId) {
-                            // AI 表情气泡(2026-09-20): 按 [表情:名] 白名单标记把回复拆为 正文+独立表情气泡 多条消息;
-                            // 第一条(通常正文)挂 thinking/tools 快照, 表情行独立无快照
-                            val replyParts = activity.splitAiEmojiReply(reply)
-                            replyPartCount = replyParts.size
-                            // 表情在头部时 replyParts[0] 是纯表情条: rendered 与快照须落在第一个正文条,
-                            // 否则表情条(AiRich)回显整条流式渲染(〔表情〕+正文) → 正文重复(2026-11-02)
-                            val firstBodyIdx = replyParts.indexOfFirst { p ->
-                                !p.matches(Regex("\\[表情:[^\\]]+\\]\\(att://[^)]+\\)"))
-                            }
-                            contentIdx = when {
-                                replyParts.isEmpty() -> -1
-                                firstBodyIdx < 0 -> activity.messages.size
-                                else -> activity.messages.size + firstBodyIdx
-                            }
-                            for ((pi, p) in replyParts.withIndex()) {
-                                val snap = if (pi == firstBodyIdx) Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot()) else Triple("", "", "")
-                                activity.messages.add(MemoryDb.SessionMsg("assistant", p, snap.first, snap.second, snap.third, System.currentTimeMillis()))
-                                MemoryKeeper.push("assistant", p, activity.replySessionId, activity.messages.size - 1)
-                            }
+                            // 表情气泡已切除(2026-11-19): 回复统一单条落库; 仅剥除历史脏数据/模型残留的
+                            // [表情:名] 标记, 防止裸标记上屏
+                            val replyText = activity.sanitizeEmojiMarks(reply)
+                            replyPartCount = 1
+                            contentIdx = activity.messages.size
+                            val snap = Triple(holder.thinkingSnapshot(), holder.toolsSnapshot(), holder.timelineSnapshot())
+                            activity.messages.add(MemoryDb.SessionMsg("assistant", replyText, snap.first, snap.second, snap.third, System.currentTimeMillis()))
+                            MemoryKeeper.push("assistant", replyText, activity.replySessionId, activity.messages.size - 1)
                             activity.currentSaved = false
                             // 回复完成即时落库, 防止进程被杀丢失最后一条回复
                             activity.maybeSaveCurrent()

@@ -352,58 +352,6 @@ internal class AttachmentSender(private val host: MainActivity) {
         return listOf(LocalEngine.Attachment(claimedMime, "", key, stored = true))
     }
 
-    /** 表情库项直接发送: 读库内文件 bytes 作图片附件直接发出(不经预览条); 调用方需保证输入框/预览条为空 */
-    fun sendEmojiLibItemNow(file: File, name: String) {
-        host.executor.execute {
-            try {
-                val bytes = file.readBytes()
-                if (bytes.isEmpty()) {
-                    toast(io.github.aixtin.nyral.R.string.toast_att_empty)
-                    return@execute
-                }
-                // 表情库项含动图(落库前已转无声循环MP4): 按真实类型打 mime, 渲染端表情气泡小图循环播放
-                val mime = if (file.name.lowercase().endsWith(".mp4")) "video/mp4" else "image/jpeg"
-                val att = LocalEngine.Attachment(
-                    mime, Base64.encodeToString(bytes, Base64.NO_WRAP), name, isEmoji = true)
-                host.uiScope.launch { host.doSend(listOf(att)) }
-            } catch (e: Exception) {
-                android.util.Log.e("Nyral", "发送表情失败", e)
-                toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
-            }
-        }
-    }
-
-    /** 表情库项直接发送: 读库内文件 bytes 作图片附件加入预览条(名字即消息名, AI 可语义索引) */
-    fun sendEmojiLibItem(file: File, name: String) {
-        host.executor.execute {
-            try {
-                val bytes = file.readBytes()
-                if (bytes.isEmpty()) {
-                    toast(io.github.aixtin.nyral.R.string.toast_att_empty)
-                    return@execute
-                }
-                // 表情库项含动图(落库前已转无声循环MP4): 按真实类型打 mime, 渲染端表情气泡小图循环播放
-                val mime = if (file.name.lowercase().endsWith(".mp4")) "video/mp4" else "image/jpeg"
-                val att = LocalEngine.Attachment(
-                    mime, Base64.encodeToString(bytes, Base64.NO_WRAP), name, isEmoji = true)
-                host.uiScope.launch {
-                    val MAX_ATT = 5
-                    var userAtt = host.pendingAttachments.count { it.pdfSourceName == null }
-                    if (userAtt >= MAX_ATT) {
-                        Toast.makeText(host, host.getString(io.github.aixtin.nyral.R.string.toast_att_max_drop, MAX_ATT), Toast.LENGTH_SHORT).show()
-                        return@launch
-                    }
-                    host.pendingAttachments.add(att)
-                    userAtt += 1
-                    addAttachPreview(att)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Nyral", "发送表情失败", e)
-                toast(io.github.aixtin.nyral.R.string.toast_att_read_fail, e.message)
-            }
-        }
-    }
-
     /** 读取附件并加入预览条(补文字后由 onSend 一并发送, 不再直接发出)。 */
     fun sendAttachmentFromUri(uri: Uri) {
         host.executor.execute {

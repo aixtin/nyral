@@ -555,7 +555,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         setupChatList()
         setupBodyAndInputArea()
         setupBrowserBar()
-        setupEmojiDrawerAndSideDrawer()
+        setupAttachPanelAndSideDrawer()
         setupBrowserLayerAndCallbacks()
         setupTokenAndHamburgerPanels()
         setupSystemGestures()
@@ -577,7 +577,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         instance = this
         // 视频气泡并发配额: 按设备内存动态定级; 名额让出广播挂"对账补建", 弹窗关闭/被踢行不滚动也自愈
         ExoGate.initByDevice(this)
-        ExoGate.sOnGateReleased = { chatRec?.post { reconcileVideoBubbles(chatRec); reconcileEmojiBubbles(chatRec) } }
+        ExoGate.sOnGateReleased = { chatRec?.post { reconcileVideoBubbles(chatRec) } }
         // 2026-09-14 废弃启动强制权限引导: 权限全权交给 FirstRunSetupActivity 逐项授权页
         // (去授权/已完成 + 进入APP) + 功能按需请求, 不再在启动时把全部权限轰炸一遍。
         // window.decorView.post { runFirstRunPermissionGuide() }
@@ -736,24 +736,24 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 swipeDetector.onTouchEvent(ev)
                 // 表情抽屉展开时, 点击抽屉外空白区域(消息区/背景/标题栏)收起抽屉;
                 // 点击输入框区域不收(交给 input.onClick 兜底收抽屉+弹键盘), 点击抽屉内部不收(交给抽屉自身交互)
-                if (ev.action == MotionEvent.ACTION_UP && emojiOpen && ::inputBar.isInitialized &&
-                    !isTouchInsideEmojiDrawer(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY)) {
+                if (ev.action == MotionEvent.ACTION_UP && panelOpen && ::inputBar.isInitialized &&
+                    !isTouchInsideAttachPanel(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY)) {
                     val il = IntArray(2)
                     inputBar.getLocationInWindow(il)
                     val inInputBar2 = ev.rawY.toInt() >= il[1] - dp(8)
                     if (!inInputBar2) {
                         post {
-                            // 先清焦点再收抽屉: hideEmojiDrawer 内部按 input.isFocused 决定是否弹键盘,
+                            // 先清焦点再收抽屉: hideAttachPanel 内部按 input.isFocused 决定是否弹键盘,
                             // 点空白收抽屉不应弹键盘, 故先清焦点
                             if (input.isFocused) input.clearFocus()
-                            hideEmojiDrawer()
+                            hideAttachPanel()
                         }
                     }
                 }
                 // 键盘弹起时, 点击输入区以外(消息区/背景/标题栏)收起键盘并清光标; 未弹键盘或点击输入框/按钮时不影响
                 // 优化(2026-09-18 全面扫描): hideSoftInput 的 binder 同步调用会阻塞 UP 分发链, post 到下一帧执行
                 if (ev.action == MotionEvent.ACTION_UP && ::inputBar.isInitialized &&
-                    !isTouchInsideEmojiDrawer(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY) &&
+                    !isTouchInsideAttachPanel(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY) &&
                     android.os.SystemClock.uptimeMillis() > suppressHideImeUntil) {
                     val i3 = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
                     if (i3?.isActive == true) {
@@ -931,15 +931,12 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     sScrolling = newState != RecyclerView.SCROLL_STATE_IDLE
                     if (sScrolling && !wasScrolling) {
                         for (p in sBubblePlayers.toList()) { try { p.pause() } catch (_: Exception) {} }
-                        // v6: 帧动画统一暂停(滚动中不刷帧), 停止后由对账 resumeIfReady 原地续播
-                        EmojiFrameAnimator.onScrollStart()
                     }
                     if (newState == RecyclerView.SCROLL_STATE_IDLE && wasScrolling) {
                         // QQ 式统一对账: 以当前可见行为唯一真相, 杀离屏/续播可见/按序补建,
                         // 名额只发可见行, 不再有"离屏行抢名额"的打架(09-19 15 视频连续发送反馈重构)
                         // 补建放下一帧: 避免松手帧同步连建多个 ExoPlayer prepare 硬解码卡顿
-                        // 表情气泡同样需要滚动停止对账: 滑动中降级的表情行在此补建恢复播放
-                        rv.post { reconcileVideoBubbles(rv); reconcileEmojiBubbles(rv) }
+                        rv.post { reconcileVideoBubbles(rv) }
                     }
                     if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                         // 静态上滑时刷新一键到底显隐(09-24): 输出中按钮隐藏后, 显隐刷新只剩
@@ -1154,7 +1151,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 if (actionId == EditorInfo.IME_ACTION_SEND) { onSend(); true } else false
             }
             imeOptions = EditorInfo.IME_ACTION_SEND
-            setOnFocusChangeListener { _, hasFocus -> if (hasFocus) hideEmojiDrawer() }
+            setOnFocusChangeListener { _, hasFocus -> if (hasFocus) hideAttachPanel() }
             // 回车放行 DOWN(系统默认 KeyListener 插入 \n, 百度 sendKeyEvent 路径); 吞掉 UP/MULTIPLE 防重复。
             // 微信输入法在 DOWN 系统插入后还会 commitText("\n"), 由 InputConnection 包装层去重丢弃, 避免双换行。
             setOnKeyListener { v, keyCode, e ->
@@ -1171,14 +1168,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             }
             // 键盘收起(光标已清)后再次点击: 只恢复焦点与键盘; 不再强制 setSelection 到末尾,
             // 光标定位交给系统默认(点哪光标哪), 否则无法点击定位到任意文本位置
-            // 抽屉展开时 input 保持聚焦, 再点击不触发 focus change(不会走上面的 hideEmojiDrawer),
+            // 抽屉展开时 input 保持聚焦, 再点击不触发 focus change(不会走上面的 hideAttachPanel),
             // 必须在这里兜底收起抽屉, 否则抽屉占位残留, 之后收键盘时输入框停在抽屉顶位收不回去
             setOnClickListener { view ->
-                if (emojiOpen) {
-                    // 先确保聚焦再收抽屉: hideEmojiDrawer 按 input.isFocused 判 willShowIme,
+                if (panelOpen) {
+                    // 先确保聚焦再收抽屉: hideAttachPanel 按 input.isFocused 判 willShowIme,
                     // 失焦时走"清占位+恢复动画"与随后键盘 insets 压缩打架 -> 输入框沉底/键盘弹了输入框不升/分不清谁是谁
                     if (!input.isFocused) input.requestFocus()
-                    hideEmojiDrawer()
+                    hideAttachPanel()
                 }
                 view.requestFocus()
                 (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
@@ -1280,7 +1277,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             // 默认隐藏: 输入文字后由 updateInputMode 切换为显示(语音槽让位给附件)
             isFocusable = false
             visibility = View.GONE
-            setOnClickListener { toggleEmojiDrawer() }
+            setOnClickListener { toggleAttachPanel() }
         }
         micWrap.addView(attachBtn2)
         inputBar.addView(micWrap)
@@ -1305,7 +1302,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 bottomMargin = dp(Ui.SP3)
             }
             isFocusable = false
-            setOnClickListener { toggleEmojiDrawer() }
+            setOnClickListener { toggleAttachPanel() }
         }
         attachWrap.addView(attachBtn)
         sendBtn = ImageView(this).apply {
@@ -1437,7 +1434,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         statusWrap.addView(browserBarSeg)
     }
 
-    private fun setupEmojiDrawerAndSideDrawer() {
+    private fun setupAttachPanelAndSideDrawer() {
         dockContent.addView(inputBar)
         // 键盘/输入框交接处分割线: 颜色取浏览器主页黑蓝渐变(linear-gradient 160deg #0d1b2a→#1b2a4a→#274060)
         dockContent.addView(View(this).apply {
@@ -1452,9 +1449,9 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         })
         // 一体式(定稿): 表情抽屉焊进 dockContent(输入框+表情区=大抽屉), 不再独立占位。
         // 大抽屉总高=输入框高+表情区高; 键盘 insets 压缩 bodyWrap 顶起整个大抽屉,
-        // 表情区与键盘互斥占用底部空间(emojiH = emojiDrawerTargetH - imeH), 切换时输入框零位移
-        val emojiDrawerRoot = buildEmojiDrawer()
-        dockContent.addView(emojiDrawerRoot, LinearLayout.LayoutParams(
+        // 表情区与键盘互斥占用底部空间(emojiH = panelTargetH - imeH), 切换时输入框零位移
+        val attachPanelRoot = buildAttachPanel()
+        dockContent.addView(attachPanelRoot, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0))
         // 输入栏浮层: 挂在 overlayHost 底部浮在消息区上, elevation 保证气泡滚过时压在其上
         dockContent.elevation = dp(6).toFloat()
@@ -1463,11 +1460,11 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         // 列表底部留出输入栏高度: 最后一条气泡能完整停在栏上方, 滚动过程则可穿到栏下(渐隐吃掉)
         // 表情抽屉展开时, 抽屉本体也计入底部让位: 抽屉撑起多高, 消息区就让出多高(与键盘 insets 压缩同语义)。
         // 键盘态抽屉高=0 故 pad 不变; 键盘<->抽屉互斥切换时一侧恢复、另一侧让位, 消息净位移约等于 0。
-        // 底部让位(padding)改由驱动点同帧直推(见 applyBottomOcclusion / setEmojiDrawerHeight)。
+        // 底部让位(padding)改由驱动点同帧直推(见 applyBottomOcclusion / setPanelHeight)。
         // 旧实现靠布局回调回读抽屉高度: 回调发生在 layout 之后, padding 落后一帧;
         // 低端机掉帧时落后数帧, 观感即"消息先掉下去再被顶上来"。此处仅作布局兜底校正。
         dockContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            val dH = emojiDrawer?.let { if (it.visibility == View.VISIBLE) it.height else 0 } ?: 0
+            val dH = attachPanel?.let { if (it.visibility == View.VISIBLE) it.height else 0 } ?: 0
             applyBottomOcclusion(dH)
         }
         main.addView(bodyWrap, LinearLayout.LayoutParams(
@@ -1681,8 +1678,8 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     /** API29 及以下: ADJUST_RESIZE 只压缩窗口、不派发 IME inset, 应用侧拿不到键盘高度信号。
      * 这里用 decorView 高度差(fullH - curH)反推键盘高, 补上 API30+ 的 imeH 语义(否则表情抽屉的
      * 键盘/抽屉互斥公式、键盘态判断全部失效: 抽屉收不回、与输入法上下重叠)。
-     * 1) 键盘弹起 -> 记录 imeHeightField, 并无条件收起表情区(等价 API30 的 startEmojiDropSync)
-     * 2) 键盘收起且抽屉待展开 -> 撑起表情区(等价 API30 的 startEmojiPopSync)
+     * 1) 键盘弹起 -> 记录 imeHeightField, 并无条件收起表情区(等价 API30 的 startPanelDropSync)
+     * 2) 键盘收起且抽屉待展开 -> 撑起表情区(等价 API30 的 startPanelPopSync)
      * 3) 视口变化后末条贴底(窗口被压缩后消息需跟随上移) */
     private fun setupLegacyImeBridge() {
         if (Build.VERSION.SDK_INT >= 30) return
@@ -1721,26 +1718,26 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         val vto = window.decorView.viewTreeObserver
         vto.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
-                val d = emojiDrawer ?: return true
-                if (!emojiOpen || d.visibility != View.VISIBLE) return true
+                val d = attachPanel ?: return true
+                if (!panelOpen || d.visibility != View.VISIBLE) return true
                 if (legacyImeH > dp(4)) {
                     // 键盘已在本帧生效: 抽屉必须同帧让位, 否则"键盘 + 满高抽屉"会把输入栏挤出屏幕。
-                    // 跳过超过 2 帧就放行, 防 setEmojiDrawerHeight 不生效时卡住不绘制。
-                    if (d.visibility == View.VISIBLE && d.height > dp(1) && emojiDrawerHAnim?.isRunning != true) {
+                    // 跳过超过 2 帧就放行, 防 setPanelHeight 不生效时卡住不绘制。
+                    if (d.visibility == View.VISIBLE && d.height > dp(1) && panelHAnim?.isRunning != true) {
                         val now = android.os.SystemClock.uptimeMillis()
                         if (now - preDrawSkipAt < 40) preDrawSkipRun++ else preDrawSkipRun = 1
                         preDrawSkipAt = now
                         if (preDrawSkipRun <= 2) {
-                            setEmojiDrawerHeight((emojiDrawerKbH - legacyImeH).coerceAtLeast(0))
+                            setPanelHeight((panelKbH - legacyImeH).coerceAtLeast(0))
                             return false
                         }
                     }
                     return true            // 键盘还在, 由互斥公式逐帧跟随
                 }
-                val tgt = emojiDrawerTargetH.coerceAtLeast(dp(160))
+                val tgt = panelTargetH.coerceAtLeast(dp(160))
                 if (d.height >= tgt - dp(4)) return true        // 已到位
-                if (emojiDrawerHAnim?.isRunning == true) return true
-                setEmojiDrawerHeight(tgt)
+                if (panelHAnim?.isRunning == true) return true
+                setPanelHeight(tgt)
                 return false                                    // 本帧不绘制, 下一帧直接是到位态
             }
         })
@@ -1755,31 +1752,31 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             // 按压缩量直接补偿滚动, 与 API30 的 onProgress 逐帧压缩驱动同语义。
             compensateViewportChange(kb - prev)
         }
-        val d = emojiDrawer
+        val d = attachPanel
         if (nowUp) {
             // 键盘顶起: 表情区必须无条件收起, 否则抽屉与输入法上下重叠(API30 的 dropSync 语义)
-            if (emojiOpen || (d != null && d.visibility == View.VISIBLE && d.height > dp(1))) {
-                emojiOpen = false
-                emojiDropPending = false
-                emojiDrawerHAnim?.cancel(); emojiDrawerHAnim = null
+            if (panelOpen || (d != null && d.visibility == View.VISIBLE && d.height > dp(1))) {
+                panelOpen = false
+                panelDropPending = false
+                panelHAnim?.cancel(); panelHAnim = null
                 if (d != null) {
-                    setEmojiDrawerHeight(0)
+                    setPanelHeight(0)
                     d.visibility = View.GONE
                 }
             }
-        } else if (emojiOpen && d != null && d.visibility == View.VISIBLE) {
+        } else if (panelOpen && d != null && d.visibility == View.VISIBLE) {
             // fix(11-17): 键盘->抽屉切换零位移。
-            // 旧实现等键盘收完再 startEmojiPopAnim(180) 长高: ADJUST_RESIZE 的窗口复原是单帧瞬时的,
+            // 旧实现等键盘收完再 startPanelPopAnim(180) 长高: ADJUST_RESIZE 的窗口复原是单帧瞬时的,
             // 抽屉却要 180ms 才长回来 -> 中间若干帧 输入框跟着窗口掉到屏幕最底, 抽屉长高再把它顶回去
             // (= 用户看到的"抽屉先掉到底部再弹上来")。
             // 改为一体式互斥逐帧跟随: 抽屉高 = 基准键盘高 - 当前键盘高,
             // 则 dock 位置 = 窗口高 - 键盘高 - 抽屉高 = 常量, 全程零位移, 无中间态可抖。
-            emojiDrawerHAnim?.cancel(); emojiDrawerHAnim = null
-            val popTarget = emojiDrawerTargetH.coerceAtLeast(dp(160))
-            val h = (emojiDrawerKbH - kb).coerceIn(0, popTarget)
-            setEmojiDrawerHeight(h)
+            panelHAnim?.cancel(); panelHAnim = null
+            val popTarget = panelTargetH.coerceAtLeast(dp(160))
+            val h = (panelKbH - kb).coerceIn(0, popTarget)
+            setPanelHeight(h)
             if (kb <= dp(4)) {
-                setEmojiDrawerHeight(popTarget)
+                setPanelHeight(popTarget)
                 d.post {
                     alignChatToViewport()
                     if (!scrollUserScrolled) scrollToBottom(auto = false, force = true)
@@ -1879,20 +1876,20 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                 lastImeH = imeH
                 if (imeH > dp(80)) imeHeightField = imeH  // 记录真实键盘高(一体式: 表情区撑高基准)
-                android.util.Log.i("NyralIme", "insets imeH=$imeH shown=$imeShown open=$emojiOpen eddH=${emojiDrawer?.height} tgt=$emojiDrawerTargetH kbH=$emojiDrawerKbH w=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).weight} h=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
+                android.util.Log.i("NyralIme", "insets imeH=$imeH shown=$imeShown open=$panelOpen eddH=${attachPanel?.height} tgt=$panelTargetH kbH=$panelKbH w=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).weight} h=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
                 val lp = bodyWrap.layoutParams as LinearLayout.LayoutParams
                 // 一体式互斥公式: 键盘/表情区互斥占用底部空间, 表情区高 = target - imeH;
                 // 键盘弹出表情区自动收起到 0, 键盘收回表情区自动撑到 target, 输入框(大抽屉顶)零位移
-                val edd = emojiDrawer
+                val edd = attachPanel
                 // 动画期间互斥公式由 onProgress 逐帧驱动: 键盘弹起动画开始时 insets 先派发最终 imeH,
                 // 此处若立即执行会把表情区瞬间收为 0, 而 bodyWrap 压缩被 inImeAnim 挡住 -> 输入框闪底
                 // (表情→键盘切换"先掉底再被顶起" bug)。仅在无动画(瞬时弹收)时作兜底。
-                if (!inImeAnim && edd != null && (emojiOpen || (edd.visibility == View.VISIBLE && edd.height > dp(1)))) {
-                    val tgt = emojiDrawerTargetH
-                    // fix(09-22 键盘调低): 互斥基准用实时 imeHeightField 而非 showEmojiDrawer 时的历史快照,
+                if (!inImeAnim && edd != null && (panelOpen || (edd.visibility == View.VISIBLE && edd.height > dp(1)))) {
+                    val tgt = panelTargetH
+                    // fix(09-22 键盘调低): 互斥基准用实时 imeHeightField 而非 showAttachPanel 时的历史快照,
                     // 键盘档位调低后快照残留旧满高 -> 键盘弹满表情区收不净(整体抬起)、键盘收回又按旧高撑起不收回
                     val base = imeHeightField.coerceAtLeast(tgt)
-                    if (base > 0 && tgt > 0) setEmojiDrawerHeight((base - imeH).coerceIn(0, tgt))
+                    if (base > 0 && tgt > 0) setPanelHeight((base - imeH).coerceIn(0, tgt))
                 }
                 if (imeH > dp(80)) {
                     // 补完动画在跑(键盘收回补尾中): 尊重动画不重新压缩, 防"掉下去又上来又下去"震荡
@@ -1966,14 +1963,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                         // 键盘瞬时收起(系统未跑 insets 动画, onProgress 一帧都不会来)时,
                         // 抽屉若仍为 0, 会让消息先整段落底、再等兜底动画撑起 -> "掉下去又上来"。
                         // 此处与 bodyWrap 恢复同帧把抽屉直接撑满, 让位与视口变化同步发生。
-                        if (emojiOpen) {
-                            val dNow = emojiDrawer
-                            if (dNow != null && dNow.visibility == View.VISIBLE && emojiDrawerTargetH > 0 &&
-                                dNow.height < emojiDrawerTargetH - dp(1) &&
-                                emojiDrawerHAnim?.isRunning != true
+                        if (panelOpen) {
+                            val dNow = attachPanel
+                            if (dNow != null && dNow.visibility == View.VISIBLE && panelTargetH > 0 &&
+                                dNow.height < panelTargetH - dp(1) &&
+                                panelHAnim?.isRunning != true
                             ) {
-                                android.util.Log.i("NyralIme", "instantPop imeH=$imeH h=${dNow.height} tgt=$emojiDrawerTargetH")
-                                setEmojiDrawerHeight(emojiDrawerTargetH)
+                                android.util.Log.i("NyralIme", "instantPop imeH=$imeH h=${dNow.height} tgt=$panelTargetH")
+                                setPanelHeight(panelTargetH)
                             }
                         }
                     }
@@ -1993,7 +1990,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     animStartImeH = try {
                         window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
                     } catch (e: Exception) { 0 }
-                    android.util.Log.i("NyralIme", "onPrepare dur=${animation.durationMillis} shown=$imeShown open=$emojiOpen sb=$animSbBottom")
+                    android.util.Log.i("NyralIme", "onPrepare dur=${animation.durationMillis} shown=$imeShown open=$panelOpen sb=$animSbBottom")
                     // 键盘收回开始: 记录收回前键盘高, 供表情区撑高基准(一体式: 表情区目标高=键盘高)
                     // fix(09-22) 转头跳变根因: 键盘弹出动画中途被 hideSoftInput 打断时, 系统启动的
                     // 收回动画 animStartImeH 是"动画中途值"(非满高), 若覆盖 imeHeightField 会让互斥
@@ -2003,9 +2000,9 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     if (animStartImeH > dp(80) && animStartImeH + dp(24) >= imeHeightField) imeHeightField = animStartImeH
                     // 键盘开始弹出: 表情区退出展开态(互斥公式按 h>0 条件驱动收起到 0, 键盘接管底部空间)
                     // 键盘开始弹出: 表情区退出展开态。仅动画前键盘未开(animStartImeH<=80, 真弹起)时清;
-                    // 动画前键盘已开(animStartImeH>80)的是收起动画, showEmojiDrawer 刚置的 emojiOpen
+                    // 动画前键盘已开(animStartImeH>80)的是收起动画, showAttachPanel 刚置的 panelOpen
                     // 不能被误清, 否则直开表情不展开/聊天不顶起
-                    if (!imeShown && emojiOpen && animStartImeH <= dp(80)) emojiOpen = false
+                    if (!imeShown && panelOpen && animStartImeH <= dp(80)) panelOpen = false
                     // 键盘开始弹出(animStartImeH<=80): 无条件进入压缩初始状态。
                     // fix(09-22) 悬空根因: 转头/打断时 imeShown 可能残留 true, 旧逻辑 !imeShown 分支
                     // 不执行 -> weight 保持 1f -> onProgress 设 height 无效(weight 主导分配)
@@ -2039,15 +2036,15 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     lastProgressImeH = imeH
                     android.util.Log.i("NyralIme", "onProgress imeH=$imeH last=$lastProgressImeH shown=$imeShown")
                     // 一体式互斥公式(每帧): 表情区高 = target - imeH, 与键盘动画同帧互斥, 输入框零位移
-                    val eddP = emojiDrawer
-                    if (eddP != null && (emojiOpen || (eddP.visibility == View.VISIBLE && eddP.height > dp(1)))) {
-                        val tgtP = emojiDrawerTargetH
+                    val eddP = attachPanel
+                    if (eddP != null && (panelOpen || (eddP.visibility == View.VISIBLE && eddP.height > dp(1)))) {
+                        val tgtP = panelTargetH
                         // fix(09-22 键盘调低): 互斥基准=实时键盘满高 imeHeightField(动画开始时 onApply 已刷新为
-                        // 本次真实满高), 不再用 showEmojiDrawer 历史快照 kbH: 键盘档位调低后快照残留旧满高,
+                        // 本次真实满高), 不再用 showAttachPanel 历史快照 kbH: 键盘档位调低后快照残留旧满高,
                         // 键盘弹满时表情区收不净(残留=旧高-新高, 输入框被顶高)、键盘收回时又按旧高把表情区
-                        // 撑起而 emojiOpen 已 false -> 表情区不收回去。中途转头保护仍由 onPrepare 容差承担
+                        // 撑起而 panelOpen 已 false -> 表情区不收回去。中途转头保护仍由 onPrepare 容差承担
                         val baseP = imeHeightField.coerceAtLeast(tgtP)
-                        if (baseP > 0 && tgtP > 0) setEmojiDrawerHeight((baseP - imeH).coerceIn(0, tgtP))
+                        if (baseP > 0 && tgtP > 0) setPanelHeight((baseP - imeH).coerceIn(0, tgtP))
                     }
                     if (imeShown) {
                         // 压缩顶起/恢复: 高度随键盘动画进度逐帧同步, 锚定末条保留底部留白
@@ -2086,7 +2083,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     // 反悔打断收尾延迟: post 下一帧可能仍抢在反向新动画 onPrepare 之前执行(旧收尾误伤),
                     // 延迟 16ms 让 onPrepare 先置 inImeAnim=true, 上方 !inImeAnim 检查即可拦截过时收尾。
                     root.postDelayed({
-                        android.util.Log.i("NyralIme", "onEnd.post imeShown=$imeShown inAnim=$inImeAnim open=$emojiOpen focused=${input.isFocused} bwH=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
+                        android.util.Log.i("NyralIme", "onEnd.post imeShown=$imeShown inAnim=$inImeAnim open=$panelOpen focused=${input.isFocused} bwH=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
                         // fix(09-22) 转头竞态: 键盘动画强打断已由 requestIme(insetsController) 保证反向
                         // 动画立即 onPrepare, 此处仅需 inImeAnim 拦截过时收尾(闪底/闪没再被拉回)
                         if (!imeShown || inImeAnim) return@postDelayed
@@ -2100,8 +2097,8 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                         // 键盘确实收到底(curImeH 低位)才允许恢复全高
                         if (curImeH <= dp(80) || (!input.isFocused && curImeH <= dp(240)) || (closing && curImeH <= dp(240))) {
                             // 反悔打断残留: 抽屉半开(高度未到展开位)且键盘最终未重弹时收完, 防"反悔后键盘没弹回来+抽屉挂半空"卡死
-                            if (isEmojiDrawerHalfOpen()) {
-                                finishEmojiDrawerDrop()
+                            if (isAttachPanelHalfOpen()) {
+                                finishAttachPanelDrop()
                             }
                             if (imeFloating) {
                                 imeFloating = false
@@ -2565,51 +2562,11 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         else -> ""
     }
 
-    /** AI 表情标记流式掩码: 完整 [表情:名] 显示为〔表情〕占位; 跨 delta 分片的半截标记缓冲到 emojiMaskTail */
-    internal fun maskAiEmojiMarks(delta: String): String {
-        val full = session.emojiMaskTail + delta
-        var tail = ""
-        val lastOpen = full.lastIndexOf('[')
-        val lastClose = full.lastIndexOf(']')
-        if (lastOpen > lastClose && full.startsWith("[表情:", lastOpen)) {
-            tail = full.substring(lastOpen)
-        }
-        session.setMaskTail(tail)
-        val head = if (tail.isNotEmpty()) full.substring(0, lastOpen) else full
-        if (!head.contains("[表情:")) return head
-        // 2026-11-19: 只有库内名字才占位成〔表情〕; 库外名字(模型自造)直接剥除,
-        // 否则占位符会被 rendered 快照固化, 重进会话也一直显示〔表情〕。
-        val known = if (ModeConfig.emojiEnabled()) EmojiLib.nameToFile(this).keys else emptySet()
-        return EmojiLib.maskMarks(head, known)
-    }
-
-    /** AI 回复拆分: [表情:名] 命中表情库白名单则拆为独立表情气泡消息; 未命中/Agent 模式(emojiEnabled=false)保留原文 */
-    internal fun splitAiEmojiReply(reply: String): List<String> {
-        if (!reply.contains("[表情:")) return listOf(reply)
-        val enabled = ModeConfig.emojiEnabled()
-        val nameToFile = if (enabled) EmojiLib.nameToFile(this) else emptyMap()
-        // 2026-11-19: 库外标记(模型自造名字)先剥除, 避免裸 [表情:xxx] 落库上屏
-        val text = EmojiLib.stripUnknownMarks(reply, nameToFile.keys)
-        if (!enabled || nameToFile.isEmpty() || !text.contains("[表情:")) return listOf(text)
-        val re = Regex("\\[表情:([^\\]]+)\\]")
-        var last = 0
-        var hasSplit = false
-        val parts = mutableListOf<String>()
-        for (m in re.findAll(text)) {
-            val name = m.groupValues[1].trim()
-            val file = nameToFile[name] ?: continue // 白名单外: 不拆
-            val head = text.substring(last, m.range.first)
-            if (head.isNotBlank()) parts.add(head)
-            parts.add("[表情:$name](att://$file)")
-            last = m.range.last + 1
-            hasSplit = true
-        }
-        if (!hasSplit) return listOf(text)
-        val tail = text.substring(last)
-        if (tail.isNotBlank()) parts.add(tail)
-        if (parts.isEmpty()) return if (text.isBlank()) emptyList() else listOf(text)
-        return parts
-    }
+    /** 历史兼容(2026-11-19 表情功能已整体切除): 剥除老会话/老回复里残留的 [表情:名] 标记, 只留纯文本;
+     * 无标记的文本原样返回, 零开销。表情抽屉与 AI 表情气泡渲染均已移除, 这里只保证历史脏数据上屏不漏方括号。 */
+    private val MarkRegex = Regex("\\[表情:[^\\]]{1,24}\\]")
+    internal fun sanitizeEmojiMarks(text: String): String =
+        if (!text.contains("[表情:")) text else MarkRegex.replace(text, "")
 
     // ===================== 气泡渲染 =====================
 
@@ -3037,15 +2994,13 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 chatRec.post {      // 帧2: 布局完成, 释放窗口并补建一次
                     sBatchLoad = false
                     reconcileVideoBubbles(chatRec)
-                    reconcileEmojiBubbles(chatRec)   // 表情行同批降级, 一并补建恢复播放
-                    // 兜底(2026-09-20): 帧2 对账时 RV 锚点/ViewHolder 可能未就绪(scrollToPosition
+                                // 兜底(2026-09-20): 帧2 对账时 RV 锚点/ViewHolder 可能未就绪(scrollToPosition
                     // 锚点在下一布局帧才生效), 尾部最新两条可能不在可见范围而漏补建; 延迟再对账一次
                     // 覆盖, 幂等安全: 已播放行走续播不重复重建, 无变化则空跑
                     chatRec.postDelayed({
                         if (sScrolling) return@postDelayed
                         reconcileVideoBubbles(chatRec)
-                        reconcileEmojiBubbles(chatRec)
-                    }, 300)
+                                    }, 300)
                 }
             }
         }
@@ -3272,9 +3227,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         // 不可用全屏w: 全屏w+END右对齐且可用区<气泡宽时左边缘偏移为负→左边越出屏幕
         val userMaxW = if (ModeConfig.chatMode()) maxW else (maxW - dp(24)).coerceAtLeast(dp(120))
         // 专门表情气泡(微信式96dp小图贴边): 表情库项统一入口, 优先于视频/图片链路;
-        // 识别 [表情:xxx] 新标记 + 历史兼容(emoji_lib/ 路径的视频/图片消息); 非表情/异常回退原链路
-        val emojiView = try { emojiBubble(content, isUser, if (isUser) userMaxW else maxW) } catch (e: Exception) { null }
-        if (emojiView != null) return emojiView
         // 接收端气泡循环播放管线: 纯视频单附件消息 -> 气泡内嵌 PlayerView 自动循环播放(动图/多帧媒体
         // 播放完一次自动重播 loop), 对齐微信"大动图循环视频"; 非纯视频/异常回退原缩略图渲染
         val loopView = try { videoLoopBubble(content, isUser, if (isUser) userMaxW else maxW) } catch (e: Exception) { null }
@@ -3374,20 +3326,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         return content.replace(re, "").trim().isEmpty()
     }
 
-    /** 纯表情消息判定(与 emojiBubble 同规则): 单附件 + [表情: 标记, 或历史 emoji_lib/ 路径的 [视频:]/[图片];
-     *  供表情对账(reconcileEmojiBubbles)精确识别行, 避免把普通视频/图片行当表情重建 */
-    private fun isPureEmojiMsg(content: String): Boolean {
-        val re = Regex("""\[.+?\]\(att://[^)]+\)""")
-        val marks = re.findAll(content).toList()
-        if (marks.size != 1) return false
-        val markText = marks[0].value
-        val isEmojiMark = markText.startsWith("[表情:")
-        val isLegacyEmoji = (markText.startsWith("[视频:") || markText.startsWith("[图片]")) &&
-            markText.contains("emoji_lib/")
-        if (!isEmojiMark && !isLegacyEmoji) return false
-        return content.replace(re, "").trim().isEmpty()
-    }
-
     /** 递归找行视图树里活跃 ExoPlayer(PlayerView.player 非空即活); 与 hasActivePlayerView 同遍历,
      *  对账时用于收集"可见行持有的播放器", 杀离屏只认活跃实例 */
     private fun activePlayerOf(v: View): ExoPlayer? {
@@ -3459,11 +3397,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         }
         // 3) 续播可见(原地恢复, 不重建不闪变)
         for (p in keepExos) { try { p.play() } catch (_: Exception) {} }
-        // 帧动画行同步续播(滚动停止后 attachListener 只触发不播, 对账统一恢复)
-        for (pos in first..last) {
-            val vh = rv.findViewHolderForAdapterPosition(pos) ?: continue
-            EmojiFrameAnimator.controllerOf(vh.itemView)?.let { c -> try { c.play() } catch (_: Exception) {} }
-        }
         // 4) 按序补建(错峰逐行, 每行间隔 120ms): 同帧 notify 多行 → 下一帧同步 bind 建多个
         //    ExoPlayer prepare 硬解码, 首屏/切会话大量视频行时明显卡顿; 错峰后逐个建, 观感平滑
         if (pendingRows.isNotEmpty()) {
@@ -3484,278 +3417,8 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         }
     }
 
-    /** 表情气泡专用对账(与 reconcileVideoBubbles 同框架, 独立于视频配额互不误杀):
-     *  重启/切会话后表情行 bind 时若遇 名额满/滑动中/批量加载 会降级静态缩略图且不再补建,
-     *  导致"发出去的表情不动"(09-19 用户反馈); 本对账在滚动停止/ExoGate 释放/批量加载结束
-     *  三个触发点按可见行重排名额, 让降级行重新 notify 走 emojiBubble 播放链路。
-     *  识别: isPureEmojiMsg 精确判定纯表情行; 已有 PlayerView 的行保留播放权, 空缺行按序补建。
-     *  配额: 前 INLINE_MAX 个可见表情行获得播放权, 超配额/离屏的统一经 sEmojiKillHooks 让位。 */
-    private fun reconcileEmojiBubbles(rv: RecyclerView) {
-        if (sScrolling) return
-        val lm = rv.layoutManager as? LinearLayoutManager ?: return
-        val first = lm.findFirstVisibleItemPosition()
-        // 尾部扩展(2026-09-20, 对齐视频对账): 批量重建后锚点未就绪时最新两条可能不在可见范围,
-        // 仅当可见区接近列表末尾时扩展到末尾覆盖; 表情行无中心检测区, 屏幕外行靠 ViewHolder 缺失自然跳过
-        val lastVis = lm.findLastVisibleItemPosition()
-        val last = if (lastVis >= chatRows.lastIndex - 2) chatRows.lastIndex else lastVis
-        if (first < 0 || last < first) return
-        android.util.Log.d("ReconcileE", "trigger first=$first last=$last lastVis=$lastVis count=${chatRows.size} sScrolling=$sScrolling sBatchLoad=$sBatchLoad players=${sEmojiPlayers.size}")
-        // 表情行对账放宽: 可见即收(不套视频行的中心检测区)——表情帧动画不占解码器名额,
-        // 最新两条贴输入栏/边缘遮挡时也能补建播放, 根治"倒数两条永久缩略图不动"(09-19 反馈)
-        val visibleRows = ArrayList<Pair<Int, ExoPlayer?>>()
-        for (pos in first..last) {
-            val row = chatRows.getOrNull(pos)
-            val emojiC = when (row) { is ChatRow.User -> row.content; is ChatRow.Ai -> row.content; else -> null } ?: continue
-            if (!isPureEmojiMsg(emojiC)) continue
-            val vh = rv.findViewHolderForAdapterPosition(pos)
-            if (vh == null) { android.util.Log.d("ReconcileE", "cand pos=$pos vh=null"); continue }
-            val iv = vh.itemView
-            // 帧动画行视为已有播放权(不占 ExoGate 名额): 跳过预算分配, 防把帧动画行当空缺行重建闪变;
-            // 原地续播: 滚动中 attach 时 sScrolling 抑制播放、抽帧完成时同样被抑制的行, 滚动停止在此补播;
-            // 已软释放(离屏 30s 看门狗)回屏的行由 resumeIfReady -> startDecode 幂等重抽续上 —— 根治"最新一条不动"
-            if (EmojiFrameAnimator.hasActiveFrame(iv)) {
-                android.util.Log.d("ReconcileE", "cand pos=$pos frameAnim=active resume")
-                EmojiFrameAnimator.controllerOf(iv)?.resumeIfReady()
-                continue
-            }
-            android.util.Log.d("ReconcileE", "cand pos=$pos frameAnim=no player=${activePlayerOf(iv) != null}")
-            visibleRows.add(pos to activePlayerOf(iv))
-        }
-        // 1) 名额重排: 前 INLINE_MAX 个可见表情行获得播放权
-        val keepExos = HashSet<ExoPlayer>()
-        val pendingRows = ArrayList<Int>()
-        var budget = ExoGate.INLINE_MAX
-        for ((pos, exo) in visibleRows) {
-            if (budget > 0) {
-                if (exo != null) keepExos.add(exo) else pendingRows.add(pos)
-                budget--
-            }
-        }
-        // 2) 杀超配额/离屏: 不在 keepExos 的表情播放器统一终结(经统一收口归还名额)
-        for (p in sEmojiPlayers.toList()) {
-            if (p !in keepExos) sEmojiKillHooks[p]?.invoke()
-        }
-        // 3) 续播可见(原地恢复, 不重建不闪变)
-        for (p in keepExos) { try { p.play() } catch (_: Exception) {} }
-        // 4) 按序补建(错峰逐行 120ms): 让降级为缩略图的表情行重新走播放链路
-        if (pendingRows.isNotEmpty()) {
-            android.util.Log.d("ReconcileE", "pending=$pendingRows")
-            var delay = 0L
-            for (pos in pendingRows) {
-                rv.postDelayed({
-                    if (sScrolling) return@postDelayed
-                    if (sEmojiPlayers.size >= ExoGate.INLINE_MAX) return@postDelayed
-                    val row = chatRows.getOrNull(pos)
-                    val emojiC2 = when (row) { is ChatRow.User -> row.content; is ChatRow.Ai -> row.content; else -> null } ?: return@postDelayed
-                    if (!isPureEmojiMsg(emojiC2)) return@postDelayed
-                    val vh = rv.findViewHolderForAdapterPosition(pos) ?: return@postDelayed
-                    if (hasActivePlayerView(vh.itemView)) return@postDelayed
-                    chatAdapter.notifyItemChanged(pos)
-                }, delay)
-                delay += 120L
-            }
-        }
-    }
 
-    /**
-     * 专门表情气泡(微信式 96dp 小图贴边, 无背景边框): 表情库项统一渲染入口。
-     * 识别新标记 [表情:xxx](att://...) ; 历史兼容: [视频:xxx] / [图片] 且 att 路径含 emoji_lib/ 也走表情。
-     * mp4 动图 → ExoPlayer 静音循环(复用 ExoGate 名额制 + 看门狗 + attach/detach 生命周期, 与视频气泡同机制);
-     * jpg 静态图 → 直接解码小图; 名额满/滚动中/批量加载 → 降级静态缩略图(不黑屏)。
-     * 固定方形小尺寸、无背景、点击进全屏预览。返回 null 回退原视频/图片链路。
-     */
-    private fun emojiBubble(content: String, isUser: Boolean, maxW: Int): View? {
-        // AI 表情气泡(2026-09-20): 放开 isUser 限制, 聊天模式 AI 纯表情消息同样渲染表情气泡(靠左);
-        // Agent 模式 emojiEnabled=false 一律不渲染表情气泡, 标记按原文显示防泄漏
-        if (!ModeConfig.emojiEnabled()) return null
-        // 仅纯单附件消息: 去掉附件占位后无其余文本
-        val re = Regex("""\[.+?\]\(att://([^)]+)\)""")
-        val marks = Regex("""\[.+?\]\(att://[^)]+\)""").findAll(content).toList()
-        if (marks.size != 1) return null
-        if (content.replace(Regex("""\[.+?\]\(att://[^)]+\)"""), "").trim().isNotEmpty()) return null
-        val markText = marks[0].value
-        // 新标记 [表情:xxx] 或 历史兼容(emoji_lib/ 路径的 [视频:xxx]/[图片] 消息)
-        val isEmojiMark = markText.startsWith("[表情:")
-        val isLegacyEmoji = (markText.startsWith("[视频:") || markText.startsWith("[图片]")) &&
-            markText.contains("emoji_lib/")
-        if (!isEmojiMark && !isLegacyEmoji) return null
-        val file = re.find(content)?.groupValues?.get(1) ?: return null
-        val f = AttachmentStore.fileOf(this, file)
-        if (f == null || !f.exists() || f.length() <= 0L) return null
-        val mime = AttachmentStore.mimeOf(this, file)
-        val isVideo = mime.startsWith("video/") || file.lowercase().endsWith(".mp4")
-        // 微信式小尺寸贴边(不超过气泡可用宽); 非正方形动图/图片按真实宽高比适配(短边保底 40dp), 不再硬裁方形
-        val maxSide = dp(96).coerceAtMost(maxW)
-        var bubbleW = maxSide
-        var bubbleH = maxSide
-        var stillBmp: android.graphics.Bitmap? = null
-        if (!isVideo) {
-            // 静态图表情: 直接解码小图(表情文件小, 内存可控, 无需缩略图管线), 用真实宽高比定气泡尺寸
-            stillBmp = try { decodeAttachmentBitmap(f, resources.displayMetrics.density) } catch (e: Exception) { null }
-            val b = stillBmp
-            if (b == null) return null
-            val a = if (b.height > 0) b.width.toFloat() / b.height.toFloat() else 1f
-            if (a >= 1f) bubbleH = (maxSide / a).toInt().coerceAtLeast(dp(40)) else bubbleW = (maxSide * a).toInt().coerceAtLeast(dp(40))
-        } else {
-            // 动图表情: 缩略图缓存/媒体元数据取宽高比(见 videoAspectOf), 竖屏窄条/横屏宽条均按比例显示
-            val a = videoAspectOf(f)
-            if (a >= 1f) bubbleH = (maxSide / a).toInt().coerceAtLeast(dp(40)) else bubbleW = (maxSide * a).toInt().coerceAtLeast(dp(40))
-        }
-        val frame = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(bubbleW, bubbleH).apply {
-                topMargin = dp(Ui.SP2)
-                gravity = if (isUser) Gravity.END else Gravity.START
-            }
-            // 表情气泡无背景无圆角, 直接贴聊天背景(微信式); 点击进全屏预览(弹窗内图片查看/视频循环)
-            background = null
-            // 对账识别标记(reconcileEmojiBubbles 用它判定"行视图已是表情气泡"避免重复重建)
-            tag = "emoji_bubble_frame"
-            setOnClickListener { this@MainActivity.openAttachmentPreview(listOf(file), 0) }
-        }
-        if (!isVideo) {
-            // 静态图表情: frame 已按宽高比适配, FIT 完整显示原图
-            val iv = android.widget.ImageView(this@MainActivity).apply {
-                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-                setImageBitmap(stillBmp)
-            }
-            frame.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            return frame
-        }
-        // 动图表情: 短表情优先帧动画(方案C: 不占 ExoPlayer 名额, 同屏可同时动多个);
-        // 长表情/滚动/批量/超限/抽帧失败回退 ExoPlayer 名额制兜底
-        // 滚动中 bind 也走帧动画(首帧先行, 不依赖缩略图缓存): 发送滚动到底/浏览历史时新行秒现首帧不闪黑;
-        // 滚动中不播放, 停止后由 reconcileEmojiBubbles resumeIfReady 原地续播(v4)
-        // v6: isShortEmoji 主线程纯缓存查询(永不碰 MMR), 后台 warmup 补齐探测
-        EmojiFrameAnimator.warmup(f)
-        // v6.1: 帧动画确认不可用(抽帧失败/损坏)的文件直接静态缩略图, 不落 ExoPlayer 兜底,
-        // 防"废柴文件"成批转交解码器造成并发内存洪峰(OOM 放大器, 09-20 闪退根因)
-        if (EmojiFrameAnimator.isFailed(f)) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
-        if (!sBatchLoad && EmojiFrameAnimator.isShortEmoji(f)) {
-            // 发送闪黑根治: attach 前若有缓存首帧缩略图先铺真图垫底(attach 不清空子视图, 帧动画 iv 叠加其上),
-            // 抽帧等待期显示真图不黑; 未命中不铺, 等首帧先行(几十 ms)
-            peekVideoThumb(f)?.let { thumb ->
-                frame.addView(android.widget.ImageView(this@MainActivity).apply {
-                    scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-                    setImageBitmap(thumb)
-                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER))
-            }
-            // 帧动画首帧先行: attach 后抽帧线程取到第 0 帧立即上屏
-            if (EmojiFrameAnimator.attach(frame, f)) return frame
-        }
-        // 表情独立配额满/滚动中/批量加载 → 静态缩略图降级(不黑屏不抢解码; 独立于视频配额, 互不误杀)
-        if (sEmojiPlayers.size >= ExoGate.INLINE_MAX) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
-        if (sScrolling) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
-        if (sBatchLoad) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
-        val gateToken = Any()
-        if (!ExoGate.tryAcquire(gateToken)) { attachEmojiThumb(frame, f, bubbleW, bubbleH); return frame }
-        lateinit var exo: ExoPlayer
-        try {
-            exo = ExoPlayer.Builder(this@MainActivity).build()
-            exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(f)))
-            // 循环播放 + 静音: 与动图无声循环语义一致; 点击气泡进全屏弹窗(弹窗内同样循环)
-            exo.repeatMode = ExoPlayer.REPEAT_MODE_ALL
-            exo.volume = 0f
-            exo.prepare()
-        } catch (e: Exception) {
-            try { exo.release() } catch (_: Exception) {}
-            ExoGate.release(gateToken)
-            attachEmojiThumb(frame, f, bubbleW, bubbleH)
-            return frame
-        }
-        sEmojiPlayers.remove(exo)
-        sEmojiPlayers.add(exo)
-        // 与视频气泡同款 PlayerView(texture_view 防多实例合成层串扰); frame 已按宽高比适配,
-        // 改 FIT 完整显示(共享布局默认 zoom 是给视频气泡横向卡片裁剪用的, 这里单独覆盖)
-        val pv = LayoutInflater.from(this).inflate(R.layout.video_bubble_view, null) as PlayerView
-        pv.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-        pv.player = exo
-        pv.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER)
-        frame.addView(pv)
-        // 生命周期(复用 videoLoopBubble 机制): 创建即武装看门狗 10s; detach 立即让出全局解码名额;
-        // attach 回来重新认领续播; 终结(killSelf)统一收口实例+名额+视图, 防 ExoPlayer 堆积 OOM
-        var releasePending = true
-        var gateReleased = false
-        var exoReleased = false
-        var dead = false
-        val releaseHandler = Handler(Looper.getMainLooper())
-        fun degradeToThumb() { attachEmojiThumb(frame, f, bubbleW, bubbleH) }
-        fun killSelf() {
-            if (dead) return
-            dead = true
-            releasePending = false
-            releaseHandler.removeCallbacksAndMessages(null)
-            sEmojiPlayers.remove(exo)
-            sEmojiKillHooks.remove(exo)   // 摘钩子防闭包滞留
-            try { exo.release() } catch (_: Exception) {}
-            // 摘掉已释放实例: 避免空 PlayerView 持死角播放器, 被补播复核误判为"已在播"
-            try { pv.player = null } catch (_: Exception) {}
-            if (!gateReleased) { gateReleased = true; ExoGate.release(gateToken) }
-            exoReleased = true
-            if (frame.isAttachedToWindow) degradeToThumb()   // 仍在屏: 降级防黑屏; 已离屏等 attach 重建
-        }
-        val watchdog = Runnable { if (releasePending) killSelf() }
-        sEmojiKillHooks[exo] = { killSelf() }   // 挂表情终结钩子: 对账按配额踢超限/离屏实例时经统一收口(killSelf 已声明)
-        frame.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {
-                if (releasePending) {
-                    releasePending = false
-                    releaseHandler.removeCallbacksAndMessages(null)
-                }
-                if (exoReleased) {
-                    // 实例已终结: 统一降级缩略图, 补建由对账(reconcileVideoBubbles)按可见性+配额驱动
-                    degradeToThumb()
-                    return@onViewAttachedToWindow
-                } else {
-                    if (gateReleased) {
-                        if (!ExoGate.tryAcquire(gateToken)) { killSelf(); return@onViewAttachedToWindow }
-                        gateReleased = false
-                    }
-                    sEmojiPlayers.remove(exo)
-                    sEmojiPlayers.add(exo)
-                    sEmojiKillHooks[exo] = { killSelf() }   // 回屏重新挂钩子(参照视频气泡 detach 摘/回屏挂)
-                }
-                if (!sScrolling) try { exo.play() } catch (_: Exception) {}
-            }
-            override fun onViewDetachedFromWindow(v: View) {
-                if (dead) return
-                try { exo.pause() } catch (_: Exception) {}
-                sEmojiPlayers.remove(exo)
-                sEmojiKillHooks.remove(exo)   // 离屏摘钩子: 防离屏闭包滞留整棵视图(参照视频气泡)
-                if (!gateReleased) {
-                    gateReleased = true
-                    ExoGate.release(gateToken)
-                }
-                releasePending = true
-                releaseHandler.postDelayed(watchdog, 10_000L)
-            }
-        })
-        releasePending = true
-        releaseHandler.postDelayed(watchdog, 10_000L)
-        return frame
-    }
 
-    /** 表情动图降级: 静态首帧缩略图(frame 已按宽高比适配, FIT 完整显示), 无缓存则触发后台取帧, 就绪后自动刷新 */
-    private fun attachEmojiThumb(frame: FrameLayout, f: File, w: Int, h: Int) {
-        val key = f.name
-        val bmp = peekVideoThumb(f)
-        val iv = android.widget.ImageView(this@MainActivity).apply {
-            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-            if (bmp != null) setImageBitmap(bmp) else setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        }
-        frame.removeAllViews()
-        frame.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        if (bmp == null) {
-            // 取帧就绪后自动刷新为真缩略图(避免长时间深色占位被误判"黑屏")
-            registerThumbRefresh(key) {
-                val nb = peekVideoThumb(f)
-                if (nb != null && frame.isAttachedToWindow) {
-                    iv.setImageBitmap(nb)
-                    iv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                }
-            }
-            decodeVideoThumbnailBg(f, resources.displayMetrics.density, this@MainActivity)
-        }
-    }
 
     /** 动图表情宽高比: 优先首帧缩略图缓存(保留原始比例, 零解码开销), 兜底媒体元数据; 取不到按 1:1 */
     private fun videoAspectOf(f: File): Float {
@@ -4978,18 +4641,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         startPick(Intent.ACTION_OPEN_DOCUMENT, "audio/*", REQ_AUDIO, "选择音频")
     }
 
-    /** 表情库项发送转发: attachmentSender 为 private, 扩展函数经此入口调用 */
-    internal fun sendEmojiLibItemFile(file: File, name: String) {
-        attachmentSender.sendEmojiLibItem(file, name)
-    }
-
-    /** 表情库项直发转发: 不经预览条, 立即发出 */
-    internal fun sendEmojiLibItemNowFile(file: File, name: String) {
-        // 发送即预热首帧缩略图(幂等): 新消息 bind 时滚动中降级/attach 垫底均命中真图, 消除"发送闪黑"
-        try { decodeVideoThumbnailBg(file, resources.displayMetrics.density, this) } catch (_: Exception) {}
-        attachmentSender.sendEmojiLibItemNow(file, name)
-    }
-
     internal fun startPick(action: String, type: String, code: Int, title: String) {
         val i = Intent(action).setType(type).addCategory(Intent.CATEGORY_OPENABLE)
             .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
@@ -5026,11 +4677,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             }
         }
         if (uris.isEmpty()) return
-        // 表情库选图分流: 压缩落库 + 强制命名, 不走聊天附件链路
-        if (requestCode == REQ_EMOJI_PICK) {
-            handleEmojiLibPick(uris)
-            return
-        }
         val MAX = 6
         if (uris.size > MAX) {
             Toast.makeText(this, getString(R.string.toast_att_max_trim, MAX, MAX), Toast.LENGTH_SHORT).show()

@@ -33,10 +33,6 @@ internal class ChatSessionState {
     var streamingRow: ChatRow.Streaming? = null
         private set
 
-    /** AI 表情流式掩码缓冲: 跨 delta 分片的未闭合 [表情: 尾巴 */
-    var emojiMaskTail = ""
-        private set
-
     /** AI 引擎忙标记: doSend 提前占位防连发穿透; 请求收尾归还 */
     var aiBusy = false
         private set
@@ -90,10 +86,5 @@ internal class ChatSessionState {
     /** 正文跟随模式 */
     fun setContentFollow(f: Boolean) {
         contentFollow = f
-    }
-
-    /** 掩码尾部写入(每次掩码处理后) */
-    fun setMaskTail(tail: String) {
-        emojiMaskTail = tail
     }
 }
