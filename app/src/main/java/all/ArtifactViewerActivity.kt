@@ -287,6 +287,35 @@ class ArtifactViewerActivity : Activity() {
             }
             wrap.addView(hint, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL))
             card.addView(wrap, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        } else if (fileText.isNotBlank() && (mime.contains("markdown", true) ||
+                fileName.lowercase().endsWith(".md") || fileName.lowercase().endsWith(".markdown"))) {
+            // 2026-11-19: MD 产物走富文本渲染(标题/列表/表格/代码块/图片), 不再当纯文本等宽显示
+            val mdText = if (fileText.length > MAX_VIEW_CHARS) fileText.substring(0, MAX_VIEW_CHARS) else fileText
+            val sv = ScrollView(this).apply { setBackgroundColor(Color.WHITE) }
+            val tv = TextView(this).apply {
+                textSize = 15f
+                setTextColor(Color.parseColor("#222222"))
+                setLineSpacing(dp(3).toFloat(), 1.05f)
+                setPadding(dp(16), dp(14), dp(16), dp(24))
+                setTextIsSelectable(true)
+            }
+            tv.post {
+                val w = tv.width - dp(2)
+                if (w > 0) {
+                    MdSpannable.tableMaxWidth = w
+                    MdSpannable.kbImageMaxWidth = w
+                }
+            }
+            tv.text = try {
+                MdSpannable.toSpannable(MdToSpans.parse(mdText))
+            } catch (e: OutOfMemoryError) {
+                mdText
+            } catch (e: Exception) {
+                LogStore.w("ArtifactViewer", "MD 渲染失败, 降级纯文本: ${e.message}")
+                mdText
+            }
+            sv.addView(tv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            card.addView(sv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         } else {
             val sv = ScrollView(this).apply { setBackgroundColor(Color.WHITE) }
             sv.addView(TextView(this).apply {
