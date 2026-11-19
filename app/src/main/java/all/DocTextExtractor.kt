@@ -301,4 +301,356 @@ object DocTextExtractor {
         }
         return null
     }
+
+    // ===================== 2026-11-19: 大文件流式解析入口 =====================
+    // 背景: 附件整读 ByteArray 时, 1.58GB 刷机包会 OOM 闪退。压缩包/纯文本本质上
+    // 可以流式处理(只读中央目录或头部), 内存占用与文件体积无关, 因此超过整读上限
+    // 的附件改走本入口 —— 不是拒绝, 而是照常给出结构清单 + 内部小文本内容。
+    // 返回 null 表示该类型无法流式解析(如 pdf/docx 需要全文), 由调用方给出替代方案。
+
+    private const val LIST_MAX_ENTRIES = 300        // 清单最多列出的条目数
+    private const val LIST_TOP_LARGE = 10           // 额外列出最大的 N 个文件
+    private const val INNER_TEXT_MAX = 200_000L     // 单个内部文本条目的解压上限(字节)
+    private const val INNER_TEXT_FILES = 4          // 最多提取几个内部文本条目
+    private const val TOP_DIRS = 25                 // 顶层目录最多列出数
+    private const val PROBE_MAX = 8192L              // 无扩展名条目的文本探测读取上限
+
+    /** 文本探测: 无扩展名的清单文件(如 OTA 包的 META-INF/metadata)也读进来。
+     *  判据: 不含 NUL, 且控制字符占比 < 10%(二进制 protobuf/证书会被挡掉)。 */
+    private fun looksLikeText(b: ByteArray): Boolean {
+        if (b.isEmpty()) return false
+        var bad = 0
+        for (x in b) {
+            val c = x.toInt() and 0xFF
+            if (c == 0) return false
+            val ok = c == 9 || c == 10 || c == 13 || c >= 32
+            if (!ok) bad++
+        }
+        return bad.toDouble() / b.size < 0.10
+    }
+
+    /** 读流头部, 最多 limit 字节 */
+    private fun readHead(input: java.io.InputStream, limit: Long): ByteArray {
+        val buf = ByteArrayOutputStream()
+        val chunk = ByteArray(4 * 1024)
+        var total = 0L
+        try {
+            while (total < limit) {
+                val n = input.read(chunk, 0, minOf(chunk.size.toLong(), limit - total).toInt())
+                if (n <= 0) break
+                buf.write(chunk, 0, n)
+                total += n
+            }
+        } catch (_: Throwable) {
+        }
+        return buf.toByteArray()
+    }
+
+    private fun fmtSize(b: Long): String = when {
+        b >= 1024L * 1024 * 1024 -> String.format("%.2f GB", b / 1024.0 / 1024 / 1024)
+        b >= 1024L * 1024 -> String.format("%.1f MB", b / 1024.0 / 1024)
+        b >= 1024L -> String.format("%.1f KB", b / 1024.0)
+        else -> "$b B"
+    }
+
+    fun extractFromFile(name: String, f: File): String? {
+        val lower = name.lowercase()
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return try {
+            when {
+                // OOXML 需精确抽取, 走 listing 只会读到 xml 噪声, 不在此列
+                ext in setOf("zip", "apk", "jar", "epub", "aar") -> listZipFile(f)
+                ext == "7z" -> list7zFile(f)
+                ext == "rar" -> listRarFile(f)
+                ext == "tar" || ext == "tgz" || lower.endsWith(".tar.gz") -> listTarFile(f)
+                ext == "gz" -> headOfGzip(f)
+                ext in TEXT_EXTS -> headOfText(f)
+                else -> null
+            }
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /** 兜底摘要头: 文件级信息 + 顶层结构 */
+    private fun archiveHead(kind: String, f: File, total: Int, dirs: List<String>): String {
+        val sb = StringBuilder()
+        sb.append("【$kind 流式解析】${f.name}（${fmtSize(f.length())}, 共 $total 个文件条目, 未整包载入内存）\n")
+        if (dirs.isNotEmpty()) {
+            sb.append("顶层结构: ")
+            sb.append(dirs.take(TOP_DIRS).joinToString(" / "))
+            if (dirs.size > TOP_DIRS) sb.append(" ...(共 ${dirs.size} 项)")
+            sb.append('\n')
+        }
+        return sb.toString()
+    }
+
+    private fun topDirsOf(names: Collection<String>): List<String> {
+        val set = LinkedHashSet<String>()
+        for (n in names) {
+            val i = n.indexOf('/')
+            if (i > 0) set.add(n.substring(0, i) + "/")
+            if (set.size > 200) break
+        }
+        return set.toList()
+    }
+
+    /** zip/apk/jar/epub: 读中央目录(ZipFile 随机访问), 内存与包体无关 */
+    private fun listZipFile(f: File): String? {
+        val zf = java.util.zip.ZipFile(f)
+        try {
+            val names = ArrayList<String>(256)
+            val large = ArrayList<Pair<String, Long>>()
+            val inner = StringBuilder()
+            var total = 0
+            var textCount = 0
+            val en = zf.entries()
+            while (en.hasMoreElements()) {
+                val e = en.nextElement()
+                if (e.isDirectory) continue
+                total++
+                if (names.size < LIST_MAX_ENTRIES) names.add(e.name)
+                val sz = if (e.size < 0) 0L else e.size
+                large.add(e.name to sz)
+                val iext = e.name.substringAfterLast('.', "").lowercase()
+                // 2026-11-19: 除已知文本扩展名外, 对无扩展名/未知扩展名的小条目做一次文本探测,
+                // 否则 OTA 包的 META-INF/com/android/metadata(含 ota-type/post-build)会被漏掉
+                val probe = iext in TEXT_EXTS || (iext.isEmpty() || iext == "pb" || iext == "cert") && sz in 1..PROBE_MAX
+                if (textCount < INNER_TEXT_FILES && probe && sz in 1..INNER_TEXT_MAX) {
+                    val headBytes = zf.getInputStream(e).use { readHead(it, PROBE_MAX) }
+                    val txt = if (iext in TEXT_EXTS || looksLikeText(headBytes)) decodeText(headBytes, 1500) else null
+                    if (!txt.isNullOrBlank()) {
+                        inner.append("── ${e.name}\n").append(txt.trim()).append('\n')
+                        textCount++
+                    }
+                }
+            }
+            val sb = StringBuilder()
+            sb.append(archiveHead("压缩包", f, total, topDirsOf(names)))
+            if (names.isNotEmpty()) {
+                sb.append("条目预览:\n")
+                names.forEach { sb.append("  ").append(it).append('\n') }
+                if (total > names.size) sb.append("  ...(其余 ${total - names.size} 个条目略)\n")
+            }
+            val big = large.sortedByDescending { it.second }.take(LIST_TOP_LARGE).filter { it.second > 0 }
+            if (big.isNotEmpty()) {
+                sb.append("最大条目:\n")
+                big.forEach { sb.append("  ").append(it.first).append("  ").append(fmtSize(it.second)).append('\n') }
+            }
+            if (inner.isNotEmpty()) sb.append("内部文本内容:\n").append(inner)
+            return sb.toString().take(MAX_TEXT * 2)
+        } finally {
+            zf.close()
+        }
+    }
+
+    /** 7z: SevenZFile 直接读文件, 不落临时副本 */
+    private fun list7zFile(f: File): String? {
+        val sz = SevenZFile(f)
+        try {
+            val names = ArrayList<String>(128)
+            val large = ArrayList<Pair<String, Long>>()
+            val inner = StringBuilder()
+            var total = 0
+            var textCount = 0
+            while (true) {
+                val e = sz.nextEntry ?: break
+                if (e.isDirectory) continue
+                total++
+                if (names.size < LIST_MAX_ENTRIES) names.add(e.name)
+                val size = if (e.size < 0) 0L else e.size
+                large.add(e.name to size)
+                val iext = e.name.substringAfterLast('.', "").lowercase()
+                val probe = iext in TEXT_EXTS || (iext.isEmpty() || iext == "pb" || iext == "cert") && size in 1..PROBE_MAX
+                if (textCount < INNER_TEXT_FILES && probe && size in 1..INNER_TEXT_MAX) {
+                    val want = minOf(size, PROBE_MAX).toInt()
+                    val buf = ByteArray(want)
+                    var off = 0
+                    while (off < buf.size) {
+                        val n = sz.read(buf, off, buf.size - off)
+                        if (n < 0) break
+                        off += n
+                    }
+                    val headBytes = buf.copyOf(off)
+                    val txt = if (iext in TEXT_EXTS || looksLikeText(headBytes)) decodeText(headBytes, 1500) else null
+                    if (!txt.isNullOrBlank()) {
+                        inner.append("── ").append(e.name).append('\n').append(txt.trim()).append('\n')
+                        textCount++
+                    }
+                }
+            }
+            return finishList("7z 压缩包", f, total, names, large, inner)
+        } finally {
+            sz.close()
+        }
+    }
+
+    /** rar: junrar 流式遍历 */
+    private fun listRarFile(f: File): String? {
+        val rar = Archive(FileInputStream(f))
+        try {
+            val names = ArrayList<String>(128)
+            val large = ArrayList<Pair<String, Long>>()
+            val inner = StringBuilder()
+            var total = 0
+            var textCount = 0
+            var e = rar.nextFileHeader()
+            while (e != null) {
+                if (!e.isDirectory) {
+                    total++
+                    val nm = e.fileName.trim()
+                    if (names.size < LIST_MAX_ENTRIES) names.add(nm)
+                    val size = e.fullUnpackSize
+                    large.add(nm to size)
+                    val iext = nm.substringAfterLast('.', "").lowercase()
+                    val probe = iext in TEXT_EXTS || (iext.isEmpty() || iext == "pb" || iext == "cert") && size in 1..PROBE_MAX
+                    if (textCount < INNER_TEXT_FILES && probe && size in 1..INNER_TEXT_MAX) {
+                        val headBytes = rar.getInputStream(e).use { readHead(it, PROBE_MAX) }
+                        val txt = if (iext in TEXT_EXTS || looksLikeText(headBytes)) decodeText(headBytes, 1500) else null
+                        if (!txt.isNullOrBlank()) {
+                            inner.append("── ").append(nm).append('\n').append(txt.trim()).append('\n')
+                            textCount++
+                        }
+                    }
+                }
+                e = rar.nextFileHeader()
+            }
+            return finishList("rar 压缩包", f, total, names, large, inner)
+        } finally {
+            rar.close()
+        }
+    }
+
+    /** tar / tar.gz: 512 字节头流式遍历, 不整读 */
+    private fun listTarFile(f: File): String? {
+        val lower = f.name.lowercase()
+        val raw: java.io.InputStream = FileInputStream(f)
+        val ins: java.io.InputStream =
+            if (lower.endsWith(".gz") || lower.endsWith(".tgz")) GZIPInputStream(java.io.BufferedInputStream(raw, 64 * 1024))
+            else java.io.BufferedInputStream(raw, 64 * 1024)
+        try {
+            val names = ArrayList<String>(128)
+            val large = ArrayList<Pair<String, Long>>()
+            val inner = StringBuilder()
+            var total = 0
+            var textCount = 0
+            val header = ByteArray(512)
+            while (true) {
+                if (!readFully(ins, header, 512)) break
+                var empty = true
+                for (i in 0 until 512) if (header[i].toInt() != 0) { empty = false; break }
+                if (empty) break
+                var nm = String(header, 0, 100, Charsets.UTF_8).trim('\u0000', ' ')
+                val prefix = String(header, 345, 155, Charsets.UTF_8).trim('\u0000', ' ')
+                if (prefix.isNotEmpty()) nm = "$prefix/$nm"
+                val sizeStr = String(header, 124, 12, Charsets.US_ASCII).trim('\u0000', ' ')
+                val size = try { java.lang.Long.parseLong(sizeStr, 8) } catch (e: Exception) { 0L }
+                val type = header[156].toInt().toChar()
+                val isFile = (type == '0' || type == '\u0000')
+                val name = nm.trim().trimStart('.', '/')
+                if (isFile && name.isNotEmpty()) {
+                    total++
+                    if (names.size < LIST_MAX_ENTRIES) names.add(name)
+                    large.add(name to size)
+                    val iext = name.substringAfterLast('.', "").lowercase()
+                    val probe = iext in TEXT_EXTS || (iext.isEmpty() || iext == "pb" || iext == "cert") && size in 1..PROBE_MAX
+                    if (textCount < INNER_TEXT_FILES && probe && size in 1..INNER_TEXT_MAX) {
+                        val want = minOf(size, PROBE_MAX).toInt()
+                        val buf = ByteArray(want)
+                        if (readFully(ins, buf, buf.size)) {
+                            val headBytes = buf
+                            val txt = if (iext in TEXT_EXTS || looksLikeText(headBytes)) decodeText(headBytes, 1500) else null
+                            if (!txt.isNullOrBlank()) {
+                                inner.append("── ").append(name).append('\n').append(txt.trim()).append('\n')
+                                textCount++
+                            }
+                        }
+                        // 只读了头部 want 字节, 剩余按 tar 512 对齐一并跳过
+                        skipFully(ins, (size - want) + ((512 - (size % 512)) % 512))
+                        continue
+                    }
+                }
+                skipFully(ins, size + ((512 - (size % 512)) % 512))
+            }
+            return finishList(if (lower.endsWith(".gz") || lower.endsWith(".tgz")) "tar.gz 压缩包" else "tar 包",
+                f, total, names, large, inner)
+        } finally {
+            try { ins.close() } catch (_: Throwable) {}
+        }
+    }
+
+    private fun readFully(ins: java.io.InputStream, buf: ByteArray, len: Int): Boolean {
+        var off = 0
+        while (off < len) {
+            val n = ins.read(buf, off, len - off)
+            if (n <= 0) return false
+            off += n
+        }
+        return true
+    }
+
+    private fun skipFully(ins: java.io.InputStream, len: Long) {
+        var left = len
+        val buf = ByteArray(32 * 1024)
+        while (left > 0) {
+            val n = ins.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+            if (n <= 0) return
+            left -= n
+        }
+    }
+
+    private fun finishList(
+        kind: String, f: File, total: Int,
+        names: List<String>, large: List<Pair<String, Long>>, inner: StringBuilder
+    ): String {
+        val sb = StringBuilder()
+        sb.append(archiveHead(kind, f, total, topDirsOf(names)))
+        if (names.isNotEmpty()) {
+            sb.append("条目预览:\n")
+            names.forEach { sb.append("  ").append(it).append('\n') }
+            if (total > names.size) sb.append("  ...(其余 ${total - names.size} 个条目略)\n")
+        }
+        val big = large.sortedByDescending { it.second }.take(LIST_TOP_LARGE).filter { it.second > 0 }
+        if (big.isNotEmpty()) {
+            sb.append("最大条目:\n")
+            big.forEach { sb.append("  ").append(it.first).append("  ").append(fmtSize(it.second)).append('\n') }
+        }
+        if (inner.isNotEmpty()) sb.append("内部文本内容:\n").append(inner)
+        return sb.toString().take(MAX_TEXT * 2)
+    }
+
+    /** 纯文本大文件: 只读头部 */
+    private fun headOfText(f: File): String? {
+        FileInputStream(f).use { ins ->
+            val buf = ByteArray(64 * 1024)
+            var off = 0
+            while (off < buf.size) {
+                val n = ins.read(buf, off, buf.size - off)
+                if (n <= 0) break
+                off += n
+            }
+            if (off <= 0) return null
+            val head = "【大文本流式解析】${f.name}（${fmtSize(f.length())}, 仅读取开头 ${fmtSize(off.toLong())}）\n"
+            val txt = decodeText(buf.copyOf(off), MAX_TEXT) ?: return null
+            return (head + txt).take(MAX_TEXT * 2)
+        }
+    }
+
+    /** .gz 单文件: 解压头部 */
+    private fun headOfGzip(f: File): String? {
+        GZIPInputStream(java.io.BufferedInputStream(FileInputStream(f), 64 * 1024), 64 * 1024).use { gz ->
+            val buf = ByteArray(64 * 1024)
+            var off = 0
+            while (off < buf.size) {
+                val n = gz.read(buf, off, buf.size - off)
+                if (n <= 0) break
+                off += n
+            }
+            if (off <= 0) return null
+            val head = "【gzip 流式解析】${f.name}（${fmtSize(f.length())}, 解压后仅取开头 ${fmtSize(off.toLong())}）\n"
+            val txt = decodeText(buf.copyOf(off), MAX_TEXT) ?: return null
+            return (head + txt).take(MAX_TEXT * 2)
+        }
+    }
+
 }

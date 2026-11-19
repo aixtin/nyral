@@ -13,6 +13,19 @@ import org.json.JSONObject
  * 工具注册表 toolRegistry / 桥接回调 onBrowser* / onAskUser / ToolSpec 仍由 LocalEngine 持有。
  */
 object ToolExecutor {
+    /** attach_read 单次可解析的文档体积上限(2026-11-19 崩溃修复)。
+     * DocTextExtractor 最终只取前 8000 字符, 旧实现却先把整包读进内存;
+     * 真机读 1.58GB 压缩包时直接 OutOfMemoryError 闪退。 */
+    private const val MAX_DOC_BYTES = 32L * 1024 * 1024
+
+    private fun fmtMb(b: Long): String =
+        String.format(java.util.Locale.US, "%.1f MB", b / 1048576.0)
+
+    /** 统一读取附件字节(2026-11-19 闪退修复): 超过 MAX_DOC_BYTES 直接返回 null,
+     * 避免把一个 GB 级文件整读进内存触发 OutOfMemoryError。 */
+    private fun readAttBytes(f: java.io.File): ByteArray? =
+        try { if (f.length() > MAX_DOC_BYTES) null else f.readBytes() } catch (e: Throwable) { null }
+
 
     /**
      * 执行工具。args 为 JSON 字符串(原生 function calling 的 arguments), 兼容旧裸字符串格式。
@@ -269,7 +282,23 @@ object ToolExecutor {
                     mime.contains("msexcel") || mime.contains("mspowerpoint")
                 if (isDoc) {
                     val f = AttachmentStore.fileOf(context, name) ?: return@run "错误: 附件未落盘(仅落库文件可读取): $name"
-                    val txt = try { DocTextExtractor.extract(name, f.readBytes()) } catch (e: Exception) { null }
+                    // 2026-11-19 闪退修复: 旧实现无条件 f.readBytes() 把整包读进内存, 真机上读 1.58GB 的
+                    // 压缩包时 OutOfMemoryError(Failed to allocate 1696548912 byte) 直接把进程崩掉。
+                    // 解析结果本来就只取前 8000 字符, 先看长度, 超限直接拒并给替代方案。
+                    val docLen = try { f.length() } catch (_: Throwable) { -1L }
+                    if (docLen > MAX_DOC_BYTES) {
+                        // 2026-11-19: 超限不再一律拒解析。压缩包/纯文本可流式处理(只读中央目录或头部),
+                        // 内存占用与包体无关, 因此 1.58GB 的刷机包也能给出结构清单与内部说明文本。
+                        val streamed = try { DocTextExtractor.extractFromFile(name, f) } catch (e: Throwable) { null }
+                        if (!streamed.isNullOrBlank()) {
+                            return@run "[attach_read] $name 体积 ${fmtMb(docLen)}，超过整读上限 ${fmtMb(MAX_DOC_BYTES)}，已切换流式解析（内存占用与文件大小无关，可处理超大文件）：\n$streamed"
+                        }
+                        val canStream = ext in setOf("zip", "apk", "jar", "epub", "7z", "rar", "tar", "gz", "tgz") || name.lowercase().endsWith(".tar.gz") || ext in setOf("txt", "md", "log", "json", "csv", "xml")
+                        val tail = if (canStream) "（流式解析失败：可能已损坏、加密或为空）" else "（该类型需整包读取才能解析，如 PDF/Office 文档）"
+                        return@run "[attach_read] $name 体积 ${fmtMb(docLen)}，超过单次整读上限 ${fmtMb(MAX_DOC_BYTES)} $tail。可选方案：1) 压缩包可用 file(action=\"info\") 看元信息，或告知具体要读的内层文件名，我可精确流式提取该条目；2) file_export(name=\"att://$name\") 导出后用 ssh_run 在外部处理；3) 在外部解出需要的小文件再上传。"
+                    }
+                    // catch Throwable: OOM 是 Error 不是 Exception, 旧写法兜不住, 会一路抛到线程池崩进程
+                    val txt = try { DocTextExtractor.extract(name, f.readBytes()) } catch (e: Throwable) { null }
                     if (txt.isNullOrBlank()) {
                         return@run "[attach_read] $name 无法提取文本(可能是纯二进制/加密/损坏文件)。建议 file_export(name=\"att://$name\") 导出到工作目录后用其他方式处理。"
                     }
@@ -316,7 +345,8 @@ object ToolExecutor {
                 if (total <= 0) return@run "错误: PDF 解析失败: $rawName"
                 if (page < 1 || page > total) return@run "错误: 页码超范围(共 $total 页): $page"
                 if (mode == "text") {
-                    val txt = try { PdfTextExtractor.extractPage(f.readBytes(), page) } catch (e: Exception) { null }
+                    val pdfBytes = readAttBytes(f) ?: return@run "[pdf_page] $rawName 体积 ${fmtMb(f.length())} 超过解析上限 ${fmtMb(MAX_DOC_BYTES)}，本次不解析。可先用 file_export 导出后在外部处理"
+                    val txt = try { PdfTextExtractor.extractPage(pdfBytes, page) } catch (e: Throwable) { null }
                     if (txt.isNullOrBlank()) return@run "[pdf_page] 第 $page 页无文本层(扫描件/矢量图), 无法提取文字; 若模型支持识图可改用 mode=\"image\" 渲染该页图片查看"
                     "[pdf_page] $rawName 第 $page/$total 页文本:\n$txt"
                 } else {
@@ -380,7 +410,7 @@ object ToolExecutor {
                 val rawName = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
                 if (rawName.isBlank()) return@run "错误: 缺少 name(附件图片文件名)"
                 val f = AttachmentStore.fileOf(context, rawName) ?: return@run "错误: 附件未落盘(图片统一落库后才可读取): $rawName"
-                val bytes = try { f.readBytes() } catch (e: Exception) { return@run "错误: 读取失败: $rawName" }
+                val bytes = readAttBytes(f) ?: return@run "错误: 读取失败或文件过大(${fmtMb(f.length())})，超过 ${fmtMb(MAX_DOC_BYTES)} 上限: $rawName"
                 val bmp = try {
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 } catch (e: Exception) { null } ?: return@run "错误: 图片解码失败(非图片或已损坏): $rawName"
@@ -403,7 +433,7 @@ object ToolExecutor {
                 // 注入上限: 与直发预算一致, 超预算音频无法整段注入(API 限制), 应转 file_export 导出
                 val maxBytes = UploadConfig.maxMb().toLong() * 1024 * 1024
                 if (f.length() > maxBytes) return@run "[audio_read] $rawName 音频过大(${f.length() / 1024 / 1024}MB), 无法整段注入对话; 请提示用户: 已落库可调 file_export(name=\"att://$rawName\") 导出听取"
-                val raw = try { f.readBytes() } catch (e: Exception) { return@run "错误: 读取失败: $rawName" }
+                val raw = try { f.readBytes() } catch (e: Throwable) { return@run "错误: 读取失败: $rawName" }
                 // m4a brand 修正: isom/mp42 → M4A, 保证 input_audio 可解析
                 val finalRaw = if (raw.size >= 16 && raw[4].toInt().toChar() == 'f' && raw[5].toInt().toChar() == 't' &&
                     raw[6].toInt().toChar() == 'y' && raw[7].toInt().toChar() == 'p') {
@@ -427,7 +457,7 @@ object ToolExecutor {
                 val raw = (jo?.optString("name") ?: arg.trim()).removePrefix("att://")
                 if (raw.isBlank()) return@run "错误: 缺少 name(附件文件名)"
                 val f = AttachmentStore.fileOf(context, raw) ?: return@run "错误: 附件不存在: $raw"
-                val bytes = try { f.readBytes() } catch (e: Exception) { return@run "错误: 读取失败: $raw" }
+                val bytes = readAttBytes(f) ?: return@run "错误: $raw 体积 ${fmtMb(f.length())} 超过导出上限 ${fmtMb(MAX_DOC_BYTES)}(整读会闪退)。请改用 ssh_run 或让用户直接在文件管理器处理"
                 val ok = WorkDir.write(context, raw, bytes, WorkDir.SUB_DIR_FILES)
                 if (ok) "已导出到工作目录 ${WorkDir.displaySubPath(WorkDir.SUB_DIR_FILES)}$raw (用户可见可改)" else "错误: 导出失败(工作目录不可写)"
             }
