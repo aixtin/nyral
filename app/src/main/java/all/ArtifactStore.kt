@@ -11,7 +11,57 @@ import java.io.File
  * - 同名再登记 = 覆盖同一实体文件并升版本, 历史卡片打开始终展示最新内容
  */
 object ArtifactStore {
+    /** 文本产物上限(512KB 不变): 文本走 content 字符串, 大文本本就该拆分登记 */
     private const val MAX_BYTES = 512 * 1024
+
+    /**
+     * 二进制产物上限(2026-11-19 修): 与用户上传配置同口径(默认 20MB, 最高 500MB), 再夹到 64MB 防 OOM。
+     * 此前二进制通道共用文本产物的 512KB 常量, 导致 1MB 短视频/PDF/音频一律登记失败, 只能退回"给个下载路径"。
+     * 文本产物仍保持 512KB(文本走 content 字符串, 大文本本就该拆分)。
+     */
+    fun binMaxBytes(context: Context): Int {
+        val cfg = try { UploadConfig.maxMb().toLong() * 1024L * 1024L } catch (_: Throwable) { 20L * 1024 * 1024 }
+        return cfg.coerceIn(1L * 1024 * 1024, 64L * 1024 * 1024).toInt()
+    }
+
+    /**
+     * 从设备本地文件登记产物(2026-11-19 新增, 流式拷贝不整读进内存)。
+     * 场景: web download / file_export / sh_run 已把文件写到 /sdcard 后, 直接登记成可点击的产物卡片,
+     * 不需要把整个文件 Base64 塞进模型上下文(binary 通道对大文件不现实)。
+     */
+    fun saveFile(context: Context, name: String, src: File, maxBytes: Int = binMaxBytes(context)): String {
+        val artName = name.trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { src.name.ifBlank { "artifact" } }
+        if (!src.isFile) return "错误: 源文件不存在: ${src.absolutePath}"
+        val size = src.length()
+        if (size <= 0L) return "错误: 源文件为空: ${src.absolutePath}"
+        if (size > maxBytes) return "错误: 产物过大(${size / 1024}KB), 上限 ${maxBytes / 1024}KB; 请压缩或换小文件"
+        return try {
+            val existing = findExisting(context, artName)
+            if (existing != null) {
+                val f = AttachmentStore.fileOf(context, existing)
+                    ?: return "错误: 产物实体丢失, 请换一个文件名重新登记"
+                src.inputStream().use { ins -> f.outputStream().use { out -> ins.copyTo(out) } }
+                val mf = metaFile(context, existing)
+                val meta = try { JSONObject(mf.readText()) } catch (_: Exception) { JSONObject() }
+                val v = meta.optInt("artifact_version", 1) + 1
+                meta.put("artifact_version", v).put("artifact_ts", System.currentTimeMillis())
+                mf.writeText(meta.toString())
+                existing
+            } else {
+                val mime = mimeOf(artName).let { if (it == "text/plain") guessBinMime(artName) else it }
+                val meta = JSONObject()
+                    .put("mime", mime)
+                    .put("artifact_name", artName)
+                    .put("artifact_version", 1)
+                    .put("artifact_ts", System.currentTimeMillis())
+                src.inputStream().use { ins ->
+                    AttachmentStore.saveStream(context, artName, mime, ins, meta.toString())
+                }
+            }
+        } catch (e: Exception) {
+            "错误: 产物登记失败: ${e.message}"
+        }
+    }
 
     /** 按扩展名推断产物 mime(文本类为主, 图片生成另行扩展) */
     fun mimeOf(name: String): String = when (name.lowercase().substringAfterLast('.', "")) {

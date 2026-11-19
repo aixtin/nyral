@@ -294,7 +294,7 @@ object LocalEngine {
         ToolSpec("file_export", "导出私有附件库文件到公共工作目录(Download/Nyral_work), 供用户直接查看/使用: 参数 {name: 附件文件名或 att:// 引用}。附件默认私有(用户看不到), 显式导出是唯一公开途径; 用户明确要求把附件/帧图放到下载目录或交付给自己时, 必须调用本工具导出, 并在导出成功后向用户回报导出文件的完整路径", "JSON: {\"name\":\"att://xxx.mp4\"}"),
         ToolSpec("security_set", "安全管理开关(2026-10-30 收紧): 模型侧仅保留 ssh_trust —— 信任待确认的SSH主机密钥。危险门禁三档(danger_mode)与 root 自动补权(root_auto_grant)已从模型侧收回: 调用这些参数会被直接拒绝, 只能由用户在 设置 → 安全中心 手动修改; 用户提出关/改门禁时应引导其自行前往该页面, 不要代为操作", "JSON: {\"ssh_trust\":\"连接名\"}"),
         ToolSpec("write_clipboard", "把文本写入手机系统剪贴板(零权限, 无自动化特征), 供用户切换到其他应用后长按粘贴使用。当用户需要把内容(AI生成的文案/代码/文本)搬到其他App(抖音/B站/微信/网页输入框等)时调用, 调用后明确告知用户\"内容已复制, 去目标应用长按粘贴\"", "JSON: {\"text\":\"要复制到剪贴板的完整文本\"}"),
-        ToolSpec("artifact", "产物登记通道(2026-11-11 合并 artifact_save/artifact_save_bin): kind=text 交付纯文本成品(代码/HTML/SVG/Markdown/PDF源码), kind=binary 交付二进制成品(图片/音频/视频/压缩包, data 为 Base64 且解码后不超过 512KB)。成品全文不要直接贴在回复里。必须调用场景: 用户要完整代码文件/可运行的HTML网页/成品文档/SVG, 或连续代码超过30行, 或要求保存/导出/交付文件。不要滥用: 简短代码片段/解释性示例/纯思路讨论不登记。content 与 data 二选一(kind=text 用 content, kind=binary 用 data); content 必须是产物文件本身正文, 不要把工具调用指令/JSON包装/解释文字混进 content。同名再登记自动覆盖升版, 历史卡片展示最新版。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片, 不要重复贴全文", "JSON: {\"name\":\"产物文件名(带扩展名)\",\"kind\":\"text|binary\",\"content\":\"kind=text 的正文\",\"data\":\"kind=binary 的Base64\"}"),
+        ToolSpec("artifact", "产物登记通道(2026-11-11 合并 artifact_save/artifact_save_bin; 2026-11-19 增加 kind=file): kind=text 交付纯文本成品(代码/HTML/SVG/Markdown/PDF源码), kind=binary 交付二进制成品(图片/音频/压缩包, data 为 Base64, 上限跟随设置里的上传上限, 默认 20MB), kind=file 直接把设备本地已存在的文件登记为成品(path 传绝对路径, 不占上下文, 视频/大图/PDF/音频优先用这个)。成品全文/字节不要贴在回复里。必须调用场景: 用户要完整代码文件/可运行的HTML网页/成品文档/SVG, 或连续代码超过30行, 或要求保存/导出/交付文件, 或要你把已下载/已生成到手机里的文件发给他。不要滥用: 简短代码片段/解释性示例/纯思路讨论不登记。content/data/path 三选一(kind=text 用 content, kind=binary 用 data, kind=file 用 path); content 必须是产物文件本身正文, 不要把工具调用指令/JSON包装/解释文字混进 content。同名再登记自动覆盖升版, 历史卡片展示最新版。登记成功后必须立即在回复中单独一行原样输出 [产物:文件名](att://返回的引用) 展示卡片, 不要重复贴全文, 也不要改成让用户去文件管理器找路径", "JSON: {\"name\":\"产物文件名(带扩展名)\",\"kind\":\"text|binary|file\",\"content\":\"kind=text 的正文\",\"data\":\"kind=binary 的Base64\",\"path\":\"kind=file 的本地绝对路径\"}"),
 ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校验): 用户要求\"定时/每天/循环/自动执行某任务\"时调用, 需用户当面确认才生效。参数: name 任务名, goal 任务目标(要 AI 做什么), cron 触发时间(格式 \"每天 HH:mm\" 如 \"每天 09:00\"), allow_tools 危险工具授权清单(数组, 每项 {\"key\":工具key,\"reason\":具体用途})。硬性要求: 1) 先分析 goal 判断完成任务真正需要哪些危险工具, 只申请必需项, 严禁过度打包; 2) 每个授权项必须写清具体用途 reason(如 workdir:write -> \"写入早报文件 Download/Nyral_work/xxx.txt\"), 禁止空话(如\"需要执行命令\"); 3) 用户批准后任务才创建并预授权, 拒绝则零残留; 4) 任务执行后若发现还需其它工具, 不要直接静默使用, 返回提示用户补充授权。", "JSON: {\"name\":\"每日早报\",\"goal\":\"每天早上整理新闻早报\",\"cron\":\"每天 09:00\",\"allow_tools\":[{\"key\":\"workdir:write\",\"reason\":\"把整理好的早报写入工作目录 Download/Nyral_work/morning_report.txt\"}]}"),
         ToolSpec("gen_image", "AI 生图(2026-11-04, 成本门禁, 多厂商契约驱动): 根据画面描述生成图片, 产物自动落盘并作为图片卡片回显。当前可用厂商、模型与额度元信息由本机配置动态注入。用户明确要求\"画一张/生成图片/配图/封面/示意图/插图\"时调用; 每次调用需用户确认, 且受月度限额保护。", "JSON: {\"prompt\":\"画面描述(必填, 尽量详细: 主体/风格/构图/光线)\",\"size\":\"图片尺寸(默认 1024*1024, 长*宽)\",\"n\":\"本次生成张数 1~4(默认 1, 计入月度限额)\",\"provider\":\"可选: 指定厂商显示名(如 通义万相/腾讯混元), 不填走默认\"}")
     )
@@ -650,10 +650,11 @@ ToolSpec("timer_task_create", "创建定时岗位任务(2026-10-14 严格key校�
             "write_clipboard" -> obj(listOf("text"),
                 "text" to str("要复制到手机系统剪贴板的完整文本(用户可粘贴到其他 App)"))
             "artifact" -> obj(listOf("name", "kind"),
-                "name" to str("产物文件名(带扩展名, 如 demo.html / icon.png)"),
-                "kind" to str("产物类型: text 纯文本 / binary 二进制", enums = listOf("text", "binary")),
+                "name" to str("产物文件名(带扩展名, 如 demo.html / icon.png / clip.mp4)"),
+                "kind" to str("产物类型: text 纯文本 / binary 二进制(Base64) / file 本地文件直挂", enums = listOf("text", "binary", "file")),
                 "content" to str("kind=text 时: 完整产物内容(整文件一次给全, 不要截断)", required = false),
-                "data" to str("kind=binary 时: 完整文件内容的 Base64(标准字母表, 不要换行前缀), 原始文件不超过 512KB", required = false))
+                "data" to str("kind=binary 时: 完整文件内容的 Base64(标准字母表, 不要换行前缀), 上限跟随设置里的上传上限(默认 20MB)", required = false),
+                "path" to str("kind=file 时: 设备本地文件的绝对路径(如 /sdcard/Download/Nyral_work/下载/clip.mp4), 视频/大图/PDF 优先用这种方式", required = false))
             "gen_image" -> obj(listOf("prompt"),
                 "prompt" to str("画面描述(必填, 尽量详细: 主体/风格/构图/光线)"),
                 "size" to str("图片尺寸(默认 1024*1024, 长*宽)", required = false),

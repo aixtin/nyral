@@ -84,7 +84,11 @@ class ArtifactViewerActivity : Activity() {
         val artName = meta.optString("artifact_name", "").ifBlank { null } ?: File(fileName).name
         val version = meta?.optInt("artifact_version", 1) ?: 1
         val mime = meta?.optString("mime", "")?.ifBlank { null } ?: AttachmentStore.mimeOf(this, fileName)
-        fileText = if (f.length() > 8 * 1024 * 1024) {
+        // 2026-11-19: 媒体类产物不再整文件读成文本(视频/音频/PDF/位图由各自分支处理),
+        // 避免 1MB 视频先被解码成乱码字符串、10MB 视频直接顶到"文件过大"提示
+        val needsText = !(mime.startsWith("video/") || mime.startsWith("audio/") ||
+            mime == "application/pdf" || (mime.startsWith("image/") && mime != "image/svg+xml"))
+        fileText = if (!needsText) "" else if (f.length() > 8 * 1024 * 1024) {
             Toast.makeText(this, "文件过大(${f.length() / 1024 / 1024}MB)，请用分享按钮查看", Toast.LENGTH_LONG).show()
             ""
         } else try {
@@ -243,6 +247,32 @@ class ArtifactViewerActivity : Activity() {
             }
             sv.addView(pages, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             card.addView(sv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        } else if (mime.startsWith("video/") || mime.startsWith("audio/")) {
+            // 视频/音频产物: 内嵌播放器直接播放(2026-11-19 新增, 之前落入文本分支只能看到乱码)
+            val wrap = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+            val vv = android.widget.VideoView(this).apply {
+                setVideoPath(f.absolutePath)
+                setOnPreparedListener { mp ->
+                    mp.isLooping = false
+                    // 打开即播(否则只有黑底首帧, 用户以为打不开)
+                    runCatching { start() }
+                }
+                setOnErrorListener { _, what, extra ->
+                    LogStore.w("ArtifactViewer", "媒体播放失败 what=$what extra=$extra file=$fileName")
+                    false
+                }
+                setOnClickListener { if (isPlaying) pause() else start() }
+            }
+            vv.setMediaController(android.widget.MediaController(this).apply { setAnchorView(vv) })
+            wrap.addView(vv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            val hint = TextView(this).apply {
+                text = "${f.length() / 1024} KB · 点一下播放/暂停"
+                textSize = 11f
+                setTextColor(Color.parseColor("#CCCCCC"))
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+            }
+            wrap.addView(hint, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL))
+            card.addView(wrap, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         } else {
             val sv = ScrollView(this).apply { setBackgroundColor(Color.WHITE) }
             sv.addView(TextView(this).apply {

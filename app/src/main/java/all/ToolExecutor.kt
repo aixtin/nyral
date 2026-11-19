@@ -480,16 +480,35 @@ object ToolExecutor {
                 val jo = try { JSONObject(arg.trim()) } catch (e: Exception) { null }
                 val kindTag = jo?.optString("kind", "").orEmpty().ifBlank { jo?.optString("action", "").orEmpty() }
                 val isBin = kindTag == "binary" || kindTag == "save_bin"
+                val srcPath = jo?.optString("path", "").orEmpty().trim()
+                // kind=file / 或省略 kind 但给了 path(2026-11-19): 直接把设备本地已存在文件登记为产物,
+                // 不经过 Base64, 解决"下载到手机的视频/大图/PDF 无法作为成品卡片交付"
+                val isFile = kindTag == "file" || kindTag == "save_file" || (kindTag.isEmpty() && srcPath.isNotEmpty())
                 val name = jo?.optString("name", "")?.trim().orEmpty()
+                    .ifBlank { if (isFile) srcPath.substringAfterLast('/') else "" }
                 if (name.isEmpty()) "错误: 缺少 name(产物文件名, 带扩展名), 如 {\"name\":\"demo.html\",\"kind\":\"text\",\"content\":\"...\"}"
-                else if (isBin) {
+                else if (isFile) {
+                    if (srcPath.isEmpty()) "错误: kind=file 缺少 path(设备本地文件绝对路径), 如 {\"name\":\"clip.mp4\",\"kind\":\"file\",\"path\":\"/sdcard/Download/Nyral_work/下载/clip.mp4\"}"
+                    else {
+                        val src = java.io.File(srcPath)
+                        val fn = ArtifactStore.saveFile(context, name, src)
+                        if (fn.startsWith("错误:")) fn
+                        else {
+                            val meta = ArtifactStore.metaOf(context, fn)
+                            val v = meta?.optInt("artifact_version", 1) ?: 1
+                            SecurityConfig.audit(context, "artifact", "name=$name kind=file v=$v bytes=${src.length()}", "ai", "bubble")
+                            "产物已登记: $name (第 $v 版, ${src.length()} 字节)。请立即在回复正文中单独一行原样输出 [产物:$name](att://$fn) 向用户展示产物卡片; 文件已在卡片里可直接点开, 不要再让用户去文件管理器找。"
+                        }
+                    }
+                } else if (isBin) {
                     val dataB64 = jo?.optString("data", "").orEmpty()
                     if (dataB64.isEmpty()) "错误: kind=binary 缺少 data(完整文件的 Base64), 如 {\"name\":\"icon.png\",\"kind\":\"binary\",\"data\":\"<base64>\"}"
                     else {
                         val bytes = try { android.util.Base64.decode(dataB64, android.util.Base64.DEFAULT) } catch (e: Exception) { ByteArray(0) }
                         if (bytes.isEmpty()) "错误: data 不是合法 Base64, 请给完整文件的 Base64 编码"
                         else {
-                            val fn = ArtifactStore.saveBytes(context, name, bytes)
+                            // 2026-11-19: 二进制产物上限跟随上传配置(默认 20MB), 不再硬卡 512KB
+                            val fn = ArtifactStore.saveBytes(context, name, bytes, ArtifactStore.binMaxBytes(context))
                             if (fn.startsWith("错误:")) fn
                             else {
                                 val meta = ArtifactStore.metaOf(context, fn)
