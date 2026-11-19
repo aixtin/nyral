@@ -7,6 +7,7 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 14) {
+    private val appCtx = context.applicationContext
 
     companion object {
         const val DIM = 512
@@ -213,6 +214,8 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         for (col in listOf("content", "thinking", "tools", "timeline", "rendered")) {
             db.execSQL("UPDATE session_msgs SET " + col + " = substr(" + col + ", 1, " + maxLen + ") WHERE length(" + col + ") > " + maxLen)
         }
+        // D-1 存量历史气泡一次性去壳
+        runCatching { scrubStoredOnce(db) }
     }
 
     /** 幂等补列: sessions.kind(v13 新增); 老库 user_version 已升但表结构未补时由 onOpen 兜底 */
@@ -915,6 +918,39 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date(ts))
 
     /** 保存当前会话为新会话，返回 session id；assistant 消息附思考内容(可空) */
+    /** D-1 落库侧同源净化: content 含壳标签则清洗, 并让旧 rendered 缓存失效 */
+    private fun scrubMsg(m: SessionMsg): SessionMsg {
+        if (!m.content.contains('<')) return m
+        val c = StreamSanitizer.scrubText(m.content)
+        if (c == m.content) return m
+        return m.copy(content = c, rendered = "", renderedVersion = 0)
+    }
+
+    /** D-1 存量清洗: 历史 session_msgs.content 一次性去壳, flag 保证只跑一次 */
+    private fun scrubStoredOnce(db: SQLiteDatabase) {
+        val sp = appCtx.getSharedPreferences("nyral_db", Context.MODE_PRIVATE)
+        if (sp.getBoolean("scrub_stored_v1", false)) return
+        val todo = ArrayList<Array<Any>>()
+        db.rawQuery("SELECT session_id, seq, content FROM session_msgs WHERE content LIKE '%<%'", null).use { c ->
+            while (c.moveToNext()) {
+                val raw = c.getString(2) ?: continue
+                val clean = StreamSanitizer.scrubText(raw)
+                if (clean != raw) todo.add(arrayOf(c.getLong(0), c.getInt(1), clean))
+            }
+        }
+        if (todo.isNotEmpty()) {
+            db.beginTransaction()
+            try {
+                for (a in todo) {
+                    db.execSQL("UPDATE session_msgs SET content = ?, rendered = NULL, rendered_version = 0 WHERE session_id = ? AND seq = ?",
+                        arrayOf((a[2] as String).take(MAX_FIELD_LEN), (a[0] as Long).toString(), (a[1] as Int).toString()))
+                }
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+        }
+        sp.edit().putBoolean("scrub_stored_v1", true).apply()
+    }
+
     fun saveSession(title: String, msgs: List<SessionMsg>, mode: Int = 0, kind: Int = 0): Long {
         lock.withLock {
             val db = writableDatabase
@@ -927,7 +963,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                         put("mode", mode)
                         put("kind", kind)
                     })
-                msgs.forEachIndexed { i, m ->
+                msgs.forEachIndexed { i, m0 -> val m = scrubMsg(m0);
                     db.insert("session_msgs", null,
                         android.content.ContentValues().apply {
                             put("session_id", id)
@@ -1184,7 +1220,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                     arrayOf(id.toString())
                 ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
                 var written = 0
-                msgs.forEachIndexed { i, m ->
+                msgs.forEachIndexed { i, m0 -> val m = scrubMsg(m0);
                     val ts = if (m.ts > 0) m.ts else now
                     val r = db.insert("session_msgs", null,
                         android.content.ContentValues().apply {
@@ -1220,7 +1256,7 @@ class MemoryDb(context: Context) : SQLiteOpenHelper(context, "memory.db", null, 
                     "UPDATE sessions SET title = ?, updated_at = ?, mode = ? WHERE id = ?",
                     arrayOf(title, System.currentTimeMillis(), mode, id)
                 )
-                msgs.forEachIndexed { i, m ->
+                msgs.forEachIndexed { i, m0 -> val m = scrubMsg(m0);
                     db.insert("session_msgs", null,
                         android.content.ContentValues().apply {
                             put("session_id", id)
