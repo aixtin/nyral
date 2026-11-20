@@ -1697,6 +1697,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             if (bh == lastBodyH) return@addOnLayoutChangeListener
             lastBodyH = bh
             val kb = (bodyFullH - bh).coerceAtLeast(0)
+            // fix(11-20 冷启动假键盘): 首帧到稳态的布局差(实测 26px)会被反推成"键盘高", preDraw 的
+            // 键盘让位分支随即把刚展开的面板压回 0 -> 冷启动首点面板"弹出即收回"(panelOpen 残留 true),
+            // 二次点击才走切键盘分支。只接受"无键盘(<=4dp)"与"真实键盘量级(>80dp)"两种信号,
+            // 中间灰区视为布局抖动, 并把全高基准重基到当前值(否则偏大值永久污染后续反推)。
+            if (kb > dp(4) && kb <= dp(80)) {
+                if (legacyImeH <= dp(4)) bodyFullH = bh
+                return@addOnLayoutChangeListener
+            }
             if (Math.abs(kb - legacyImeH) > dp(4)) {
                 val prev = legacyImeH
                 legacyImeH = kb
@@ -1721,7 +1729,9 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             override fun onPreDraw(): Boolean {
                 val d = attachPanel ?: return true
                 if (!panelOpen || d.visibility != View.VISIBLE) return true
-                if (legacyImeH > dp(4)) {
+                /* fix(11-20): panelKbH==0 表示本次面板会话还没记录过键盘高(冷启动直开面板),
+                   此时套用 (panelKbH - legacyImeH) 只会算成 0, 把面板压回高度 0 而不清 panelOpen。 */
+                if (legacyImeH > dp(4) && panelKbH > 0) {
                     // 键盘已在本帧生效: 抽屉必须同帧让位, 否则"键盘 + 满高抽屉"会把输入栏挤出屏幕。
                     // 跳过超过 2 帧就放行, 防 setPanelHeight 不生效时卡住不绘制。
                     if (d.visibility == View.VISIBLE && d.height > dp(1) && panelHAnim?.isRunning != true) {
