@@ -77,7 +77,6 @@
 |------|------|
 | `AttachmentStore.kt` | 附件持久化与大小限制 |
 | `DocTextExtractor.kt` / `PdfTextExtractor.kt` | PDF/txt/md/docx/xlsx 文本提取 |
-| `VideoCompressor.kt` | 视频转码压缩（超限降质） |
 | `MainActivity.sendAttachmentFromUri` | 附件读取 → 发送主流程入口 |
 | `FileAuditStore.kt` / `FileAuditActivity.kt` | 删除审计闭环：删除前快照私有落盘，文件管理页只读展示，AI 经 read_file_audit 自查 |
 
@@ -136,7 +135,7 @@ gradle assembleDebug
 ```
 
 - 仓库已含 `settings.gradle.kts` 的阿里云镜像配置（国内网络构建更快），海外网络可删除对应 `maven(...)` 行。
-- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.11.1 / versionCode 149）
+- 版本号：`app/build.gradle.kts` 中 `versionCode` / `versionName`（当前 v2.13.0 / versionCode 157）
 
 - 正式签名：`gradle assembleRelease`，keystore 自建（RSA2048/10000 天），经 `keystore.properties` 读取（keystore 与 properties 均入 .gitignore 排密）。
 

@@ -16,6 +16,9 @@
     <string name="toast_play_fail">播放失败: %1$s</string>
     <!-- 附件/文件上传 -->
     <string name="toast_picker_fail">无法打开选择器: %1$s</string>
+    <string name="toast_camera_perm_denied">未授权相机权限，无法拍照</string>
+    <string name="toast_no_camera">未检测到可用摄像头，无法拍照</string>
+    <string name="toast_camera_no_photo">未拍摄到照片，相机可能不可用</string>
     <string name="toast_att_max_trim">一次最多上传 %1$d 个文件, 已保留前 %2$d 个</string>
     <string name="toast_att_max_drop">一次最多上传 %1$d 个文件, 已丢弃多余附件</string>
     <string name="toast_att_empty">文件内容为空或损坏, 暂不支持发送</string>
@@ -605,6 +608,7 @@
 <string name='mui_toast_deleted'>会话已删除</string>
 <string name='mui_cap_unsupported_suffix'>（当前模型不支持）</string>
 <string name='mui_toast_cap_unsupported'>当前模型不支持该类型</string>
+<string name='mui_attach_camera'>拍照</string>
 <string name='mui_attach_album'>相册</string>
 <string name='mui_attach_video'>视频</string>
 <string name='mui_attach_audio'>音频</string>

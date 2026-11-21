@@ -8,27 +8,52 @@ import android.view.View
 
 internal fun MainActivity.onSend() = doSend(pendingAttachments.toList())
 
+/** 拍照/相册入口按当前模型能力置灰(仅视觉; 点击时再判一次, 防切换模型后状态过期)
+ *  拍照只产出图片 → 只看识图能力; 相册可出图片/视频 → 任一能力即可 */
+internal fun MainActivity.refreshAttachRowCapability() {
+    val caps = ApiConfig.modelCapabilities(ApiConfig.providerId(), ApiConfig.model())
+    val hasCamera = hasUsableCamera()
+    attachCameraEntry?.alpha = if (hasCamera && ApiConfig.CAP_IMAGE in caps) 1f else 0.4f
+    attachAlbumEntry?.alpha = if (ApiConfig.CAP_IMAGE in caps || ApiConfig.CAP_VIDEO in caps) 1f else 0.4f
+}
+
+/** 门禁按钮随档位换色: 严格=危险红 / 自动=主题蓝 / 放行=灰 */
+internal fun MainActivity.refreshGateButtons() {
+    val mode = SecurityConfig.dangerMode(this)
+    val fg: Int
+    when (mode) {
+        "strict" -> { fg = Ui.DANGER }
+        "off" -> { fg = Ui.SUB }
+        else -> { fg = Ui.PRIMARY }
+    }
+    listOf(attachBtn, attachBtn2).forEach {
+        it.setColorFilter(fg)
+        it.background = glass(dp(16), dp(1))
+    }
+    gateStatusTv?.text = SecurityConfig.modeText(mode)
+}
+
 /** 统一刷新底栏三形态布局(槽位固定/输入框左右宽距恒不动):
- * 支持语音模型: 无字→槽A=语音 槽B=附件(+); 有字→槽A=附件(+) 槽B=发送
- * 不支持语音模型: 无论有无文字→槽A=附件(+) 槽B=发送 (语音槽由附件接管, 不留空白)
+ * 支持语音模型: 无字→槽A=语音 槽B=门禁; 有字→槽A=门禁 槽B=发送
+ * 不支持语音模型: 无论有无文字→槽A=门禁 槽B=发送 (语音槽由门禁接管, 不留空白)
  * AI输出/语音模式期间不切换 */
 internal fun MainActivity.applyInputMode() {
     if (session.aiBusy || voiceMode) return
     val hasText = input.text.isNotBlank()
     if (!currentModelSupportsVoice()) {
-        // 不支持语音: 恒为 [附件(槽A)][发送(槽B)]
+        // 不支持语音: 恒为 [门禁(槽A)][发送(槽B)]
         micBtn.visibility = View.GONE
         attachBtn2.visibility = View.VISIBLE
         attachBtn.visibility = View.GONE
         sendBtn.visibility = View.VISIBLE
         return
     }
-    // 槽A(micWrap): 有字→附件按钮; 无字→让语音按钮显示
+    // 槽A(micWrap): 有字→门禁按钮; 无字→让语音按钮显示
     attachBtn2.visibility = if (hasText) View.VISIBLE else View.GONE
-    // 槽B(attachWrap): 有字→发送; 无字→附件按钮
+    // 槽B(attachWrap): 有字→发送; 无字→门禁按钮
     attachBtn.visibility = if (hasText) View.GONE else View.VISIBLE
     sendBtn.visibility = if (hasText) View.VISIBLE else View.GONE
-    // 有字时语音按钮 INVISIBLE 占位防槽塌陷(槽A由附件按钮接管), 无字显示
+    // 有字时语音按钮 INVISIBLE 占位防槽塌陷(槽A由门禁按钮接管), 无字显示
     micBtn.visibility = if (hasText) View.INVISIBLE else View.VISIBLE
 }
 
@@ -43,6 +68,7 @@ internal fun MainActivity.refreshVoiceButton() {
         }
     }
     applyInputMode()
+    refreshAttachRowCapability()
 }
 
 /** 底栏交互入口: 输入框文字变化时刷新三形态布局 */

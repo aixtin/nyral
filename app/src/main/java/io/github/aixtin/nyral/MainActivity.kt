@@ -7,6 +7,7 @@ import android.app.Dialog
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.ContentUris
 import android.content.Intent
@@ -209,6 +210,7 @@ class MainActivity : Activity() {
     /** 当前会话窗口化加载时, 窗口起点在 DB 中的全局 seq(=总条数-窗口条数); 非窗口化时为 0, 保存时据此保留窗口外旧消息 */
     internal var sessionBaseSeq = 0
     private var pendingCameraFile: File? = null   // 拍照暂存文件, onActivityResult 消费
+    private var pendingCameraUri: Uri? = null     // 拍照 MediaStore 输出(优先路径), 消费后删除
     /** 上次检测的头像版本戳, 换头像返回时比对变化以刷新旧气泡 */
     private var lastAvatarStamp = 0L
     internal val chatRows = ArrayList<ChatRow>()
@@ -274,32 +276,82 @@ class MainActivity : Activity() {
     private var lastExitPressTime = 0L
     // 独立固定全屏背景层: 壁纸/渐变背景挂此层(不随键盘压缩上移), root 为透明壳
     private lateinit var bgLayer: FrameLayout
-    private lateinit var bodyWrap: LinearLayout
+    internal lateinit var bodyWrap: LinearLayout
     // 层级: bodyWrap = 消息区(chatArea)+输入框整体(dockContent)+表情抽屉(占位, 展开顶起输入框)
     /** 输入框整体(attachPreviewWrap+inputBar), 基础层, 只被键盘 insets 顶起/回落 */
     internal lateinit var dockContent: LinearLayout
     /** 最近一次键盘高度(px): 档位B基准, 键盘收回后小抽屉按键盘高度档展开 */
     internal var imeHeightField = 0
+    /** fix(11-21): imeHeightField 突变待确认值(防动画中途值/打断帧污染基准) */
+    private var imeHeightPending = 0
+    /** fix(11-21): 静息态(键盘关闭)采样的 bodyWrap 清洁全高(px), 键盘态压缩目标唯一可信基准 */
+    private var bodyWrapFullClean = 0
+    /** fix(11-21 抖动): 键盘态 bodyWrap 满高基准(px)。提升为成员, 供面板高度按
+     * "视口被键盘占用多少" 同帧派生 —— 面板与视口必须共用同一基准, 否则收尾补帧会让输入栏单帧下跳。 */
+    internal var bodyWrapFullH = 0
     /** API29-: ADJUST_RESIZE 下系统不派发 IME inset, 用 bodyWrap 高度差反推的键盘高(px) */
     internal var legacyImeH = 0
     /** 上次推给 chatRec 的底部让位值(px): 用于同帧去重, 避免每帧重复 setPadding 触发多余布局 */
     internal var lastBottomPadH = -1
     /** alignChatToViewport 合并标记: 掉帧时后续帧不再排队 post, 防滚动补偿堆积成"先掉后顶" */
     internal var chatAlignPending = false
+    /** 底部让位收缩延迟(fix 11-21): 收缩方向等 dockContent 布局落地后再写 padding。
+     * 即时写会出现"padding 已缩小、聊天区还是旧高"的错配帧, 表现为消息先掉到底再被顶回
+     * (API29 键盘顶起 / 面板收起的掉底主因)。-1 表示无挂起。 */
+    internal var pendingBottomPad = -1
+    /** dockContent 布局回调内置位: 本轮允许写收缩值 */
+    private var padShrinkAllowed = false
+    /** 键盘目标态(fix 11-21): insets 派发的是动画目标值, 用它判断"键盘正在弹出"
+     * 而不必等 imeShown 落地; 快速连点时 showAttachPanel 不再把正在弹的键盘误判为未开 */
+    internal var imeTargetShown = false
 /** 底部让位唯一写入口: 抽屉高度 -> chatRec 底部 padding + 跳转按钮 bottomMargin。
  * 与抽屉高度在同一调用栈内写入, 保证"抽屉长高"和"消息区让位"同一帧生效;
  * 同一 pad 值直接返回, 不产生多余 requestLayout。 */
 internal fun applyBottomOcclusion(drawerH: Int) {
     val h = drawerH.coerceAtLeast(0)
+    // 附件抽屉已下线: 底部常驻附件行与输入栏一同占用聊天区, 必须计入让位;
+    // 漏算会让末条消息被状态带压住(抽屉残留副作用)
+    val rowH = if (::attachRow.isInitialized) attachRow.height else 0
     // +dp(30): 状态带胶囊(22dp)+上下间距, 最后一条气泡仍停在状态带上方而非被其压住
-    val pad = inputBar.height.coerceAtLeast(dp(52)) + dp(Ui.SP2) + dp(30) + h
-    if (pad == lastBottomPadH) return
+    val pad = inputBar.height.coerceAtLeast(dp(52)) + rowH + dp(Ui.SP2) + dp(30) + h
+    if (pad == lastBottomPadH) { pendingBottomPad = -1; return }
+    // fix(11-21) 收缩原子化: 让位变小 = 底部要让出更少空间, 只有 dockContent 真正变矮之后写才对。
+    // 提前写会让聊天区在旧高度下多出空白 -> 末条整体下移一格(观感即"掉底再被顶回")。
+    // 放大方向(面板撑起)仍同帧直推, 保证消息立刻让位不被遮。
+    if (pad < lastBottomPadH && !padShrinkAllowed) {
+        if (pendingBottomPad != pad) {
+            pendingBottomPad = pad
+            // 兜底: 下一帧若 dockContent 未重布局也强制落地, 防挂起值永久偏大(底部空白)
+            dockContent.postOnAnimation { flushPendingBottomPad() }
+        }
+        return
+    }
+    pendingBottomPad = -1
+    writeBottomPadding(pad)
+    driveChatToBottomAfterPad(pad)
+}
+
+/** 落地挂起的底部让位收缩(dockContent 布局后 / 下一帧兜底): 目标已被放大则丢弃 */
+internal fun flushPendingBottomPad() {
+    val p = pendingBottomPad
+    if (p < 0) return
+    pendingBottomPad = -1
+    if (p >= lastBottomPadH) return
+    writeBottomPadding(p)
+}
+
+/** 底部让位唯一写点: 只改 padding 与跳转按钮 margin, 不触发滚动补偿 */
+internal fun writeBottomPadding(pad: Int) {
     lastBottomPadH = pad
     chatRec.setPadding(dp(Ui.SP3), dp(Ui.SP3), dp(Ui.SP3), pad)
     jumpFab?.let { fab ->
         (fab.layoutParams as? FrameLayout.LayoutParams)?.bottomMargin = pad + dp(Ui.SP2)
         fab.requestLayout()
     }
+}
+
+/** 让位写入后的贴底补偿(原 applyBottomOcclusion 尾部逻辑, 抽出供收缩落地路径复用) */
+internal fun driveChatToBottomAfterPad(pad: Int) {
     // 抽屉动画路径 bodyWrap 高度不变, chatRec.height 即当前真实可视高 -> 同帧贴底, 不等下一帧 post。
     // 只处理"内容超出可视底"的正向 gap, 避免在 bodyWrap 压缩路径(此处 height 仍为旧值)造成反向跳动。
     val lmNow = chatRec.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
@@ -316,13 +368,10 @@ internal fun applyBottomOcclusion(drawerH: Int) {
 }
 
     internal var inImeAnim = false  // 系统键盘 insets 动画进行中(提升为成员, 供抽屉转头判断 inImeAnim)
-    internal var lastImeStableAt = 0L  // 键盘 insets 最近一次稳定弹到位时间戳: onPrepare 据此判断 animStartImeH 是否满高
     // 消息区独立 FrameLayout: browserBar 悬浮 overlay 不占位, 聊天区高度恒定防气泡抖动
     private lateinit var chatArea: FrameLayout
     /** 浮层容器(10-30 第二批): 消息区 + 悬浮输入栏同层叠放 */
     private lateinit var overlayHost: FrameLayout
-    /** 顶部渐隐层: 消息区顶 28dp 由背景色淡到透明, 内容滚到标题栏下沿不再被硬切出一条灰边 */
-    private lateinit var fadeTopView: View
     /** 安全确认微暗遮罩(2026-10-04): 有待确认申请时聊天区背景暗化提示 */
     private lateinit var securityDim: View
     private lateinit var inputBar: LinearLayout
@@ -332,9 +381,22 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     private lateinit var browserBarPanel: TextView
     internal lateinit var input: EditText
     internal lateinit var modelBtn: Button
-    internal lateinit var attachBtn: Button
-    internal lateinit var attachBtn2: Button   // 槽A(语音槽内)的附件按钮, 输入文字时显示
+    internal lateinit var attachBtn: ImageView
+    internal lateinit var attachBtn2: ImageView   // 槽A(语音槽内)的门禁按钮, 输入文字时显示
     private lateinit var attachWrap: FrameLayout
+    /** 输入栏下方常驻的附件行(拍照/相册/文件), 始终可见 */
+    private lateinit var attachRow: LinearLayout
+    private lateinit var attachRowBg: GradientDrawable
+    /** 相册入口(能力不支持时置灰) */
+    internal var attachAlbumEntry: LinearLayout? = null
+    /** 拍照入口(模型不支持识图时置灰, 与相册同款) */
+    internal var attachCameraEntry: LinearLayout? = null
+    /** 左抽屉里的"安全模式"状态文字, 门禁切换后同步刷新 */
+    internal var gateStatusTv: TextView? = null
+    /** 门禁档位变化监听(SecurityConfig 单例回调): 统一刷新底栏锁图标/抽屉文字/首屏分段控件 */
+    private var gateModeListener: ((String) -> Unit)? = null
+    /** 首屏门禁分段控件的刷新回调, 由卡片构建时赋值 */
+    private var welcomeGateRefresh: (() -> Unit)? = null
     // 附件预览条: 选中附件先进入输入框上方预览, 补文字后一并发送(仿主流IM)
     internal lateinit var attachPreviewWrap: HorizontalScrollView
     internal lateinit var attachPreviewRow: LinearLayout
@@ -342,16 +404,13 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     // 附件发送链路(解析/校验/预览) 已抽离 AttachmentSender
     private val attachmentSender = AttachmentSender(this)
     // 附件选择请求码
-    private val REQ_IMAGE = 1001
     private val REQ_FILE = 1002
-    private val REQ_AUDIO = 1003
-    private val REQ_VIDEO = 1004
     internal val REQ_RECORD = 1005
     internal val REQ_NOTIF = 1006  // Android 13+ 通知权限(前台服务通知展示用)
     private val REQ_GUIDE_PERMS = 1007  // 首启权限引导: 一次申请运行时权限
-    internal val REQ_EMOJI_PICK = 1008  // 表情库选图: 结果存表情库而非聊天发送
     internal val REQ_MEDIA = 1009  // 相册(图片+视频混合): 系统 Photo Picker, 低版本降级 DocumentsUI
     private val REQ_CAMERA = 1010  // 拍照(2026-11-03 抽屉接入): ACTION_IMAGE_CAPTURE 写 cacheDir/camera/
+    private val REQ_CAMERA_PERM = 1011  // 拍照前申请 CAMERA 权限(声明后不持有会被系统拒绝启动相机)
     // 图片压缩上限: 最长边/质量
     internal val maxFileBytes: Int get() = UploadConfig.maxMb() * 1024 * 1024
     // 录音: 上限 60 秒 / 10MB(语音消息足够, 超限直接拒)
@@ -380,8 +439,8 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     internal var waveAnim: ValueAnimator? = null
     internal var modelPopup: PopupWindow? = null
     internal var modelClosing = false   // 弹窗收起动画进行中, 防重复触发
-    internal var attachPopup: PopupWindow? = null
-    internal var attachClosing = false  // 附件弹窗收起动画进行中, 防重复触发
+    internal var gatePopup: PopupWindow? = null
+    internal var gateClosing = false  // 门禁弹窗收起动画进行中, 防重复触发
     internal lateinit var sendBtn: ImageView
     internal lateinit var stopBtn: ImageView
     /** 记忆预取指示点: 发送按钮左上角 6dp 圆点, 静默提示本轮记忆检索状态 */
@@ -411,6 +470,103 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     /** 右侧整屏浏览器操作页(自研 Agent 浏览器雏形): 全屏 WebView + AI 状态条/高亮圈/思考摘要 */
     internal lateinit var browserPage: BrowserPage
     private val autoSavedHinted = java.util.HashSet<String>()
+    // ================= 帧级布局轨迹探针 (fix 11-21) =================
+    // 存在意义: "切换时消息掉一下/闪一下"是 1~2 帧的瞬态, 截图与 /v1/ui 轮询(几十毫秒一次)
+    // 都抓不到, 只能靠肉眼反复试 -> 修了很多次仍在。这里用 Choreographer 每帧记录输入区位置
+    // 与聊天区让位, 把瞬态变成可判定曲线(是否出现非单调位移/单帧跳变)。
+    internal var uiTraceOn = false
+    private val uiTraceFrames = ArrayList<String>(1400)
+    private var uiTracePosted = false
+    private var uiTraceStartAt = 0L
+    private val uiTraceTick = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            uiTracePosted = false
+            if (!uiTraceOn) return
+            uiTracePosted = true
+            android.view.Choreographer.getInstance().postFrameCallback(this)
+            if (!::inputBar.isInitialized || !::chatRec.isInitialized) return
+            if (uiTraceFrames.size >= 1400) uiTraceFrames.removeAt(0)
+            val loc = IntArray(2)
+            inputBar.getLocationInWindow(loc)
+            val sb = StringBuilder(96)
+            sb.append(frameTimeNanos / 1000000L - uiTraceStartAt).append(',')
+                .append(loc[1]).append(',')                                  // 输入框顶 y: 掉底的直接观测量
+                .append(inputBar.height).append(',')
+                .append(chatRec.height).append(',')
+                .append(chatRec.paddingBottom).append(',')                    // 底部让位
+                .append(0).append(',')                                        // panelH: 抽屉已下线, 恒 0(保持列序兼容)
+                .append(0).append(',')                                        // panelOpen: 同上
+                .append(if (imeTargetShown) 1 else 0).append(',')
+                .append(if (imeShown) 1 else 0)
+            uiTraceFrames.add(sb.toString())
+        }
+    }
+
+    /** 开启/关闭帧级探针(仅调试口): 开启即清空旧轨迹并开始逐帧采样 */
+    internal fun uiTraceSet(on: Boolean) {
+        uiTraceOn = on
+        if (!on) return
+        uiTraceFrames.clear()
+        uiTraceStartAt = android.os.SystemClock.uptimeMillis()
+        if (!uiTracePosted) {
+            uiTracePosted = true
+            android.view.Choreographer.getInstance().postFrameCallback(uiTraceTick)
+        }
+    }
+
+    /** 取轨迹(必须主线程): 返回 CSV 行, 表头见 DebugServer /v1/trace */
+    internal fun uiTraceDump(): List<String> = ArrayList(uiTraceFrames)
+
+    /**
+     * 主界面布局快照(供 DebugServer /v1/ui 读取, 必须主线程调用):
+     * 只读可见性/尺寸/窗口坐标, 供回归脚本断言"输入栏不被压扁/气泡区不重叠/dock 不被顶穿"等不变量。
+     */
+    internal fun uiLayoutSnapshot(): org.json.JSONObject {
+        fun snap(v: android.view.View?): org.json.JSONObject {
+            val o = org.json.JSONObject()
+            if (v == null) { o.put("null", true); return o }
+            o.put("vis", v.visibility)
+            o.put("w", v.width)
+            o.put("h", v.height)
+            val loc = IntArray(2)
+            v.getLocationInWindow(loc)
+            o.put("x", loc[0])
+            o.put("y", loc[1])
+            o.put("padT", v.paddingTop)
+            o.put("padB", v.paddingBottom)
+            return o
+        }
+        val o = org.json.JSONObject()
+        o.put("root", snap(root))
+        o.put("chatArea", snap(chatArea))
+        o.put("chatRec", snap(chatRec))
+        o.put("dockContent", snap(dockContent))
+        o.put("inputBar", snap(inputBar))
+        o.put("input", snap(input))
+        o.put("sendBtn", snap(sendBtn))
+        o.put("stopBtn", snap(stopBtn))
+        o.put("micBtn", snap(micBtn))
+        o.put("attachBtn", snap(attachBtn))
+        o.put("attachBtn2", snap(attachBtn2))
+        o.put("attachPreviewWrap", snap(attachPreviewWrap))
+        o.put("drawerPanel", snap(drawerPanel))
+        o.put("speakBar", snap(speakBar))
+        o.put("memDot", snap(memDot))
+        o.put("attachCount", attachPreviewRow.childCount)
+        o.put("attachRow", snap(attachRow))
+        o.put("gateMode", SecurityConfig.dangerMode(this))
+        o.put("gatePopupShowing", gatePopup?.isShowing == true)
+        // 键盘全高基准诊断: fullClean 应恒等于 bodyWrap 满高; 若偏小即"隐形抽屉"残留
+        o.put("bodyWrapFullClean", bodyWrapFullClean)
+        o.put("bodyWrapFullH", bodyWrapFullH)
+        o.put("bodyWrapH", bodyWrap.height)
+        o.put("imeShown", imeShown)
+        o.put("inputTextLen", input.text?.length ?: 0)
+        o.put("minInputBarH", dp(52))
+        o.put("density", resources.displayMetrics.density)
+        return o
+    }
+
     fun browserPageReady(): Boolean = ::browserPage.isInitialized
 
     /** 浏览器是否处于打开状态(供扩展文件判断浏览器控制条显隐) */
@@ -733,28 +889,27 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 return super.onTouchEvent(ev)
             }
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-                swipeDetector.onTouchEvent(ev)
-                // 表情抽屉展开时, 点击抽屉外空白区域(消息区/背景/标题栏)收起抽屉;
-                // 点击输入框区域不收(交给 input.onClick 兜底收抽屉+弹键盘), 点击抽屉内部不收(交给抽屉自身交互)
-                if (ev.action == MotionEvent.ACTION_UP && panelOpen && ::inputBar.isInitialized &&
-                    !isTouchInsideAttachPanel(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY)) {
-                    val il = IntArray(2)
-                    inputBar.getLocationInWindow(il)
-                    val inInputBar2 = ev.rawY.toInt() >= il[1] - dp(8)
-                    if (!inInputBar2) {
-                        post {
-                            // 先清焦点再收抽屉: hideAttachPanel 内部按 input.isFocused 决定是否弹键盘,
-                            // 点空白收抽屉不应弹键盘, 故先清焦点
-                            if (input.isFocused) input.clearFocus()
-                            hideAttachPanel()
-                        }
+                // 门禁弹窗是非 focusable 浮层, 外部点击不会自动 dismiss: 在这里收口。
+                // 点在弹窗内放行; 点在门禁按钮上则消费本次手势(等价于再点一次收起);
+                // 点其它地方先关弹窗, 再让事件继续分发。
+                if (ev.action == MotionEvent.ACTION_DOWN && gatePopup?.isShowing == true) {
+                    val p = gatePopup
+                    val pr = android.graphics.Rect()
+                    p?.contentView?.getGlobalVisibleRect(pr)
+                    val x = ev.rawX.toInt(); val y = ev.rawY.toInt()
+                    if (p != null && !pr.contains(x, y)) {
+                        val gr = android.graphics.Rect()
+                        val anchor = if (attachBtn2.visibility == View.VISIBLE) attachBtn2 else attachBtn
+                        anchor.getGlobalVisibleRect(gr)
+                        dismissGatePopup()
+                        if (gr.contains(x, y)) return true
                     }
                 }
+                swipeDetector.onTouchEvent(ev)
                 // 键盘弹起时, 点击输入区以外(消息区/背景/标题栏)收起键盘并清光标; 未弹键盘或点击输入框/按钮时不影响
                 // 优化(2026-09-18 全面扫描): hideSoftInput 的 binder 同步调用会阻塞 UP 分发链, post 到下一帧执行
                 if (ev.action == MotionEvent.ACTION_UP && ::inputBar.isInitialized &&
-                    !isTouchInsideAttachPanel(ev.rawX, ev.rawY) && !isTouchInsideAttachPreview(ev.rawX, ev.rawY) &&
-                    android.os.SystemClock.uptimeMillis() > suppressHideImeUntil) {
+                    !isTouchInsideAttachPreview(ev.rawX, ev.rawY)) {
                     val i3 = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
                     if (i3?.isActive == true) {
                         val loc = IntArray(2)
@@ -1066,20 +1221,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             bottomMargin = dp(Ui.SP4)
         })
 
-        // 内容渐隐(10-31 反转): 渐隐从底部挪到顶部, 消息区顶 28dp 由背景色向下淡到透明,
-        // 上一条气泡/卡片滚到标题栏下沿时柔和消失, 不再露出一条硬边灰带+投影
-        // 非可点击 View, 不吞触摸(仍交给 RecyclerView)
-        fadeTopView = View(this).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Ui.BG, Ui.BG and 0x00FFFFFF))
-        }
-        chatArea.addView(fadeTopView, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(28), Gravity.TOP))
-
         // 输入框整体(dockContent)直接挂 bodyWrap 底部(基础层), 表情抽屉在其下占位,
         // 抽屉展开时输入框被顶到抽屉上方(微信式)
         dockContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            // 双指同时点"输入框 + 附件按钮"时, 默认的分发会让两个子控件在一次手势里各收一路
+            // 触摸 -> 同一帧执行"开抽屉"和"关抽屉+弹键盘", 状态机被打乱(抽屉和键盘同时可见)。
+            // 关闭后整条手势只归第一个落点的控件, 同帧不可能触发两个动作。
+            isMotionEventSplittingEnabled = false
         }
 
         // 状态带(2026-10-30): 移到输入框上方, 作为与输入卡片同层的浮动胶囊,
@@ -1108,12 +1257,15 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         // 输入区: 按钮在输入框右侧, 底对齐固定在右下角
         inputBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            // 同 dockContent: 双指分别落在输入框与附件按钮时只认第一落点, 堵死"同帧双动作"
+            isMotionEventSplittingEnabled = false
             setPadding(dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2), dp(Ui.SP2))
             // 对侧圆角: 底栏左上/右上两角圆角(内侧两角), 左下/右下直角贴屏底; 抽屉联动时外侧两角圆角化
             background = GradientDrawable().apply {
                 setColor(Ui.SURFACE)
                 val r = dp(16).toFloat()
-                cornerRadii = floatArrayOf(r, r, r, r, r, r, r, r)
+                // 左上/右上圆角, 左下/右下直角(输入栏与下方附件行拼成一整块)
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
             }.also { inputBarBg = it }
         }
         input = object : EditText(this) {
@@ -1145,14 +1297,13 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             minLines = 1
             maxLines = 4
             setPadding(dp(Ui.SP4), dp(Ui.SP3), dp(Ui.SP4), dp(Ui.SP3))
-            background = rounded(dp(22), Ui.INPUT_BG)
+            background = inputPillBg(Ui.INPUT_BG)
             setTextColor(Ui.TEXT)
             setHintTextColor(Ui.SUB)
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_SEND) { onSend(); true } else false
             }
             imeOptions = EditorInfo.IME_ACTION_SEND
-            setOnFocusChangeListener { _, hasFocus -> if (hasFocus) hideAttachPanel() }
             // 回车放行 DOWN(系统默认 KeyListener 插入 \n, 百度 sendKeyEvent 路径); 吞掉 UP/MULTIPLE 防重复。
             // 微信输入法在 DOWN 系统插入后还会 commitText("\n"), 由 InputConnection 包装层去重丢弃, 避免双换行。
             setOnKeyListener { v, keyCode, e ->
@@ -1169,18 +1320,13 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             }
             // 键盘收起(光标已清)后再次点击: 只恢复焦点与键盘; 不再强制 setSelection 到末尾,
             // 光标定位交给系统默认(点哪光标哪), 否则无法点击定位到任意文本位置
-            // 抽屉展开时 input 保持聚焦, 再点击不触发 focus change(不会走上面的 hideAttachPanel),
-            // 必须在这里兜底收起抽屉, 否则抽屉占位残留, 之后收键盘时输入框停在抽屉顶位收不回去
             setOnClickListener { view ->
-                if (panelOpen) {
-                    // 先确保聚焦再收抽屉: hideAttachPanel 按 input.isFocused 判 willShowIme,
-                    // 失焦时走"清占位+恢复动画"与随后键盘 insets 压缩打架 -> 输入框沉底/键盘弹了输入框不升/分不清谁是谁
-                    if (!input.isFocused) input.requestFocus()
-                    hideAttachPanel()
-                }
                 view.requestFocus()
-                (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
-                    ?.showSoftInput(view, 0)
+                // 键盘目标态已置位时不再重复 showSoftInput(重复请求会打断正在跑的 insets 动画 -> 闪一下)
+                if (!imeTargetShown) {
+                    (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
+                        ?.showSoftInput(view, 0)
+                }
             }
             // 底栏交互: 输入文字时隐藏麦克风显示发送按钮, 清空后恢复麦克风
             addTextChangedListener(object : TextWatcher {
@@ -1265,20 +1411,19 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             setOnClickListener { toggleVoiceMode() }
         }
         micWrap.addView(micBtn)
-        attachBtn2 = Button(this).apply {
-            text = ""
-            background = attachIconBg(resources.displayMetrics.density)
-            isAllCaps = false
-            minHeight = 0
-            minWidth = 0
-            setPadding(0, 0, 0, 0)
+        attachBtn2 = ImageView(this).apply {
+            setImageResource(R.drawable.ic_perm_lock)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = glass(dp(16), dp(1))
+            setColorFilter(Ui.PRIMARY)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 bottomMargin = dp(Ui.SP3)
             }
-            // 默认隐藏: 输入文字后由 updateInputMode 切换为显示(语音槽让位给附件)
+            // 默认隐藏: 输入文字后由 updateInputMode 切换为显示(语音槽让位给门禁)
             isFocusable = false
             visibility = View.GONE
-            setOnClickListener { toggleAttachPanel() }
+            setOnClickListener { showGateMenu(this) }
         }
         micWrap.addView(attachBtn2)
         inputBar.addView(micWrap)
@@ -1291,19 +1436,18 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 marginStart = dp(Ui.SP2)
             }
         }
-        attachBtn = Button(this).apply {
-            text = ""
-            background = attachIconBg(resources.displayMetrics.density)
-            isAllCaps = false
-            minHeight = 0
-            minWidth = 0
-            setPadding(0, 0, 0, 0)
+        attachBtn = ImageView(this).apply {
+            setImageResource(R.drawable.ic_perm_lock)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = glass(dp(16), dp(1))
+            setColorFilter(Ui.PRIMARY)
             layoutParams = FrameLayout.LayoutParams(dp(36), dp(36), Gravity.BOTTOM).apply {
                 // 底边距由 onGlobalLayout 统一计算, 此处只给初始占位值
                 bottomMargin = dp(Ui.SP3)
             }
             isFocusable = false
-            setOnClickListener { toggleAttachPanel() }
+            setOnClickListener { showGateMenu(this) }
         }
         attachWrap.addView(attachBtn)
         sendBtn = ImageView(this).apply {
@@ -1437,6 +1581,71 @@ internal fun applyBottomOcclusion(drawerH: Int) {
 
     private fun setupAttachPanelAndSideDrawer() {
         dockContent.addView(inputBar)
+        // 常驻附件行: 输入框下方, 拍照/相册/文件三个小按钮, 点击直接调系统入口
+        attachRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(Ui.SP3), 0, dp(Ui.SP3), dp(Ui.SP2))
+            background = GradientDrawable().apply {
+                setColor(Ui.SURFACE)
+                val r = dp(16).toFloat()
+                cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, r, r, r, r)
+            }.also { attachRowBg = it }
+        }
+        fun entry(icon: Int, onClick: () -> Unit): LinearLayout {
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                setPadding(0, dp(Ui.SP1), 0, dp(Ui.SP1))
+                layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f)
+                Ui.press(this)
+                setOnClickListener { onClick() }
+            }
+            item.addView(ImageView(this).apply {
+                setImageResource(icon)
+                // 玻璃底 + 次级灰图标: 透明底栏压在壁纸上也看得清
+                setColorFilter(Ui.SUB)
+                background = glass(dp(10), dp(1))
+                setPadding(dp(7), dp(7), dp(7), dp(7))
+                layoutParams = LinearLayout.LayoutParams(dp(32), dp(32))
+            })
+            return item
+        }
+        // 拍照只产出图片: 模型不支持识图时与相册同样置灰, 点击再判一次防切换模型后状态过期
+        val camera = entry(R.drawable.ic_upload_camera) {
+            val caps = ApiConfig.modelCapabilities(ApiConfig.providerId(), ApiConfig.model())
+            if (ApiConfig.CAP_IMAGE in caps) {
+                launchCamera()
+            } else {
+                Toast.makeText(this, getString(R.string.mui_toast_cap_unsupported), Toast.LENGTH_SHORT).show()
+            }
+        }
+        attachCameraEntry = camera
+        attachRow.addView(camera)
+        val album = entry(R.drawable.ic_upload_image) {
+            val caps = ApiConfig.modelCapabilities(ApiConfig.providerId(), ApiConfig.model())
+            if (ApiConfig.CAP_IMAGE in caps || ApiConfig.CAP_VIDEO in caps) {
+                pickMedia()
+            } else {
+                Toast.makeText(this, getString(R.string.mui_toast_cap_unsupported), Toast.LENGTH_SHORT).show()
+            }
+        }
+        attachAlbumEntry = album
+        attachRow.addView(album)
+        attachRow.addView(entry(R.drawable.ic_upload_file) { pickFile() })
+        dockContent.addView(attachRow)
+        refreshAttachRowCapability()
+        refreshGateButtons()
+        // 门禁档位全局唯一: 任一处(设置页/首屏卡片/底栏弹窗)改档后统一刷新所有入口显示
+        val modeListener: (String) -> Unit = {
+            runOnUiThread {
+                refreshGateButtons()
+                welcomeGateRefresh?.invoke()
+            }
+        }
+        gateModeListener = modeListener
+        SecurityConfig.addModeListener(modeListener)
         // 键盘/输入框交接处分割线: 颜色取浏览器主页黑蓝渐变(linear-gradient 160deg #0d1b2a→#1b2a4a→#274060)
         dockContent.addView(View(this).apply {
             background = GradientDrawable(
@@ -1448,25 +1657,19 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             leftMargin = dp(Ui.SP4)
             rightMargin = dp(Ui.SP4)
         })
-        // 一体式(定稿): 表情抽屉焊进 dockContent(输入框+表情区=大抽屉), 不再独立占位。
-        // 大抽屉总高=输入框高+表情区高; 键盘 insets 压缩 bodyWrap 顶起整个大抽屉,
-        // 表情区与键盘互斥占用底部空间(emojiH = panelTargetH - imeH), 切换时输入框零位移
-        val attachPanelRoot = buildAttachPanel()
-        dockContent.addView(attachPanelRoot, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0))
+        // 一体式(定稿): dockContent 只挂输入条整体(状态带/附件预览/输入栏), 由键盘 insets 顶起。
+        // 附件选择改为 PopupWindow 弹窗, 不再有底部抽屉占位高度。
         // 输入栏浮层: 挂在 overlayHost 底部浮在消息区上, elevation 保证气泡滚过时压在其上
         dockContent.elevation = dp(6).toFloat()
         overlayHost.addView(dockContent, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
         // 列表底部留出输入栏高度: 最后一条气泡能完整停在栏上方, 滚动过程则可穿到栏下(渐隐吃掉)
-        // 表情抽屉展开时, 抽屉本体也计入底部让位: 抽屉撑起多高, 消息区就让出多高(与键盘 insets 压缩同语义)。
-        // 键盘态抽屉高=0 故 pad 不变; 键盘<->抽屉互斥切换时一侧恢复、另一侧让位, 消息净位移约等于 0。
-        // 底部让位(padding)改由驱动点同帧直推(见 applyBottomOcclusion / setPanelHeight)。
-        // 旧实现靠布局回调回读抽屉高度: 回调发生在 layout 之后, padding 落后一帧;
-        // 低端机掉帧时落后数帧, 观感即"消息先掉下去再被顶上来"。此处仅作布局兜底校正。
+        // 底部让位(padding)由布局回调兜底校正(输入栏高度变化/多行输入时跟随)。
         dockContent.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            val dH = attachPanel?.let { if (it.visibility == View.VISIBLE) it.height else 0 } ?: 0
-            applyBottomOcclusion(dH)
+            padShrinkAllowed = true
+            pendingBottomPad = -1
+            applyBottomOcclusion(0)
+            padShrinkAllowed = false
         }
         main.addView(bodyWrap, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -1623,19 +1826,18 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 }
             }
         }
-        // 布局完成后锁定 bgLayer 为全屏高度(首次布局未弹键盘, root.height 即完整高度);
-        // 此后键盘弹出压缩 root 时 bgLayer 保持固定, 背景顶部不动、底部被键盘盖住(壁纸不跟随抬起)
+        // 背景层只允许"变大"到当前完整窗口高度: 首次布局若赶上窗口还没完全展开/键盘动画中,
+        // 记录到的高度会偏小, 以前只锁一次就永久裁掉底部(键盘收起后输入栏下面全白);
+        // 这里持续监听, 只在 root 变高时抬高, 键盘压缩时保持不动(壁纸不跟随抬起)。
         root.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 val rh = root.height
-                if (rh > 0) {
-                    val lp = bgLayer.layoutParams as FrameLayout.LayoutParams
-                    if (lp.height != rh) {
-                        lp.height = rh
-                        lp.gravity = Gravity.TOP
-                        bgLayer.layoutParams = lp
-                    }
-                    root.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                if (rh <= 0) return
+                val lp = bgLayer.layoutParams as FrameLayout.LayoutParams
+                if (rh > lp.height) {
+                    lp.height = rh
+                    lp.gravity = Gravity.TOP
+                    bgLayer.layoutParams = lp
                 }
             }
         })
@@ -1711,90 +1913,41 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 onLegacyImeChanged(prev, kb)
             }
         }
-        installDrawerPreDrawGuard()
     }
 
-    /** fix(11-17): 键盘->抽屉切换的最后一帧补洞。
-     * addOnLayoutChangeListener 只能"布局完成后"改高度, 改完要等下一帧才布局,
-     * 那一帧里窗口已复原(dock 掉到屏幕底)、抽屉仍是 0 高 -> 用户看到"先掉到底部再弹上来"。
-     * 在 onPreDraw(本帧绘制前)发现这种不一致就先把抽屉撑到位并 return false 取消本帧绘制,
-     * 中间态一帧都不给渲染。 */
-    private var preDrawSkipAt = 0L
-    private var preDrawSkipRun = 0
-
-    private fun installDrawerPreDrawGuard() {
-        if (Build.VERSION.SDK_INT >= 30) return
-        val vto = window.decorView.viewTreeObserver
-        vto.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                val d = attachPanel ?: return true
-                if (!panelOpen || d.visibility != View.VISIBLE) return true
-                /* fix(11-20): panelKbH==0 表示本次面板会话还没记录过键盘高(冷启动直开面板),
-                   此时套用 (panelKbH - legacyImeH) 只会算成 0, 把面板压回高度 0 而不清 panelOpen。 */
-                if (legacyImeH > dp(4) && panelKbH > 0) {
-                    // 键盘已在本帧生效: 抽屉必须同帧让位, 否则"键盘 + 满高抽屉"会把输入栏挤出屏幕。
-                    // 跳过超过 2 帧就放行, 防 setPanelHeight 不生效时卡住不绘制。
-                    if (d.visibility == View.VISIBLE && d.height > dp(1) && panelHAnim?.isRunning != true) {
-                        val now = android.os.SystemClock.uptimeMillis()
-                        if (now - preDrawSkipAt < 40) preDrawSkipRun++ else preDrawSkipRun = 1
-                        preDrawSkipAt = now
-                        if (preDrawSkipRun <= 2) {
-                            setPanelHeight((panelKbH - legacyImeH).coerceAtLeast(0))
-                            return false
-                        }
-                    }
-                    return true            // 键盘还在, 由互斥公式逐帧跟随
-                }
-                val tgt = panelTargetH.coerceAtLeast(dp(160))
-                if (d.height >= tgt - dp(4)) return true        // 已到位
-                if (panelHAnim?.isRunning == true) return true
-                setPanelHeight(tgt)
-                return false                                    // 本帧不绘制, 下一帧直接是到位态
+    /**
+     * fix(11-21 输入框悬空/抽屉顶过头): imeHeightField 是"键盘满高基准", 面板目标高(tgt)与
+     * bodyWrap 压缩、面板互斥公式全部由它派生。一旦被异常派发(动画中途值、键盘被交叉点击打断
+     * 的中间 insets、键盘态 systemBars 膨胀)写成偏大值(实测 1078 vs 真实 738), 之后每次点抽屉/
+     * 点输入框都按脏基准撑高, 输入框会整体悬空约 (脏值-真值), 且不会自行恢复。
+     * 收口写入: 超出屏幕 55% 直接丢弃; 与已知基准差异 >60dp 时需连续两次一致才采纳。
+     */
+    private fun setImeHeightVal(v: Int) {
+        if (v <= dp(80)) return
+        if (v > (root.height * 0.55f).toInt()) return
+        if (imeHeightField > dp(80) && kotlin.math.abs(v - imeHeightField) > dp(60)) {
+            if (kotlin.math.abs(v - imeHeightPending) <= dp(8)) {
+                imeHeightField = v
+                imeHeightPending = v
+            } else {
+                imeHeightPending = v
             }
-        })
+            return
+        }
+        imeHeightField = v
+        imeHeightPending = v
     }
 
     private fun onLegacyImeChanged(prev: Int, kb: Int) {
         val nowUp = kb > dp(80)
+        imeTargetShown = nowUp   // fix(11-21): API29 无 insets 动画, 反推值即目标态
         if (nowUp) {
-            imeHeightField = kb
+            setImeHeightVal(kb)
             // 纯键盘路径贴底: ADJUST_RESIZE 下窗口被压缩 (kb-prev), RecyclerView 保持旧滚动锚点,
             // 末条会被裁在键盘下方(现场即"直接点输入框, 消息不上移"; 只有抽屉路径因改 padding 才带动)。
             // 按压缩量直接补偿滚动, 与 API30 的 onProgress 逐帧压缩驱动同语义。
             compensateViewportChange(kb - prev)
         }
-        val d = attachPanel
-        if (nowUp) {
-            // 键盘顶起: 表情区必须无条件收起, 否则抽屉与输入法上下重叠(API30 的 dropSync 语义)
-            if (panelOpen || (d != null && d.visibility == View.VISIBLE && d.height > dp(1))) {
-                panelOpen = false
-                panelDropPending = false
-                panelHAnim?.cancel(); panelHAnim = null
-                if (d != null) {
-                    setPanelHeight(0)
-                    d.visibility = View.GONE
-                }
-            }
-        } else if (panelOpen && d != null && d.visibility == View.VISIBLE) {
-            // fix(11-17): 键盘->抽屉切换零位移。
-            // 旧实现等键盘收完再 startPanelPopAnim(180) 长高: ADJUST_RESIZE 的窗口复原是单帧瞬时的,
-            // 抽屉却要 180ms 才长回来 -> 中间若干帧 输入框跟着窗口掉到屏幕最底, 抽屉长高再把它顶回去
-            // (= 用户看到的"抽屉先掉到底部再弹上来")。
-            // 改为一体式互斥逐帧跟随: 抽屉高 = 基准键盘高 - 当前键盘高,
-            // 则 dock 位置 = 窗口高 - 键盘高 - 抽屉高 = 常量, 全程零位移, 无中间态可抖。
-            panelHAnim?.cancel(); panelHAnim = null
-            val popTarget = panelTargetH.coerceAtLeast(dp(160))
-            val h = (panelKbH - kb).coerceIn(0, popTarget)
-            setPanelHeight(h)
-            if (kb <= dp(4)) {
-                setPanelHeight(popTarget)
-                d.post {
-                    alignChatToViewport()
-                    if (!scrollUserScrolled) scrollToBottom(auto = false, force = true)
-                }
-            }
-        }
-        // 窗口压缩/复原后按新视口贴底(布局稳定后再校一次, 防 RecyclerView 仍处 SETTLING 被跳过)
         chatRec.post { alignChatToViewport() }
         chatRec.postDelayed({ alignChatToViewport() }, 80)
     }
@@ -1823,7 +1976,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             window.setDecorFitsSystemWindows(false)
             var imeFloating = false  // QQ 式悬浮模式: 惯性滚动中弹键盘, bodyWrap 不压缩, 仅输入区悬浮到键盘顶
             var imeAnimator: android.animation.ValueAnimator? = null
-            var bodyWrapFullH = 0
+            // bodyWrapFullH 已提升为成员(面板高度需与视口共用同一满高基准)
             var lastImeH = 0
             var prevCompressH = 0  // 压缩模式上一帧 bodyWrap 高度, 用于末条不可见时按压缩增量滚动
             var lastProgressImeH = 0  // onProgress 最后一帧键盘高度, onEnd 据此判断动画方向(收起方向需兜底恢复)
@@ -1845,8 +1998,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     bodyWrap.layoutParams = lp0
                     prevCompressH = bodyWrapFullH
                     // fix(09-22): 键盘收回 bodyWrap 恢复全高后聊天区视口变高,
-                    // 末条若在压缩态贴底则恢复后底部多出空白(键盘→表情切换截图空隙),
-                    // 末条贴底对齐(用户翻历史时末条不可见则不动)
+                    // 末条若在压缩态贴底则恢复后底部多出空白, 末条贴底对齐(翻历史时不动)
                     alignChatToViewport()
                     return
                 }
@@ -1886,22 +2038,15 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 // 表情抽屉同样贴底避开导航栏(顶起式, 同键盘)
                 val imeH = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
                 lastImeH = imeH
-                if (imeH > dp(80)) imeHeightField = imeH  // 记录真实键盘高(一体式: 表情区撑高基准)
-                android.util.Log.i("NyralIme", "insets imeH=$imeH shown=$imeShown open=$panelOpen eddH=${attachPanel?.height} tgt=$panelTargetH kbH=$panelKbH w=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).weight} h=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
+                // fix(11-21): insets 派发的是动画目标值 -> 直接用作用"键盘目标态",
+                // 供面板开关判断(键盘正在弹出也算开), 避免动画未落地时的误判
+                imeTargetShown = imeH > dp(80)
+                if (imeH > dp(80)) setImeHeightVal(imeH)  // fix(11-21): 收口写入, 防异常派发污染基准
+                // fix(11-21 抽屉残留): 全高基准改由 bodyWrap 布局回调采样(见下方 addOnLayoutChangeListener)。
+                // insets 回调里读到的 height 是"上一次布局"的旧值(main 底部导航 padding 尚未生效),
+                // 会采到偏大的窗口高; 曾导致键盘弹起后多压一截/少压一截(表现为键盘上方"隐形抽屉")。
+                android.util.Log.i("NyralIme", "insets imeH=$imeH shown=$imeShown w=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).weight} h=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
                 val lp = bodyWrap.layoutParams as LinearLayout.LayoutParams
-                // 一体式互斥公式: 键盘/表情区互斥占用底部空间, 表情区高 = target - imeH;
-                // 键盘弹出表情区自动收起到 0, 键盘收回表情区自动撑到 target, 输入框(大抽屉顶)零位移
-                val edd = attachPanel
-                // 动画期间互斥公式由 onProgress 逐帧驱动: 键盘弹起动画开始时 insets 先派发最终 imeH,
-                // 此处若立即执行会把表情区瞬间收为 0, 而 bodyWrap 压缩被 inImeAnim 挡住 -> 输入框闪底
-                // (表情→键盘切换"先掉底再被顶起" bug)。仅在无动画(瞬时弹收)时作兜底。
-                if (!inImeAnim && edd != null && (panelOpen || (edd.visibility == View.VISIBLE && edd.height > dp(1)))) {
-                    val tgt = panelTargetH
-                    // fix(09-22 键盘调低): 互斥基准用实时 imeHeightField 而非 showAttachPanel 时的历史快照,
-                    // 键盘档位调低后快照残留旧满高 -> 键盘弹满表情区收不净(整体抬起)、键盘收回又按旧高撑起不收回
-                    val base = imeHeightField.coerceAtLeast(tgt)
-                    if (base > 0 && tgt > 0) setPanelHeight((base - imeH).coerceIn(0, tgt))
-                }
                 if (imeH > dp(80)) {
                     // 补完动画在跑(键盘收回补尾中): 尊重动画不重新压缩, 防"掉下去又上来又下去"震荡
                     if (imeAnimator?.isRunning == true) return@setOnApplyWindowInsetsListener insets
@@ -1912,7 +2057,8 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                         // 再停在中间高度卡顿、恢复权重才回底("收回键后跑到顶部又掉中间" bug)
                         val tbF = IntArray(2)
                         titleBar.getLocationInWindow(tbF)
-                        bodyWrapFullH = (root.height - animSbBottom - (tbF[1] + titleBar.height)).coerceAtLeast(dp(60))
+                        bodyWrapFullH = if (bodyWrapFullClean > dp(200)) bodyWrapFullClean
+                            else (root.height - animSbBottom - (tbF[1] + titleBar.height)).coerceAtLeast(dp(60))
                         // fix8/9: 键盘弹出瞬间若列表还在滚动(惯性 SETTLING), 直接打断滚动走压缩分支(QQ 式"滚停即顶"):
                         // 悬浮分支有"输入框一帧顶到最终位与键盘动画分家 + 惯性停止后切压缩掉落重合"两段瞬态,
                         // 用户意图本就是点输入框打字, 惯性打断符合预期; 消息顶起由 onProgress 逐帧跟随, 无跳变
@@ -1929,15 +2075,24 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     // 此处仅在无动画(键盘瞬时出现/动画结束后最终 insets 兜底)时设置最终高度, 避免提前跳变
                     if (!inImeAnim) {
                         // fix(09-22) 转头跳变根因之稳基: 键盘 insets 稳定(无动画)弹到位时记录满高,
-                        // 供表情区撑高基准。onPrepare 的 animStartImeH 在"弹出动画中途被切换打断"时
+                        // 供压缩/恢复基准。onPrepare 的 animStartImeH 在"弹出动画中途被切换打断"时
                         // 是动画中途值, 不能作为满高(见 onPrepare 保护注释)
+                        // fix(11-21 自愈): 键盘稳定满态是唯一可信真值, 无条件覆盖基准;
+                        // 否则一次脏写入(如 1078)会让之后每次压缩都过头, 输入框悬空。
                         imeHeightField = imeH
+                        imeHeightPending = imeH
                         val tb = IntArray(2)
                         titleBar.getLocationInWindow(tb)
                         val titleBottom = tb[1] + titleBar.height
                         // 底部占用=键盘高度(占位模型: 键盘弹出时抽屉已同步收起, 输入框只随键盘顶起)
                         val bottomOccupy = imeH
-                        val targetH = ((root.height - kotlin.math.max(bottomOccupy, sb.bottom)) - titleBottom).coerceAtLeast(dp(60))
+                        // fix(11-21 输入框悬空 340px): 键盘态下 titleBar.getLocationInWindow 读到的是
+                        // 窗口收缩瞬间的中间位置(实测反推 titleBottom 偏大 340), 用它反推 bodyWrap 全高
+                        // 会把内容区多压 340 -> 输入框悬在键盘上方。改用静息态采样的清洁全高,
+                        // 压缩量按"键盘高 - 导航栏"计算(内容区本就在导航栏上方)。
+                        val fullH = if (bodyWrapFullClean > dp(200)) bodyWrapFullClean
+                        else ((root.height - kotlin.math.max(bottomOccupy, sb.bottom)) - titleBottom)
+                        val targetH = (fullH - kotlin.math.max(imeH - sb.bottom, 0)).coerceAtLeast(dp(60))
                         val lpp = bodyWrap.layoutParams as LinearLayout.LayoutParams
                         prevCompressH = targetH
                         if (lpp.height != targetH) {
@@ -1964,25 +2119,11 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                             attachPreviewWrap.animate().translationY(0f).setDuration(180)
                                 .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
                     } else {
-                        // 收起同步: insets 动画期间每帧已随 imeH 递减同步恢复 bodyWrap 高度;
-                        // 占位模型: 抽屉展开时 bodyWrap 恢复全高, 抽屉弹出后把输入框顶到抽屉上方
+                        // 收起同步: insets 动画期间每帧已随 imeH 递减同步恢复 bodyWrap 高度
                         if (imeAnimator?.isRunning == true) {
                             // 补完动画进行中, 不动, onAnimationEnd 会恢复权重
                         } else {
                             smoothRestoreBodyWrap()
-                        }
-                        // 键盘瞬时收起(系统未跑 insets 动画, onProgress 一帧都不会来)时,
-                        // 抽屉若仍为 0, 会让消息先整段落底、再等兜底动画撑起 -> "掉下去又上来"。
-                        // 此处与 bodyWrap 恢复同帧把抽屉直接撑满, 让位与视口变化同步发生。
-                        if (panelOpen) {
-                            val dNow = attachPanel
-                            if (dNow != null && dNow.visibility == View.VISIBLE && panelTargetH > 0 &&
-                                dNow.height < panelTargetH - dp(1) &&
-                                panelHAnim?.isRunning != true
-                            ) {
-                                android.util.Log.i("NyralIme", "instantPop imeH=$imeH h=${dNow.height} tgt=$panelTargetH")
-                                setPanelHeight(panelTargetH)
-                            }
                         }
                     }
                     // 键盘已收起: 输入框光标跟随关闭
@@ -2001,19 +2142,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     animStartImeH = try {
                         window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
                     } catch (e: Exception) { 0 }
-                    android.util.Log.i("NyralIme", "onPrepare dur=${animation.durationMillis} shown=$imeShown open=$panelOpen sb=$animSbBottom")
+                    android.util.Log.i("NyralIme", "onPrepare dur=${animation.durationMillis} shown=$imeShown sb=$animSbBottom")
                     // 键盘收回开始: 记录收回前键盘高, 供表情区撑高基准(一体式: 表情区目标高=键盘高)
                     // fix(09-22) 转头跳变根因: 键盘弹出动画中途被 hideSoftInput 打断时, 系统启动的
                     // 收回动画 animStartImeH 是"动画中途值"(非满高), 若覆盖 imeHeightField 会让互斥
                     // 基准变小 -> 抽屉撑不满/输入框位移(用户现场: 键盘上半闪原位、下半闪底再上来)。
                     // 保护: 只有起点不低于已记录满高(容差 24dp)才更新, 中途值保留旧满高;
                     // 满高兜底由 onApplyWindowInsets 无动画稳定分支持续刷新
-                    if (animStartImeH > dp(80) && animStartImeH + dp(24) >= imeHeightField) imeHeightField = animStartImeH
-                    // 键盘开始弹出: 表情区退出展开态(互斥公式按 h>0 条件驱动收起到 0, 键盘接管底部空间)
-                    // 键盘开始弹出: 表情区退出展开态。仅动画前键盘未开(animStartImeH<=80, 真弹起)时清;
-                    // 动画前键盘已开(animStartImeH>80)的是收起动画, showAttachPanel 刚置的 panelOpen
-                    // 不能被误清, 否则直开表情不展开/聊天不顶起
-                    if (!imeShown && panelOpen && animStartImeH <= dp(80)) panelOpen = false
+                    if (animStartImeH > dp(80) && animStartImeH + dp(24) >= imeHeightField) setImeHeightVal(animStartImeH)
                     // 键盘开始弹出(animStartImeH<=80): 无条件进入压缩初始状态。
                     // fix(09-22) 悬空根因: 转头/打断时 imeShown 可能残留 true, 旧逻辑 !imeShown 分支
                     // 不执行 -> weight 保持 1f -> onProgress 设 height 无效(weight 主导分配)
@@ -2030,8 +2166,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                         // bodyWrap.height 会记录到抽屉顶压缩高度 -> 键盘收回输入框先顶到顶再卡中间
                         val tbF = IntArray(2)
                         titleBar.getLocationInWindow(tbF)
-                        bodyWrapFullH = (root.height - animSbBottom - (tbF[1] + titleBar.height)).coerceAtLeast(dp(60))
+                        bodyWrapFullH = if (bodyWrapFullClean > dp(200)) bodyWrapFullClean
+                            else (root.height - animSbBottom - (tbF[1] + titleBar.height)).coerceAtLeast(dp(60))
                         imeFloating = false
+                        // fix(11-21 抖动): 键盘开始弹出后 bodyWrap 必须由 onProgress 独占驱动;
+                        // 若上一轮的 60ms 补完动画还在跑, 它会继续写中间旧值, 与逐帧压缩互相覆盖
+                        // = 输入栏上下抖。先取消(其 onEnd 已由 inImeAnim 守卫, 不会抢恢复权重)。
+                        imeAnimator?.cancel()
+                        imeAnimator = null
                         val lp0 = bodyWrap.layoutParams as LinearLayout.LayoutParams
                         lp0.weight = 0f; lp0.height = bodyWrapFullH
                         bodyWrap.layoutParams = lp0
@@ -2046,17 +2188,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     val prevImeH = lastProgressImeH  // 上一帧 ime 高度(方向判断用, 不覆盖原 last 日志语义)
                     lastProgressImeH = imeH
                     android.util.Log.i("NyralIme", "onProgress imeH=$imeH last=$lastProgressImeH shown=$imeShown")
-                    // 一体式互斥公式(每帧): 表情区高 = target - imeH, 与键盘动画同帧互斥, 输入框零位移
-                    val eddP = attachPanel
-                    if (eddP != null && (panelOpen || (eddP.visibility == View.VISIBLE && eddP.height > dp(1)))) {
-                        val tgtP = panelTargetH
-                        // fix(09-22 键盘调低): 互斥基准=实时键盘满高 imeHeightField(动画开始时 onApply 已刷新为
-                        // 本次真实满高), 不再用 showAttachPanel 历史快照 kbH: 键盘档位调低后快照残留旧满高,
-                        // 键盘弹满时表情区收不净(残留=旧高-新高, 输入框被顶高)、键盘收回时又按旧高把表情区
-                        // 撑起而 panelOpen 已 false -> 表情区不收回去。中途转头保护仍由 onPrepare 容差承担
-                        val baseP = imeHeightField.coerceAtLeast(tgtP)
-                        if (baseP > 0 && tgtP > 0) setPanelHeight((baseP - imeH).coerceIn(0, tgtP))
-                    }
                     if (imeShown) {
                         // 压缩顶起/恢复: 高度随键盘动画进度逐帧同步, 锚定末条保留底部留白
                         val tb = IntArray(2)
@@ -2094,7 +2225,7 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     // 反悔打断收尾延迟: post 下一帧可能仍抢在反向新动画 onPrepare 之前执行(旧收尾误伤),
                     // 延迟 16ms 让 onPrepare 先置 inImeAnim=true, 上方 !inImeAnim 检查即可拦截过时收尾。
                     root.postDelayed({
-                        android.util.Log.i("NyralIme", "onEnd.post imeShown=$imeShown inAnim=$inImeAnim open=$panelOpen focused=${input.isFocused} bwH=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
+                        android.util.Log.i("NyralIme", "onEnd.post imeShown=$imeShown inAnim=$inImeAnim focused=${input.isFocused} bwH=${(bodyWrap.layoutParams as LinearLayout.LayoutParams).height}")
                         // fix(09-22) 转头竞态: 键盘动画强打断已由 requestIme(insetsController) 保证反向
                         // 动画立即 onPrepare, 此处仅需 inImeAnim 拦截过时收尾(闪底/闪没再被拉回)
                         if (!imeShown || inImeAnim) return@postDelayed
@@ -2107,10 +2238,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                         // 旧 !focused 分支会把 bodyWrap 恢复全高 -> 键盘比输入框低。失焦分支也要求
                         // 键盘确实收到底(curImeH 低位)才允许恢复全高
                         if (curImeH <= dp(80) || (!input.isFocused && curImeH <= dp(240)) || (closing && curImeH <= dp(240))) {
-                            // 反悔打断残留: 抽屉半开(高度未到展开位)且键盘最终未重弹时收完, 防"反悔后键盘没弹回来+抽屉挂半空"卡死
-                            if (isAttachPanelHalfOpen()) {
-                                finishAttachPanelDrop()
-                            }
                             if (imeFloating) {
                                 imeFloating = false
                                 inputBar.translationY = 0f
@@ -2124,6 +2251,17 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                     }, 16L)
                 }
             })
+            // 全高基准自愈(抽屉残留): 只在"键盘关闭且已恢复权重"的布局落地后采样,
+            // 此时 height 就是真实满高。压缩态(约 60% 窗口高)不会命中 75% 阈值;
+            // 无条件覆盖而非取最大值, 保证导航栏/窗口尺寸变化后能双向纠正。
+            bodyWrap.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                val l = bodyWrap.layoutParams as LinearLayout.LayoutParams
+                if (l.weight > 0f && root.height > 0 &&
+                    bodyWrap.height > (root.height * 0.75f).toInt()
+                ) {
+                    bodyWrapFullClean = bodyWrap.height
+                }
+            }
         }
         // 键盘弹起时点击输入区以外收起键盘: 在 root.dispatchTouchEvent 实现(见 root 定义处), 无其它点击监听
     }
@@ -2279,53 +2417,80 @@ internal fun applyBottomOcclusion(drawerH: Int) {
      *  alpha -> Ui.SURFACE 带不透明度(透出下方聊天背景)
      *  blur  -> 自定义图背景时用已模糊图做毛玻璃; 渐变/纯色背景退化 alpha 模式 */
     private fun applyBarStyle() {
-        if (!::titleBarBg.isInitialized || !::inputBarBg.isInitialized || !::inputBar.isInitialized || !::titleBar.isInitialized) return
+        if (!::titleBarBg.isInitialized || !::inputBarBg.isInitialized || !::inputBar.isInitialized || !::titleBar.isInitialized || !::input.isInitialized) return
         val mode = ChatBackgroundActivity.loadBarMode(this)
         val alpha = ChatBackgroundActivity.loadBarAlpha(this) * 255 / 100
-        // 状态带胶囊(模型 · 上下文)与标题下方渐隐层跟随标题栏透明, 避免透明标题下露出白条
+        // 状态带胶囊(模型 · 上下文)跟随标题栏透明; 但至少保留 72% 玻璃底, 全透明时文字仍可读
         fun syncFollowers(a: Int) {
             if (::statusWrapBg.isInitialized) {
                 statusWrapBg.setColor(Ui.SURFACE)
-                statusWrapBg.alpha = a
-            }
-            val fade = fadeTopView.background as? GradientDrawable
-            if (fade != null) {
-                fade.setColors(intArrayOf(
-                    (Ui.BG and 0x00FFFFFF) or (a shl 24),
-                    Ui.BG and 0x00FFFFFF))
+                statusWrapBg.alpha = maxOf(a, 0xB8)
             }
         }
-        val blurBg: BlurBarDrawable? = if (mode == "blur") {
+        val blurBmp: android.graphics.Bitmap? = if (mode == "blur") {
             val type = ChatBackgroundActivity.loadType(this)
             val f = java.io.File(filesDir, ChatBackgroundActivity.CUSTOM_FILE)
             if (type == "custom" && f.exists()) {
                 try {
-                    val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath)
-                    if (bmp != null) BlurBarDrawable(bmp) else null
+                    android.graphics.BitmapFactory.decodeFile(f.absolutePath)
                 } catch (e: Exception) { null }
             } else null
         } else null
-        if (blurBg != null) {
+        if (blurBmp != null) {
             val r = dp(16).toFloat()
-            blurBg.setCornerRadii(floatArrayOf(r, r, r, r, r, r, r, r))
-            blurBg.alpha = alpha
-            titleBar.background = blurBg
-            inputBar.background = blurBg
+            val all = floatArrayOf(r, r, r, r, r, r, r, r)
+            // 输入栏只圆上方两角, 底部与附件行拼平
+            val topOnly = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            // 附件行顶部拼平, 底部保留圆角
+            val bottomOnly = floatArrayOf(0f, 0f, 0f, 0f, r, r, r, r)
+            titleBar.background = BlurBarDrawable(blurBmp).apply {
+                setCornerRadii(all); this.alpha = alpha
+            }
+            inputBar.background = BlurBarDrawable(blurBmp).apply {
+                setCornerRadii(topOnly); this.alpha = alpha
+            }
+            input.background = inputPillBg(Ui.INPUT_BG)
+            if (::attachRow.isInitialized) {
+                // 毛玻璃模式下附件行同样用模糊底, 不再强制不透明白条
+                attachRow.background = BlurBarDrawable(blurBmp).apply {
+                    setCornerRadii(bottomOnly); this.alpha = alpha
+                }
+            }
             syncFollowers(alpha)
             return
         }
         titleBar.background = titleBarBg
         inputBar.background = inputBarBg
+        if (::attachRow.isInitialized) {
+            attachRow.background = attachRowBg
+            attachRowBg.setColor(Ui.SURFACE)
+            attachRowBg.alpha = if (mode == "alpha") alpha else 255
+        }
         titleBarBg.setColor(Ui.SURFACE)
         inputBarBg.setColor(Ui.SURFACE)
         if (mode == "alpha") {
             titleBarBg.alpha = alpha
             inputBarBg.alpha = alpha
+            // 输入胶囊只让"填充"跟透明度, 描边保留: 全透明时仍能看到输入框边界
+            input.background = inputPillBg(
+                (Ui.INPUT_BG and 0x00FFFFFF) or (alpha shl 24), stroke = true)
         } else {
             titleBarBg.alpha = 255
             inputBarBg.alpha = 255
+            input.background = inputPillBg(Ui.INPUT_BG)
         }
         syncFollowers(if (mode == "alpha") alpha else 255)
+    }
+
+    /** 输入框胶囊: 四角全圆角 */
+    private fun inputPillBg(fill: Int, stroke: Boolean = false): GradientDrawable {
+        val r = dp(22).toFloat()
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadii = floatArrayOf(r, r, r, r, r, r, r, r)
+            setColor(fill)
+            if (stroke) setStroke(dp(1), Ui.STROKE)
+        }
     }
 
     override fun onStop() {
@@ -3136,6 +3301,11 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                         else -> "全部放行，风险自负"
                     }
                 }
+                // 其它入口(设置页/底栏弹窗)改档时, 同步刷新首屏分段控件选中态与说明
+                welcomeGateRefresh = {
+                    currentMode = SecurityConfig.dangerMode(this@MainActivity)
+                    refreshModeBtns()
+                }
                 fun applyMode(m: String) {
                     SecurityConfig.setDangerMode(this@MainActivity, m)
                     SecurityConfig.audit(this@MainActivity, "security_mode", m, "ui_user", "welcome_card")
@@ -3430,22 +3600,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
 
 
 
-
-    /** 动图表情宽高比: 优先首帧缩略图缓存(保留原始比例, 零解码开销), 兜底媒体元数据; 取不到按 1:1 */
-    private fun videoAspectOf(f: File): Float {
-        peekVideoThumb(f)?.let { return if (it.height > 0) it.width.toFloat() / it.height.toFloat() else 1f }
-        return try {
-            val mmr = android.media.MediaMetadataRetriever()
-            try {
-                mmr.setDataSource(f.absolutePath)
-                val w = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toFloatOrNull() ?: 0f
-                val h = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toFloatOrNull() ?: 0f
-                if (w > 0f && h > 0f) w / h else 1f
-            } finally {
-                try { mmr.release() } catch (_: Exception) {}
-            }
-        } catch (e: Exception) { 1f }
-    }
 
     private fun videoLoopBubble(content: String, isUser: Boolean, maxW: Int): View? {
         if (!isUser) return null
@@ -3781,27 +3935,6 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         val y = ((tmp.height - th) / 2f).toInt().coerceAtLeast(0)
         val out = android.graphics.Bitmap.createBitmap(tmp, x, y, tw, th)
         if (tmp !== src) tmp.recycle()
-        return out
-    }
-
-    /** 在中心覆盖绘制固定大小播放三角(统一缩略图降级气泡的按钮观感) */
-    private fun overlayPlayButton(bmp: android.graphics.Bitmap, rPx: Int): android.graphics.Bitmap {
-        val out = bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
-        val c = android.graphics.Canvas(out)
-        val cx = out.width / 2f
-        val cy = out.height / 2f
-        val r = rPx.toFloat().coerceAtLeast(1f)
-        val bg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0x99000000.toInt() }
-        c.drawCircle(cx, cy, r, bg)
-        val tri = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
-        val s = r * 0.55f
-        val path = android.graphics.Path().apply {
-            moveTo(cx - s * 0.4f, cy - s)
-            lineTo(cx - s * 0.4f, cy + s)
-            lineTo(cx + s * 0.9f, cy)
-            close()
-        }
-        c.drawPath(path, tri)
         return out
     }
 
@@ -4547,6 +4680,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
             Toast.makeText(this, R.string.toast_mic_granted, Toast.LENGTH_SHORT).show()
             return
         }
+        if (requestCode == REQ_CAMERA_PERM) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                launchCamera()
+            } else {
+                Toast.makeText(this, R.string.toast_camera_perm_denied, Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         if (requestCode == REQ_GUIDE_PERMS) {
             // 首启引导: 运行时权限结果已回, 继续特殊权限设置页(用户拒了的也不再强制)
             firstRunGuideState = 0
@@ -4556,6 +4697,9 @@ internal fun applyBottomOcclusion(drawerH: Int) {
 
     override fun onDestroy() {
         super.onDestroy()
+        gateModeListener?.let { SecurityConfig.removeModeListener(it) }
+        gateModeListener = null
+        welcomeGateRefresh = null
         if (instance == this) instance = null
         // 安全确认桥持有的 Activity 静态引用必须清理, 否则 Activity 销毁后仍被单例强引用导致泄漏
         SecurityUi.unregister()
@@ -4586,19 +4730,13 @@ internal fun applyBottomOcclusion(drawerH: Int) {
     /** 音频文件时长(ms) 与时长格式化已抽离 UiKit.audioDurationMs / fmtDuration */
 
 
-    internal fun pickImage() {
-        startPick(Intent.ACTION_OPEN_DOCUMENT, "image/*", REQ_IMAGE, "选择图片")
-    }
-
-    internal fun pickVideo() {
-        startPick(Intent.ACTION_OPEN_DOCUMENT, "video/*", REQ_VIDEO, "选择视频")
-    }
-
     internal fun pickFile() {
         startPick(Intent.ACTION_OPEN_DOCUMENT, "*/*", REQ_FILE, "选择文件")
     }
 
-    /** 相册: 图片+视频混合选择. 13+ 走系统 Photo Picker(可多选), 低版本降级 DocumentsUI 混合 MIME */
+    /** 相册: 图片选择. 13+ 走系统 Photo Picker(可多选); 低版本走系统图库 ACTION_PICK(同 DeepSeek),
+     *  不再用 OPEN_DOCUMENT 全类型 —— 那会落到"文件"选择器, 与"其他文件"长得一样。
+     *  低版本图库只放行图片, 视频仍可从"其他文件"选。 */
     internal fun pickMedia() {
         if (Build.VERSION.SDK_INT >= 33) {
             try {
@@ -4610,8 +4748,18 @@ internal fun applyBottomOcclusion(drawerH: Int) {
                 )
                 return
             } catch (e: Exception) {
-                // 设备无 Photo Picker 组件, 降级 DocumentsUI
+                // 设备无 Photo Picker 组件, 降级图库
             }
+        }
+        try {
+            startActivityForResult(
+                Intent(Intent.ACTION_PICK).setType("image/*")
+                    .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true),
+                REQ_MEDIA
+            )
+            return
+        } catch (e: Exception) {
+            // 精简 ROM/平板无图库组件: 退回文件选择器
         }
         startPickMixedMime(REQ_MEDIA)
     }
@@ -4628,28 +4776,83 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         }
     }
 
-    /** 抽屉"拍照": 相机经 LocalFileProvider content://<pkg>.files/camera/<名> 直接写入暂存文件 */
+    /** 是否有可用摄像头: 只看 FEATURE_CAMERA_ANY 不够, 拆掉摄像头模块的机器 ROM 仍会保留该特性,
+     *  真正可信的是 CameraManager 里的相机 id 列表。
+     *  注意: 相机服务暂时不可用时 cameraIdList 会抛异常(部分模拟器/虚拟机), 这种情况不能当成"没有相机",
+     *  交回给实际拉起相机的结果判断。 */
+    internal fun hasUsableCamera(): Boolean {
+        // 部分精简 ROM/模拟器只报 legacy 的 android.hardware.camera, 没有 camera.any
+        val hasFeature = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA)
+        if (!hasFeature) return false
+        val mgr = getSystemService(Context.CAMERA_SERVICE) as? android.hardware.camera2.CameraManager
+            ?: return true
+        val ids = try { mgr.cameraIdList } catch (e: Exception) { null }
+        return ids == null || ids.isNotEmpty()
+    }
+
+    /** 抽屉"拍照": 优先让相机写 MediaStore(各厂商相机对 content://media 输出兼容性最好,
+     *  Android 10 上部分 ROM 相机不认自定义 provider 的 URI, 会直接不开/拍了不落盘),
+     *  MediaStore 插入失败才退回 LocalFileProvider 的 cacheDir 暂存。 */
     internal fun launchCamera() {
+        // 无可用摄像头(硬件被拆/无摄像头设备): 系统相机只会闪一下就退或干脆没反应, 提前给出明确提示
+        if (!hasUsableCamera()) {
+            Toast.makeText(this, getString(R.string.toast_no_camera), Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 已声明 CAMERA: 未授权时系统会直接拒绝启动相机, 所以先弹系统授权框
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA_PERM)
+            return
+        }
         try {
-            val dir = File(cacheDir, "camera").apply { mkdirs() }
-            // 清掉上次遗留(取消拍摄或已消费的残留), 暂存区只留本次文件
-            dir.listFiles()?.forEach { it.delete() }
             val name = "IMG_" + System.currentTimeMillis() + ".jpg"
-            pendingCameraFile = File(dir, name)
-            val uri = Uri.Builder().scheme("content").authority(packageName + ".files")
-                .path("/camera/").appendPath(name).build()
+            val msUri = runCatching {
+                contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Nyral")
+                })
+            }.getOrNull()
+            val uri: Uri
+            if (msUri != null) {
+                pendingCameraUri = msUri
+                pendingCameraFile = null
+                uri = msUri
+            } else {
+                val dir = File(cacheDir, "camera").apply { mkdirs() }
+                // 清掉上次遗留(取消拍摄或已消费的残留), 暂存区只留本次文件
+                dir.listFiles()?.forEach { it.delete() }
+                pendingCameraUri = null
+                pendingCameraFile = File(dir, name)
+                uri = Uri.Builder().scheme("content").authority(packageName + ".files")
+                    .path("/camera/").appendPath(name).build()
+            }
             val i = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
                 .putExtra(MediaStore.EXTRA_OUTPUT, uri)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            // 显式 ClipData: 旧系统(API 29)上 EXTRA_OUTPUT 的读写授权才随 Intent 一起下发
+            i.clipData = ClipData.newRawUri("camera_output", uri)
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             startActivityForResult(i, REQ_CAMERA)
         } catch (e: Exception) {
             pendingCameraFile = null
+            pendingCameraUri?.let { u -> runCatching { contentResolver.delete(u, null, null) } }
+            pendingCameraUri = null
             Toast.makeText(this, getString(R.string.toast_picker_fail, e.message), Toast.LENGTH_SHORT).show()
         }
     }
 
-    internal fun pickAudio() {
-        startPick(Intent.ACTION_OPEN_DOCUMENT, "audio/*", REQ_AUDIO, "选择音频")
+    /** 拍照结果大小: MediaStore 行的 SIZE 列, 读不到再退回文件描述符长度(部分 ROM 拍照后 SIZE 未及时更新) */
+    private fun cameraMediaSize(uri: Uri): Long {
+        val fromDb = runCatching {
+            contentResolver.query(uri, arrayOf(MediaStore.Images.Media.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getLong(0) else 0L
+            } ?: 0L
+        }.getOrDefault(0L)
+        if (fromDb > 0) return fromDb
+        return runCatching {
+            contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: 0L
+        }.getOrDefault(0L)
     }
 
     internal fun startPick(action: String, type: String, code: Int, title: String) {
@@ -4666,12 +4869,32 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         super.onActivityResult(requestCode, resultCode, data)
         // 拍照: EXTRA_OUTPUT 写文件模式回调 data 为 null, 先于 data 判空处理
         if (requestCode == REQ_CAMERA) {
+            val msUri = pendingCameraUri
             val f = pendingCameraFile
+            pendingCameraUri = null
             pendingCameraFile = null
-            if (resultCode == Activity.RESULT_OK && f != null && f.isFile && f.length() > 0) {
-                val uri = Uri.Builder().scheme("content").authority(packageName + ".files")
-                    .path("/camera/").appendPath(f.name).build()
-                attachmentSender.sendAttachmentFromUri(uri)
+            if (msUri != null) {
+                if (resultCode == Activity.RESULT_OK) {
+                    if (cameraMediaSize(msUri) > 0) {
+                        attachmentSender.sendAttachmentFromUri(msUri)
+                    } else {
+                        // 相机报成功却没落盘(无摄像头/相机异常): 给个反馈
+                        Toast.makeText(this, getString(R.string.toast_camera_no_photo), Toast.LENGTH_SHORT).show()
+                    }
+                }
+                // 用户按返回取消(RESULT_CANCELED)不打扰
+                // 同一条单线程 executor: 排在附件读取/落库之后执行, 避免删早了把照片删没
+                executor.execute { runCatching { contentResolver.delete(msUri, null, null) } }
+                return
+            }
+            if (resultCode == Activity.RESULT_OK) {
+                if (f != null && f.isFile && f.length() > 0) {
+                    val uri = Uri.Builder().scheme("content").authority(packageName + ".files")
+                        .path("/camera/").appendPath(f.name).build()
+                    attachmentSender.sendAttachmentFromUri(uri)
+                } else {
+                    Toast.makeText(this, getString(R.string.toast_camera_no_photo), Toast.LENGTH_SHORT).show()
+                }
             }
             return
         }
@@ -4763,11 +4986,14 @@ internal fun applyBottomOcclusion(drawerH: Int) {
         if (::titleBarBg.isInitialized) {
             val r = dp(16).toFloat()
             val rr = floatArrayOf(r, r, r, r, r, r, r, r)
+            // 输入栏平时底部两角是直角; 下沉时整体圆角化, 收起后恢复直角
+            val rb = if (pp > 0f) r else 0f
+            val rrInput = floatArrayOf(r, r, r, r, rb, rb, rb, rb)
             // 毛玻璃透明时背景是 BlurBarDrawable, 圆角走它自己的裁剪参数
             if (titleBar.background is BlurBarDrawable) (titleBar.background as BlurBarDrawable).setCornerRadii(rr)
             else titleBarBg.cornerRadii = rr
-            if (inputBar.background is BlurBarDrawable) (inputBar.background as BlurBarDrawable).setCornerRadii(rr)
-            else inputBarBg.cornerRadii = rr
+            if (inputBar.background is BlurBarDrawable) (inputBar.background as BlurBarDrawable).setCornerRadii(rrInput)
+            else inputBarBg.cornerRadii = rrInput
         }
     }
 

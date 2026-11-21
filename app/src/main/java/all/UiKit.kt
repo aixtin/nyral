@@ -143,6 +143,21 @@ fun rounded(radius: Int, color: Int): GradientDrawable {
     return tpl.newDrawable().mutate() as GradientDrawable
 }
 
+/** 只有描边、无底色的圆角矩形 */
+fun outline(radius: Int, color: Int, width: Int = 1): GradientDrawable = GradientDrawable().apply {
+    setColor(Color.TRANSPARENT)
+    cornerRadius = radius.toFloat()
+    setStroke(width, color)
+}
+
+/** 玻璃底控件: 主题表面 72% 填充 + 1dp 描边, 底栏全透明压在壁纸上时仍能保证图标可读 */
+fun glass(radius: Int, strokeWidth: Int = 1, strokeColor: Int = Ui.STROKE): GradientDrawable =
+    GradientDrawable().apply {
+        setColor((Ui.SURFACE and 0x00FFFFFF) or (0xB8 shl 24))
+        cornerRadius = radius.toFloat()
+        setStroke(strokeWidth, strokeColor)
+    }
+
 /** 文件卡片文件名省略参考宽度(px): 首条参照文件名(参考文件名示例.md) 的渲染宽度。
  *  短文件名(小于该宽)直接自适应气泡; 超长文件名在渲染时手动中间省略到该宽度(保留开头与后缀)。 */
 fun fileCardNameMaxWidth(scaledDensity: Float): Int {
@@ -1045,13 +1060,10 @@ fun remuxToCache(ctx: Context, src: File): File? {
 /** dp -> px (UiKit 内部图标/解码函数用), 避免依赖 Activity.dp() */
 private fun dp(density: Float, v: Int): Int = (v * density).toInt()
 
-/** 模型按钮背景: 浅蓝圆角底 + 居中双向箭头(⇄), 图标随 background 绘制天然居中 */
+/** 模型按钮背景: 主题蓝描边圆角框 + 居中双向箭头(⇄), 图标随 background 绘制天然居中 */
 fun modelIconBg(density: Float): Drawable = object : Drawable() {
     private fun dp(v: Int) = (v * density).toInt()
-    private val bg = GradientDrawable().apply {
-        cornerRadius = dp(16).toFloat()
-        setColor(Ui.PRIMARY_LIGHT)
-    }
+    private val bg = glass(dp(16), dp(1))
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Ui.PRIMARY
         style = Paint.Style.STROKE
@@ -1093,7 +1105,17 @@ fun modelIconBg(density: Float): Drawable = object : Drawable() {
 }
 
 /** 附件按钮背景: 浅蓝圆角底 + 居中加号, 与模型按钮同风格 */
-fun attachIconBg(density: Float): Drawable = object : Drawable() {
+/** 附件(+)图标底: 圆角底固定, 只有"+"两笔按 iconAngle 旋转 —— 0°=加号, 45°=叉(抽屉开合反馈) */
+class AttachIconDrawable(private val density: Float) : Drawable() {
+    /** 笔画旋转角(度)。只转图标笔画不转背景圆角, 按钮轮廓不会跟着歪 */
+    var iconAngle: Float = 0f
+        set(v) {
+            if (field != v) {
+                field = v
+                invalidateSelf()
+            }
+        }
+
     private fun dp(v: Int) = (v * density).toInt()
     private val bg = GradientDrawable().apply {
         cornerRadius = dp(16).toFloat()
@@ -1105,6 +1127,7 @@ fun attachIconBg(density: Float): Drawable = object : Drawable() {
         strokeWidth = density * 1.8f
         strokeCap = Paint.Cap.ROUND
     }
+
     override fun draw(canvas: Canvas) {
         bg.setBounds(bounds)
         bg.draw(canvas)
@@ -1115,14 +1138,19 @@ fun attachIconBg(density: Float): Drawable = object : Drawable() {
         canvas.translate(left, top)
         val cx = ic / 2f
         val half = ic * 0.36f
+        canvas.rotate(iconAngle, cx, cx)
         canvas.drawLine(cx - half, cx, cx + half, cx, p)
         canvas.drawLine(cx, cx - half, cx, cx + half, p)
         canvas.restore()
     }
+
     override fun setAlpha(alpha: Int) { p.alpha = alpha }
     override fun setColorFilter(cf: ColorFilter?) { p.colorFilter = cf }
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
+
+fun attachIconBg(density: Float): Drawable = AttachIconDrawable(density)
+
 
 /** 极简放大镜图标: 细线圆环 + 手柄斜线, 无背景, 仅描边灰色, 用于搜索框折叠态 */
 fun searchIconBg(density: Float): Drawable = object : Drawable() {
@@ -1156,15 +1184,13 @@ fun searchIconBg(density: Float): Drawable = object : Drawable() {
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
-/** 底栏图标按钮背景: 浅蓝圆角底 + 居中图标; recording=true 红底白麦; voiceMode=true 画键盘(语音模式) */
+/** 底栏图标按钮背景: 描边圆角框 + 居中图标; recording=true 红色描边/图标; voiceMode=true 画键盘(语音模式) */
 fun micIconBg(recording: Boolean, voiceMode: Boolean = false, density: Float): Drawable = object : Drawable() {
     private fun dp(v: Int) = (v * density).toInt()
-    private val bg = GradientDrawable().apply {
-        cornerRadius = dp(16).toFloat()
-        setColor(if (recording) Color.parseColor("#F0523D") else Ui.PRIMARY_LIGHT)
-    }
+    private val accent = if (recording) Color.parseColor("#F0523D") else Ui.PRIMARY
+    private val bg = glass(dp(16), dp(1), if (recording) accent else Ui.STROKE)
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = if (recording) Color.WHITE else Ui.PRIMARY
+        color = accent
         style = Paint.Style.STROKE
         strokeWidth = density * 1.7f
         strokeCap = Paint.Cap.ROUND

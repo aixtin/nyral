@@ -48,6 +48,7 @@ The App periodically checks the official GitHub repository (`github.com/aixtin/n
 |---|---|
 | Internet | Model service requests, update checks, browser and MCP access |
 | Microphone | Voice input for messages |
+| Camera | Taking a photo you explicitly request from the attachment row; the system camera app captures it and only the resulting image is passed back to the app |
 | Storage / Media | Managing files and attachments you choose to open or save |
 | Overlay | Floating window feature (e.g. browser overlay) |
 | Install packages | Installing APK files you explicitly select |

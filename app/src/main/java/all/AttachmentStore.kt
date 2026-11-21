@@ -179,7 +179,7 @@ class LocalFileProvider : ContentProvider() {
         val path = uri.path ?: return null
         val ctx = context ?: return null
         // 拍照暂存(2026-11-03 抽屉拍照接入): content://<pkg>.files/camera/<文件名>
-        // ACTION_IMAGE_CAPTURE 经 EXTRA_OUTPUT 让相机写入 cacheDir/camera/, 发送端再读取
+        // 相机的兜底输出(MediaStore 插入失败时): ACTION_IMAGE_CAPTURE 经 EXTRA_OUTPUT 写入 cacheDir/camera/
         if (path.startsWith("/camera/")) {
             val name = Uri.decode(path.removePrefix("/camera/"))
             // 防路径穿越: 仅允许纯文件名

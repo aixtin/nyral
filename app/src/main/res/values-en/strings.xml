@@ -16,6 +16,9 @@
     <string name="toast_play_fail">Playback failed: %1$s</string>
     <!-- 附件/文件上传 -->
     <string name="toast_picker_fail">Cannot open picker: %1$s</string>
+    <string name="toast_camera_perm_denied">Camera permission denied; cannot take a photo</string>
+    <string name="toast_no_camera">No usable camera found; cannot take a photo</string>
+    <string name="toast_camera_no_photo">No photo captured; the camera may be unavailable</string>
     <string name="toast_att_max_trim">Max %1$d files at once; kept the first %2$d</string>
     <string name="toast_att_max_drop">Max %1$d files at once; extra dropped</string>
     <string name="toast_att_empty">File is empty or corrupted, not supported</string>
@@ -514,6 +517,7 @@
     <string name="mui_toast_deleted">Session deleted</string>
     <string name="mui_cap_unsupported_suffix"> (not supported by current model)</string>
     <string name="mui_toast_cap_unsupported">Current model does not support this type</string>
+    <string name="mui_attach_camera">Camera</string>
     <string name="mui_attach_album">Album</string>
     <string name="mui_attach_video">Video</string>
     <string name="mui_attach_audio">Audio</string>

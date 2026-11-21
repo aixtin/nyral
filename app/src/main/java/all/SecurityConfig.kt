@@ -15,6 +15,17 @@ object SecurityConfig {
     private const val KEY_DANGER_MODE = "danger_mode"
     private const val KEY_ROOT_GRANT = "root_auto_grant"
 
+    /** 档位变化监听: 设置页/首屏卡片/底栏弹窗任一处改档后, 统一刷新其它入口的显示 */
+    private val modeListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
+    fun addModeListener(l: (String) -> Unit) {
+        modeListeners.addIfAbsent(l)
+    }
+
+    fun removeModeListener(l: (String) -> Unit) {
+        modeListeners.remove(l)
+    }
+
     enum class RiskLevel { LOW, MEDIUM, HIGH, CRITICAL }
 
     fun dangerMode(ctx: Context): String =
@@ -26,6 +37,7 @@ object SecurityConfig {
             else -> "auto"
         }
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_DANGER_MODE, m).apply()
+        modeListeners.forEach { it(m) }
     }
 
     /** 兼容旧布尔: true→auto(开启确认), false→off(关闭) */

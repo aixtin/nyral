@@ -70,3 +70,40 @@ chromium renderer 崩溃是常态。后果是 `browser_scan` 恒 0、`/v1/browse
 **发布前必须在真机跑一遍 `run_all.sh`**，模拟器绿灯不代表渲染级行为正确。
 排查模拟器侧问题时，可把 `NYRAL_RANGE_MODE` 设为 `observe` 让 range 断言试跑（仅告警不阻断），
 并把 `build/diag_*.png`、`build/range_logcat.txt` 作为 artifact 回看。
+
+
+---
+
+## 布局回归（assert_layout.py）
+
+上面 7 个场景断言的是**流式/工具链行为**；本脚本断言的是**布局结构**——
+那些只有肉眼才能发现、且"修好又坏"的界面问题。
+
+`/v1/ui` 的 `layout` 段由 MainActivity.uiLayoutSnapshot() 在主线程读取，
+覆盖 root / chatArea / chatRec / dockContent / inputBar / input / 三个按钮 /
+attachPreviewWrap / drawerPanel / speakBar / memDot 的 visibility、宽高、
+窗口坐标与 padding。
+
+```bash
+export NYRAL_DEVICE=<序列号>
+./assert_layout.py            # 首次运行建立基线
+./assert_layout.py --update   # 人工确认布局正确后重写基线
+./assert_layout.py --dump     # 只看快照
+```
+
+断言（全部为结构不变量，不锁像素外观）：
+
+| # | 不变量 | 失守时的真实表现 |
+|---|--------|------------------|
+| A1 | inputBar.h >= minInputBarH*0.95 | 输入栏被压扁/按钮挤变形 |
+| A2 | chatRec.h > 0 | 消息区塌陷，界面空白 |
+| A3 | chatRec.padB 与 dockContent.h 匹配 | 最后一个气泡被输入框永久遮住，或底部大块空白 |
+| A4 | dock 底边不超出屏幕 | 键盘弹出后输入栏被顶出屏幕 |
+| A5 | 发送/停止不同时可见 | 流式中两个按钮重叠同显 |
+| A6 | 抽屉 x ∈ {0, -w} | 抽屉关不严，半开关残留一条缝 |
+| A7 | 附件预览可见性 == 附件数 | 有附件不显示/无附件留空条 |
+| A8 | 关键控件尺寸非负 | 布局计算异常 |
+
+基线保存在 `layout_baseline_<设备序列号>.json`（按设备分档，不入库）；
+第二次运行起对 vis/w/h/y/padB 做 ±3px 比对，超出即判 FAIL。
+待机首页之外的界面状态（输入中、带附件、键盘弹出、流式中）目前需人工切到该状态后再跑。

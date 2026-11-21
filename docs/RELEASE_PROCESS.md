@@ -1,6 +1,6 @@
 # Nyral 发布流程（Release Process）
 
-> 版本基线：v2.11.0 / versionCode 148（2026-11-20）。
+> 版本基线：v2.13.0 / versionCode 157（2026-11-22）。
 
 > 适用仓库：aixtin/nyral　　本文档是发版的唯一操作手册。
 > 原则：机器只认两个版本号来源 —— `app/build.gradle.kts` 与 GitHub tag；其余全是文档，漏改不会报错，只会慢慢烂掉。
@@ -145,6 +145,16 @@ CI 也会产出签名包（`.github/workflows/android.yml` 的 `build-release`�
 3. （可选，收益高）把 §3 的必改清单做成 `scripts/release.sh`：读 versionName 参数 → 校验 versionCode 递增 → 改 build.gradle → 全量 grep 文档里的旧版本号并列出未同步文件 → 提示手动确认。这样以后漏改文档会当场被脚本点名，而不是等三个月后发现 docs 还停在 v2.1.1。
 
 ---
+
+## 附录：v2.13.0 专属清单（已执行）
+
+- [x] `app/build.gradle.kts`：versionCode 156→157，versionName 2.12.6→2.13.0（2.12.1–2.12.6 为内部装机验证号，对外合并为 2.13.0）
+- [x] `README.md` + `README.zh-CN.md`：release 徽章、变更记录顶部条目、历史折叠块范围与条数
+- [x] `docs/README.md`：版本号行、附件链路模块表（移除已删除的 `VideoCompressor.kt` 行）
+- [x] `TODO.md`：已完成里程碑台账条目
+- [x] `docs/RELEASE_PROCESS.md`：版本基线
+- [x] 本次无架构级决策 → 不加 ADR；依赖未变 → 许可证表不动；无新增联网端点 → PRIVACY 不动
+- [x] 支持版本未变（minSdk 29）→ SECURITY 双语文档口径沿用
 
 ## 附录：历史一次性清单（v2.4.0，minSdk 24→29，已完成，留作范例）
 

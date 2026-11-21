@@ -303,6 +303,9 @@ object DebugServer {
                     method == "GET" && path == "/v1/state" -> writeJson(out, 200, stateJson(c), reuse)
                     method == "GET" && path == "/v1/ui" -> writeJson(out, 200, uiJson(c), reuse)
                     method == "GET" && path == "/v1/logs" -> writeJson(out, 200, logsJson(query), reuse)
+                    // 帧级布局轨迹(fix 11-21): 切换瞬态的逐帧证据, 用于机器判定"掉底/闪烁"
+                    method == "GET" && path == "/v1/trace" -> writeJson(out, 200, traceJson(), reuse)
+                    method == "POST" && path == "/v1/trace" -> traceSet(out, body)
                     method == "POST" && path == "/v1/mem/search" -> memSearch(c, out, body)
                     method == "POST" && path == "/v1/chat" -> { chat(c, out, body); keepAlive = false }
                     // 2026-10-31: 调试侧停止入口(方案B 现场保留验证用)
@@ -537,7 +540,68 @@ object DebugServer {
             perms.put("record_audio", c.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
             o.put("permissions", perms)
         } catch (e: Exception) { o.put("permissions_error", e.message) }
+        try {
+            val act = main
+            if (act != null) {
+                val latch = java.util.concurrent.CountDownLatch(1)
+                var snap: JSONObject? = null
+                var err: String? = null
+                val posted = android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    try { snap = act.uiLayoutSnapshot() } catch (e: Exception) { err = e.message } finally { latch.countDown() }
+                }
+                val got = posted && latch.await(600, java.util.concurrent.TimeUnit.MILLISECONDS)
+                val s = snap
+                if (s != null) o.put("layout", s)
+                else o.put("layout", JSONObject().put("error", err ?: (if (got) "null" else "main_thread_timeout")))
+            } else {
+                o.put("layout", JSONObject().put("error", "MainActivity not alive"))
+            }
+        } catch (e: Exception) { o.put("layout_error", e.message) }
         return o
+    }
+
+
+    /**
+     * /v1/trace: 帧级布局轨迹(只读)。CSV 列序:
+     * tMs, inputBarY, inputBarH, chatH, padB, panelH, panelOpen, imeTarget, imeShown
+     * 判定口径: 切换过程中 inputBarY 应单调(面板↔键盘互斥, 输入框零位移), 出现回升即"掉底再顶回"。
+     */
+    private fun traceJson(): JSONObject {
+        val o = JSONObject()
+        val act = main ?: return o.put("error", "MainActivity not alive")
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var lines: List<String>? = null
+        var on = false
+        val posted = android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try {
+                on = act.uiTraceOn
+                lines = act.uiTraceDump()
+            } catch (e: Exception) {
+            } finally { latch.countDown() }
+        }
+        val got = posted && latch.await(600, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (!got) return o.put("error", "main_thread_timeout")
+        val arr = org.json.JSONArray()
+        lines?.forEach { arr.put(it) }
+        o.put("on", on)
+        o.put("count", arr.length())
+        o.put("cols", "tMs,inputBarY,inputBarH,chatH,padB,panelH,panelOpen,imeTarget,imeShown")
+        o.put("frames", arr)
+        return o
+    }
+
+    /** /v1/trace POST {"on":true} 开关探针(开启即清空历史轨迹) */
+    private fun traceSet(out: java.io.OutputStream, body: String) {
+        val act = main
+        if (act == null) { writeJson(out, 200, JSONObject().put("error", "MainActivity not alive"), false); return }
+        val on = try { JSONObject(body).optBoolean("on", false) } catch (e: Exception) { false }
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val posted = android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try { act.uiTraceSet(on) } catch (e: Exception) {
+            } finally { latch.countDown() }
+        }
+        val got = posted && latch.await(600, java.util.concurrent.TimeUnit.MILLISECONDS)
+        writeJson(out, 200, JSONObject().put("on", on).put("ok", got), false)
     }
 
     /**

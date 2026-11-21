@@ -227,6 +227,7 @@ import android.widget.Toast
                 text = SecurityConfig.modeText(SecurityConfig.dangerMode(this@buildDrawer))
                 textSize = 13f
                 setTextColor(Ui.SUB)
+                gateStatusTv = this
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     setMargins(dp(Ui.SP2), 0, 0, 0)
                 }
@@ -934,104 +935,136 @@ import android.widget.Toast
         dlg.show()
     }
 
-    /** 附件选择弹窗(PopupWindow 融合样式, 对齐模型弹窗): 相册(图片+视频合并)/位置(占位)/其他文件; 相册按当前模型能力置灰 */
-    internal fun MainActivity.showAttachSheet() {
-        if (attachPopup?.isShowing == true) {
-            dismissAttachPopup()
+    /** 门禁弹窗(PopupWindow, 对齐模型弹窗): 严格/自动/放行三档, 当前档位打勾, 选中即生效 */
+    internal fun MainActivity.showGateMenu(anchor: View) {
+        if (gatePopup?.isShowing == true) {
+            dismissGatePopup()
             return
         }
-        val caps = ApiConfig.modelCapabilities(ApiConfig.providerId(), ApiConfig.model())
-        val hasImage = ApiConfig.CAP_IMAGE in caps
-        val hasAudio = ApiConfig.CAP_AUDIO in caps
-        val hasVideo = ApiConfig.CAP_VIDEO in caps
+        val cur = SecurityConfig.dangerMode(this)
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(Ui.SP2), dp(Ui.SP1), dp(Ui.SP2), dp(Ui.SP1))
             background = rounded(dp(14), Ui.SURFACE)
             elevation = dp(10).toFloat()
         }
-        fun item(label: String, enabled: Boolean, onClick: () -> Unit) {
-            val tv = TextView(this).apply {
-                text = label + if (enabled) "" else getString(R.string.mui_cap_unsupported_suffix)
-                textSize = 14f
-                isAllCaps = false
-                setPadding(dp(Ui.SP5), dp(Ui.SP3), dp(Ui.SP5), dp(Ui.SP3))
-                setTextColor(if (enabled) Ui.TEXT else Ui.SUB)
-                alpha = if (enabled) 1f else 0.5f
-                setOnClickListener {
-                    if (!enabled) {
-                        Toast.makeText(this@showAttachSheet, getString(R.string.mui_toast_cap_unsupported), Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-                    dismissAttachPopup()
-                    onClick()
-                }
+        col.addView(TextView(this).apply {
+            text = "危险操作门禁"
+            textSize = 11f
+            setTextColor(Ui.SUB)
+            setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP1))
+        })
+        fun choose(mode: String) {
+            dismissGatePopup()
+            if (mode == SecurityConfig.dangerMode(this)) return
+            if (mode == "off") {
+                SecurityUi.confirmDisableGate(this, onConfirm = {
+                    SecurityConfig.setDangerMode(this, "off")
+                    SecurityConfig.audit(this, "security_mode", "off", "ui_user", "input_bar")
+                    refreshGateButtons()
+                })
+            } else {
+                SecurityConfig.setDangerMode(this, mode)
+                SecurityConfig.audit(this, "security_mode", mode, "ui_user", "input_bar")
+                refreshGateButtons()
             }
-            col.addView(tv)
         }
-        item(getString(R.string.mui_attach_album), hasImage || hasVideo) { pickMedia() }
-        item(getString(R.string.mui_attach_location), true) {
-            Toast.makeText(this@showAttachSheet, "原型占位: 位置待接入", Toast.LENGTH_SHORT).show()
+        val modes = listOf(
+            "strict" to "严格" to "每次危险操作都确认",
+            "auto" to "自动" to "高危确认，低风险放行",
+            "off" to "放行" to "关闭门禁，全部放行"
+        )
+        modes.forEach { (pair, desc) ->
+            val (key, label) = pair
+            val sel = key == cur
+            col.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                isClickable = true
+                setPadding(dp(Ui.SP3), dp(Ui.SP2), dp(Ui.SP3), dp(Ui.SP2))
+                if (sel) background = rounded(dp(10), Ui.PRIMARY_LIGHT)
+                Ui.press(this)
+                setOnClickListener { choose(key) }
+                addView(TextView(this@showGateMenu).apply {
+                    text = label
+                    textSize = 14f
+                    isAllCaps = false
+                    setTextColor(if (sel) Ui.PRIMARY else Ui.TEXT)
+                    if (sel) setTypeface(typeface, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(TextView(this@showGateMenu).apply {
+                    text = if (sel) "✓" else ""
+                    textSize = 13f
+                    setTextColor(Ui.PRIMARY)
+                    setPadding(dp(Ui.SP2), 0, 0, 0)
+                })
+            })
+            col.addView(TextView(this).apply {
+                text = desc
+                textSize = 10f
+                setTextColor(Ui.SUB)
+                setPadding(dp(Ui.SP3), 0, dp(Ui.SP3), dp(Ui.SP1))
+            })
         }
-        item(getString(R.string.mui_attach_other), true) { pickFile() }
         col.measure(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val popW = col.measuredWidth
         val popH = col.measuredHeight
         // focusable=false: 不抢输入框焦点, 键盘保持弹出; 弹窗浮在键盘上方
-        attachPopup = PopupWindow(col, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
+        gatePopup = PopupWindow(col, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false).apply {
             elevation = dp(10).toFloat()
             isTouchable = true
             isOutsideTouchable = true
             setBackgroundDrawable(GradientDrawable()) // 透明背景+非null: 才能收到 ACTION_OUTSIDE
-            // 外部点击关闭(避开 attachBtn: 按钮点击走 toggle): focusable=false 收不到自动 dismiss,
-            // 须靠 setTouchInterceptor 拦截 ACTION_OUTSIDE 自己关; 点 attachBtn 时直接收起并消费事件
             setTouchInterceptor { _, e ->
                 if (e.action == MotionEvent.ACTION_OUTSIDE) {
                     val p = IntArray(2)
-                    attachBtn.getLocationOnScreen(p)
-                    val inBtn = e.rawX >= p[0] && e.rawX <= p[0] + attachBtn.width &&
-                            e.rawY >= p[1] && e.rawY <= p[1] + attachBtn.height
+                    anchor.getLocationOnScreen(p)
+                    val inBtn = e.rawX >= p[0] && e.rawX <= p[0] + anchor.width &&
+                            e.rawY >= p[1] && e.rawY <= p[1] + anchor.height
                     if (inBtn) {
-                        dismissAttachPopup()
+                        dismissGatePopup()
                         return@setTouchInterceptor true
                     }
-                    dismissAttachPopup()
+                    dismissGatePopup()
                 }
                 false
             }
         }
-        attachPopup?.showAsDropDown(attachBtn, 0, -(popH + attachBtn.height + dp(6)))
-        // 果冻展开: 弹窗向上弹出(锚定 attachBtn), 锚点=弹窗左下角, 向右上弹性弹出
-        col.pivotX = 0f
+        // 按钮贴右缘: 弹窗左缘对齐按钮右缘向左展开, 避免越过屏幕右边界
+        gatePopup?.showAsDropDown(anchor, -(popW - anchor.width).coerceAtLeast(0), -(popH + anchor.height + dp(6)))
+        // 果冻展开: 锚点=弹窗右下角, 向左上弹性弹出
+        col.pivotX = 1f
         col.pivotY = col.height.toFloat()
         col.scaleX = 0.7f
         col.scaleY = 0.7f
         col.alpha = 0f
         col.post {
-            col.pivotX = 0f
+            col.pivotX = 1f
             col.pivotY = col.height.toFloat()
             col.animate()
                 .scaleX(1f).scaleY(1f).alpha(1f)
                 .setDuration(260)
-                    .setInterpolator(OvershootInterpolator(0.8f))
+                .setInterpolator(OvershootInterpolator(0.8f))
                 .start()
         }
     }
 
-    /** 附件弹窗收起: 果冻缩小动画结束后再 dismiss, 与展开对称 */
-    internal fun MainActivity.dismissAttachPopup() {
-        val p = attachPopup ?: return
-        if (attachClosing) return
-        attachClosing = true
+    /** 门禁弹窗收起: 果冻缩小动画结束后再 dismiss, 与展开对称 */
+    internal fun MainActivity.dismissGatePopup() {
+        val p = gatePopup ?: return
+        if (gateClosing) return
+        gateClosing = true
         val v = p.contentView
         v.animate().cancel()
         v.animate()
             .scaleX(0.45f).scaleY(0.45f).alpha(0f)
             .setDuration(160)
             .withEndAction {
-                attachClosing = false
-                if (attachPopup === p) {
+                gateClosing = false
+                if (gatePopup === p) {
                     p.dismiss()
-                    attachPopup = null
+                    gatePopup = null
                 }
             }
             .start()
