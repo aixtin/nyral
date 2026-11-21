@@ -80,3 +80,6 @@ scripts/ui-regression/mock.out
 # 布局回归基线按设备本地生成, 不入库
 scripts/ui-regression/layout_baseline_*.json
 __pycache__/
+
+# 本地压测产物
+sm-*/
